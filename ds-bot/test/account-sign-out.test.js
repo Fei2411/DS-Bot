@@ -199,6 +199,23 @@ test('the account menu opens the connectors and the automation panel', () => {
   assert.deepEqual(calls, ['connectors', 'schedules'])
 })
 
+test('the account menu falls back to Settings schedules when selectPanel is absent and reports synchronous throws', () => {
+  const calls = []
+  const errors = []
+  const side = launcher({
+    actions: {
+      openSettings: (page) => calls.push(page),
+      openConnectors: () => { throw new Error('boom') },
+      reportError: (err, where) => errors.push([err.message, where]),
+    },
+  })
+  const menu = side.open()
+  side.item(menu, 'Scheduled tasks').props.onClick()
+  side.item(menu, 'Connectors').props.onClick()
+  assert.deepEqual(calls, ['schedules'])
+  assert.deepEqual(errors, [['boom', 'menu']])
+})
+
 test('the account menu switches to classic Agent mode, and only where the surface can switch', () => {
   const calls = []
   const side = launcher({ actions: { setSurface: mode => calls.push(mode) } })

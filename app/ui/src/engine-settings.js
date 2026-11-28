@@ -986,7 +986,7 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
 }
 
 const SEARCH_PROVIDER_ORDER = ['deepseek-search-api', 'deepseek-official']
-const FETCH_PROVIDER_ORDER = ['http', 'deepseek-fetch-api']
+const FETCH_PROVIDER_ORDER = ['auto', 'http', 'deepseek-fetch-api']
 
 function webProviderLabel(kind, id, provider) {
   if (id === '') return t('Automatic')
@@ -996,6 +996,7 @@ function webProviderLabel(kind, id, provider) {
     if (id === 'deepseek-official') return t('DeepSeek Messages search')
   }
   if (kind === 'fetch') {
+    if (id === 'auto') return provider?.title || t('Automatic')
     if (id === 'http') return t('Direct HTTP')
     if (id === 'deepseek-fetch-api') return t('DeepSeek Fetch API')
   }
@@ -1010,9 +1011,10 @@ function buildWebProviderOptions(kind, registered, currentId, baseId = '') {
     return idx === -1 ? order.length : idx
   }
   const sorted = [...list].sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id))
-  const hasAutoProvider = kind === 'search' && list.some(item => item?.id === 'auto')
+  const hasAutoProvider = list.some(item => item?.id === 'auto')
   const includeUnsetAuto = (!baseId && !hasAutoProvider) || currentId === ''
-  const options = includeUnsetAuto ? [{ value: '', label: t('Automatic') }] : []
+  const unsetLabel = hasAutoProvider ? t('Default') : t('Automatic')
+  const options = includeUnsetAuto ? [{ value: '', label: unsetLabel }] : []
   const seen = new Set(includeUnsetAuto ? [''] : [])
   for (const item of sorted) {
     if (!item?.id || seen.has(item.id)) continue

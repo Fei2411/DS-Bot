@@ -30,6 +30,7 @@ function cleanPrefixes(list) {
  *   toolPrefixes?: string[],
  *   supportsPerBot?: boolean,
  *   supportsGrants?: boolean,
+ *   controlsPane?: boolean,
  *   packageName?: string,
  *   execution?: string,
  *   capabilities?: string[],
@@ -74,6 +75,7 @@ export function defineBotPlugin(spec) {
     toolPrefixes: cleanPrefixes(spec.toolPrefixes),
     supportsPerBot: slot === null ? spec.supportsPerBot !== false : false,
     supportsGrants: spec.supportsGrants === true,
+    controlsPane: spec.controlsPane === true,
     packageName: spec.packageName ? String(spec.packageName).trim() : undefined,
     replaces: cleanPrefixes(spec.replaces),
     locales: spec.locales && typeof spec.locales === 'object' ? spec.locales : undefined,
@@ -97,6 +99,7 @@ export function defineBotPlugin(spec) {
  *   packageName?: string,
  *   toolPrefixes?: string[],
  *   supportsGrants?: boolean,
+ *   controlsPane?: boolean,
  *   locales?: Record<string, { name?: string, description?: string }>,
  *   toolDefs?: any[],
  *   openSession?: Function,
@@ -108,6 +111,7 @@ export function defineBrowserProvider(spec) {
   const hasTools = Array.isArray(spec.toolDefs) && spec.toolDefs.length > 0
   const hasMount = typeof spec.mount === 'function'
   if (!hasTools && !hasMount) throw new TypeError('Browser provider must provide either toolDefs or a mount(host) function.')
+  const usesDefaultMount = hasTools && !hasMount
   const mount = hasMount
     ? spec.mount
     : (host) => host.mountBrowserTools({ toolDefs: spec.toolDefs, openSession: spec.openSession })
@@ -115,7 +119,8 @@ export function defineBrowserProvider(spec) {
     ...spec,
     category: 'browser',
     slot: 'browser',
-    supportsGrants: spec.supportsGrants ?? hasTools,
+    supportsGrants: spec.supportsGrants ?? usesDefaultMount,
+    controlsPane: spec.controlsPane ?? usesDefaultMount,
     toolPrefixes: spec.toolPrefixes ?? (hasTools ? spec.toolDefs.map(t => t.name) : ['browser_']),
     mount,
   })

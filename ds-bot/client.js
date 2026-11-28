@@ -721,6 +721,11 @@ var JA = {
   "Top up ↗": "チャージする ↗",
   "Retry": "再試行",
   "Retrying…": "再試行中…",
+  "Continuing…": "再開中…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} は連続して複数回の自動パート切り替えを行ったため一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "Paused to prevent a repeating loop": "反復ループを防ぐため一時停止しました",
+  "Paused after repeated automatic part switches": "連続した自動パート切り替え後に一時停止しました",
   "Technical details": "技術的な詳細",
   "Code": "コード",
   "HTTP status": "HTTP ステータス",
@@ -1874,6 +1879,20 @@ var JA = {
   "Create task": "タスクを作成",
   "Turn on Automation tasks in DSH": "DSH で「自動化タスク」をオンにしてください",
   "Switch on Automation tasks on the Plugins page in Settings.": "設定のプラグインページで「自動化タスク」を有効にしてください。",
+  "Scheduled tasks are off": "定期タスクはオフになっています",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "定期タスクをオンにすると、設定したスケジュールで自動的に実行されます。",
+  "Turn on scheduled tasks": "定期タスクをオンにする",
+  "Turning on…": "有効化中…",
+  "Restart DS Bot for scheduled tasks to take effect.": "定期タスクを有効にするには DS Bot を再起動してください。",
+  "Scheduled tasks failed to start": "定期タスクの起動に失敗しました",
+  "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot を再起動するか、問題解決後に状態を更新してください。",
+  "Refresh status": "状態を更新",
+  "Starting scheduled tasks…": "定期タスクを起動しています…",
+  "Scheduled tasks cannot be turned on from here.": "ここでは定期タスクをオンにできません。",
+  "Scheduled tasks are not available in this installation.": "このインストールでは定期タスクを利用できません。",
+  "Scheduled tasks cannot be changed here.": "ここでは定期タスクを変更できません。",
+  "Scheduled tasks are locked by your configuration.": "定期タスクは設定によってロックされています。",
+  "Could not turn on scheduled tasks.": "定期タスクをオンにできませんでした。",
   "New task": "新しいタスク",
   "No scheduled tasks yet.": "定期タスクはまだありません。",
   "No scheduled tasks yet. Add one": "定期タスクはまだありません。追加する",
@@ -2435,9 +2454,11 @@ var JA = {
   "Fast": "高速",
   "Multi-step": "複数ステップ",
   "Autonomous": "自律実行",
-  "Shared login": "ログイン共有",
-  "Real Chromium": "実Chromium",
-  "Human + AI": "人＋AI協働",
+  "Sidebar browser": "サイドバーブラウザ",
+  "External window": "外部ウィンドウ",
+  "Browser window": "ブラウザウィンドウ",
+  "{name} opens in an external window, not this sidebar": "{name} は外部ウィンドウで開き、このサイドバーには表示されません",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} は外部ウィンドウで動作するため、{name} はここで開いたページを使いません。このサイドバーで操作するには内蔵ブラウザプラグインに切り替えてください。",
   "Accessibility tree": "アクセシビリティツリー",
   "Standard MCP": "標準MCP",
   "DOM & console": "DOM・コンソール",
@@ -4348,6 +4369,11 @@ var KO = {
   "Top up ↗": "충전하기 ↗",
   Retry: "재시도",
   "Retrying…": "재시도 중…",
+  "Continuing…": "계속하는 중…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name}이(가) 여러 번 연속으로 대화 구간을 전환해 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "Paused to prevent a repeating loop": "반복 루프를 방지하기 위해 일시 중지됨",
+  "Paused after repeated automatic part switches": "반복된 자동 대화 구간 전환 후 일시 중지됨",
   "Technical details": "기술 세부 정보",
   Code: "코드",
   "HTTP status": "HTTP 상태 코드",
@@ -5537,6 +5563,20 @@ var KO = {
   "Create task": "작업 만들기",
   "Turn on Automation tasks in DSH": 'DSH에서 "자동화 작업" 켜기',
   "Switch on Automation tasks on the Plugins page in Settings.": '설정의 플러그인 페이지에서 "자동화 작업"을 활성화하세요.',
+  "Scheduled tasks are off": "예약 작업이 꺼져 있습니다",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "예약 작업을 켜면 정해진 일정에 따라 자동으로 작업을 실행합니다.",
+  "Turn on scheduled tasks": "예약 작업 켜기",
+  "Turning on…": "켜는 중…",
+  "Restart DS Bot for scheduled tasks to take effect.": "예약 작업을 적용하려면 DS Bot을 다시 시작하세요.",
+  "Scheduled tasks failed to start": "예약 작업을 시작하지 못했습니다",
+  "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot을 다시 시작하거나 문제를 해결한 뒤 상태를 새로 고치세요.",
+  "Refresh status": "상태 새로 고침",
+  "Starting scheduled tasks…": "예약 작업을 시작하는 중…",
+  "Scheduled tasks cannot be turned on from here.": "여기에서는 예약 작업을 켤 수 없습니다.",
+  "Scheduled tasks are not available in this installation.": "이 설치에서는 예약 작업을 사용할 수 없습니다.",
+  "Scheduled tasks cannot be changed here.": "여기에서는 예약 작업을 변경할 수 없습니다.",
+  "Scheduled tasks are locked by your configuration.": "예약 작업이 설정으로 잠겨 있습니다.",
+  "Could not turn on scheduled tasks.": "예약 작업을 켤 수 없습니다.",
   "New task": "새 작업",
   "No scheduled tasks yet.": "아직 예약 작업이 없습니다.",
   "No scheduled tasks yet. Add one": "아직 예약 작업이 없습니다. 추가하기",
@@ -6100,9 +6140,11 @@ var KO = {
   "Fast": "빠른 실행",
   "Multi-step": "다단계",
   "Autonomous": "자율 수행",
-  "Shared login": "로그인 공유",
-  "Real Chromium": "실제 Chromium",
-  "Human + AI": "사람 + AI",
+  "Sidebar browser": "사이드바 브라우저",
+  "External window": "외부 창",
+  "Browser window": "브라우저 창",
+  "{name} opens in an external window, not this sidebar": "{name}은(는) 외부 창에서 열리며 이 사이드바에 표시되지 않습니다",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin}은(는) 외부 창에서 실행되므로 {name}은(는) 여기서 연 페이지를 사용하지 않습니다. 이 사이드바에서 탐색하려면 내장 브라우저 플러그인으로 전환하세요.",
   "Accessibility tree": "접근성 트리",
   "Standard MCP": "표준 MCP",
   "DOM & console": "DOM 및 콘솔",
@@ -8014,6 +8056,11 @@ var ES = {
   "Top up ↗": "Recargar ↗",
   Retry: "Reintentar",
   "Retrying…": "Reintentando…",
+  "Continuing…": "Continuando…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} se pausó tras cambiar de segmento varias veces seguidas. Responde con indicaciones o haz clic en Continuar.",
+  "Paused to prevent a repeating loop": "Pausado para evitar un bucle repetitivo",
+  "Paused after repeated automatic part switches": "Pausado tras varios cambios automáticos de segmento",
   "Technical details": "Detalles técnicos",
   Code: "Código",
   "HTTP status": "Estado HTTP",
@@ -9203,6 +9250,20 @@ var ES = {
   "Create task": "Crear tarea",
   "Turn on Automation tasks in DSH": "Activa las Tareas de automatización en DSH",
   "Switch on Automation tasks on the Plugins page in Settings.": "Activa las Tareas de automatización en la página de Plugins en Ajustes.",
+  "Scheduled tasks are off": "Las tareas programadas están desactivadas",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activa las tareas programadas para ejecutar instrucciones automáticamente según un horario.",
+  "Turn on scheduled tasks": "Activar tareas programadas",
+  "Turning on…": "Activando…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Reinicia DS Bot para que las tareas programadas surtan efecto.",
+  "Scheduled tasks failed to start": "No se pudieron iniciar las tareas programadas",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Reinicia DS Bot o actualiza el estado después de corregir el problema.",
+  "Refresh status": "Actualizar estado",
+  "Starting scheduled tasks…": "Iniciando tareas programadas…",
+  "Scheduled tasks cannot be turned on from here.": "No se pueden activar las tareas programadas desde aquí.",
+  "Scheduled tasks are not available in this installation.": "Las tareas programadas no están disponibles en esta instalación.",
+  "Scheduled tasks cannot be changed here.": "Las tareas programadas no se pueden cambiar aquí.",
+  "Scheduled tasks are locked by your configuration.": "Las tareas programadas están bloqueadas por tu configuración.",
+  "Could not turn on scheduled tasks.": "No se pudieron activar las tareas programadas.",
   "New task": "Nueva tarea",
   "No scheduled tasks yet.": "Aún no hay tareas programadas.",
   "No scheduled tasks yet. Add one": "Aún no hay tareas programadas. Añade una",
@@ -9766,9 +9827,11 @@ var ES = {
   "Fast": "Rápido",
   "Multi-step": "Multipasos",
   "Autonomous": "Autónomo",
-  "Shared login": "Sesión compartida",
-  "Real Chromium": "Chromium real",
-  "Human + AI": "Humano + IA",
+  "Sidebar browser": "Navegador lateral",
+  "External window": "Ventana externa",
+  "Browser window": "Ventana del navegador",
+  "{name} opens in an external window, not this sidebar": "{name} se abre en una ventana externa, no en esta barra lateral",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} se ejecuta en una ventana externa, por lo que {name} no usa las páginas abiertas aquí. Cambia a un plugin de navegador integrado para navegar en esta barra lateral.",
   "Accessibility tree": "Árbol de accesibilidad",
   "Standard MCP": "MCP estándar",
   "DOM & console": "DOM y consola",
@@ -11674,6 +11737,11 @@ var FR = {
   "Top up ↗": "Recharger ↗",
   "Retry": "Réessayer",
   "Retrying…": "Nouvelle tentative…",
+  "Continuing…": "Reprise…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} s’est mis en pause après plusieurs changements automatiques de segment consécutifs. Répondez avec des instructions ou cliquez sur Continuer.",
+  "Paused to prevent a repeating loop": "Mis en pause pour éviter une boucle répétitive",
+  "Paused after repeated automatic part switches": "Mis en pause après plusieurs changements automatiques de segment",
   "Technical details": "Détails techniques",
   "Code": "Code",
   "HTTP status": "Statut HTTP",
@@ -12827,6 +12895,20 @@ var FR = {
   "Create task": "Créer la tâche",
   "Turn on Automation tasks in DSH": "Activer les « Tâches d’automatisation » dans DSH",
   "Switch on Automation tasks on the Plugins page in Settings.": "Activez « Tâches d’automatisation » sur la page Extensions dans les Paramètres.",
+  "Scheduled tasks are off": "Les tâches planifiées sont désactivées",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activez les tâches planifiées pour exécuter automatiquement des consignes selon un calendrier.",
+  "Turn on scheduled tasks": "Activer les tâches planifiées",
+  "Turning on…": "Activation…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Redémarrez DS Bot pour que les tâches planifiées prennent effet.",
+  "Scheduled tasks failed to start": "Échec du démarrage des tâches planifiées",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Redémarrez DS Bot ou actualisez l’état après avoir corrigé le problème.",
+  "Refresh status": "Actualiser l’état",
+  "Starting scheduled tasks…": "Démarrage des tâches planifiées…",
+  "Scheduled tasks cannot be turned on from here.": "Impossible d’activer les tâches planifiées depuis ici.",
+  "Scheduled tasks are not available in this installation.": "Les tâches planifiées ne sont pas disponibles dans cette installation.",
+  "Scheduled tasks cannot be changed here.": "Les tâches planifiées ne peuvent pas être modifiées ici.",
+  "Scheduled tasks are locked by your configuration.": "Les tâches planifiées sont verrouillées par votre configuration.",
+  "Could not turn on scheduled tasks.": "Impossible d’activer les tâches planifiées.",
   "New task": "Nouvelle tâche",
   "No scheduled tasks yet.": "Aucune tâche planifiée pour le moment.",
   "No scheduled tasks yet. Add one": "Aucune tâche planifiée. En ajouter une",
@@ -13388,9 +13470,11 @@ var FR = {
   "Fast": "Rapide",
   "Multi-step": "Multi-étapes",
   "Autonomous": "Autonome",
-  "Shared login": "Session partagée",
-  "Real Chromium": "Vrai Chromium",
-  "Human + AI": "Humain + IA",
+  "Sidebar browser": "Navigateur latéral",
+  "External window": "Fenêtre externe",
+  "Browser window": "Fenêtre du navigateur",
+  "{name} opens in an external window, not this sidebar": "{name} s’ouvre dans une fenêtre externe, pas dans cette barre latérale",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} s’exécute dans une fenêtre externe : {name} n’utilise pas les pages ouvertes ici. Passez à un plugin de navigateur intégré pour naviguer dans cette barre latérale.",
   "Accessibility tree": "Arbre d'accessibilité",
   "Standard MCP": "MCP standard",
   "DOM & console": "DOM et console",
@@ -15301,6 +15385,11 @@ var DE = {
   "Top up ↗": "Aufladen ↗",
   Retry: "Erneut versuchen",
   "Retrying…": "Wird erneut versucht…",
+  "Continuing…": "Wird fortgesetzt…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} wurde pausiert, weil Tool-Aufrufe wiederholt fehlschlugen oder sich wiederholten. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} wurde nach mehreren automatischen Abschnittswechseln pausiert. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "Paused to prevent a repeating loop": "Pausiert, um eine Wiederholungsschleife zu verhindern",
+  "Paused after repeated automatic part switches": "Nach wiederholten automatischen Abschnittswechseln pausiert",
   "Technical details": "Technische Details",
   Code: "Code",
   "HTTP status": "HTTP-Status",
@@ -16490,6 +16579,20 @@ var DE = {
   "Create task": "Aufgabe erstellen",
   "Turn on Automation tasks in DSH": "„Automatisierungsaufgaben“ in DSH aktivieren",
   "Switch on Automation tasks on the Plugins page in Settings.": "Aktiviere „Automatisierungsaufgaben“ auf der Seite „Plugins“ in den Einstellungen.",
+  "Scheduled tasks are off": "Geplante Aufgaben sind deaktiviert",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Aktiviere geplante Aufgaben, um Aufträge automatisch nach Zeitplan auszuführen.",
+  "Turn on scheduled tasks": "Geplante Aufgaben aktivieren",
+  "Turning on…": "Wird aktiviert…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Starte DS Bot neu, damit geplante Aufgaben wirksam werden.",
+  "Scheduled tasks failed to start": "Geplante Aufgaben konnten nicht gestartet werden",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Starte DS Bot neu oder aktualisiere den Status nach der Behebung.",
+  "Refresh status": "Status aktualisieren",
+  "Starting scheduled tasks…": "Geplante Aufgaben werden gestartet…",
+  "Scheduled tasks cannot be turned on from here.": "Geplante Aufgaben können hier nicht aktiviert werden.",
+  "Scheduled tasks are not available in this installation.": "Geplante Aufgaben sind in dieser Installation nicht verfügbar.",
+  "Scheduled tasks cannot be changed here.": "Geplante Aufgaben können hier nicht geändert werden.",
+  "Scheduled tasks are locked by your configuration.": "Geplante Aufgaben sind durch deine Konfiguration gesperrt.",
+  "Could not turn on scheduled tasks.": "Geplante Aufgaben konnten nicht aktiviert werden.",
   "New task": "Neue Aufgabe",
   "No scheduled tasks yet.": "Noch keine geplanten Aufgaben.",
   "No scheduled tasks yet. Add one": "Noch keine geplanten Aufgaben. Jetzt hinzufügen",
@@ -17053,9 +17156,11 @@ var DE = {
   "Fast": "Schnell",
   "Multi-step": "Mehrstufig",
   "Autonomous": "Autonom",
-  "Shared login": "Geteilter Login",
-  "Real Chromium": "Echtes Chromium",
-  "Human + AI": "Mensch + KI",
+  "Sidebar browser": "Seitenleisten-Browser",
+  "External window": "Externes Fenster",
+  "Browser window": "Browserfenster",
+  "{name} opens in an external window, not this sidebar": "{name} öffnet sich in einem externen Fenster, nicht in dieser Seitenleiste",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} läuft in einem externen Fenster, daher nutzt {name} hier geöffnete Seiten nicht. Wechsle zu einem integrierten Browser-Plugin, um in dieser Seitenleiste zu surfen.",
   "Accessibility tree": "Barrierefreiheitsbaum",
   "Standard MCP": "Standard-MCP",
   "DOM & console": "DOM & Konsole",
@@ -18842,6 +18947,11 @@ var ZH = {
   "Top up ↗": "去充值 ↗",
   Retry: "重试",
   "Retrying…": "正在重试…",
+  "Continuing…": "正在继续…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} 已连续多次自动换段仍未结束，已自动暂停。回复指导或点击「继续」。",
+  "Paused to prevent a repeating loop": "已自动暂停以防重复循环",
+  "Paused after repeated automatic part switches": "连续多次自动换段后已暂停",
   "Technical details": "技术详情",
   Code: "代码",
   "HTTP status": "HTTP 状态码",
@@ -20234,6 +20344,20 @@ var ZH = {
   "Create task": "创建任务",
   "Turn on Automation tasks in DSH": "在 DSH 里打开「自动化任务」",
   "Switch on Automation tasks on the Plugins page in Settings.": "在设置的插件页启用「自动化任务」。",
+  "Scheduled tasks are off": "定时任务已关闭",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "开启后，Bot 会按设定时间自动运行任务。",
+  "Turn on scheduled tasks": "开启定时任务",
+  "Turning on…": "正在开启…",
+  "Restart DS Bot for scheduled tasks to take effect.": "请重启 DS Bot 使定时任务生效。",
+  "Scheduled tasks failed to start": "定时任务启动失败",
+  "Restart DS Bot, or refresh status after fixing the issue.": "请重启 DS Bot，或在排查后刷新状态。",
+  "Refresh status": "刷新状态",
+  "Starting scheduled tasks…": "正在启动定时任务…",
+  "Scheduled tasks cannot be turned on from here.": "当前环境无法直接开启定时任务。",
+  "Scheduled tasks are not available in this installation.": "当前安装未包含定时任务组件。",
+  "Scheduled tasks cannot be changed here.": "当前配置不允许在此修改定时任务。",
+  "Scheduled tasks are locked by your configuration.": "定时任务已被当前配置锁定。",
+  "Could not turn on scheduled tasks.": "无法开启定时任务。",
   "New task": "新建任务",
   "No scheduled tasks yet.": "还没有定时任务。",
   "No scheduled tasks yet. Add one": "还没有定时任务，去添加",
@@ -20520,9 +20644,11 @@ var ZH = {
   "Fast": "高速执行",
   "Multi-step": "多步规划",
   "Autonomous": "自主完成",
-  "Shared login": "共享登录态",
-  "Real Chromium": "真实浏览器",
-  "Human + AI": "人机协作",
+  "Sidebar browser": "侧边栏浏览器",
+  "External window": "外部窗口",
+  "Browser window": "浏览器窗口",
+  "{name} opens in an external window, not this sidebar": "{name} 在外部窗口运行，不在此侧边栏显示",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} 在外部独立窗口运行，{name} 不会使用这里打开的网页。切换为内置浏览器插件即可在此侧边栏里直接浏览与操控。",
   "Accessibility tree": "可访问性树",
   "Standard MCP": "标准 MCP",
   "DOM & console": "DOM 与控制台",
@@ -21628,7 +21754,7 @@ var clearClientErrors = () => {
 var clientErrors = () => entries.map((entry) => entry.count > 1 ? { ...entry, text: `${entry.text} (×${entry.count})` } : { ...entry });
 function clientFacts() {
   return {
-    surface: window.dshDesktop ? "DSH Desktop" : "DSH Web",
+    surface: globalThis.dsBotApp ? "DS Bot Desktop" : window.dshDesktop ? "DSH Desktop" : "DSH Web",
     language: language(),
     userAgent: navigator.userAgent
   };
@@ -21653,6 +21779,8 @@ var FAILURES = {
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
+  TURN_PAUSED_LOOP: "Paused to prevent a repeating loop",
+  TURN_PAUSED_SWITCH_LIMIT: "Paused after repeated automatic part switches",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -23436,6 +23564,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     pluginsSourceRemove: (id) => after(call2("plugins-source-remove", { id })),
     pluginsRetry: () => after(call2("plugins-retry", {})),
     schedules: () => call2("schedules"),
+    scheduleEnable: () => call2("schedule-enable"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
     schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
@@ -24721,6 +24850,7 @@ var SPRING_POP = springEasing(500, 22);
 var SPRING_LEAD = springEasing(784, 48.2);
 var SPRING_TRAIL = springEasing(289, 29.2);
 var SPRING_GLIDE = springEasing(1e3, 63);
+var SPRING_SLIDE = springEasing(784, 56);
 var QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) };
 var spring = (curve, ...properties) => properties.map((property) => `${property} ${curve.duration}ms ${curve.easing}`).join(",");
 function liveSprings(apply2) {
@@ -24728,9 +24858,14 @@ function liveSprings(apply2) {
   const current2 = {};
   let frame3 = 0;
   let last = 0;
+  const cancel = () => {
+    if (frame3 && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame3);
+    frame3 = 0;
+  };
   const step = (now2) => {
-    const dt = Math.min(0.5, Math.max(1e-3, (now2 - last) / 1e3));
-    last = now2;
+    const stamp = Number.isFinite(now2) ? now2 : performance.now();
+    const dt = Math.min(0.5, Math.max(1e-3, (stamp - last) / 1e3));
+    last = stamp;
     const steps = Math.ceil(dt * 240);
     const h94 = dt / steps;
     let moving = false;
@@ -24745,8 +24880,8 @@ function liveSprings(apply2) {
       } else moving = true;
       current2[key] = value.x;
     }
-    apply2(current2);
     frame3 = moving ? requestAnimationFrame(step) : 0;
+    apply2(current2, moving);
   };
   return {
     target: () => {
@@ -24755,19 +24890,33 @@ function liveSprings(apply2) {
       for (const [key, value] of values) out[key] = value.to;
       return out;
     },
+    current: () => values.size ? { ...current2 } : null,
+    isRunning: () => frame3 !== 0,
+    seed(initial) {
+      cancel();
+      for (const [key, x] of Object.entries(initial)) {
+        const value = values.get(key);
+        if (value) {
+          value.x = x;
+          value.v = 0;
+          value.to = x;
+        } else values.set(key, { x, v: 0, to: x, k: 0, c: 0 });
+        current2[key] = x;
+      }
+    },
     set(targets, curves, jump) {
+      const immediate = jump || typeof requestAnimationFrame !== "function";
       for (const [key, to] of Object.entries(targets)) {
         const value = values.get(key);
         const { stiffness: k, damping: c } = curves[key];
-        if (!value || jump) {
+        if (!value || immediate) {
           values.set(key, { x: to, v: 0, to, k, c });
           current2[key] = to;
         } else Object.assign(value, { to, k, c });
       }
-      if (jump) {
-        cancelAnimationFrame(frame3);
-        frame3 = 0;
-        apply2(current2);
+      if (immediate) {
+        cancel();
+        apply2(current2, false);
         return;
       }
       if (!frame3) {
@@ -24778,13 +24927,9 @@ function liveSprings(apply2) {
     reset: () => {
       values.clear();
       for (const key of Object.keys(current2)) delete current2[key];
-      cancelAnimationFrame(frame3);
-      frame3 = 0;
+      cancel();
     },
-    stop: () => {
-      cancelAnimationFrame(frame3);
-      frame3 = 0;
-    }
+    stop: cancel
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -25249,10 +25394,9 @@ body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert
    and the floating drawer keeps the opaque fill over the conversation. */
 .bt-leftcol{position:fixed;left:0;top:0;bottom:0;z-index:25;display:flex;--bt-lc-clear:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));background:var(--bt-leftcol-fill,var(--bt-sidebar));border-right:.5px solid var(--bt-line);box-sizing:border-box;padding:calc(var(--bt-lc-clear) + 6px) 12px 6px;color:var(--bt-ink);font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{border-right:none}
-.bt-leftcol[data-entering]{animation:bt-leftcol-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-leftcol[data-leaving]{transform:translateX(-100%);transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};pointer-events:none}
-@keyframes bt-leftcol-in{from{transform:translateX(-100%)}}
-@media (prefers-reduced-motion:reduce){.bt-leftcol[data-entering]{animation:none}.bt-leftcol[data-leaving],[class*="_centerCol"]{transition:none}}
+.bt-leftcol[data-sliding]{will-change:transform}
+.bt-leftcol[data-leaving]{pointer-events:none}
+@media (prefers-reduced-motion:reduce){.bt-leftcol[data-folding],[class*="_centerCol"]{transition:none}}
 .bt-leftcol-grip{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-leftcol-grip:hover,.bt-leftcol-grip:active{background:linear-gradient(to right,transparent 3px,var(--bt-line-2) 3px,var(--bt-line-2) 5px,transparent 5px)}
 /* The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
@@ -25292,7 +25436,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol-foot-rail{flex-direction:column;gap:8px}
 /* A drag that crosses the rail's snap line rides the spring to its target: the
    content is pinned at the target size so only the column's edge moves. */
-.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -25361,7 +25505,7 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-x{position:relative;flex:none;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -25507,7 +25651,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 @keyframes bt-create-pop{from{transform:scale(.72);opacity:.4}}
 .bt-create-name{font-size:17px;line-height:24px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-create-step{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-bottom:-10px}
-.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);box-sizing:border-box}
 .bt-create-lookbar{justify-content:center}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
@@ -25522,6 +25666,21 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* Full-window modal layers and opening covers sit directly under body, which frameless hosts
+   mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
+   regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
+   child place the top drag strip on that child's ::before (after the scrim, before the dialog)
+   while scrim-less layers use their own ::before. Dialog cards stay after the strip as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px)))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(40px - var(--dsh-frame-chrome-top,0px)))}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:var(--dsh-windows-titlebar-height,40px);padding-top:max(16px,var(--bt-modal-drag-h))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:40px;padding-top:max(16px,var(--bt-modal-drag-h))}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)[data-leaving]>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is([role=dialog],[role=alertdialog]){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-tour-layer{-webkit-app-region:initial;app-region:initial}
+:is(.bt-set-palette,.bt-tour-card){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-opening>.bt-opening-card{position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 /* On macOS a side panel reaches the window's top edge, where the window drag strip is.
    Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
    that strip: it drags where no chip or button covers it, and controls stay no-drag. The
@@ -25570,9 +25729,9 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-panel[data-instant]{transition:none}
 @keyframes bt-pane-in{from{transform:translateX(100%)}}
 @media (prefers-reduced-motion:reduce){.bt-panel{animation:none;transition:none}.bt-panel[data-leaving]{transition:none}}
-/* The conversation's margins glide with the Bot panel's slide and with our left
-   column's slide in and out. */
-[class*="_centerCol"]{transition:margin-right ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+/* The conversation's right margin glides with the Bot panel; the left margin is
+   driven atomically with .bt-leftcol by TeamSidebar's spring so both stay locked. */
+[class*="_centerCol"]{transition:margin-right ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-panel-grip{position:absolute;left:-5px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-panel-grip:hover,.bt-panel[data-dragging] .bt-panel-grip{background:linear-gradient(to right,transparent 4px,var(--bt-line-2) 4px,var(--bt-line-2) 6px,transparent 6px)}
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}
@@ -25970,10 +26129,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-card>.bt-set-row:first-child,.bt-set-card>:first-child>.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
-.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:break-word}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
+.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-control{flex:none}
 .bt-set-row:where(:not(.bt-bs-stack))>.bt-set-control:where(:has(>.bt-seg)){max-width:72%}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
@@ -26505,7 +26665,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
+.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
@@ -26635,7 +26795,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
    narrow viewports keep full-screen heights. */
 .bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
 .bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
+@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem-layer[data-leaving] .bt-mem::before{-webkit-app-region:initial;app-region:initial}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li svg{animation:none}}
 
 .bt-thumb{position:absolute;left:0;top:0;z-index:0;pointer-events:none;transition:opacity .14s ease}
@@ -26679,15 +26839,17 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
    from their own width instead of relying on viewport media queries. */
 @container (max-width:440px){
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control,.bt-set-places .bt-set-control{max-width:none}
+  .bt-set-row .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-motion-seg,.bt-look-seg{min-width:0;width:100%}
   .bt-range{width:100%}
 }
@@ -26700,6 +26862,13 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
 @media (max-width:768px){
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-settings::before{-webkit-app-region:initial;app-region:initial}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-close{top:calc(14px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-layer{padding-top:calc(12px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-set-palette-scrim::before{-webkit-app-region:initial;app-region:initial}
   .bt-settings-rail{display:none}
   .bt-ov-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:0;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-3);font:inherit;font-size:15px;text-align:left;cursor:pointer}
   .bt-ov-search svg{width:16px;height:16px}
@@ -26723,14 +26892,15 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
@@ -36446,7 +36616,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
 }
 var COMPUTER_CSS = `
 .bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-level-pick{max-width:200px}
+.bt-sel.bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}
 .bt-cview{display:flex;flex-direction:column;gap:12px}
@@ -36481,6 +36651,8 @@ var COMPUTER_CSS = `
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
+@container (max-width:440px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@media (max-width:768px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
 `;
 
 // node_modules/deep-view/src/core/reply.js
@@ -37827,7 +37999,7 @@ function modelOf(bot, roster) {
   return { ref, name: served === void 0 ? rest.join("/") : nameOf(served), provider: served?.providerName ?? provider, served: served !== void 0 };
 }
 var effortCache = /* @__PURE__ */ new Map();
-function useEfforts(served, ref, actions) {
+function useEfforts(served, ref, actions, version = 0) {
   const [fetched, setFetched] = (0, import_react22.useState)(void 0);
   (0, import_react22.useEffect)(() => {
     setFetched(void 0);
@@ -37843,7 +38015,7 @@ function useEfforts(served, ref, actions) {
     return () => {
       live = false;
     };
-  }, [ref, served?.reasoning !== void 0, actions]);
+  }, [ref, served?.reasoning !== void 0, actions, version]);
   return served?.reasoning ?? fetched;
 }
 function effortStops(reasoning) {
@@ -38233,12 +38405,12 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const shown = modelOf({ ...bot, model: current2 }, roster);
   const local = isLocalRoute(current2);
   const served = servedOf(roster, current2);
-  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions);
+  const [opening, setOpening] = (0, import_react22.useState)(0);
+  const [query, setQuery] = (0, import_react22.useState)("");
+  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions, opening);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
-  const [opening, setOpening] = (0, import_react22.useState)(0);
-  const [query, setQuery] = (0, import_react22.useState)("");
   const models2 = modelsFor(roster.models, current2);
   return {
     bot,
@@ -38261,7 +38433,10 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current2));
-      else void actions?.refreshModels?.();
+      else {
+        effortCache.clear();
+        void actions?.refreshModels?.();
+      }
       setQuery("");
       setOpening((count) => count + 1);
     },
@@ -38589,7 +38764,7 @@ function SignInHost({ entry, actions }) {
   });
 }
 var MODEL_CSS = `
-.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
+.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
@@ -39343,36 +39518,59 @@ var FOLDER_CSS = `
 // src/client/schedules.js
 var import_react26 = require("react");
 var POLL_MS = 3e4;
+var PENDING_POLL_MS = 1e3;
 var shared = null;
+var publishSeq = 0;
 var listeners = /* @__PURE__ */ new Set();
+var rescheduleListeners = /* @__PURE__ */ new Set();
 function publish(view) {
+  publishSeq += 1;
   shared = view;
   for (const listener of listeners) listener(view);
+  for (const listener of rescheduleListeners) listener(view);
 }
-function useSchedules(actions) {
+function useSchedulesState(actions) {
   const [view, setView] = (0, import_react26.useState)(shared);
+  const [error, setError] = (0, import_react26.useState)("");
+  const loadRef = (0, import_react26.useRef)(null);
   (0, import_react26.useEffect)(() => {
     listeners.add(setView);
     let stopped = false;
     let inFlight = false;
     let timer2;
-    const schedule = () => {
+    const schedule = (nextView) => {
       clearTimeout(timer2);
       if (stopped || typeof document !== "undefined" && document.hidden) return;
-      timer2 = setTimeout(load, POLL_MS);
+      timer2 = setTimeout(load, nextView?.pending === true ? PENDING_POLL_MS : POLL_MS);
     };
+    const onPublish = (nextView) => {
+      if (!stopped && !inFlight && nextView?.pending === true) schedule(nextView);
+    };
+    rescheduleListeners.add(onPublish);
     const load = () => {
       if (stopped || inFlight) return;
       if (typeof document !== "undefined" && document.hidden) return;
       inFlight = true;
+      const seq = publishSeq;
+      let latest = shared;
       Promise.resolve(actions.schedules?.()).then((next) => {
-        if (!stopped && next !== void 0) publish(next);
-      }).catch(() => {
+        if (stopped) return;
+        setError("");
+        if (next !== void 0 && publishSeq === seq) {
+          latest = next;
+          publish(next);
+        } else {
+          latest = shared;
+        }
+      }).catch((failure) => {
+        if (!stopped && publishSeq === seq) setError(hostText(failure?.message ?? String(failure)));
+        latest = shared;
       }).finally(() => {
         inFlight = false;
-        schedule();
+        schedule(latest);
       });
     };
+    loadRef.current = load;
     const onVisibility2 = () => {
       if (document.hidden) clearTimeout(timer2);
       else if (!stopped) load();
@@ -39381,12 +39579,20 @@ function useSchedules(actions) {
     load();
     return () => {
       stopped = true;
+      loadRef.current = null;
       clearTimeout(timer2);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
       listeners.delete(setView);
+      rescheduleListeners.delete(onPublish);
     };
   }, []);
-  return view;
+  return { view, error, retry: () => {
+    setError("");
+    loadRef.current?.();
+  } };
+}
+function useSchedules(actions) {
+  return useSchedulesState(actions).view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 var clock3 = (time) => {
@@ -39639,7 +39845,66 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     )
   );
 }
-function AutomationOff({ actions }) {
+function AutomationOff({ view, actions, readOnly, onEnabled, onRetry }) {
+  const [busy, setBusy] = (0, import_react26.useState)(false);
+  const [error, setError] = (0, import_react26.useState)("");
+  const restartRequired = view?.restartRequired === true;
+  const canEnable = !restartRequired && view?.canEnable === true && typeof actions.scheduleEnable === "function";
+  const failed = view?.reason === "error";
+  const lockedDisabled = !restartRequired && !canEnable && view?.reason === "disabled";
+  const enable = () => {
+    if (busy || !canEnable || readOnly) return;
+    setBusy(true);
+    setError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setBusy(false);
+      if (next?.error) setError(hostText(next.error));
+      if (next !== void 0) onEnabled?.(next);
+    }, (failure) => {
+      setBusy(false);
+      setError(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  if (restartRequired) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot for scheduled tasks to take effect."))
+    );
+  }
+  if (canEnable) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Turn on scheduled tasks to run prompts automatically on a schedule.")),
+      error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, error) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", "data-tour": "open-plugins", disabled: busy || readOnly, onClick: enable }, busy ? t("Turning on…") : t("Turn on scheduled tasks"))
+    );
+  }
+  if (failed) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks failed to start")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot, or refresh status after fixing the issue.")),
+      view?.error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, hostText(view.error)) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => onRetry?.() }, t("Refresh status"))
+    );
+  }
+  if (lockedDisabled) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Scheduled tasks cannot be changed here."))
+    );
+  }
   return (0, import_react26.createElement)(
     "div",
     { className: "bt-set-card bt-task-off" },
@@ -39650,12 +39915,26 @@ function AutomationOff({ actions }) {
   );
 }
 function SchedulesPage({ roster, actions, start }) {
-  const view = useSchedules(actions);
+  const { view, error: loadError, retry } = useSchedulesState(actions);
   const [owner, setOwner] = (0, import_react26.useState)(() => start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null);
   const filter = start?.startsWith("bot:") || start?.startsWith("room:");
   const [adding, setAdding] = (0, import_react26.useState)(Boolean(start) && !filter);
-  if (view === null) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
-  if (!view.available) return (0, import_react26.createElement)(AutomationOff, { actions });
+  if (view === null) {
+    if (loadError) {
+      return (0, import_react26.createElement)(
+        "div",
+        { className: "bt-set-card bt-task-off" },
+        (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+        (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, loadError),
+        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: retry }, t("Retry"))
+      );
+    }
+    return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
+  }
+  if (!view.available) {
+    if (view.pending === true) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Starting scheduled tasks…"));
+    return (0, import_react26.createElement)(AutomationOff, { view, actions, readOnly: Boolean(roster?.readOnly), onEnabled: publish, onRetry: retry });
+  }
   const shown = (next) => {
     publish(next);
     setAdding(false);
@@ -39687,8 +39966,28 @@ function SchedulesPage({ roster, actions, start }) {
 }
 function BotSchedules({ bot, roster, actions }) {
   const view = useSchedules(actions);
+  const [enabling, setEnabling] = (0, import_react26.useState)(false);
+  const [enableError, setEnableError] = (0, import_react26.useState)("");
   if (view === null) return null;
   const tasks = view.available ? view.tasks.filter((task) => task.botId === bot.id) : [];
+  const readOnly = Boolean(roster?.readOnly);
+  const restartRequired = !view.available && view.restartRequired === true;
+  const pending = !view.available && view.pending === true;
+  const canEnable = !view.available && !restartRequired && !pending && view.canEnable === true && typeof actions.scheduleEnable === "function";
+  const lockedDisabled = !view.available && !restartRequired && !pending && !canEnable && view.reason === "disabled";
+  const enable = () => {
+    if (enabling || !canEnable || readOnly) return;
+    setEnabling(true);
+    setEnableError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setEnabling(false);
+      if (next?.error) setEnableError(hostText(next.error));
+      if (next !== void 0) publish(next);
+    }, (failure) => {
+      setEnabling(false);
+      setEnableError(hostText(failure?.message ?? String(failure)));
+    });
+  };
   return (0, import_react26.createElement)(
     "section",
     { className: "bt-set-section" },
@@ -39696,12 +39995,19 @@ function BotSchedules({ bot, roster, actions }) {
     (0, import_react26.createElement)(
       "div",
       { className: "bt-set-card" },
-      !view.available ? (0, import_react26.createElement)(
-        "div",
-        { className: "bt-set-row bt-bs-row" },
-        (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
-        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
-      ) : [
+      !view.available ? [
+        (0, import_react26.createElement)(
+          "div",
+          { key: "off", className: "bt-set-row bt-bs-row" },
+          (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)(
+            "span",
+            { className: "bt-set-hint" },
+            pending ? t("Starting scheduled tasks…") : restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : canEnable || lockedDisabled ? t("Scheduled tasks are off") : view.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.")
+          )),
+          pending || restartRequired || lockedDisabled ? null : canEnable ? (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: enabling || readOnly, onClick: enable }, enabling ? t("Turning on…") : t("Turn on scheduled tasks")) : view.reason === "error" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules", bot.id) }, t("Scheduled tasks")) : (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
+        ),
+        enableError ? (0, import_react26.createElement)("div", { key: "err", className: "bt-set-row bt-task-failed", role: "alert" }, (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint" }, enableError)) : null
+      ] : [
         ...tasks.map((task) => (0, import_react26.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react26.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react26.createElement)(PlusIcon), t("New task"))
       ]
@@ -39711,11 +40017,12 @@ function BotSchedules({ bot, roster, actions }) {
 function ScheduleSummary({ bot, actions }) {
   const view = useSchedules(actions);
   const tasks = view?.available ? view.tasks.filter((task) => task.botId === bot.id && task.status === "active") : [];
+  const offLabel = view?.pending ? t("Starting scheduled tasks…") : view?.restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : view?.canEnable || view?.reason === "disabled" ? t("Scheduled tasks are off") : view?.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.");
   return (0, import_react26.createElement)(
     "div",
     null,
     (0, import_react26.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
-    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
+    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? offLabel : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
       "button",
       { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react26.createElement)(ClockIcon),
@@ -39739,8 +40046,8 @@ var SCHEDULE_CSS = `
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
-.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
-.bt-task-bot{width:auto;min-width:220px;max-width:58%}
+.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px;max-width:58%}
+.bt-sel.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}
@@ -39766,10 +40073,17 @@ var SCHEDULE_CSS = `
 .bt-task-line-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-line-when{flex:none;font-size:12px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
+@container (max-width:440px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
+@media (max-width:768px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */
 @media (max-width:640px){
-  .bt-task-bot{min-width:0;width:100%}
   .bt-task-time{min-width:0;flex:1 1 110px}
   .bt-task-count{width:auto!important;flex:1 1 72px}
 }
@@ -42475,16 +42789,16 @@ var BOT_SETTINGS_CSS = `
 .bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
-.bt-bs-row>.bt-set-copy{flex:1 1 auto}
+.bt-bs-row>.bt-set-copy{flex:1 1 auto;min-width:0}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
-.bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
+.bt-bs-row .bt-model-trigger{flex:0 1 auto;min-width:0;max-width:58%}
 .bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
-.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
+.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;max-width:58%;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area{flex:none;width:100%;min-width:0;max-width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
 .bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}
@@ -42498,6 +42812,24 @@ label.bt-bs-row{cursor:text}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}
 .bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:bt-veil-in .18s ease-out}
+/* Narrow cards (320px right details panel and phones): stack field rows so inputs and
+   pickers never squeeze labels or hints into single-character vertical columns. */
+@container (max-width:440px){
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select){flex-direction:column;align-items:stretch;gap:8px}
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select)>.bt-set-copy{width:100%;flex:none}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%;height:34px;margin:0;padding:0 10px;text-align:left}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):not(:focus){border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+  .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
+}
+@media (max-width:768px){
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select){flex-direction:column;align-items:stretch;gap:8px}
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select)>.bt-set-copy{width:100%;flex:none}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%;height:34px;margin:0;padding:0 10px;text-align:left}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):not(:focus){border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+  .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
+}
 @media (prefers-reduced-motion:reduce){.bt-switch,.bt-switch-knob{transition:none}.bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:none}}
 `;
 
@@ -49767,10 +50099,10 @@ function useListGlide(listRef, layout, key) {
     tops.current = { layout, map: next };
   }, [layout, key]);
 }
-function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
+function LeftColumn({ columnRef, mode, width, onGrip, leaving, children }) {
   return (0, import_react_dom9.createPortal)((0, import_react47.createElement)(
     "div",
-    { className: "bt-leftcol", "data-left": mode, "data-entering": entering || void 0, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
+    { ref: columnRef, className: "bt-leftcol", "data-left": mode, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
     children,
     (0, import_react47.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
@@ -49826,12 +50158,10 @@ function TeamSidebar(props) {
   });
   const [drag, setDrag] = (0, import_react47.useState)(null);
   const mode = layout.left === "hidden" ? "hidden" : drag?.left ?? layout.left;
-  const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
-  const shown = held ?? mode;
-  const firstColumn = (0, import_react47.useRef)(true);
-  (0, import_react47.useLayoutEffect)(() => {
-    if (shown === "hidden") firstColumn.current = false;
-  }, [shown]);
+  const leftColRef = (0, import_react47.useRef)(null);
+  const [heldMode, setHeldMode] = (0, import_react47.useState)(mode === "hidden" ? null : mode);
+  const shown = mode !== "hidden" ? mode : heldMode ?? "hidden";
+  const leaving = mode === "hidden" && heldMode !== null;
   const wideContent = shown !== "rail";
   const updated = useSessions((list) => {
     const stamps = {};
@@ -49895,30 +50225,184 @@ function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth;
   const ourWidth = shown === "rail" ? RAIL_WIDTH : openWidth;
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
+  const collapsedWidth = frameSnap.collapsedWidth ?? 0;
+  const targetMargin = Math.max(0, pushed - collapsedWidth);
+  const targetSlide = mode === "hidden" ? 0 : mode === "rail" ? RAIL_WIDTH : openWidth;
   const settleTimer = (0, import_react47.useRef)(0);
   const springTimer = (0, import_react47.useRef)(0);
   const activeDrag = (0, import_react47.useRef)(null);
   const dragRef = (0, import_react47.useRef)(drag);
   dragRef.current = drag;
-  const collapsedWidthRef = (0, import_react47.useRef)(frameSnap.collapsedWidth ?? 0);
-  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0;
+  const collapsedWidthRef = (0, import_react47.useRef)(collapsedWidth);
+  collapsedWidthRef.current = collapsedWidth;
   const modeRef = (0, import_react47.useRef)(mode);
   modeRef.current = mode;
+  const slideRef = (0, import_react47.useRef)(null);
+  if (slideRef.current === null) {
+    const snapPx = (value) => {
+      const dpr = typeof window !== "undefined" && Number(window.devicePixelRatio) > 0 ? window.devicePixelRatio : 1;
+      return Math.round(value * dpr) / dpr;
+    };
+    const state = {
+      initialized: false,
+      prevHidden: false,
+      prevViewport: 0,
+      docked: shown !== "drawer",
+      collapsedWidth,
+      width: ourWidth,
+      finalMargin: targetMargin,
+      finalPushed: pushed,
+      activeCols: [],
+      activePanes: [],
+      snapPx,
+      clearInline(restorePanes) {
+        for (const col of state.activeCols) col.style.removeProperty("margin-left");
+        state.activeCols = [];
+        for (const pane of state.activePanes) {
+          if (restorePanes && pane.isConnected) pane.style.left = `${state.finalPushed}px`;
+        }
+        state.activePanes = [];
+      },
+      settle() {
+        state.springs.stop();
+        if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+        state.clearInline(true);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = modeRef.current === "hidden" ? `translate3d(${-state.width}px,0,0)` : "";
+        }
+        state.springs.seed({
+          slide: modeRef.current === "hidden" ? 0 : state.width,
+          margin: state.finalMargin,
+          pane: state.finalPushed
+        });
+      },
+      stop(clearDom) {
+        state.springs.stop();
+        if (!clearDom) return;
+        state.clearInline(false);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = "";
+        }
+      },
+      springs: null
+    };
+    state.springs = liveSprings((values, moving) => {
+      const col = leftColRef.current;
+      const width = state.width;
+      if (moving) {
+        const slide = Math.max(0, Math.min(width, snapPx(values.slide)));
+        const margin2 = state.docked ? Math.max(0, snapPx(slide - state.collapsedWidth)) : Math.max(0, snapPx(values.margin));
+        const paneLeft = state.docked ? slide : Math.max(0, snapPx(values.pane));
+        if (col) {
+          col.dataset.sliding = "";
+          col.style.transform = `translate3d(${Math.min(0, slide - width)}px,0,0)`;
+        }
+        if (state.activeCols.length > 0) {
+          for (const center of state.activeCols) center.style.setProperty("margin-left", `${margin2}px`, "important");
+        } else if (typeof document !== "undefined") {
+          chatRoom.setLeft(margin2);
+        }
+        for (const pane of state.activePanes) pane.style.left = `${paneLeft}px`;
+        return;
+      }
+      if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+      state.clearInline(true);
+      if (col) {
+        delete col.dataset.sliding;
+        col.style.transform = modeRef.current === "hidden" ? `translate3d(${-width}px,0,0)` : "";
+      }
+      if (modeRef.current === "hidden") setHeldMode(null);
+    });
+    slideRef.current = state;
+  }
   (0, import_react47.useLayoutEffect)(() => {
     if (typeof document === "undefined") return;
+    const state = slideRef.current;
     const current2 = activeDrag.current;
+    let abortedDrag = false;
     if (current2 !== null && (mode === "hidden" || current2.settling && (mode !== current2.landedMode || pushed !== current2.landedPushed))) {
       current2.cancel(false);
+      abortedDrag = true;
     }
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [mode, pushed, frameSnap.collapsedWidth]);
+    if (mode !== "hidden") setHeldMode(mode);
+    const docked = shown !== "drawer";
+    if (activeDrag.current !== null) {
+      state.springs.seed({ slide: targetSlide, margin: targetMargin, pane: pushed });
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
+      state.width = ourWidth;
+      state.finalMargin = targetMargin;
+      state.finalPushed = pushed;
+      state.prevHidden = mode === "hidden";
+      state.prevViewport = frameSnap.viewport;
+      chatRoom.setLeft(targetMargin);
+      return;
+    }
+    const isHidden = mode === "hidden";
+    const col = leftColRef.current;
+    const curves = { slide: SPRING_SLIDE, margin: SPRING_SLIDE, pane: SPRING_SLIDE };
+    if (!state.initialized) {
+      state.initialized = true;
+      state.prevHidden = isHidden;
+      state.prevViewport = frameSnap.viewport;
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
+      state.width = ourWidth;
+      state.finalMargin = targetMargin;
+      state.finalPushed = pushed;
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
+      return;
+    }
+    const hiddenChanged = isHidden !== state.prevHidden;
+    const viewportChanged = frameSnap.viewport !== state.prevViewport;
+    state.prevHidden = isHidden;
+    state.prevViewport = frameSnap.viewport;
+    state.docked = docked;
+    state.collapsedWidth = collapsedWidth;
+    state.width = ourWidth;
+    state.finalMargin = targetMargin;
+    state.finalPushed = pushed;
+    const inFlight = state.springs.isRunning();
+    const canAnimate = typeof requestAnimationFrame === "function" && !reducedMotion() && !viewportChanged;
+    if (abortedDrag && col) {
+      col.style.width = `${ourWidth}px`;
+    }
+    if (!canAnimate || !hiddenChanged && !inFlight) {
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
+      return;
+    }
+    if (abortedDrag) {
+      const startPushed = docked ? ourWidth : RAIL_WIDTH;
+      const startMargin = Math.max(0, startPushed - collapsedWidth);
+      state.springs.seed({ slide: ourWidth, margin: startMargin, pane: startPushed });
+      chatRoom.setLeft(startMargin);
+    }
+    state.activeCols = chatRoom.columns();
+    state.activePanes = [...document.querySelectorAll(".bt-pane")];
+    const liveNow = state.springs.current();
+    if (liveNow !== null && state.activePanes.length > 0) {
+      const paneNow = docked ? Math.max(0, Math.min(ourWidth, state.snapPx(liveNow.slide))) : Math.max(0, state.snapPx(liveNow.pane));
+      for (const pane of state.activePanes) pane.style.left = `${paneNow}px`;
+    }
+    if (!isHidden && !inFlight && col) {
+      col.dataset.sliding = "";
+      col.style.transform = `translate3d(${-ourWidth}px,0,0)`;
+    }
+    state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, false);
+  }, [mode, shown, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport]);
   (0, import_react47.useEffect)(() => () => {
     activeDrag.current?.cancel(false);
+    slideRef.current?.stop(true);
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    slideRef.current?.settle();
     activeDrag.current?.cancel(false);
     const grip = event.currentTarget;
     const column = grip.parentElement;
@@ -49952,10 +50436,10 @@ function TeamSidebar(props) {
     };
     const springOn = () => {
       column.dataset.folding = "";
-      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
-      springUntil = performance.now() + SPRING_SHAPE.duration;
+      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}`, "important");
+      springUntil = performance.now() + SPRING_SLIDE.duration;
       if (springTimer.current) clearTimeout(springTimer.current);
-      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration);
+      springTimer.current = setTimeout(springOff, SPRING_SLIDE.duration);
     };
     const track = (x) => {
       const prev = last;
@@ -50218,7 +50702,7 @@ function TeamSidebar(props) {
     import_react47.Fragment,
     null,
     hideTitleToggle ? null : (0, import_react47.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
-    shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
+    shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { columnRef: leftColRef, mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content)
   );
 }
 function UpdateButton({ useUpdate, actions }) {
@@ -50443,7 +50927,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t("Usage"), GaugeIcon, () => actions.openSettings("usage")],
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
-      [t("Scheduled tasks"), ClockIcon, () => actions.selectPanel("schedules")],
+      [t("Scheduled tasks"), ClockIcon, () => typeof actions.selectPanel === "function" ? actions.selectPanel("schedules") : actions.openSettings("schedules")],
       [t("Settings"), GearIcon, () => actions.openSettings("overview")]
     ].filter(Boolean),
     typeof actions.setSurface === "function" ? [[t("Classic Agent mode"), SwitchIcon, () => actions.setSurface("agent")]] : null
@@ -50484,7 +50968,11 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
           role: "menuitem",
           onClick: () => {
             if (stay !== true) setOpen(false);
-            void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
+            try {
+              void Promise.resolve(run2()).catch((error) => actions.reportError?.(error, "menu"));
+            } catch (error) {
+              actions.reportError?.(error, "menu");
+            }
           }
         }, (0, import_react47.createElement)(Icon), (0, import_react47.createElement)("span", { className: "bt-menu-label" }, label), hint ? (0, import_react47.createElement)("span", { className: "bt-menu-hint" }, hint) : null))
       ))
@@ -50729,7 +51217,7 @@ var SIDEBAR_CSS = `
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-agent-sub[data-open]{grid-template-rows:1fr}
 .bt-agent-sub-in{overflow:hidden;min-height:0;margin-left:44px}
-.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
 /* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
@@ -50739,7 +51227,7 @@ var SIDEBAR_CSS = `
 .bt-agent-new{color:var(--bt-ink-3)}
 .bt-agent-new svg{width:14px;height:14px;flex:none}
 .bt-agent-edit{padding:3px 10px 3px 4px}
-.bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
+.bt-agent-edit input{width:100%;box-sizing:border-box;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
 @keyframes bt-agent-row-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
@@ -50783,7 +51271,7 @@ var SIDEBAR_CSS = `
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-sec-act svg{width:13px;height:13px}
 .bt-sec-edit{display:flex;align-items:center;height:30px;padding:0 4px}
-.bt-sec-edit input{width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-sec-edit input{width:100%;box-sizing:border-box;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-sec-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-sec[data-collapsed=true] .bt-sec-body{grid-template-rows:0fr}
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
@@ -55957,6 +56445,8 @@ var IM_CSS = `
 .bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-im-remove{justify-content:center;color:var(--bt-danger)}
 .bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
+@container (max-width:440px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
+@media (max-width:768px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
 @media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank::after,.bt-im-qr{animation:none}}
 `;
 
@@ -57457,6 +57947,48 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
   return (0, import_react60.createElement)(PreviewCard, { key: flow.id, flow, page, busy, canApply, inline, onApply, onBack, onCancel });
 }
 
+// src/client/browser-plugin-mode.js
+var KNOWN_BROWSER_LABELS = {
+  "builtin:readonly": () => t("Read-only Browser"),
+  "builtin:refs": () => t("Playwright (Refs)"),
+  "builtin:script": () => t("Playwright (Script)"),
+  "builtin:task": () => t("Playwright (Task)"),
+  "mcp:playwright-mcp": () => "Playwright MCP",
+  "mcp:chrome-devtools-mcp": () => "Chrome DevTools MCP"
+};
+function localizedNameFrom(locales) {
+  if (!locales || typeof locales !== "object") return null;
+  const lang = String(language?.() ?? "en").toLowerCase();
+  const exact = locales[lang]?.name;
+  if (typeof exact === "string" && exact.trim()) return exact.trim();
+  const base = lang.split("-")[0];
+  const primary = locales[base]?.name;
+  if (typeof primary === "string" && primary.trim()) return primary.trim();
+  return null;
+}
+function isExternalBrowserPlugin(plugin) {
+  if (plugin?.slot !== "browser") return false;
+  if (plugin.windowMode === "external") return true;
+  if (plugin.windowMode === "pane" || plugin.windowMode === "readonly") return false;
+  return !plugin.builtin && plugin.controlsPane !== true;
+}
+function browserPaneMode(browserSlot, hold = null) {
+  const active = browserSlot?.active ?? "builtin:readonly";
+  const controlsPane = typeof browserSlot?.controlsPane === "boolean" ? browserSlot.controlsPane : browserSlot?.windowMode === "pane" || browserSlot?.windowMode == null && /^builtin:(refs|script|task|injected)$/.test(active);
+  const windowMode = browserSlot?.windowMode === "pane" || browserSlot?.windowMode === "readonly" || browserSlot?.windowMode === "external" ? browserSlot.windowMode : controlsPane ? "pane" : active === "builtin:readonly" ? "readonly" : "external";
+  const customName = browserSlot?.customName === true && typeof browserSlot?.activeName === "string" && browserSlot.activeName.trim() !== "";
+  const localized = customName ? null : localizedNameFrom(browserSlot?.activeLocales);
+  const activeLabel = customName ? browserSlot.activeName.trim() : localized ?? KNOWN_BROWSER_LABELS[active]?.() ?? (typeof browserSlot?.activeName === "string" && browserSlot.activeName.trim() ? browserSlot.activeName.trim() : null) ?? active.replace(/^(builtin|dsh|mcp|provider):/, "");
+  return {
+    active,
+    activeLabel,
+    controlsPane,
+    windowMode,
+    showTakeover: Boolean(controlsPane || hold?.by),
+    isExternal: windowMode === "external"
+  };
+}
+
 // src/client/browser-settings.js
 var import_react61 = require("react");
 var ACTIONS = [["post", "Post"], ["upload", "Upload"], ["download", "Download"], ["delete", "Delete"]];
@@ -57561,17 +58093,8 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     setKinds((current2) => checked ? current2.includes(kind) ? current2 : [...current2, kind] : current2.filter((value) => value !== kind));
   };
   const addBtn = adding || bots.length === 0 ? null : (0, import_react61.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "browser-allow", onClick: () => setAdding(true) }, (0, import_react61.createElement)(PlusIcon), t("Allow action"));
-  const activeBrowserId = roster.plugins?.slots?.browser?.active ?? "builtin:readonly";
-  const KNOWN_BROWSER_LABELS = {
-    "builtin:readonly": t("Read-only Browser"),
-    "builtin:refs": t("Playwright (Refs)"),
-    "builtin:script": t("Playwright (Script)"),
-    "builtin:task": t("Playwright (Task)"),
-    "dsh:dsh-ego-browser": "Ego Lite Browser",
-    "mcp:playwright-mcp": "Playwright MCP",
-    "mcp:chrome-devtools-mcp": "Chrome DevTools MCP"
-  };
-  const activeBrowserLabel = KNOWN_BROWSER_LABELS[activeBrowserId] ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, "");
+  const paneMode = browserPaneMode(roster.plugins?.slots?.browser);
+  const activeBrowserLabel = paneMode.isExternal ? `${paneMode.activeLabel} · ${t("External window")}` : paneMode.activeLabel;
   return (0, import_react61.createElement)(
     "div",
     { className: "bt-browser-settings" },
@@ -57796,21 +58319,6 @@ var PlaywrightOfficialMark = () => (0, import_react62.createElement)(
   (0, import_react62.createElement)("path", { d: "M225.27 269.163L223.415 268.712C182.398 256.698 176.072 223.99 176.072 223.99L232.89 239.872L262.971 124.281L262.607 124.185C225.711 114.304 201.232 97.0224 191.532 88.8994C177.783 77.3834 171.735 69.3802 165.783 81.4857C160.526 92.163 153.797 109.54 147.284 133.866C133.171 186.543 122.623 297.706 209.867 321.097L211.655 321.5L225.27 269.163ZM166.497 172.756C166.497 172.756 180.246 151.372 203.565 158C226.899 164.628 228.706 190.425 228.706 190.425L166.497 172.756Z", fill: "#1D8D22" }),
   (0, import_react62.createElement)("path", { d: "M141.946 245.451L131.072 248.537C133.641 263.019 138.169 276.917 145.276 289.195C146.513 288.922 147.74 288.687 149 288.342C152.302 287.451 155.364 286.348 158.312 285.145C150.371 273.361 145.118 259.789 141.946 245.451ZM137.7 143.451C132.112 164.307 127.113 194.326 128.489 224.436C130.952 223.367 133.554 222.371 136.444 221.551L138.457 221.101C136.003 188.939 141.308 156.165 147.284 133.866C148.799 128.225 150.318 122.978 151.832 118.085C149.393 119.637 146.767 121.228 143.776 122.867C141.759 129.093 139.722 135.898 137.7 143.451Z", fill: "#C04B41" })
 );
-var EgoOfficialMark = () => svg2(
-  (0, import_react62.createElement)("path", {
-    fillRule: "evenodd",
-    clipRule: "evenodd",
-    fill: "var(--bt-mark-ink)",
-    d: [
-      // Left circle: cx=7.86, cy=12, rx=6.15, ry=6.12
-      "M1.71 12a6.15 6.12 0 1 0 12.3 0a6.15 6.12 0 1 0 -12.3 0Z",
-      // Middle oval: cx=14.18, cy=12, rx=3.12, ry=6.12 (intersects circle → crisp lens cutout)
-      "M11.06 12a3.12 6.12 0 1 0 6.24 0a3.12 6.12 0 1 0 -6.24 0Z",
-      // Right slim oval: cx=20.70, cy=12, rx=1.57, ry=6.12
-      "M19.13 12a1.57 6.12 0 1 0 3.14 0a1.57 6.12 0 1 0 -3.14 0Z"
-    ].join(" ")
-  })
-);
 var ChromeDevtoolsMark = () => svg2(
   (0, import_react62.createElement)("path", { d: "M3.51 7.1A9.8 9.8 0 0 1 20.49 7.1H12a4.9 4.9 0 0 0-4.24 7.35Z", fill: "#EA4335" }),
   (0, import_react62.createElement)("path", { d: "M20.49 7.1A9.8 9.8 0 0 1 12 21.8l4.24-7.35A4.9 4.9 0 0 0 12 7.1Z", fill: "#FBBC04" }),
@@ -57863,7 +58371,6 @@ var PLUGIN_MARKS = {
   "builtin:refs": PlaywrightOfficialMark,
   "builtin:script": PlaywrightOfficialMark,
   "builtin:task": PlaywrightOfficialMark,
-  "dsh:dsh-ego-browser": EgoOfficialMark,
   "mcp:playwright-mcp": PlaywrightOfficialMark,
   "mcp:chrome-devtools-mcp": ChromeDevtoolsMark
 };
@@ -57897,40 +58404,42 @@ function PluginMark({ plugin }) {
 var BROWSER_META = {
   "builtin:readonly": {
     url: "browser://readonly",
-    traits: ["Read current page", "Zero writes"]
+    traits: ["Sidebar browser", "Read current page", "Zero writes"]
   },
   "builtin:refs": {
     url: "browser://playwright/refs",
-    traits: ["Click & forms", "Element refs", "Screenshots"]
+    traits: ["Sidebar browser", "Click & forms", "Element refs"]
   },
   "builtin:script": {
     url: "browser://playwright/script",
-    traits: ["JS scripts", "Batch steps", "Fast"]
+    traits: ["Sidebar browser", "JS scripts", "Batch steps"]
   },
   "builtin:task": {
     url: "browser://playwright/task",
-    traits: ["Multi-step", "Autonomous"]
-  },
-  "dsh:dsh-ego-browser": {
-    url: "browser://ego-lite",
-    traits: ["Shared login", "Real Chromium", "Human + AI"]
+    traits: ["Sidebar browser", "Multi-step", "Autonomous"]
   },
   "mcp:playwright-mcp": {
     url: "browser://playwright-mcp",
-    traits: ["Accessibility tree", "Standard MCP"]
+    traits: ["External window", "Accessibility tree", "Standard MCP"]
   },
   "mcp:chrome-devtools-mcp": {
     url: "browser://chrome-devtools",
-    traits: ["DOM & console", "Network debug", "CDP"]
+    traits: ["External window", "DOM & console", "CDP"]
   }
 };
 function browserMetaFor(plugin) {
   if (!plugin) return { url: "browser://none", traits: [] };
-  if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id];
+  const isExternal = isExternalBrowserPlugin(plugin);
+  const surfaceTrait = isExternal ? "External window" : "Sidebar browser";
+  const known = BROWSER_META[plugin.id];
+  if (known) {
+    const rest = known.traits.filter((tr2) => tr2 !== "External window" && tr2 !== "Sidebar browser");
+    return { url: known.url, traits: [surfaceTrait, ...rest] };
+  }
   const slug = String(plugin.id || "custom").replace(/^(builtin|dsh|mcp|provider):/, "").replace(/[^a-z0-9._-]+/gi, "-").toLowerCase();
   return {
     url: `browser://${slug || "custom"}`,
-    traits: plugin.kind === "mcp" ? ["Standard MCP", "Browser slot"] : ["Browser slot"]
+    traits: plugin.kind === "mcp" ? [surfaceTrait, "Standard MCP"] : [surfaceTrait, "Browser slot"]
   };
 }
 
@@ -58251,6 +58760,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
+  const externalBrowser = isExternalBrowserPlugin(plugin);
   const fresh = useJustActivated(isActive);
   const subtitle = plugin.error ? hostText(plugin.error) : plugin.status === "restart-required" ? t("Restart required") : desc;
   const tone = plugin.status === "error" || plugin.killed || plugin.status === "unverifiable" || plugin.error && !plugin.consentRequired ? "error" : plugin.status === "restart-required" || plugin.consentRequired ? "warn" : void 0;
@@ -58278,6 +58788,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
           "span",
           { className: "bt-plg-name" },
           (0, import_react63.createElement)("span", { className: "bt-plg-label" }, name),
+          externalBrowser && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("External window")) : null,
           plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
           plugin.killed ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
           plugin.consentRequired ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
@@ -58304,7 +58815,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     plugin.author || null
   ].filter(Boolean).join(" · ");
   const hasDetailRows = Boolean(
-    plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
+    plugin.slot === "browser" || plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
   );
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
   return (0, import_react63.createElement)(
@@ -58369,6 +58880,11 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     hasDetailRows ? (0, import_react63.createElement)(
       Section2,
       { title: t("Details") },
+      plugin.slot === "browser" ? (0, import_react63.createElement)(
+        Row4,
+        { label: t("Browser window") },
+        (0, import_react63.createElement)("span", { className: "bt-chip" }, isExternalBrowserPlugin(plugin) ? t("External window") : t("Sidebar browser"))
+      ) : null,
       plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Package") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.packageName)) : null,
       plugin.installSpec && plugin.installSpec !== plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Source") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.installSpec)) : null,
       plugin.mcp?.url ? (0, import_react63.createElement)(Row4, { label: t("URL") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.mcp.url)) : null,
@@ -58555,7 +59071,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Package or repository"),
             disabled,
             value: spec,
-            placeholder: "dsh-ego-browser / github:owner/repo / /path/to/plugin",
+            placeholder: "my-dsh-plugin / github:owner/repo / /path/to/plugin",
             onChange: (e) => setSpec(e.target.value)
           })
         ) : [
@@ -58612,7 +59128,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Tool prefixes"),
             disabled,
             value: prefixes,
-            placeholder: "ego_, browser_",
+            placeholder: "my_tool_, browser_",
             onChange: (e) => setPrefixes(e.target.value)
           })
         ),
@@ -60481,7 +60997,8 @@ var PROVIDERS_CSS = `
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
-@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto}}
+@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `;
 
@@ -61123,8 +61640,8 @@ var SECTION_TOURS = {
       cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
       fallback: {
         target: "open-plugins",
-        title: "Turn on Automation tasks in DSH",
-        cue: "Switch on Automation tasks on the Plugins page in Settings."
+        title: "Turn on scheduled tasks",
+        cue: "Turn on scheduled tasks to run prompts automatically on a schedule."
       }
     }
   ],
@@ -64150,6 +64667,36 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
   {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "items": [
+          "优化 ChatGPT 订阅 Prompt Cache 命中率与思考强度切换：保留系统提示词缓存前缀、透传会话亲和头、支持多步工具调用保留加密推理，并可选择和记住推理思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "增强网页读取：新增自动抓取模式，直连失败或遇到动态渲染页时自动回退到隔离浏览器渲染",
+          "修复会话偶发无法输入与焦点抢占问题，并新增失控循环/重复重试可见暂停护栏，避免异常卡死消耗额度",
+          "修复桌面端账号菜单无法打开定时任务的问题，支持一键开启定时任务",
+          "全面修复窄宽卡片与设置行字体挤压、开关裁切和宽度溢出，支持弹窗打开时拖动窗口，并优化 Bot 侧边栏收起/展开动效",
+          "修复外部浏览器插件侧边栏状态判断、从内置插件目录移除 Ego Lite，并修复 DSH 插件态启动报错与退出时 SQLite 句柄竞态"
+        ],
+        "intro": "重点提升 ChatGPT 订阅体验、macOS 原地自动更新与网页读取成功率，并修复输入框锁死、防死循环耗额度、定时任务入口与多处界面细节。"
+      },
+      "en": {
+        "items": [
+          "Improved ChatGPT subscription prompt cache hit rates and added selectable, persisted reasoning effort levels across Bot settings and the model switcher",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement so macOS users no longer need to manually re-download DMGs",
+          "Added automatic web-fetch mode with an isolated, SSRF-guarded browser fallback for JS-heavy and anti-bot pages",
+          "Fixed composer input locks and focus stealing, and added visible pause guards with resume controls to prevent runaway tool loops and retry storms from burning quota",
+          "Fixed desktop Scheduled Tasks failing to open from the account menu and added one-click schedule enablement",
+          "Fixed narrow settings/switch label squeezing and layout overflows, kept the top window drag strip active while modals are open, and smoothed Bot sidebar collapse/expand motion",
+          "Fixed external browser plugin sidebar status detection, removed Ego Lite from the built-in catalog, and fixed DSH plugin-host startup crashes and SQLite shutdown handle races"
+        ],
+        "intro": "Improves ChatGPT subscription caching and reasoning effort, adds macOS in-place auto-updates and resilient web fetching, and fixes input locks, runaway loop protection, scheduled tasks, and UI polish."
+      }
+    }
+  },
+  {
     "version": "0.4.1",
     "date": "2026-11-27",
     "notes": {
@@ -65332,6 +65879,97 @@ function createConnectionFeedback(onChange, {
   };
 }
 
+// src/client/host-service.js
+var EMPTY_SESSION_STATUS = /* @__PURE__ */ new Map();
+function hasContextProperty(ctx, name) {
+  const props = ctx?.reflect?.props;
+  return Boolean(props && Object.prototype.hasOwnProperty.call(props, name));
+}
+function readServiceMember(ctx, serviceName, propName) {
+  const dotted = `${serviceName}.${propName}`;
+  const direct = ctx?.get?.(dotted);
+  if (direct !== void 0) return direct;
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  return ctx?.get?.(serviceName)?.[propName];
+}
+function callServiceMethod(ctx, serviceName, methodName, ...args) {
+  const dotted = `${serviceName}.${methodName}`;
+  const direct = ctx?.get?.(dotted);
+  if (typeof direct === "function") return direct(...args);
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  const service2 = ctx?.get?.(serviceName);
+  return typeof service2?.[methodName] === "function" ? service2[methodName](...args) : void 0;
+}
+function createSessionStatusSource(ctx) {
+  const uiSession = ctx.uiSession;
+  const listeners3 = /* @__PURE__ */ new Set();
+  let disposed = false;
+  let active = null;
+  let unsubActive = null;
+  let dottedSource = null;
+  let fallbackSource = null;
+  const emit = () => {
+    if (disposed) return;
+    for (const listener of Array.from(listeners3)) listener();
+  };
+  const rebind = () => {
+    if (disposed) return;
+    const next = dottedSource ?? fallbackSource ?? null;
+    if (next === active) return;
+    unsubActive?.();
+    unsubActive = null;
+    active = next;
+    if (active && typeof active.subscribe === "function") {
+      unsubActive = active.subscribe(emit);
+    }
+    emit();
+  };
+  const dottedFiber = typeof ctx.inject === "function" ? ctx.inject(["uiSession.sessionStatus"], (scope) => {
+    scope.effect(() => {
+      if (disposed) return () => {
+      };
+      const status = scope["uiSession.sessionStatus"];
+      dottedSource = status && typeof status.getSnapshot === "function" ? status : null;
+      rebind();
+      return () => {
+        dottedSource = null;
+        rebind();
+      };
+    }, "ds-bot: uiSession.sessionStatus");
+  }) : null;
+  if (!hasContextProperty(ctx, "uiSession.sessionStatus")) {
+    const direct = uiSession?.sessionStatus;
+    if (direct && typeof direct.getSnapshot === "function") {
+      fallbackSource = direct;
+      rebind();
+    }
+  }
+  return {
+    source: {
+      getSnapshot: () => disposed ? EMPTY_SESSION_STATUS : active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
+      subscribe: (listener) => {
+        if (disposed) return () => {
+        };
+        listeners3.add(listener);
+        return () => {
+          listeners3.delete(listener);
+        };
+      }
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      unsubActive?.();
+      unsubActive = null;
+      active = null;
+      dottedSource = null;
+      fallbackSource = null;
+      listeners3.clear();
+      dottedFiber?.dispose?.();
+    }
+  };
+}
+
 // src/client/settings-shell.js
 var import_react80 = require("react");
 var import_react_dom12 = require("react-dom");
@@ -65797,13 +66435,13 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   const carrier = globalThis.dshDesktop;
   const update = desktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : void 0);
   const connectionState = {
-    getSnapshot: () => ctx.get("connection")?.state.getSnapshot(),
-    subscribe: (listener) => ctx.get("connection")?.state.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "connection", "state")?.getSnapshot(),
+    subscribe: (listener) => readServiceMember(ctx, "connection", "state")?.subscribe(listener) ?? (() => {
     })
   };
   const settingsShortcut = {
-    getSnapshot: () => ctx.get("shortcuts")?.catalog.getSnapshot().find((row) => row.id === "settings.open"),
-    subscribe: (listener) => ctx.get("shortcuts")?.catalog.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "shortcuts", "catalog")?.getSnapshot().find((row) => row.id === "settings.open"),
+    subscribe: (listener) => readServiceMember(ctx, "shortcuts", "catalog")?.subscribe(listener) ?? (() => {
     })
   };
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
@@ -65815,7 +66453,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
     return {
       ...base,
       preferences: settingsPreferences(ctx),
-      reconnect: () => ctx.get("connection")?.reconnect(),
+      reconnect: () => callServiceMethod(ctx, "connection", "reconnect"),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
@@ -65912,7 +66550,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
             const timestamp = Date.now();
             await scope.configForms.developerTools.setEnabled(enabled);
             if (previous !== void 0 && previous !== enabled && form.getSnapshot().value?.enabled === enabled) {
-              ctx.get("productAnalytics")?.track("code_work_view_toggle", { is_enabled: enabled }, timestamp);
+              callServiceMethod(ctx, "productAnalytics", "track", "code_work_view_toggle", { is_enabled: enabled }, timestamp);
             }
           }
         })
@@ -65942,7 +66580,10 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose();
+      for (const handle of fibers) {
+        if (typeof handle === "function") handle();
+        else handle?.dispose?.();
+      }
       for (const off of disposers) off();
     }
   };
@@ -67814,6 +68455,7 @@ var ACCOUNT_MODELS_WAIT_MS = 2e4;
 var SIGNED_OUT = /* @__PURE__ */ new Set(["ACCOUNT_SIGN_IN_REQUIRED", "ACCOUNT_SIGNED_OUT", "ACCOUNT_TOKEN_INVALID"]);
 var KEY_CODES = /* @__PURE__ */ new Set(["MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "AUTH"]);
 var CREDENTIAL_CODES = /* @__PURE__ */ new Set([...KEY_CODES, ...SIGNED_OUT]);
+var PAUSED_CODES = /* @__PURE__ */ new Set(["TURN_PAUSED_LOOP", "TURN_PAUSED_SWITCH_LIMIT"]);
 function failureText2(code, { name, provider, status }) {
   switch (code) {
     case "MISSING_CREDENTIAL":
@@ -67847,6 +68489,10 @@ function failureText2(code, { name, provider, status }) {
       return t("This conversation no longer fits in the context window. Start a new part to continue.");
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return t("The conversation could not be compacted for this model. Try again or choose another model.");
+    case "TURN_PAUSED_LOOP":
+      return t("{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.", { name });
+    case "TURN_PAUSED_SWITCH_LIMIT":
+      return t("{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.", { name });
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -68055,7 +68701,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     const toggles = keyHere && (fix === "key" || fix === "rekey");
     return (0, import_react85.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
-  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
+  const paused = PAUSED_CODES.has(data.code);
+  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? paused ? t("Continue") : t("Retry") : paused ? t("Continuing…") : t("Retrying…"));
   const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
   return (0, import_react85.createElement)(
@@ -70440,13 +71087,14 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     return (0, import_react94.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DS Bot app."));
   }
   if (state.ids.length === 0) {
+    const paneMode = browserPaneMode(roster.plugins?.slots?.browser);
     return (0, import_react94.createElement)(
       "div",
       { className: "bt-browser-empty-mark" },
       (0, import_react94.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
       (0, import_react94.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-      (0, import_react94.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-      (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
+      (0, import_react94.createElement)("div", { className: "bt-muted" }, paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+      paneMode.isExternal ? actions.openSettings ? (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : null : (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
     );
   }
   return (0, import_react94.createElement)(
@@ -71366,7 +72014,7 @@ function shouldCheckBrowserCover(records) {
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
 }
-function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold, browserSlot }) {
   const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
   const pageUrl = visibleUrl(page.url);
@@ -71475,11 +72123,12 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
     input.current?.blur();
   }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
   const secure = /^https:/i.test(pageUrl);
+  const paneMode = browserPaneMode(browserSlot, hold);
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react95.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": viewLabel },
-    bot && actions.browserTakeover ? (0, import_react95.createElement)(
+    bot && actions.browserTakeover && paneMode.showTakeover ? (0, import_react95.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
       (0, import_react95.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
@@ -71489,6 +72138,11 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
       )
+    ) : bot && paneMode.isExternal ? (0, import_react95.createElement)(
+      "div",
+      { className: "bt-browser-takeover", "data-external": "" },
+      (0, import_react95.createElement)("span", null, t("{name} opens in an external window, not this sidebar", { name: paneMode.activeLabel })),
+      actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch")) : null
     ) : null,
     (0, import_react95.createElement)(
       "div",
@@ -71614,8 +72268,8 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         { className: "bt-browser-empty" },
         bot ? (0, import_react95.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react95.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react95.createElement)(GlobeIcon2)),
         (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, bot ? t("{name}'s browser", { name: bot.name }) : t("Browser")),
-        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
-        bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
+        bot && paneMode.isExternal ? actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : null : bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -71919,7 +72573,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       { key: "workspace", className: "bt-panel-view bt-panel-workspace", hidden: view !== "workspace" },
       workspace.render(workspace.active, view === "workspace")
     ) : null,
-    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
+    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold, browserSlot: roster.plugins?.slots?.browser }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react95.createElement)(DetailsDrawer, {
@@ -71990,9 +72644,12 @@ var BROWSER_CSS = `
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
+.bt-browser-takeover>span{min-width:0;overflow-wrap:anywhere}
 .bt-browser-takeover[data-held]{background:var(--bt-active)}
-.bt-browser-takeover-actions{display:flex;gap:6px}
-.bt-browser-takeover button{border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer}
+.bt-browser-takeover-actions{display:flex;gap:6px;flex:none}
+.bt-browser-takeover button{flex:none;white-space:nowrap;min-height:28px;border:1px solid var(--bt-line-2);border-radius:8px;padding:4px 10px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer;transition:background-color .12s ease}
+.bt-browser-takeover button:hover{background:var(--bt-hover)}
+.bt-browser-takeover button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-browser-bar .bt-icon-btn:disabled{opacity:.35;cursor:default;background:none}
 .bt-browser-address{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:32px;margin:0 4px;padding:0 12px;border-radius:999px;background:var(--bt-hover);border:.5px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-browser-address:hover{background:var(--bt-active)}
@@ -74878,11 +75535,31 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
 }
 
 // src/client/index.js
-var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
+var inject = ["sessions", "uiWorkspace", "uiConversation", "uiSession", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
 function apply(ctx) {
   ctx.effect(() => installTitle(document), "ds-bot: window title");
-  ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
+  ctx.effect(() => {
+    const initialLocale = ctx.get("locale");
+    let offInitial = initialLocale ? installLocale(initialLocale) : null;
+    const releaseInitial = () => {
+      const off = offInitial;
+      offInitial = null;
+      off?.();
+    };
+    const fiber = ctx.inject(["locale"], (scope) => {
+      scope.effect(() => {
+        releaseInitial();
+        return installLocale(scope.locale);
+      }, "ds-bot: interface copy");
+    });
+    return () => {
+      releaseInitial();
+      return fiber.dispose();
+    };
+  }, "ds-bot: interface copy lifecycle");
+  const sessionStatus = createSessionStatusSource(ctx);
+  ctx.effect(() => () => sessionStatus.dispose(), "ds-bot: session status");
   migrateStorage();
   const PREFS_KEY = STORAGE.prefs;
   let savedPrefs = {};
@@ -74915,9 +75592,8 @@ function apply(ctx) {
   const agentNewInFlight = /* @__PURE__ */ new Map();
   const isAgentSessionId = (id) => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id);
   const agentOfSession = (id) => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id);
-  const workspaces = ctx.get("workspaces");
   const workspaceOf = (sessionId) => {
-    const items = workspaces?.list?.getSnapshot()?.items ?? [];
+    const items = readServiceMember(ctx, "workspaces", "list")?.getSnapshot()?.items ?? [];
     return items.find((item) => item.sessionIds?.includes(sessionId))?.workspaceId;
   };
   let expected2 = null;
@@ -75784,7 +76460,7 @@ function apply(ctx) {
   actions.canSignIn = () => Boolean(actions.signInEntry());
   actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
   actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
-  actions.accountT = () => ctx.get("locale").bind("settings.account");
+  actions.accountT = () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key);
   actions.hasPlugins = () => true;
   actions.openPlugins = (focus = null) => actions.openSettings("plugins", focus);
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
@@ -76044,13 +76720,12 @@ function apply(ctx) {
     const offRoster = roster.subscribe(() => {
       questionDrafts.reconcileRoster(roster.getSnapshot());
     });
-    const sessionStatus = ctx.get("uiSession")?.sessionStatus;
-    const offStatus = sessionStatus?.subscribe?.(() => {
-      questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot());
+    const offStatus = sessionStatus.source.subscribe(() => {
+      questionDrafts.reconcileBlocking(sessionStatus.source.getSnapshot(), roster.getSnapshot());
     });
     return () => {
       offRoster();
-      offStatus?.();
+      offStatus();
     };
   }, "ds-bot: rescue interrupted question drafts");
   ctx.effect(() => noticeApprovals({
@@ -76139,7 +76814,7 @@ function apply(ctx) {
   actions.newTerminal = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("terminal");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "terminal");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
@@ -76148,49 +76823,67 @@ function apply(ctx) {
   actions.openFiles = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("files");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "files");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
   };
-  ctx.effect(() => {
-    const sidebar = ctx.get("sidebarRight");
-    if (!sidebar) return void 0;
-    let open = rightColumnOpen(document);
-    const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
-    const collapseColumn = () => {
-      try {
-        if (sidebar.isExpanded()) sidebar.toggleExpanded();
-      } catch (error) {
-        actions.reportError(error, "right-sidebar");
+  ctx.inject(["sidebarRight"], (scope) => {
+    scope.effect(() => {
+      let open = rightColumnOpen(document);
+      const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
+      const collapseColumn = () => {
+        try {
+          if (callServiceMethod(scope, "sidebarRight", "isExpanded")) callServiceMethod(scope, "sidebarRight", "toggleExpanded");
+        } catch (error) {
+          actions.reportError(error, "right-sidebar");
+        }
+      };
+      const observer2 = new MutationObserver(() => {
+        const next = rightColumnOpen(document);
+        const opening = next && !open;
+        open = next;
+        const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
+        if (verdict === "close-drawer") actions.closePanel();
+        else if (verdict === "collapse-column") collapseColumn();
+      });
+      observer2.observe(document.documentElement, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: RIGHTBAR_ATTRIBUTES
+      });
+      let offDirectMounted = null;
+      const releaseDirectMounted = () => {
+        const off = offDirectMounted;
+        offDirectMounted = null;
+        off?.();
+      };
+      const mountedFiber = scope.inject(["sidebarRight.mounted"], (mountedScope) => {
+        mountedScope.effect(() => {
+          releaseDirectMounted();
+          const off = mountedScope["sidebarRight.mounted"]?.subscribe?.(() => switchWindow.moved());
+          return () => {
+            off?.();
+          };
+        }, "ds-bot: sidebarRight.mounted");
+      });
+      if (!hasContextProperty(scope, "sidebarRight.mounted")) {
+        offDirectMounted = scope.sidebarRight?.mounted?.subscribe?.(() => switchWindow.moved()) ?? null;
       }
-    };
-    const observer2 = new MutationObserver(() => {
-      const next = rightColumnOpen(document);
-      const opening = next && !open;
-      open = next;
-      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
-      if (verdict === "close-drawer") actions.closePanel();
-      else if (verdict === "collapse-column") collapseColumn();
-    });
-    observer2.observe(document.documentElement, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: RIGHTBAR_ATTRIBUTES
-    });
-    const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui.getSnapshot().details !== null;
-    const offUi = ui.subscribe(() => {
-      const next = ui.getSnapshot().details !== null;
-      if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
-      drawer = next;
-    });
-    return () => {
-      observer2.disconnect();
-      offMounted();
-      offUi();
-    };
-  }, "ds-bot: one right panel");
+      let drawer = ui.getSnapshot().details !== null;
+      const offUi = ui.subscribe(() => {
+        const next = ui.getSnapshot().details !== null;
+        if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
+        drawer = next;
+      });
+      return () => {
+        observer2.disconnect();
+        releaseDirectMounted();
+        mountedFiber.dispose();
+        offUi();
+      };
+    }, "ds-bot: one right panel");
+  });
   const BOT_PRIORITY = -100;
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name,
@@ -76513,7 +77206,7 @@ function apply(ctx) {
   ctx.effect(() => watchBotCompletions({
     roster,
     sessions: ctx.sessions.list,
-    statuses: ctx.get("uiSession")?.sessionStatus,
+    statuses: sessionStatus.source,
     unread: botCompletions,
     ui
   }), "ds-bot: sidebar completions");

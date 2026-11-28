@@ -8,8 +8,8 @@ export const withRows = (rt, sessionId, result) => (Number.isInteger(result?.fro
 const busy = (rt, roomId) => [...rt.roomProgress.values()].some(round => round.roomId === roomId)
 // These tests freeze only setTimeout. A one-shot interval stays a real event-loop turn,
 // so timer and threadpool work can finish instead of being starved by setImmediate.
-export const loopTurn = () => new Promise((resolve) => {
-  const timer = setInterval(() => { clearInterval(timer); resolve() }, 1)
+export const loopTurn = (ms = 5) => new Promise((resolve) => {
+  const timer = setInterval(() => { clearInterval(timer); resolve() }, ms)
 })
 // Awaits a group_relay + afterRound promise with a real-clock safety bound that ignores
 // mocked setTimeout (tests often mock setTimeout to drive group timers).

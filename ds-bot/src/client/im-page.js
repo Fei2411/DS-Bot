@@ -431,5 +431,7 @@ export const IM_CSS = `
 .bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-im-remove{justify-content:center;color:var(--bt-danger)}
 .bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
+@container (max-width:440px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
+@media (max-width:768px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
 @media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank::after,.bt-im-qr{animation:none}}
 `

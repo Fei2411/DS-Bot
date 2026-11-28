@@ -6,9 +6,64 @@ const RESOURCE = 'https://api.openai.com/v1'
 const PLAN_SCOPE = 'chatgpt.tokens.use.direct'
 const SCOPES = `openid profile email offline_access resource.invoke ${PLAN_SCOPE}`
 const TERMINAL = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused'])
+const REASONING_LEVELS = {
+  none: ['off', 'none'],
+  minimal: ['minimal', 'minimal'],
+  low: ['low', 'low'],
+  medium: ['medium', 'medium'],
+  high: ['high', 'high'],
+  xhigh: ['xhigh', 'xhigh'],
+  max: ['max', 'max'],
+}
+const INPUT_MODALITIES = new Set(['text', 'image'])
 const random = () => randomBytes(32).toString('base64url')
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
   && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b))
+
+function reasoningEffortsOf(model) {
+  const raw = Array.isArray(model?.supported_reasoning_levels)
+    ? model.supported_reasoning_levels
+    : Array.isArray(model?.supported_reasoning_efforts)
+      ? model.supported_reasoning_efforts
+      : undefined
+  if (raw === undefined) return undefined
+  if (raw.length === 0) return false
+  // DSH's llm-pi-ai folds unset effort (Default) and explicit 'off' into the same
+  // omitted pi-ai option, which openai-responses sends as effort='none' whenever
+  // thinkingLevelMap.off is non-null. Only advertise 'off' when the model's own
+  // default is 'none', so Default never silently disables thinking on models that
+  // think by default (e.g. default_reasoning_level: 'medium').
+  const defaultLevel = typeof model?.default_reasoning_level === 'string'
+    ? model.default_reasoning_level.trim().toLowerCase()
+    : ''
+  let recognized = 0
+  const efforts = {}
+  for (const item of raw) {
+    const value = typeof item === 'string' ? item : item?.effort
+    const mapped = typeof value === 'string' ? REASONING_LEVELS[value.trim().toLowerCase()] : undefined
+    if (!mapped) continue
+    recognized += 1
+    if (mapped[0] === 'off' && defaultLevel !== 'none') continue
+    efforts[mapped[0]] = mapped[1]
+  }
+  if (Object.keys(efforts).some(level => level !== 'off')) return efforts
+  return recognized > 0 ? false : undefined
+}
+
+function modelSummary(model) {
+  const contextWindow = Number.isInteger(model.context_window) && model.context_window > 0 ? model.context_window : undefined
+  const inputModalities = Array.isArray(model.input_modalities)
+    ? [...new Set(model.input_modalities.filter(kind => INPUT_MODALITIES.has(kind)))]
+    : []
+  const reasoningEfforts = reasoningEffortsOf(model)
+  return {
+    id: model.slug,
+    name: model.display_name,
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(inputModalities.length > 0 ? { inputModalities } : {}),
+    ...(reasoningEfforts !== undefined ? { reasoningEfforts } : {}),
+  }
+}
 
 export class ChatGPTSignInError extends Error {
   constructor(state, code = 'request-failed') {
@@ -32,6 +87,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
   let activeSignIn
   let signingOut = false
   let credentialWriteFailed = false
+  const modelReasoning = new Map()
   let queue = Promise.resolve()
   const exclusive = work => {
     const result = queue.then(work)
@@ -293,6 +349,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
         }
       } catch {}
       await clearTokens(false)
+      modelReasoning.clear()
       setState('signed-out')
       return { ...status(), remoteRevocationConfirmed: revoked }
     }).finally(() => { signingOut = false })
@@ -304,8 +361,17 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     const body = await json(response)
     if (!Array.isArray(body?.models)) throw fail('temporarily-unavailable', 'invalid-models')
     recoverConnection()
+    modelReasoning.clear()
+    for (const model of body.models) {
+      const slug = typeof model?.slug === 'string' ? model.slug.trim().toLowerCase() : ''
+      if (!slug) continue
+      const efforts = reasoningEffortsOf(model)
+      if (efforts === false) modelReasoning.set(slug, false)
+      else if (efforts !== undefined) modelReasoning.set(slug, true)
+    }
     return body.models.filter(model => model?.visibility === 'list' && typeof model.slug === 'string' && typeof model.display_name === 'string')
-      .map(model => ({ id: model.slug, name: model.display_name }))
+      .map(modelSummary)
   }
-  return { signIn, refresh, signOut, getAccessToken, listModels, status }
+  const isReasoningModel = id => (typeof id === 'string' ? modelReasoning.get(id.trim().toLowerCase()) : undefined)
+  return { signIn, refresh, signOut, getAccessToken, listModels, isReasoningModel, status }
 }
