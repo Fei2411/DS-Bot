@@ -2,23 +2,24 @@ const HIGHLIGHT_MS = 1800
 const HIGHLIGHT_CLASS = 'bt-message-jump'
 
 export const messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn)
-  ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true }
+  ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true, role: target.role }
   : null
 
-export const messageAnchor = (sessionId, turn) => sessionId !== undefined
-  ? { 'data-bt-message-session': sessionId, 'data-bt-message-turn': Number.isInteger(turn) ? turn : undefined }
+export const messageAnchor = (sessionId, turn, role) => sessionId !== undefined
+  ? { 'data-bt-message-session': sessionId, 'data-bt-message-turn': Number.isInteger(turn) ? turn : undefined, 'data-bt-message-role': role }
   : undefined
 
 const normalized = text => String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
 
-export function findMessageRow(root, { sessionId, turn, snippet, synthetic }, allowFallback = true) {
+export function findMessageRow(root, { sessionId, turn, snippet, synthetic, role }, allowFallback = true) {
   const selector = synthetic ? '[data-bt-message-session]' : `[data-bt-message-turn="${turn}"]`
   const rows = [...(root?.querySelectorAll(selector) ?? [])]
     .filter(row => row.getAttribute('data-bt-message-session') === sessionId)
   const match = normalized(snippet).replace(/^…/, '')
   const matches = match ? rows.filter(row => normalized(row.textContent).includes(match)) : []
-  if (synthetic) return matches.length === 1 ? matches[0] : undefined
-  return matches[0] ?? (allowFallback ? rows[0] : undefined)
+  const preferred = role === undefined ? matches : matches.filter(row => row.getAttribute('data-bt-message-role') === role)
+  if (synthetic) return preferred.length === 1 ? preferred[0] : undefined
+  return preferred[0] ?? (allowFallback ? (matches[0] ?? rows[0]) : undefined)
 }
 
 const highlights = new WeakMap()

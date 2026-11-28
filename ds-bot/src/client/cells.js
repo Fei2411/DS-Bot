@@ -81,7 +81,7 @@ export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, s
   const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
   const useReadUi = useUi ?? useNullUi
   const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
-  return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, ...(anchor ? messageAnchor(sessionId, turn) : undefined), onClickCapture: onClick },
+  return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, ...(anchor ? messageAnchor(sessionId, turn, 'response') : undefined), onClickCapture: onClick },
     cleaned.map((text, index) => {
       const first = index === 0
       const last = index === cleaned.length - 1
@@ -518,7 +518,7 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
   const fileList = presentedFiles(files)
   const filesOnly = visibleTexts.length === 0 && fileList.length > 0
   const fileCards = fileList.length > 0 ? h(PresentedFiles, { files: fileList, openFile, actions }) : null
-  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id, ...messageAnchor(anchorSessionId, turn) },
+  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id, ...messageAnchor(anchorSessionId, turn, 'response') },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
@@ -709,7 +709,7 @@ function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, r
     : ''
   const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
   const hasMeta = row.via !== undefined || (showTime && Number.isFinite(row.time))
-  return h('div', { className: 'bt-urow', ...messageAnchor(row.sessionId, row.turn) },
+  return h('div', { className: 'bt-urow', ...messageAnchor(row.sessionId, row.turn, 'prompt') },
     attachments,
     showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
       control ? h('div', { className: 'bt-fold-body' }, area) : area,

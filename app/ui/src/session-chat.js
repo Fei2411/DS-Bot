@@ -722,7 +722,7 @@ const UserRow = memo(function UserRow({ row, sessionId, parent, mode, ancestors,
       sentAt ? h('span', { className: 'dsb-dsh-msg-time', title: timeTitle }, sentAt) : null,
       row.text !== '' ? h(CopyTextButton, { text: copyText, className: 'dsb-dsh-act-btn' }) : null) : null)
   }
-  return h('div', { ref: container, className: 'bt-umsg', ...messageAnchor(sessionId, row.turn) },
+  return h('div', { ref: container, className: 'bt-umsg', ...messageAnchor(sessionId, row.turn, 'prompt') },
     h('div', { className: 'bt-ustack' },
       h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode, ancestors }),
       row.text !== '' ? h('div', { className: 'bt-ubody', title: timeTitle, 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },

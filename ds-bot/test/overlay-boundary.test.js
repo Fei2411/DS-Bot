@@ -166,13 +166,13 @@ test('command palette opens a message hit with its turn and snippet', () => {
     start: 'launch', token: 1,
     roster: { ...EMPTY_ROSTER, bots: [bot], byId: { session: bot } },
     actions: { openSession: (...args) => calls.push(args), closePalette() {} },
-    useSessions: select => select({ byId: { session: { projectionValues: { turnOutline: [{ turn: 6, response: 'Prepare the launch' }] } } } }),
+    useSessions: select => select({ byId: { session: { projectionValues: { turnOutline: [{ turn: 6, prompt: 'Prepare the launch', response: 'Prepare the launch' }] } } } }),
   }))
   const [input] = collect(tree, node => node.type === 'input')
   input.props.onKeyDown({ key: 'Enter', nativeEvent: {}, preventDefault() {} })
   assert.equal(calls.length, 1)
   assert.equal(calls[0][0], 'session')
-  assert.deepEqual({ ...calls[0][1] }, { turn: 6, snippet: 'Prepare the launch' })
+  assert.deepEqual({ ...calls[0][1] }, { turn: 6, snippet: 'Prepare the launch', role: 'response' })
 })
 
 function loadModule(react, { consoleError = () => {} } = {}) {

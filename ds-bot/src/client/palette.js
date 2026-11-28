@@ -36,12 +36,12 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
       for (let index = outline.length - 1; index >= 0 && hits.length < 30; index -= 1) {
         const entry = outline[index]
         if (hidden.includes(entry.turn)) continue
-        for (const raw of [entry.response, entry.prompt]) {
-          const text = stripHeader(raw ?? '').replace(/\s+/g, ' ').trim()
+        for (const role of ['response', 'prompt']) {
+          const text = stripHeader(entry[role] ?? '').replace(/\s+/g, ' ').trim()
           const at = text.toLowerCase().indexOf(wanted)
           if (at < 0) continue
           const from = Math.max(0, at - 24)
-          hits.push([id, entry.turn, (from > 0 ? '…' : '') + text.slice(from, at + wanted.length + 60), entry._synthetic === true])
+          hits.push([id, entry.turn, (from > 0 ? '…' : '') + text.slice(from, at + wanted.length + 60), entry._synthetic === true, role])
           break
         }
       }
@@ -69,13 +69,13 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     run: () => actions.openAgent(agent.id),
   }))
   if (agents.length) sections.push(['DSH Agent', agents])
-  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic]) => {
+  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic, role]) => {
     const bot = roster.byId[id]
     const room = roster.roomsById[id]
     return {
       key: `${id}:${turn}`, title: bot?.name ?? room?.name ?? t('Bot'), subtitle: snippet,
       avatar: bot ? h(BotAvatar, { bot, size: 24, badge: false, live: false }) : h(RoomAvatar, { room, roster, size: 24 }),
-      run: () => actions.openSession(id, synthetic ? { turn, snippet, synthetic } : { turn, snippet }),
+      run: () => actions.openSession(id, { turn, snippet, role, ...(synthetic ? { synthetic } : {}) }),
     }
   })
   if (messages.length) sections.push([t('Messages'), messages])

@@ -25246,16 +25246,17 @@ function writeSkinSurfaceVars(doc, read) {
 // src/client/message-jump.js
 var HIGHLIGHT_MS = 1800;
 var HIGHLIGHT_CLASS = "bt-message-jump";
-var messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn) ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true } : null;
-var messageAnchor = (sessionId, turn) => sessionId !== void 0 ? { "data-bt-message-session": sessionId, "data-bt-message-turn": Number.isInteger(turn) ? turn : void 0 } : void 0;
+var messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn) ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true, role: target.role } : null;
+var messageAnchor = (sessionId, turn, role) => sessionId !== void 0 ? { "data-bt-message-session": sessionId, "data-bt-message-turn": Number.isInteger(turn) ? turn : void 0, "data-bt-message-role": role } : void 0;
 var normalized = (text) => String(text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-function findMessageRow(root, { sessionId, turn, snippet, synthetic }, allowFallback = true) {
+function findMessageRow(root, { sessionId, turn, snippet, synthetic, role }, allowFallback = true) {
   const selector = synthetic ? "[data-bt-message-session]" : `[data-bt-message-turn="${turn}"]`;
   const rows2 = [...root?.querySelectorAll(selector) ?? []].filter((row) => row.getAttribute("data-bt-message-session") === sessionId);
   const match = normalized(snippet).replace(/^…/, "");
   const matches3 = match ? rows2.filter((row) => normalized(row.textContent).includes(match)) : [];
-  if (synthetic) return matches3.length === 1 ? matches3[0] : void 0;
-  return matches3[0] ?? (allowFallback ? rows2[0] : void 0);
+  const preferred = role === void 0 ? matches3 : matches3.filter((row) => row.getAttribute("data-bt-message-role") === role);
+  if (synthetic) return preferred.length === 1 ? preferred[0] : void 0;
+  return preferred[0] ?? (allowFallback ? matches3[0] ?? rows2[0] : void 0);
 }
 var highlights = /* @__PURE__ */ new WeakMap();
 function highlightMessage(row) {
@@ -45872,7 +45873,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const fold = { data, text, shown, folded, control, onClick: tapTools };
   return (0, import_react38.createElement)(
     "div",
-    { ref: row, className: "bt-umsg", "data-steering": steering || void 0, ...messageAnchor(sessionId, node.location?.turn?.turn ?? data.turn) },
+    { ref: row, className: "bt-umsg", "data-steering": steering || void 0, ...messageAnchor(sessionId, node.location?.turn?.turn ?? data.turn, "prompt") },
     (0, import_react38.createElement)(
       "div",
       { className: "bt-ustack" },
@@ -45949,7 +45950,7 @@ var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, s
   const reactions = useReadUi((state) => msgKey ? state.reactions?.[msgKey] ?? null : null);
   return (0, import_react39.createElement)(
     "div",
-    { className: "bt-astack", "data-lead": lead ? "" : void 0, ...anchor ? messageAnchor(sessionId, turn) : void 0, onClickCapture: onClick },
+    { className: "bt-astack", "data-lead": lead ? "" : void 0, ...anchor ? messageAnchor(sessionId, turn, "response") : void 0, onClickCapture: onClick },
     cleaned.map((text, index) => {
       const first = index === 0;
       const last = index === cleaned.length - 1;
@@ -46387,7 +46388,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
   const fileCards = fileList.length > 0 ? (0, import_react39.createElement)(PresentedFiles, { files: fileList, openFile, actions }) : null;
   return (0, import_react39.createElement)(
     "div",
-    { ref, className: "bt-group-msg", "data-bot-id": bot.id, ...messageAnchor(anchorSessionId, turn) },
+    { ref, className: "bt-group-msg", "data-bot-id": bot.id, ...messageAnchor(anchorSessionId, turn, "response") },
     (0, import_react39.createElement)(
       "span",
       { className: "bt-group-name", style: flat ? void 0 : { color: inkText(colorOf(bot)) } },
@@ -46572,7 +46573,7 @@ function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, r
   const hasMeta = row.via !== void 0 || showTime && Number.isFinite(row.time);
   return (0, import_react39.createElement)(
     "div",
-    { className: "bt-urow", ...messageAnchor(row.sessionId, row.turn) },
+    { className: "bt-urow", ...messageAnchor(row.sessionId, row.turn, "prompt") },
     attachments,
     showBubble ? (0, import_react39.createElement)(
       "div",
@@ -70006,12 +70007,12 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
       for (let index2 = outline2.length - 1; index2 >= 0 && hits.length < 30; index2 -= 1) {
         const entry = outline2[index2];
         if (hidden.includes(entry.turn)) continue;
-        for (const raw of [entry.response, entry.prompt]) {
-          const text = stripHeader(raw ?? "").replace(/\s+/g, " ").trim();
+        for (const role of ["response", "prompt"]) {
+          const text = stripHeader(entry[role] ?? "").replace(/\s+/g, " ").trim();
           const at2 = text.toLowerCase().indexOf(wanted);
           if (at2 < 0) continue;
           const from = Math.max(0, at2 - 24);
-          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60), entry._synthetic === true]);
+          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60), entry._synthetic === true, role]);
           break;
         }
       }
@@ -70053,7 +70054,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     run: () => actions.openAgent(agent.id)
   }));
   if (agents.length) sections.push(["DSH Agent", agents]);
-  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic]) => {
+  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic, role]) => {
     const bot = roster.byId[id];
     const room2 = roster.roomsById[id];
     return {
@@ -70061,7 +70062,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
       title: bot?.name ?? room2?.name ?? t("Bot"),
       subtitle: snippet,
       avatar: bot ? (0, import_react86.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react86.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
-      run: () => actions.openSession(id, synthetic ? { turn, snippet, synthetic } : { turn, snippet })
+      run: () => actions.openSession(id, { turn, snippet, role, ...synthetic ? { synthetic } : {} })
     };
   });
   if (messages.length) sections.push([t("Messages"), messages]);

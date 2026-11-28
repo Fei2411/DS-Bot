@@ -368,7 +368,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
     setToolsOpen(value => !value)
   }
   const fold = { data, text, shown, folded, control, onClick: tapTools }
-  return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined, ...messageAnchor(sessionId, node.location?.turn?.turn ?? data.turn) },
+  return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined, ...messageAnchor(sessionId, node.location?.turn?.turn ?? data.turn, 'prompt') },
     h('div', { className: 'bt-ustack' },
       prepared === undefined
         ? h(ProjectedContent, { ...fold, fullSecrets, revealedSecrets, onToggleSecret: toggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill })
