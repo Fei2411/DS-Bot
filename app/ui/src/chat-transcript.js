@@ -536,7 +536,7 @@ export const Transcript = memo(function Transcript({
     const tried = jumpProgress.current.tried
     const reachedTurnStart = !isRoom && dmChat.log.events.some(event => event.type === 'turn/start' && event.data?.turn === messageJump.turn)
     const row = findMessageRow(node, messageJump, reachedTurnStart || cursor == null || failed || tried.has(cursor))
-    const step = messageJumpStep({ row, waiting: busy, failed, cursor: messageJump.synthetic ? null : cursor }, tried)
+    const step = messageJumpStep({ row, waiting: busy, failed, cursor }, tried)
     if (step === 'load') {
       tried.add(cursor)
       loadEarlierRef.current()

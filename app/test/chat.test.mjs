@@ -339,7 +339,7 @@ test('a parallel part cannot write or clear the viewed part stream', async () =>
   }
 })
 
-function mountRoom(callImpl) {
+function mountRoom(callImpl, ui = {}, uiActions = {}) {
   sandbox.__testCall = callImpl
   const listeners = new Set()
   const sent = []
@@ -355,6 +355,7 @@ function mountRoom(callImpl) {
   }
   const team = {
     actions: {
+      ...uiActions,
       noteSent() {},
       send: async (sessionId, text) => { sent.push([sessionId, text]) },
       speech: () => undefined,
@@ -364,7 +365,7 @@ function mountRoom(callImpl) {
     },
     hooks: {
       useRoster: select => select(roster),
-      useUi: select => select({}),
+      useUi: select => select(ui),
       useSessionStatus: select => select(new Map()),
     },
     chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
@@ -454,6 +455,43 @@ test('group chat cancels queued reload when unmounted during an in-flight reques
     assert.equal(calls, 1, 'unmounted component must not fire queued reload in finally')
   } finally {
     sandbox.__testCall = defaultCall
+  }
+})
+
+test('a synthetic group message jump pages within the searched part until it finds the reply or exhausts it', async () => {
+  for (const found of [true, false]) {
+    const cursors = []
+    const scrolled = []
+    const target = { sessionId: 'r1', turn: 5, snippet: 'Older reply', synthetic: true }
+    const ui = { messageJump: target }
+    const row = {
+      textContent: target.snippet,
+      getAttribute: () => 'r1',
+      scrollIntoView: ({ block }) => scrolled.push(block),
+      classList: { add() {}, remove() {} },
+    }
+    field.querySelectorAll = () => []
+    const room = mountRoom(async (name, body) => {
+      assert.equal(name, 'room-chat')
+      cursors.push(body.cursor?.beforeSeq)
+      if (body.cursor?.beforeSeq === 10 && found) field.querySelectorAll = () => [row]
+      const next = body.cursor === undefined ? { part: 1, beforeSeq: 10 } : { part: 0 }
+      return { roomId: 'r1', items: [], cursor: next }
+    }, ui, {
+      finishMessageJump: (jump) => { assert.equal(jump, target); ui.messageJump = null },
+    })
+    try {
+      for (let i = 0; i < 4; i += 1) {
+        await tick()
+        room.rowsOf()
+      }
+      assert.deepEqual(cursors, [undefined, 10])
+      assert.deepEqual(scrolled, found ? ['center'] : [])
+      assert.equal(ui.messageJump, null)
+    } finally {
+      room.unmount()
+      delete field.querySelectorAll
+    }
   }
 })
 
