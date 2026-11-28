@@ -2435,9 +2435,11 @@ var JA = {
   "Fast": "高速",
   "Multi-step": "複数ステップ",
   "Autonomous": "自律実行",
-  "Shared login": "ログイン共有",
-  "Real Chromium": "実Chromium",
-  "Human + AI": "人＋AI協働",
+  "Sidebar browser": "サイドバーブラウザ",
+  "External window": "外部ウィンドウ",
+  "Browser window": "ブラウザウィンドウ",
+  "{name} opens in an external window, not this sidebar": "{name} は外部ウィンドウで開き、このサイドバーには表示されません",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} は外部ウィンドウで動作するため、{name} はここで開いたページを使いません。このサイドバーで操作するには内蔵ブラウザプラグインに切り替えてください。",
   "Accessibility tree": "アクセシビリティツリー",
   "Standard MCP": "標準MCP",
   "DOM & console": "DOM・コンソール",
@@ -6100,9 +6102,11 @@ var KO = {
   "Fast": "빠른 실행",
   "Multi-step": "다단계",
   "Autonomous": "자율 수행",
-  "Shared login": "로그인 공유",
-  "Real Chromium": "실제 Chromium",
-  "Human + AI": "사람 + AI",
+  "Sidebar browser": "사이드바 브라우저",
+  "External window": "외부 창",
+  "Browser window": "브라우저 창",
+  "{name} opens in an external window, not this sidebar": "{name}은(는) 외부 창에서 열리며 이 사이드바에 표시되지 않습니다",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin}은(는) 외부 창에서 실행되므로 {name}은(는) 여기서 연 페이지를 사용하지 않습니다. 이 사이드바에서 탐색하려면 내장 브라우저 플러그인으로 전환하세요.",
   "Accessibility tree": "접근성 트리",
   "Standard MCP": "표준 MCP",
   "DOM & console": "DOM 및 콘솔",
@@ -9766,9 +9770,11 @@ var ES = {
   "Fast": "Rápido",
   "Multi-step": "Multipasos",
   "Autonomous": "Autónomo",
-  "Shared login": "Sesión compartida",
-  "Real Chromium": "Chromium real",
-  "Human + AI": "Humano + IA",
+  "Sidebar browser": "Navegador lateral",
+  "External window": "Ventana externa",
+  "Browser window": "Ventana del navegador",
+  "{name} opens in an external window, not this sidebar": "{name} se abre en una ventana externa, no en esta barra lateral",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} se ejecuta en una ventana externa, por lo que {name} no usa las páginas abiertas aquí. Cambia a un plugin de navegador integrado para navegar en esta barra lateral.",
   "Accessibility tree": "Árbol de accesibilidad",
   "Standard MCP": "MCP estándar",
   "DOM & console": "DOM y consola",
@@ -13388,9 +13394,11 @@ var FR = {
   "Fast": "Rapide",
   "Multi-step": "Multi-étapes",
   "Autonomous": "Autonome",
-  "Shared login": "Session partagée",
-  "Real Chromium": "Vrai Chromium",
-  "Human + AI": "Humain + IA",
+  "Sidebar browser": "Navigateur latéral",
+  "External window": "Fenêtre externe",
+  "Browser window": "Fenêtre du navigateur",
+  "{name} opens in an external window, not this sidebar": "{name} s’ouvre dans une fenêtre externe, pas dans cette barre latérale",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} s’exécute dans une fenêtre externe : {name} n’utilise pas les pages ouvertes ici. Passez à un plugin de navigateur intégré pour naviguer dans cette barre latérale.",
   "Accessibility tree": "Arbre d'accessibilité",
   "Standard MCP": "MCP standard",
   "DOM & console": "DOM et console",
@@ -17053,9 +17061,11 @@ var DE = {
   "Fast": "Schnell",
   "Multi-step": "Mehrstufig",
   "Autonomous": "Autonom",
-  "Shared login": "Geteilter Login",
-  "Real Chromium": "Echtes Chromium",
-  "Human + AI": "Mensch + KI",
+  "Sidebar browser": "Seitenleisten-Browser",
+  "External window": "Externes Fenster",
+  "Browser window": "Browserfenster",
+  "{name} opens in an external window, not this sidebar": "{name} öffnet sich in einem externen Fenster, nicht in dieser Seitenleiste",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} läuft in einem externen Fenster, daher nutzt {name} hier geöffnete Seiten nicht. Wechsle zu einem integrierten Browser-Plugin, um in dieser Seitenleiste zu surfen.",
   "Accessibility tree": "Barrierefreiheitsbaum",
   "Standard MCP": "Standard-MCP",
   "DOM & console": "DOM & Konsole",
@@ -20520,9 +20530,11 @@ var ZH = {
   "Fast": "高速执行",
   "Multi-step": "多步规划",
   "Autonomous": "自主完成",
-  "Shared login": "共享登录态",
-  "Real Chromium": "真实浏览器",
-  "Human + AI": "人机协作",
+  "Sidebar browser": "侧边栏浏览器",
+  "External window": "外部窗口",
+  "Browser window": "浏览器窗口",
+  "{name} opens in an external window, not this sidebar": "{name} 在外部窗口运行，不在此侧边栏显示",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} 在外部独立窗口运行，{name} 不会使用这里打开的网页。切换为内置浏览器插件即可在此侧边栏里直接浏览与操控。",
   "Accessibility tree": "可访问性树",
   "Standard MCP": "标准 MCP",
   "DOM & console": "DOM 与控制台",
@@ -25165,7 +25177,7 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 var SHELL_CSS = `
 body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-seg-track:var(--bt-hover);--bt-seg-thumb:var(--bt-card);--bt-seg-shadow:0 1px 3px rgba(0,0,0,.08);--bt-palette-scrim:rgba(0,0,0,.28);--bt-cli-tile:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-island-rim:rgba(255,255,255,.92);--bt-island-shadow:0 22px 54px -16px rgba(15,23,42,.15),0 6px 20px -6px rgba(15,23,42,.07),0 0 0 .5px rgba(15,23,42,.08),inset 0 1px 0 rgba(255,255,255,1),inset 0 -1px 0 rgba(15,23,42,.04);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.06) 34%,transparent 60%);--bt-island-well:rgba(20,20,20,.045);--bt-island-well-focus:rgba(255,255,255,.92);--bt-island-btn:rgba(255,255,255,.75);--bt-island-btn-hover:rgba(20,20,20,.07);--bt-island-btn-shadow:0 2px 8px -2px rgba(0,0,0,.22);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-btn-shadow:0 1px 2px rgba(20,20,20,.04);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.07),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 22%,var(--bt-line-2));--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);--bt-mono:var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-sel){touch-action:manipulation}
+:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-typing-bg,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-sel){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.bt-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-btn,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-danger:#ff6b72;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-seg-track:rgba(0,0,0,.32);--bt-seg-thumb:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-card));--bt-seg-shadow:0 1px 3px rgba(0,0,0,.32),inset 0 .5px 0 rgba(255,255,255,.1);--bt-palette-scrim:rgba(0,0,0,.64);--bt-cli-tile:#f0f0f2;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-island-rim:rgba(255,255,255,.14);--bt-island-shadow:0 26px 64px -14px rgba(0,0,0,.68),0 8px 24px -6px rgba(0,0,0,.4),0 0 0 .5px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.35);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.09) 0%,rgba(255,255,255,.015) 32%,transparent 56%);--bt-island-well:rgba(0,0,0,.28);--bt-island-well-focus:rgba(0,0,0,.36);--bt-island-btn:rgba(255,255,255,.07);--bt-island-btn-hover:rgba(255,255,255,.14);--bt-island-btn-shadow:0 2px 10px -2px rgba(0,0,0,.45);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-btn-shadow:0 1px 2px rgba(0,0,0,.2);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 18%,rgba(255,255,255,.07));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 30%,rgba(255,255,255,.12));--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
@@ -25361,7 +25373,7 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-x{position:relative;flex:none;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -25507,7 +25519,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 @keyframes bt-create-pop{from{transform:scale(.72);opacity:.4}}
 .bt-create-name{font-size:17px;line-height:24px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-create-step{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-bottom:-10px}
-.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);box-sizing:border-box}
 .bt-create-lookbar{justify-content:center}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
@@ -25522,6 +25534,21 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* Full-window modal layers and opening covers sit directly under body, which frameless hosts
+   mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
+   regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
+   child place the top drag strip on that child's ::before (after the scrim, before the dialog)
+   while scrim-less layers use their own ::before. Dialog cards stay after the strip as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px)))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(40px - var(--dsh-frame-chrome-top,0px)))}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:var(--dsh-windows-titlebar-height,40px);padding-top:max(16px,var(--bt-modal-drag-h))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:40px;padding-top:max(16px,var(--bt-modal-drag-h))}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)[data-leaving]>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is([role=dialog],[role=alertdialog]){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-tour-layer{-webkit-app-region:initial;app-region:initial}
+:is(.bt-set-palette,.bt-tour-card){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-opening>.bt-opening-card{position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 /* On macOS a side panel reaches the window's top edge, where the window drag strip is.
    Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
    that strip: it drags where no chip or button covers it, and controls stay no-drag. The
@@ -25970,10 +25997,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-card>.bt-set-row:first-child,.bt-set-card>:first-child>.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
-.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:break-word}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
+.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-control{flex:none}
 .bt-set-row:where(:not(.bt-bs-stack))>.bt-set-control:where(:has(>.bt-seg)){max-width:72%}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
@@ -26505,7 +26533,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
+.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
@@ -26635,7 +26663,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
    narrow viewports keep full-screen heights. */
 .bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
 .bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
+@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem-layer[data-leaving] .bt-mem::before{-webkit-app-region:initial;app-region:initial}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li svg{animation:none}}
 
 .bt-thumb{position:absolute;left:0;top:0;z-index:0;pointer-events:none;transition:opacity .14s ease}
@@ -26679,15 +26707,17 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
    from their own width instead of relying on viewport media queries. */
 @container (max-width:440px){
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control,.bt-set-places .bt-set-control{max-width:none}
+  .bt-set-row .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-motion-seg,.bt-look-seg{min-width:0;width:100%}
   .bt-range{width:100%}
 }
@@ -26700,6 +26730,13 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
 @media (max-width:768px){
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-settings::before{-webkit-app-region:initial;app-region:initial}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-close{top:calc(14px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-layer{padding-top:calc(12px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-set-palette-scrim::before{-webkit-app-region:initial;app-region:initial}
   .bt-settings-rail{display:none}
   .bt-ov-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:0;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-3);font:inherit;font-size:15px;text-align:left;cursor:pointer}
   .bt-ov-search svg{width:16px;height:16px}
@@ -26723,14 +26760,15 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
@@ -26747,7 +26785,7 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) :i
 body[data-bt-os=windows] :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .bt-bcard-x{background:var(--bt-main)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .bt-us-tip,body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .bt-menu.bt-sel-menu{background:var(--bt-card)}
-body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-typing-bg,.bt-toast[data-leaving]){filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-shimmer{animation:none!important;background:none;color:var(--bt-ink-2)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-mem-skel-block span,.bt-us-skel,.bt-im-qr-blank){animation:none!important;background:var(--bt-hover)}
 body[data-bt-effects=reduced] :is(.bt-badge-alert,.bt-voice-ring,.bt-us-note::before,.bt-im-dot[data-state=connecting],.bt-agent-ava.bt-run,.bt-mic[aria-pressed=true]){animation:none!important}
@@ -26887,7 +26925,7 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-chat-running]{display:block!important;width:100%;min-height:0!important;margin:0!important;padding:0!important}
 [data-chat-running]>span:not([role=status]){display:none!important}
 [data-chat-flow]>.bt-typing{margin-top:var(--dsh-chat-flow-gap,12px)!important}
-.bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
+.bt-typing{display:flex;align-items:center;gap:12px;width:fit-content;max-width:100%;height:36px;min-width:0;box-sizing:border-box;padding-inline:8px 4px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
 .bt-typing>.bt-typing-mark{display:inline-flex;flex-shrink:0}
 .bt-typing>.bt-mark,.bt-typing>.bt-cluster,.bt-typing>.bt-typing-mark>.bt-mark,.bt-typing>.bt-typing-mark>.bt-cluster{flex-shrink:0}
@@ -26897,12 +26935,25 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px 0 8px;margin-left:2px;border:.5px solid var(--bt-line-2);border-radius:999px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
-.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink);border-color:color-mix(in srgb,var(--bt-ink) 22%,transparent)}
-.bt-typing-bg:active:not(:disabled){background:var(--bt-active)}
+.bt-typing-bg-wrap{flex:none;display:inline-grid;grid-template-columns:0fr;margin-left:-12px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s,margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s}
+.bt-typing-bg-in{min-width:0;overflow:hidden;display:inline-flex;align-items:center;padding:4px 0;margin:-4px 0}
+.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translate(-10px,4px) scale(.92);transform-origin:0 50%;pointer-events:none;transition:opacity .16s ease,filter .16s ease,transform .18s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing:focus-within .bt-typing-bg-in{overflow:visible}
+.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-typing-bg:active:not(:disabled){background:var(--bt-active);scale:.96}
 .bt-typing-bg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-typing-bg:disabled{opacity:.55;cursor:default}
-.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.8}
+.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.75;transform:translateX(-3px);transition:opacity .14s ease,transform ${SPRING_POP.duration}ms ${SPRING_POP.easing} .05s}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg-ico{transform:none}
+@media (hover:hover){
+.bt-typing:hover:not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg-ico{transform:none}
+}
+.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{opacity:1;transform:translateX(1.5px);transition:opacity .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
 .bt-typing-bg-ico>svg{width:13px;height:13px}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
 @keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
@@ -26919,6 +26970,9 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-typing,.bt-typing[data-exiting]{animation-name:bt-fade-in;animation-duration:.12s;transform:none}
 .bt-typing[data-exiting]{animation-name:bt-fade-out}
 .bt-typing-text,.bt-typing-label{animation-name:bt-fade-in;animation-delay:0s}
+.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico{transition:none!important}
+.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{filter:none;transform:none}
+.bt-typing-bg:active:not(:disabled){scale:none}
 .bt-shimmer{animation:none;background:none;color:var(--bt-ink-2)}
 [data-bt-enter="new"]{animation:none}
 [data-bt-enter="after-collapse"]{animation:bt-fade-in .12s ease-out}
@@ -27148,7 +27202,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-body[data-bt-effects=off] :is([data-composer-card],[data-chat-flow-kind=user] [class*="_actions"],[class*="_toBottomSlot"]>button,.bt-news){transition:none!important}
+body[data-bt-effects=off] :is([data-composer-card],[data-chat-flow-kind=user] [class*="_actions"],[class*="_toBottomSlot"]>button,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico){transition:none!important}
+body[data-bt-effects=off] :is(.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico){transform:none!important}
+body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled){scale:none!important}
 body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],[class*="_toBottomSlot"]>button,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `;
 var PLUGIN_ID = "ds-bot";
@@ -36428,7 +36484,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
 }
 var COMPUTER_CSS = `
 .bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-level-pick{max-width:200px}
+.bt-sel.bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}
 .bt-cview{display:flex;flex-direction:column;gap:12px}
@@ -36463,6 +36519,8 @@ var COMPUTER_CSS = `
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
+@container (max-width:440px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@media (max-width:768px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
 `;
 
 // node_modules/deep-view/src/core/reply.js
@@ -37809,7 +37867,7 @@ function modelOf(bot, roster) {
   return { ref, name: served === void 0 ? rest.join("/") : nameOf(served), provider: served?.providerName ?? provider, served: served !== void 0 };
 }
 var effortCache = /* @__PURE__ */ new Map();
-function useEfforts(served, ref, actions) {
+function useEfforts(served, ref, actions, version = 0) {
   const [fetched, setFetched] = (0, import_react22.useState)(void 0);
   (0, import_react22.useEffect)(() => {
     setFetched(void 0);
@@ -37825,7 +37883,7 @@ function useEfforts(served, ref, actions) {
     return () => {
       live = false;
     };
-  }, [ref, served?.reasoning !== void 0, actions]);
+  }, [ref, served?.reasoning !== void 0, actions, version]);
   return served?.reasoning ?? fetched;
 }
 function effortStops(reasoning) {
@@ -38215,12 +38273,12 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const shown = modelOf({ ...bot, model: current2 }, roster);
   const local = isLocalRoute(current2);
   const served = servedOf(roster, current2);
-  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions);
+  const [opening, setOpening] = (0, import_react22.useState)(0);
+  const [query, setQuery] = (0, import_react22.useState)("");
+  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions, opening);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
-  const [opening, setOpening] = (0, import_react22.useState)(0);
-  const [query, setQuery] = (0, import_react22.useState)("");
   const models2 = modelsFor(roster.models, current2);
   return {
     bot,
@@ -38243,7 +38301,10 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current2));
-      else void actions?.refreshModels?.();
+      else {
+        effortCache.clear();
+        void actions?.refreshModels?.();
+      }
       setQuery("");
       setOpening((count) => count + 1);
     },
@@ -38571,7 +38632,7 @@ function SignInHost({ entry, actions }) {
   });
 }
 var MODEL_CSS = `
-.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
+.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
@@ -39721,8 +39782,8 @@ var SCHEDULE_CSS = `
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
-.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
-.bt-task-bot{width:auto;min-width:220px;max-width:58%}
+.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px;max-width:58%}
+.bt-sel.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}
@@ -39748,10 +39809,17 @@ var SCHEDULE_CSS = `
 .bt-task-line-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-line-when{flex:none;font-size:12px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
+@container (max-width:440px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
+@media (max-width:768px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */
 @media (max-width:640px){
-  .bt-task-bot{min-width:0;width:100%}
   .bt-task-time{min-width:0;flex:1 1 110px}
   .bt-task-count{width:auto!important;flex:1 1 72px}
 }
@@ -42457,16 +42525,16 @@ var BOT_SETTINGS_CSS = `
 .bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
-.bt-bs-row>.bt-set-copy{flex:1 1 auto}
+.bt-bs-row>.bt-set-copy{flex:1 1 auto;min-width:0}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
-.bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
+.bt-bs-row .bt-model-trigger{flex:0 1 auto;min-width:0;max-width:58%}
 .bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
-.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
+.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;max-width:58%;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area{flex:none;width:100%;min-width:0;max-width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
 .bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}
@@ -42480,6 +42548,24 @@ label.bt-bs-row{cursor:text}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}
 .bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:bt-veil-in .18s ease-out}
+/* Narrow cards (320px right details panel and phones): stack field rows so inputs and
+   pickers never squeeze labels or hints into single-character vertical columns. */
+@container (max-width:440px){
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select){flex-direction:column;align-items:stretch;gap:8px}
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select)>.bt-set-copy{width:100%;flex:none}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%;height:34px;margin:0;padding:0 10px;text-align:left}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):not(:focus){border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+  .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
+}
+@media (max-width:768px){
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select){flex-direction:column;align-items:stretch;gap:8px}
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select)>.bt-set-copy{width:100%;flex:none}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%;height:34px;margin:0;padding:0 10px;text-align:left}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):not(:focus){border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+  .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
+}
 @media (prefers-reduced-motion:reduce){.bt-switch,.bt-switch-knob{transition:none}.bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:none}}
 `;
 
@@ -47417,10 +47503,21 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
   const liveKey = useLive2((state) => JSON.stringify(state[sessionId] ?? {}));
   const steeredAt = useWork?.((work) => work.steered?.[sessionId]);
   const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
+  const rowRef = (0, import_react41.useRef)(null);
   const [movingBg, setMovingBg] = (0, import_react41.useState)(false);
+  const [bgOpen, setBgOpen] = (0, import_react41.useState)(false);
   (0, import_react41.useEffect)(() => {
     setMovingBg(false);
+    setBgOpen(false);
   }, [sessionId, bgInfo?.turn]);
+  (0, import_react41.useEffect)(() => {
+    if (!bgOpen) return void 0;
+    const onDown = (event) => {
+      if (!rowRef.current?.contains(event.target)) setBgOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [bgOpen]);
   const pendingInput = useSession((snapshot) => freshInputAt(snapshot?.pendingSubmissions, steeredAt));
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
@@ -47491,14 +47588,28 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
   const moveToBg = () => {
     if (movingBg || !bgInfo) return;
     setMovingBg(true);
+    setBgOpen(false);
     void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn)).catch((error) => {
       setMovingBg(false);
       actions.reportError?.(new Error(hostText(error?.message ?? String(error))), "move-to-background");
     });
   };
+  const tapRow = (event) => {
+    if (!showBgAction || movingBg || !noHover()) return;
+    const target = event?.target;
+    if (typeof target?.closest === "function" && target.closest("button,.bt-typing-mark")) return;
+    setBgOpen((open) => !open);
+  };
   return (0, import_react_dom8.createPortal)((0, import_react41.createElement)(
     "div",
-    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0 },
+    {
+      ref: rowRef,
+      className: "bt-typing",
+      "data-exiting": phase === "out" ? "" : void 0,
+      "data-bg-open": showBgAction && bgOpen ? "" : void 0,
+      "data-bg-busy": showBgAction && movingBg ? "" : void 0,
+      onClick: tapRow
+    },
     (0, import_react41.createElement)(
       "span",
       { className: "bt-typing-mark", "aria-hidden": true },
@@ -47511,17 +47622,25 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
       (0, import_react41.createElement)(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
     ),
     showBgAction ? (0, import_react41.createElement)(
-      "button",
-      {
-        type: "button",
-        className: "bt-typing-bg",
-        disabled: movingBg,
-        "aria-label": t("Move current work to background"),
-        title: t("Move current work to background"),
-        onClick: moveToBg
-      },
-      (0, import_react41.createElement)("span", { className: "bt-typing-bg-ico", "aria-hidden": true }, (0, import_react41.createElement)(MoveIcon)),
-      (0, import_react41.createElement)("span", null, movingBg ? t("Moving…") : t("Move to background"))
+      "span",
+      { className: "bt-typing-bg-wrap" },
+      (0, import_react41.createElement)(
+        "span",
+        { className: "bt-typing-bg-in" },
+        (0, import_react41.createElement)(
+          "button",
+          {
+            type: "button",
+            className: "bt-typing-bg",
+            disabled: movingBg,
+            "aria-label": t("Move current work to background"),
+            title: t("Move current work to background"),
+            onClick: moveToBg
+          },
+          (0, import_react41.createElement)("span", { className: "bt-typing-bg-ico", "aria-hidden": true }, (0, import_react41.createElement)(MoveIcon)),
+          (0, import_react41.createElement)("span", null, movingBg ? t("Moving…") : t("Move to background"))
+        )
+      )
     ) : null
   ), host);
 }
@@ -50678,7 +50797,7 @@ var SIDEBAR_CSS = `
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-agent-sub[data-open]{grid-template-rows:1fr}
 .bt-agent-sub-in{overflow:hidden;min-height:0;margin-left:44px}
-.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
 /* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
@@ -50688,7 +50807,7 @@ var SIDEBAR_CSS = `
 .bt-agent-new{color:var(--bt-ink-3)}
 .bt-agent-new svg{width:14px;height:14px;flex:none}
 .bt-agent-edit{padding:3px 10px 3px 4px}
-.bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
+.bt-agent-edit input{width:100%;box-sizing:border-box;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
 @keyframes bt-agent-row-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
@@ -50732,7 +50851,7 @@ var SIDEBAR_CSS = `
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-sec-act svg{width:13px;height:13px}
 .bt-sec-edit{display:flex;align-items:center;height:30px;padding:0 4px}
-.bt-sec-edit input{width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-sec-edit input{width:100%;box-sizing:border-box;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-sec-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-sec[data-collapsed=true] .bt-sec-body{grid-template-rows:0fr}
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
@@ -55906,6 +56025,8 @@ var IM_CSS = `
 .bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-im-remove{justify-content:center;color:var(--bt-danger)}
 .bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
+@container (max-width:440px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
+@media (max-width:768px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
 @media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank::after,.bt-im-qr{animation:none}}
 `;
 
@@ -57406,6 +57527,48 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
   return (0, import_react60.createElement)(PreviewCard, { key: flow.id, flow, page, busy, canApply, inline, onApply, onBack, onCancel });
 }
 
+// src/client/browser-plugin-mode.js
+var KNOWN_BROWSER_LABELS = {
+  "builtin:readonly": () => t("Read-only Browser"),
+  "builtin:refs": () => t("Playwright (Refs)"),
+  "builtin:script": () => t("Playwright (Script)"),
+  "builtin:task": () => t("Playwright (Task)"),
+  "mcp:playwright-mcp": () => "Playwright MCP",
+  "mcp:chrome-devtools-mcp": () => "Chrome DevTools MCP"
+};
+function localizedNameFrom(locales) {
+  if (!locales || typeof locales !== "object") return null;
+  const lang = String(language?.() ?? "en").toLowerCase();
+  const exact = locales[lang]?.name;
+  if (typeof exact === "string" && exact.trim()) return exact.trim();
+  const base = lang.split("-")[0];
+  const primary = locales[base]?.name;
+  if (typeof primary === "string" && primary.trim()) return primary.trim();
+  return null;
+}
+function isExternalBrowserPlugin(plugin) {
+  if (plugin?.slot !== "browser") return false;
+  if (plugin.windowMode === "external") return true;
+  if (plugin.windowMode === "pane" || plugin.windowMode === "readonly") return false;
+  return !plugin.builtin && plugin.controlsPane !== true;
+}
+function browserPaneMode(browserSlot, hold = null) {
+  const active = browserSlot?.active ?? "builtin:readonly";
+  const controlsPane = typeof browserSlot?.controlsPane === "boolean" ? browserSlot.controlsPane : browserSlot?.windowMode === "pane" || browserSlot?.windowMode == null && /^builtin:(refs|script|task|injected)$/.test(active);
+  const windowMode = browserSlot?.windowMode === "pane" || browserSlot?.windowMode === "readonly" || browserSlot?.windowMode === "external" ? browserSlot.windowMode : controlsPane ? "pane" : active === "builtin:readonly" ? "readonly" : "external";
+  const customName = browserSlot?.customName === true && typeof browserSlot?.activeName === "string" && browserSlot.activeName.trim() !== "";
+  const localized = customName ? null : localizedNameFrom(browserSlot?.activeLocales);
+  const activeLabel = customName ? browserSlot.activeName.trim() : localized ?? KNOWN_BROWSER_LABELS[active]?.() ?? (typeof browserSlot?.activeName === "string" && browserSlot.activeName.trim() ? browserSlot.activeName.trim() : null) ?? active.replace(/^(builtin|dsh|mcp|provider):/, "");
+  return {
+    active,
+    activeLabel,
+    controlsPane,
+    windowMode,
+    showTakeover: Boolean(controlsPane || hold?.by),
+    isExternal: windowMode === "external"
+  };
+}
+
 // src/client/browser-settings.js
 var import_react61 = require("react");
 var ACTIONS = [["post", "Post"], ["upload", "Upload"], ["download", "Download"], ["delete", "Delete"]];
@@ -57510,17 +57673,8 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     setKinds((current2) => checked ? current2.includes(kind) ? current2 : [...current2, kind] : current2.filter((value) => value !== kind));
   };
   const addBtn = adding || bots.length === 0 ? null : (0, import_react61.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "browser-allow", onClick: () => setAdding(true) }, (0, import_react61.createElement)(PlusIcon), t("Allow action"));
-  const activeBrowserId = roster.plugins?.slots?.browser?.active ?? "builtin:readonly";
-  const KNOWN_BROWSER_LABELS = {
-    "builtin:readonly": t("Read-only Browser"),
-    "builtin:refs": t("Playwright (Refs)"),
-    "builtin:script": t("Playwright (Script)"),
-    "builtin:task": t("Playwright (Task)"),
-    "dsh:dsh-ego-browser": "Ego Lite Browser",
-    "mcp:playwright-mcp": "Playwright MCP",
-    "mcp:chrome-devtools-mcp": "Chrome DevTools MCP"
-  };
-  const activeBrowserLabel = KNOWN_BROWSER_LABELS[activeBrowserId] ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, "");
+  const paneMode = browserPaneMode(roster.plugins?.slots?.browser);
+  const activeBrowserLabel = paneMode.isExternal ? `${paneMode.activeLabel} · ${t("External window")}` : paneMode.activeLabel;
   return (0, import_react61.createElement)(
     "div",
     { className: "bt-browser-settings" },
@@ -57745,21 +57899,6 @@ var PlaywrightOfficialMark = () => (0, import_react62.createElement)(
   (0, import_react62.createElement)("path", { d: "M225.27 269.163L223.415 268.712C182.398 256.698 176.072 223.99 176.072 223.99L232.89 239.872L262.971 124.281L262.607 124.185C225.711 114.304 201.232 97.0224 191.532 88.8994C177.783 77.3834 171.735 69.3802 165.783 81.4857C160.526 92.163 153.797 109.54 147.284 133.866C133.171 186.543 122.623 297.706 209.867 321.097L211.655 321.5L225.27 269.163ZM166.497 172.756C166.497 172.756 180.246 151.372 203.565 158C226.899 164.628 228.706 190.425 228.706 190.425L166.497 172.756Z", fill: "#1D8D22" }),
   (0, import_react62.createElement)("path", { d: "M141.946 245.451L131.072 248.537C133.641 263.019 138.169 276.917 145.276 289.195C146.513 288.922 147.74 288.687 149 288.342C152.302 287.451 155.364 286.348 158.312 285.145C150.371 273.361 145.118 259.789 141.946 245.451ZM137.7 143.451C132.112 164.307 127.113 194.326 128.489 224.436C130.952 223.367 133.554 222.371 136.444 221.551L138.457 221.101C136.003 188.939 141.308 156.165 147.284 133.866C148.799 128.225 150.318 122.978 151.832 118.085C149.393 119.637 146.767 121.228 143.776 122.867C141.759 129.093 139.722 135.898 137.7 143.451Z", fill: "#C04B41" })
 );
-var EgoOfficialMark = () => svg2(
-  (0, import_react62.createElement)("path", {
-    fillRule: "evenodd",
-    clipRule: "evenodd",
-    fill: "var(--bt-mark-ink)",
-    d: [
-      // Left circle: cx=7.86, cy=12, rx=6.15, ry=6.12
-      "M1.71 12a6.15 6.12 0 1 0 12.3 0a6.15 6.12 0 1 0 -12.3 0Z",
-      // Middle oval: cx=14.18, cy=12, rx=3.12, ry=6.12 (intersects circle → crisp lens cutout)
-      "M11.06 12a3.12 6.12 0 1 0 6.24 0a3.12 6.12 0 1 0 -6.24 0Z",
-      // Right slim oval: cx=20.70, cy=12, rx=1.57, ry=6.12
-      "M19.13 12a1.57 6.12 0 1 0 3.14 0a1.57 6.12 0 1 0 -3.14 0Z"
-    ].join(" ")
-  })
-);
 var ChromeDevtoolsMark = () => svg2(
   (0, import_react62.createElement)("path", { d: "M3.51 7.1A9.8 9.8 0 0 1 20.49 7.1H12a4.9 4.9 0 0 0-4.24 7.35Z", fill: "#EA4335" }),
   (0, import_react62.createElement)("path", { d: "M20.49 7.1A9.8 9.8 0 0 1 12 21.8l4.24-7.35A4.9 4.9 0 0 0 12 7.1Z", fill: "#FBBC04" }),
@@ -57812,7 +57951,6 @@ var PLUGIN_MARKS = {
   "builtin:refs": PlaywrightOfficialMark,
   "builtin:script": PlaywrightOfficialMark,
   "builtin:task": PlaywrightOfficialMark,
-  "dsh:dsh-ego-browser": EgoOfficialMark,
   "mcp:playwright-mcp": PlaywrightOfficialMark,
   "mcp:chrome-devtools-mcp": ChromeDevtoolsMark
 };
@@ -57846,40 +57984,42 @@ function PluginMark({ plugin }) {
 var BROWSER_META = {
   "builtin:readonly": {
     url: "browser://readonly",
-    traits: ["Read current page", "Zero writes"]
+    traits: ["Sidebar browser", "Read current page", "Zero writes"]
   },
   "builtin:refs": {
     url: "browser://playwright/refs",
-    traits: ["Click & forms", "Element refs", "Screenshots"]
+    traits: ["Sidebar browser", "Click & forms", "Element refs"]
   },
   "builtin:script": {
     url: "browser://playwright/script",
-    traits: ["JS scripts", "Batch steps", "Fast"]
+    traits: ["Sidebar browser", "JS scripts", "Batch steps"]
   },
   "builtin:task": {
     url: "browser://playwright/task",
-    traits: ["Multi-step", "Autonomous"]
-  },
-  "dsh:dsh-ego-browser": {
-    url: "browser://ego-lite",
-    traits: ["Shared login", "Real Chromium", "Human + AI"]
+    traits: ["Sidebar browser", "Multi-step", "Autonomous"]
   },
   "mcp:playwright-mcp": {
     url: "browser://playwright-mcp",
-    traits: ["Accessibility tree", "Standard MCP"]
+    traits: ["External window", "Accessibility tree", "Standard MCP"]
   },
   "mcp:chrome-devtools-mcp": {
     url: "browser://chrome-devtools",
-    traits: ["DOM & console", "Network debug", "CDP"]
+    traits: ["External window", "DOM & console", "CDP"]
   }
 };
 function browserMetaFor(plugin) {
   if (!plugin) return { url: "browser://none", traits: [] };
-  if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id];
+  const isExternal = isExternalBrowserPlugin(plugin);
+  const surfaceTrait = isExternal ? "External window" : "Sidebar browser";
+  const known = BROWSER_META[plugin.id];
+  if (known) {
+    const rest = known.traits.filter((tr2) => tr2 !== "External window" && tr2 !== "Sidebar browser");
+    return { url: known.url, traits: [surfaceTrait, ...rest] };
+  }
   const slug = String(plugin.id || "custom").replace(/^(builtin|dsh|mcp|provider):/, "").replace(/[^a-z0-9._-]+/gi, "-").toLowerCase();
   return {
     url: `browser://${slug || "custom"}`,
-    traits: plugin.kind === "mcp" ? ["Standard MCP", "Browser slot"] : ["Browser slot"]
+    traits: plugin.kind === "mcp" ? [surfaceTrait, "Standard MCP"] : [surfaceTrait, "Browser slot"]
   };
 }
 
@@ -58200,6 +58340,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
+  const externalBrowser = isExternalBrowserPlugin(plugin);
   const fresh = useJustActivated(isActive);
   const subtitle = plugin.error ? hostText(plugin.error) : plugin.status === "restart-required" ? t("Restart required") : desc;
   const tone = plugin.status === "error" || plugin.killed || plugin.status === "unverifiable" || plugin.error && !plugin.consentRequired ? "error" : plugin.status === "restart-required" || plugin.consentRequired ? "warn" : void 0;
@@ -58227,6 +58368,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
           "span",
           { className: "bt-plg-name" },
           (0, import_react63.createElement)("span", { className: "bt-plg-label" }, name),
+          externalBrowser && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("External window")) : null,
           plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
           plugin.killed ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
           plugin.consentRequired ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
@@ -58253,7 +58395,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     plugin.author || null
   ].filter(Boolean).join(" · ");
   const hasDetailRows = Boolean(
-    plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
+    plugin.slot === "browser" || plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
   );
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
   return (0, import_react63.createElement)(
@@ -58318,6 +58460,11 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     hasDetailRows ? (0, import_react63.createElement)(
       Section2,
       { title: t("Details") },
+      plugin.slot === "browser" ? (0, import_react63.createElement)(
+        Row4,
+        { label: t("Browser window") },
+        (0, import_react63.createElement)("span", { className: "bt-chip" }, isExternalBrowserPlugin(plugin) ? t("External window") : t("Sidebar browser"))
+      ) : null,
       plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Package") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.packageName)) : null,
       plugin.installSpec && plugin.installSpec !== plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Source") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.installSpec)) : null,
       plugin.mcp?.url ? (0, import_react63.createElement)(Row4, { label: t("URL") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.mcp.url)) : null,
@@ -58504,7 +58651,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Package or repository"),
             disabled,
             value: spec,
-            placeholder: "dsh-ego-browser / github:owner/repo / /path/to/plugin",
+            placeholder: "my-dsh-plugin / github:owner/repo / /path/to/plugin",
             onChange: (e) => setSpec(e.target.value)
           })
         ) : [
@@ -58561,7 +58708,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Tool prefixes"),
             disabled,
             value: prefixes,
-            placeholder: "ego_, browser_",
+            placeholder: "my_tool_, browser_",
             onChange: (e) => setPrefixes(e.target.value)
           })
         ),
@@ -60430,7 +60577,8 @@ var PROVIDERS_CSS = `
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
-@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto}}
+@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `;
 
@@ -64099,6 +64247,28 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
   {
+    "version": "0.4.1",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复 Bot 私聊误显示底层工具调用卡片（如 MCP、命令等）和压缩分隔条的问题，保留经典模式完整工具卡片与历史电脑截图显示",
+          "优化 Bot 活动状态行：静息态保持简洁，鼠标悬停或触屏点按时平滑浮现「转到后台」操作",
+          "修复单个 Bot 详情页关闭邮箱连接器后开关回弹的问题，关闭后同时隐藏该 Bot 的邮件工具"
+        ],
+        "intro": "快速热修：恢复 Bot 私聊清爽体验，优化进行中状态栏并修复邮箱连接器开关。"
+      },
+      "en": {
+        "items": [
+          "Fixed Bot private chats showing raw tool call cards (such as MCP and shell tools) and compaction bars, while keeping persisted computer-use screenshots and full Classic Agent tool cards",
+          "Refined the Bot activity row to stay quiet at rest and reveal the borderless Move to background action on hover, focus, or touch tap",
+          "Fixed the per-Bot Mailbox switch bouncing back on and ensured turning Mailbox off removes mail tools for that Bot"
+        ],
+        "intro": "A quick hotfix restoring clean Bot private chats, refining the activity row, and fixing the per-Bot Mailbox toggle."
+      }
+    }
+  },
+  {
     "version": "0.4.0",
     "date": "2026-11-27",
     "notes": {
@@ -65259,6 +65429,97 @@ function createConnectionFeedback(onChange, {
   };
 }
 
+// src/client/host-service.js
+var EMPTY_SESSION_STATUS = /* @__PURE__ */ new Map();
+function hasContextProperty(ctx, name) {
+  const props = ctx?.reflect?.props;
+  return Boolean(props && Object.prototype.hasOwnProperty.call(props, name));
+}
+function readServiceMember(ctx, serviceName, propName) {
+  const dotted = `${serviceName}.${propName}`;
+  const direct = ctx?.get?.(dotted);
+  if (direct !== void 0) return direct;
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  return ctx?.get?.(serviceName)?.[propName];
+}
+function callServiceMethod(ctx, serviceName, methodName, ...args) {
+  const dotted = `${serviceName}.${methodName}`;
+  const direct = ctx?.get?.(dotted);
+  if (typeof direct === "function") return direct(...args);
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  const service2 = ctx?.get?.(serviceName);
+  return typeof service2?.[methodName] === "function" ? service2[methodName](...args) : void 0;
+}
+function createSessionStatusSource(ctx) {
+  const uiSession = ctx.uiSession;
+  const listeners3 = /* @__PURE__ */ new Set();
+  let disposed = false;
+  let active = null;
+  let unsubActive = null;
+  let dottedSource = null;
+  let fallbackSource = null;
+  const emit = () => {
+    if (disposed) return;
+    for (const listener of Array.from(listeners3)) listener();
+  };
+  const rebind = () => {
+    if (disposed) return;
+    const next = dottedSource ?? fallbackSource ?? null;
+    if (next === active) return;
+    unsubActive?.();
+    unsubActive = null;
+    active = next;
+    if (active && typeof active.subscribe === "function") {
+      unsubActive = active.subscribe(emit);
+    }
+    emit();
+  };
+  const dottedFiber = typeof ctx.inject === "function" ? ctx.inject(["uiSession.sessionStatus"], (scope) => {
+    scope.effect(() => {
+      if (disposed) return () => {
+      };
+      const status = scope["uiSession.sessionStatus"];
+      dottedSource = status && typeof status.getSnapshot === "function" ? status : null;
+      rebind();
+      return () => {
+        dottedSource = null;
+        rebind();
+      };
+    }, "ds-bot: uiSession.sessionStatus");
+  }) : null;
+  if (!hasContextProperty(ctx, "uiSession.sessionStatus")) {
+    const direct = uiSession?.sessionStatus;
+    if (direct && typeof direct.getSnapshot === "function") {
+      fallbackSource = direct;
+      rebind();
+    }
+  }
+  return {
+    source: {
+      getSnapshot: () => disposed ? EMPTY_SESSION_STATUS : active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
+      subscribe: (listener) => {
+        if (disposed) return () => {
+        };
+        listeners3.add(listener);
+        return () => {
+          listeners3.delete(listener);
+        };
+      }
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      unsubActive?.();
+      unsubActive = null;
+      active = null;
+      dottedSource = null;
+      fallbackSource = null;
+      listeners3.clear();
+      dottedFiber?.dispose?.();
+    }
+  };
+}
+
 // src/client/settings-shell.js
 var import_react80 = require("react");
 var import_react_dom12 = require("react-dom");
@@ -65724,13 +65985,13 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   const carrier = globalThis.dshDesktop;
   const update = desktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : void 0);
   const connectionState = {
-    getSnapshot: () => ctx.get("connection")?.state.getSnapshot(),
-    subscribe: (listener) => ctx.get("connection")?.state.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "connection", "state")?.getSnapshot(),
+    subscribe: (listener) => readServiceMember(ctx, "connection", "state")?.subscribe(listener) ?? (() => {
     })
   };
   const settingsShortcut = {
-    getSnapshot: () => ctx.get("shortcuts")?.catalog.getSnapshot().find((row) => row.id === "settings.open"),
-    subscribe: (listener) => ctx.get("shortcuts")?.catalog.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "shortcuts", "catalog")?.getSnapshot().find((row) => row.id === "settings.open"),
+    subscribe: (listener) => readServiceMember(ctx, "shortcuts", "catalog")?.subscribe(listener) ?? (() => {
     })
   };
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
@@ -65742,7 +66003,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
     return {
       ...base,
       preferences: settingsPreferences(ctx),
-      reconnect: () => ctx.get("connection")?.reconnect(),
+      reconnect: () => callServiceMethod(ctx, "connection", "reconnect"),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
@@ -65839,7 +66100,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
             const timestamp = Date.now();
             await scope.configForms.developerTools.setEnabled(enabled);
             if (previous !== void 0 && previous !== enabled && form.getSnapshot().value?.enabled === enabled) {
-              ctx.get("productAnalytics")?.track("code_work_view_toggle", { is_enabled: enabled }, timestamp);
+              callServiceMethod(ctx, "productAnalytics", "track", "code_work_view_toggle", { is_enabled: enabled }, timestamp);
             }
           }
         })
@@ -65869,7 +66130,10 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose();
+      for (const handle of fibers) {
+        if (typeof handle === "function") handle();
+        else handle?.dispose?.();
+      }
       for (const off of disposers) off();
     }
   };
@@ -70367,13 +70631,14 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     return (0, import_react94.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DS Bot app."));
   }
   if (state.ids.length === 0) {
+    const paneMode = browserPaneMode(roster.plugins?.slots?.browser);
     return (0, import_react94.createElement)(
       "div",
       { className: "bt-browser-empty-mark" },
       (0, import_react94.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
       (0, import_react94.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-      (0, import_react94.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-      (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
+      (0, import_react94.createElement)("div", { className: "bt-muted" }, paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+      paneMode.isExternal ? actions.openSettings ? (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : null : (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
     );
   }
   return (0, import_react94.createElement)(
@@ -71293,7 +71558,7 @@ function shouldCheckBrowserCover(records) {
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
 }
-function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold, browserSlot }) {
   const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
   const pageUrl = visibleUrl(page.url);
@@ -71402,11 +71667,12 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
     input.current?.blur();
   }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
   const secure = /^https:/i.test(pageUrl);
+  const paneMode = browserPaneMode(browserSlot, hold);
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react95.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": viewLabel },
-    bot && actions.browserTakeover ? (0, import_react95.createElement)(
+    bot && actions.browserTakeover && paneMode.showTakeover ? (0, import_react95.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
       (0, import_react95.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
@@ -71416,6 +71682,11 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
       )
+    ) : bot && paneMode.isExternal ? (0, import_react95.createElement)(
+      "div",
+      { className: "bt-browser-takeover", "data-external": "" },
+      (0, import_react95.createElement)("span", null, t("{name} opens in an external window, not this sidebar", { name: paneMode.activeLabel })),
+      actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch")) : null
     ) : null,
     (0, import_react95.createElement)(
       "div",
@@ -71541,8 +71812,8 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         { className: "bt-browser-empty" },
         bot ? (0, import_react95.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react95.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react95.createElement)(GlobeIcon2)),
         (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, bot ? t("{name}'s browser", { name: bot.name }) : t("Browser")),
-        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
-        bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
+        bot && paneMode.isExternal ? actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : null : bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -71846,7 +72117,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       { key: "workspace", className: "bt-panel-view bt-panel-workspace", hidden: view !== "workspace" },
       workspace.render(workspace.active, view === "workspace")
     ) : null,
-    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
+    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold, browserSlot: roster.plugins?.slots?.browser }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react95.createElement)(DetailsDrawer, {
@@ -71917,9 +72188,12 @@ var BROWSER_CSS = `
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
+.bt-browser-takeover>span{min-width:0;overflow-wrap:anywhere}
 .bt-browser-takeover[data-held]{background:var(--bt-active)}
-.bt-browser-takeover-actions{display:flex;gap:6px}
-.bt-browser-takeover button{border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer}
+.bt-browser-takeover-actions{display:flex;gap:6px;flex:none}
+.bt-browser-takeover button{flex:none;white-space:nowrap;min-height:28px;border:1px solid var(--bt-line-2);border-radius:8px;padding:4px 10px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer;transition:background-color .12s ease}
+.bt-browser-takeover button:hover{background:var(--bt-hover)}
+.bt-browser-takeover button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-browser-bar .bt-icon-btn:disabled{opacity:.35;cursor:default;background:none}
 .bt-browser-address{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:32px;margin:0 4px;padding:0 12px;border-radius:999px;background:var(--bt-hover);border:.5px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-browser-address:hover{background:var(--bt-active)}
@@ -74805,11 +75079,31 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
 }
 
 // src/client/index.js
-var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
+var inject = ["sessions", "uiWorkspace", "uiConversation", "uiSession", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
 function apply(ctx) {
   ctx.effect(() => installTitle(document), "ds-bot: window title");
-  ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
+  ctx.effect(() => {
+    const initialLocale = ctx.get("locale");
+    let offInitial = initialLocale ? installLocale(initialLocale) : null;
+    const releaseInitial = () => {
+      const off = offInitial;
+      offInitial = null;
+      off?.();
+    };
+    const fiber = ctx.inject(["locale"], (scope) => {
+      scope.effect(() => {
+        releaseInitial();
+        return installLocale(scope.locale);
+      }, "ds-bot: interface copy");
+    });
+    return () => {
+      releaseInitial();
+      return fiber.dispose();
+    };
+  }, "ds-bot: interface copy lifecycle");
+  const sessionStatus = createSessionStatusSource(ctx);
+  ctx.effect(() => () => sessionStatus.dispose(), "ds-bot: session status");
   migrateStorage();
   const PREFS_KEY = STORAGE.prefs;
   let savedPrefs = {};
@@ -74842,9 +75136,8 @@ function apply(ctx) {
   const agentNewInFlight = /* @__PURE__ */ new Map();
   const isAgentSessionId = (id) => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id);
   const agentOfSession = (id) => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id);
-  const workspaces = ctx.get("workspaces");
   const workspaceOf = (sessionId) => {
-    const items = workspaces?.list?.getSnapshot()?.items ?? [];
+    const items = readServiceMember(ctx, "workspaces", "list")?.getSnapshot()?.items ?? [];
     return items.find((item) => item.sessionIds?.includes(sessionId))?.workspaceId;
   };
   let expected2 = null;
@@ -75711,7 +76004,7 @@ function apply(ctx) {
   actions.canSignIn = () => Boolean(actions.signInEntry());
   actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
   actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
-  actions.accountT = () => ctx.get("locale").bind("settings.account");
+  actions.accountT = () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key);
   actions.hasPlugins = () => true;
   actions.openPlugins = (focus = null) => actions.openSettings("plugins", focus);
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
@@ -75971,13 +76264,12 @@ function apply(ctx) {
     const offRoster = roster.subscribe(() => {
       questionDrafts.reconcileRoster(roster.getSnapshot());
     });
-    const sessionStatus = ctx.get("uiSession")?.sessionStatus;
-    const offStatus = sessionStatus?.subscribe?.(() => {
-      questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot());
+    const offStatus = sessionStatus.source.subscribe(() => {
+      questionDrafts.reconcileBlocking(sessionStatus.source.getSnapshot(), roster.getSnapshot());
     });
     return () => {
       offRoster();
-      offStatus?.();
+      offStatus();
     };
   }, "ds-bot: rescue interrupted question drafts");
   ctx.effect(() => noticeApprovals({
@@ -76066,7 +76358,7 @@ function apply(ctx) {
   actions.newTerminal = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("terminal");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "terminal");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
@@ -76075,49 +76367,67 @@ function apply(ctx) {
   actions.openFiles = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("files");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "files");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
   };
-  ctx.effect(() => {
-    const sidebar = ctx.get("sidebarRight");
-    if (!sidebar) return void 0;
-    let open = rightColumnOpen(document);
-    const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
-    const collapseColumn = () => {
-      try {
-        if (sidebar.isExpanded()) sidebar.toggleExpanded();
-      } catch (error) {
-        actions.reportError(error, "right-sidebar");
+  ctx.inject(["sidebarRight"], (scope) => {
+    scope.effect(() => {
+      let open = rightColumnOpen(document);
+      const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
+      const collapseColumn = () => {
+        try {
+          if (callServiceMethod(scope, "sidebarRight", "isExpanded")) callServiceMethod(scope, "sidebarRight", "toggleExpanded");
+        } catch (error) {
+          actions.reportError(error, "right-sidebar");
+        }
+      };
+      const observer2 = new MutationObserver(() => {
+        const next = rightColumnOpen(document);
+        const opening = next && !open;
+        open = next;
+        const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
+        if (verdict === "close-drawer") actions.closePanel();
+        else if (verdict === "collapse-column") collapseColumn();
+      });
+      observer2.observe(document.documentElement, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: RIGHTBAR_ATTRIBUTES
+      });
+      let offDirectMounted = null;
+      const releaseDirectMounted = () => {
+        const off = offDirectMounted;
+        offDirectMounted = null;
+        off?.();
+      };
+      const mountedFiber = scope.inject(["sidebarRight.mounted"], (mountedScope) => {
+        mountedScope.effect(() => {
+          releaseDirectMounted();
+          const off = mountedScope["sidebarRight.mounted"]?.subscribe?.(() => switchWindow.moved());
+          return () => {
+            off?.();
+          };
+        }, "ds-bot: sidebarRight.mounted");
+      });
+      if (!hasContextProperty(scope, "sidebarRight.mounted")) {
+        offDirectMounted = scope.sidebarRight?.mounted?.subscribe?.(() => switchWindow.moved()) ?? null;
       }
-    };
-    const observer2 = new MutationObserver(() => {
-      const next = rightColumnOpen(document);
-      const opening = next && !open;
-      open = next;
-      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
-      if (verdict === "close-drawer") actions.closePanel();
-      else if (verdict === "collapse-column") collapseColumn();
-    });
-    observer2.observe(document.documentElement, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: RIGHTBAR_ATTRIBUTES
-    });
-    const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui.getSnapshot().details !== null;
-    const offUi = ui.subscribe(() => {
-      const next = ui.getSnapshot().details !== null;
-      if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
-      drawer = next;
-    });
-    return () => {
-      observer2.disconnect();
-      offMounted();
-      offUi();
-    };
-  }, "ds-bot: one right panel");
+      let drawer = ui.getSnapshot().details !== null;
+      const offUi = ui.subscribe(() => {
+        const next = ui.getSnapshot().details !== null;
+        if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
+        drawer = next;
+      });
+      return () => {
+        observer2.disconnect();
+        releaseDirectMounted();
+        mountedFiber.dispose();
+        offUi();
+      };
+    }, "ds-bot: one right panel");
+  });
   const BOT_PRIORITY = -100;
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name,
@@ -76440,7 +76750,7 @@ function apply(ctx) {
   ctx.effect(() => watchBotCompletions({
     roster,
     sessions: ctx.sessions.list,
-    statuses: ctx.get("uiSession")?.sessionStatus,
+    statuses: sessionStatus.source,
     unread: botCompletions,
     ui
   }), "ds-bot: sidebar completions");

@@ -1,4 +1,4 @@
-import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
@@ -234,6 +234,11 @@ export function App() {
   const browserEnabled = hooks.useRoster(value => value.browser !== false)
   const isNarrowRef = useRef(isNarrow)
   isNarrowRef.current = isNarrow
+  const [terminalFocusNonce, setTerminalFocusNonce] = useState(0)
+  const terminalFocusSeqRef = useRef(0)
+  const consumeTerminalFocus = useCallback((nonce) => {
+    setTerminalFocusNonce(current => (current === nonce ? 0 : current))
+  }, [])
   const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => {
     const classic = mode === 'agent'
     return {
@@ -336,8 +341,11 @@ export function App() {
     }
     if (hit === 'terminal') {
       if (uiSnap.details && uiSnap.view === 'workspace' && uiSnap.rightPanel?.tab === 'terminal') {
+        setTerminalFocusNonce(0)
         actions.closePanel()
       } else if (actions.canOpenTerminal?.() !== false) {
+        terminalFocusSeqRef.current += 1
+        setTerminalFocusNonce(terminalFocusSeqRef.current)
         actions.setRightPanelTab?.('terminal')
       }
       return
@@ -519,6 +527,11 @@ export function App() {
     () => buildWorkspaceTabs(rightPanel, rightPluginEntries),
     [rightPanel, rightPluginEntries, localeVersion],
   )
+  useEffect(() => {
+    if (terminalFocusNonce > 0 && rightPanel?.tab !== 'terminal') {
+      setTerminalFocusNonce(0)
+    }
+  }, [terminalFocusNonce, rightPanel?.tab])
   const workspace = useMemo(() => ({
     tabs: workspaceTabs,
     active: rightPanel?.tab ?? null,
@@ -533,11 +546,29 @@ export function App() {
         registry: slots,
         readOnly,
         visible,
+        terminalFocusNonce,
+        onConsumeTerminalFocus: consumeTerminalFocus,
       })),
-  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly])
+  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce, consumeTerminalFocus])
   const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
-  // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
-  const chatKey = chat?.id ?? shown
+  // Key the conversation by stable Bot/room id so segment rollovers and initial roster
+  // hydration on a rolled-over segment both preserve unsent drafts and composer focus.
+  const chatKeyRef = useRef({ shown: null, chatId: null, key: null })
+  const chatId = chat?.id ?? null
+  let chatKey = chatId ?? shown
+  let nextChatKeyState = { shown: null, chatId: null, key: null }
+  if (shown) {
+    const prev = chatKeyRef.current
+    const same = prev.key !== null && (
+      prev.shown === shown
+      || (chatId !== null && prev.chatId === chatId)
+    )
+    if (same) chatKey = prev.key
+    nextChatKeyState = { shown, chatId: same ? (chatId ?? prev.chatId) : chatId, key: chatKey }
+  }
+  useLayoutEffect(() => {
+    chatKeyRef.current = nextChatKeyState
+  }, [nextChatKeyState.shown, nextChatKeyState.chatId, nextChatKeyState.key])
   return h('div', {
     className: 'dsb-frame',
     style: { '--dsb-side-w': `${effectiveSideW}px` },

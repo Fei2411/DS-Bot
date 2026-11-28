@@ -672,7 +672,27 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [text])
-  useEffect(() => { if (!disabled) field.current?.focus() }, [sessionId, disabled])
+  const mountedFocusRef = useRef(false)
+  useEffect(() => {
+    const isMount = !mountedFocusRef.current
+    mountedFocusRef.current = true
+    if (disabled) return
+    if (typeof document !== 'undefined') {
+      if (document.querySelector?.('[aria-modal="true"]')) return
+      const activeEl = document.activeElement
+      if (activeEl && activeEl !== document.body && activeEl !== document.documentElement && activeEl !== field.current
+        && typeof activeEl.closest === 'function') {
+        const activeTerm = activeEl.closest('.dsb-term')
+        const staleOtherTerm = isMount && activeTerm && sessionId
+          && activeTerm.getAttribute?.('data-session-id')
+          && activeTerm.getAttribute('data-session-id') !== sessionId
+        if (!staleOtherTerm && activeEl.closest('.dsb-term, textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+          return
+        }
+      }
+    }
+    field.current?.focus?.()
+  }, [chatKey, sessionId, disabled])
   useEffect(() => { if (!running) setStopping(false) }, [running, sessionId])
   useEffect(() => {
     const owned = ownedUrlsRef.current
@@ -1133,6 +1153,11 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   }
 
   const runningCommandForRef = useRef(null)
+  const composingRef = useRef(false)
+  const compositionEndAtRef = useRef(0)
+  const isComposing = (event) => isImeComposing(event)
+    || composingRef.current
+    || (compositionEndAtRef.current > 0 && Date.now() - compositionEndAtRef.current < 50)
   const canSend = !disabled && (text.trim() !== '' || attachments.length > 0)
   const submit = async () => {
     const value = text.trim()
@@ -1328,13 +1353,29 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         const pos = event.target?.selectionStart
         setCaret(typeof pos === 'number' ? pos : event.target.value.length)
       },
+      onCompositionStart: () => {
+        composingRef.current = true
+        compositionEndAtRef.current = 0
+      },
+      onCompositionEnd: () => {
+        composingRef.current = false
+        compositionEndAtRef.current = Date.now()
+      },
       onClick: syncCaret,
-      onKeyUp: syncCaret,
+      onKeyUp: (event) => {
+        if (event?.key === 'Enter') compositionEndAtRef.current = 0
+        syncCaret(event)
+      },
       onSelect: syncCaret,
-      onBlur: () => { lastEscAt.current = 0; closeMenu() },
+      onBlur: () => {
+        composingRef.current = false
+        compositionEndAtRef.current = 0
+        lastEscAt.current = 0
+        closeMenu()
+      },
       onPaste,
       onKeyDown: (event) => {
-        if (menuItems.length > 0 && !isImeComposing(event)) {
+        if (menuItems.length > 0 && !isComposing(event)) {
           if (event.key === 'ArrowDown') {
             event.preventDefault()
             setMenuIndex((clampedMenuIndex + 1) % menuItems.length)
@@ -1359,7 +1400,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
           }
         }
         // Double-Escape within 500 ms stops the running turn while keeping queued messages.
-        if (event.key === 'Escape' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isImeComposing(event)) {
+        if (event.key === 'Escape' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isComposing(event)) {
           const overlayOpen = hasEscapeLayer() || (typeof document !== 'undefined' && Boolean(document.querySelector('[aria-modal="true"], [role="menu"], [role="dialog"]')))
           if (running && !stopping && typeof onStop === 'function' && !overlayOpen) {
             const now = Date.now()
@@ -1379,7 +1420,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         if (event.key !== 'Escape') lastEscAt.current = 0
         const plainEnter = event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
         const modEnter = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
-        if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isImeComposing(event)) {
+        if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isComposing(event)) {
           // On an empty composer while running with queued user messages, Enter steers them now.
           if (text.trim() === '' && attachments.length === 0 && running && userQueuedIds.length > 0 && typeof actions?.steerSessionQueue === 'function') {
             event.preventDefault()
@@ -1441,6 +1482,16 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       'data-composer-card': '',
       'data-multiline': (text.includes('\n') || attachments.length > 0) || undefined,
       'data-running': (running && typeof onStop === 'function') || undefined,
+      onMouseDown: (event) => {
+        if (disabled || event.button !== 0) return
+        const target = event.target
+        if (!target) return
+        // Ignore React portal events bubbling from dialogs/menus rendered outside the card DOM.
+        if (typeof event.currentTarget?.contains === 'function' && !event.currentTarget.contains(target)) return
+        if (typeof target.closest === 'function' && target.closest('textarea, input, button, a, select, label, [role="button"], [role="slider"], [contenteditable="true"]')) return
+        event.preventDefault()
+        field.current?.focus?.()
+      },
     },
     h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, disabled, tabIndex: -1, onChange: onFilePick }),
     h(ComposerAttachments, { items: attachments, onRemove: removeAttachment, onPutBackPaste: putBackPaste }),
@@ -1705,8 +1756,10 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
     : null
 
-  const waiting = bot?.waiting === true
-  const locked = waiting || readOnly
+  // Only lock the composer while waiting for an initial model assignment (no model set yet).
+  // Once a Bot has a model (even if kickoff was held after a blocking failure), keep input editable.
+  const waitingForModel = bot?.waiting === true && !bot?.model
+  const locked = waitingForModel || readOnly
   const useWork = hooks.useWork ?? NO_WORK_HOOK
   const useUserQuestions = hooks.useUserQuestions ?? NO_LIST_HOOK
   const useSessionQueues = hooks.useSessionQueues ?? NO_OBJ_HOOK
@@ -1922,7 +1975,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
         sessionId: activeSessionId,
         disabled: locked,
         running,
-        placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
+        placeholder: waitingForModel ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
         onSend: send,
         onStop,
         addFilesRef,

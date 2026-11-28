@@ -2477,13 +2477,26 @@ export function install(rt) {
     await rt.save()
   }
 
+  const DISPOSE_ROUND_WAIT_MS = 2_000
   // Rounds stop with the plugin.
   ctx.effect(() => () => {
     disposed = true
     presented.clear()
     explicitCallsByExchange.clear()
     pendingDirectRelays.clear()
+    laterPosts.clear()
+    const active = [...roundRuns.values()].flatMap(runs => [...runs])
     for (const round of rt.roomProgress.values()) round.abort?.abort()
+    if (active.length === 0) return rt.ledger?.flush?.()
+    let timer
+    const bounded = Promise.race([
+      Promise.allSettled(active),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, DISPOSE_ROUND_WAIT_MS)
+        timer.unref?.()
+      }),
+    ]).finally(() => clearTimeout(timer))
+    return bounded.then(() => rt.ledger?.flush?.())
   }, 'ds-bot: group rounds')
 
   // DSH's present tool records the files a member delivers in the member's own group
@@ -2861,7 +2874,7 @@ export function install(rt) {
           void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
             ?.catch(error => rt.warn('ds-bot: stopping a turn of the round in %s failed: %s', room.name, error))
         }
-      } else if (rt.goalDrive !== undefined) {
+      } else if (!disposed && rt.goalDrive !== undefined) {
         // A round that ends with an active goal and nothing running may wake the admin.
         try {
           await rt.goalDrive(room, round)
