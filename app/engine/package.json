@@ -12,6 +12,7 @@
   },
   "files": [
     "index.js",
+    "ui-plugins.js",
     "cordis.patch.yml",
     "preset-standard.patch.yml",
     "preset-ptc.patch.yml",

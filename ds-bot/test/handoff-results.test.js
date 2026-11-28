@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
+import { openCoordinationDb } from '../src/host/coordination-db.js'
 import { install as installHandoffs } from '../src/host/handoffs.js'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 
@@ -93,6 +94,8 @@ async function startHost(home, team) {
   rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data) => {
+    if (type === 'turn/start') agentOf(id).status = 'running'
+    if (type === 'turn/end') agentOf(id).status = 'idle'
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
@@ -110,7 +113,7 @@ async function startHost(home, team) {
   }))).json()
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await tool('list_bots', {}, 'a')
-  return { ctx, agents, agentOf, emit, emitScoped, tool, call, home, stop: () => ctx.dispose() }
+  return { rt, ctx, agents, agentOf, emit, emitScoped, tool, call, home, stop: () => ctx.dispose() }
 }
 
 // The plugin folder of a test, and the hosts over it. A second host over the same
@@ -155,10 +158,39 @@ function turnTaker(agents, emit) {
   return { take, open, end, userTurn }
 }
 
-// The works the team file holds, once the saves made so far are done.
-const worksIn = async ({ call, home }) => {
-  await call('set-prefs', {})
-  return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).works ?? {}
+// Active non-foreground works in SQLite `coordDb`, mapped with open child waits and settled child results.
+const worksIn = async ({ rt }) => {
+  const db = rt.coordDb
+  const out = {}
+  for (const work of db.listWorks({ activeOnly: true, limit: 500 })) {
+    if (work.kind === 'foreground' || work.originKind === 'request_dedup') continue
+    const open = db.listWaits({ workId: work.workId, kind: 'call', status: 'open', limit: 100 })
+      .map(wait => wait.targetWorkId)
+      .filter(Boolean)
+    const results = db.listCalls({ parentWorkId: work.workId, limit: 100 })
+      .filter(call => call.status !== 'open')
+      .map((call) => {
+        const child = db.getWork(call.childWorkId)
+        return {
+          id: call.childWorkId,
+          text: call.resultSummary ?? '',
+          file: call.resultRef ?? undefined,
+          length: child?.apiMeta?.resultLength ?? (call.resultRef ? readFileSync(join(rt.home, 'handoff-results', call.resultRef), 'utf8').length : undefined),
+          abandoned: call.error?.abandoned === true,
+          child: child?.meta?.child,
+          name: child?.apiMeta?.name ?? child?.meta?.name,
+        }
+      })
+    out[work.workId] = {
+      ...work,
+      to: work.botId,
+      child: work.meta?.child,
+      name: work.apiMeta?.name ?? work.meta?.name,
+      open,
+      results,
+    }
+  }
+  return out
 }
 const keptIn = home => (existsSync(join(home, 'handoff-results')) ? readdirSync(join(home, 'handoff-results')) : [])
 
@@ -317,53 +349,52 @@ test('a result that could not be written is not claimed, and is reported after a
   assert.match(answer, /\[cut; 5000 characters in all, the rest was not kept\]/)
 })
 
-test('closing or dropping work retains result files until its state save succeeds', async (t) => {
+test('closing or dropping work keeps durable result files in coordination.sqlite across restart', async (t) => {
   const { home } = bench(t)
-  const rt = { home, state: { works: {} }, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
+  const db1 = openCoordinationDb({ home })
+  t.after(() => { try { db1.close() } catch {} })
+  const rt = { home, coordDb: db1, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
   installHandoffs(rt)
   rt.openWork('parent', { from: 'a', to: 'b' })
   rt.openWork('child', { from: 'b', to: 'c', parent: 'parent' })
   rt.closeWork('child', 'Tester', LONG)
-  await delay(0)
-  const saved = JSON.parse(JSON.stringify(rt.state))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(saved))
   assert.deepEqual(keptIn(home), ['child.txt'])
-  let rejectSave
-  rt.save = () => new Promise((resolve, reject) => { rejectSave = reject })
-  rt.closeWork('parent', 'Writer', LONG)
-  assert.deepEqual(keptIn(home), ['child.txt'])
-  rejectSave(new Error('disk full'))
-  await delay(0)
-  assert.deepEqual(keptIn(home), ['child.txt'])
-  const restarted = { ...rt, state: saved, save: async () => {} }
-  installHandoffs(restarted)
-  assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
-  let finishSave
-  restarted.save = () => new Promise(resolve => { finishSave = resolve })
-  restarted.dropWork('parent')
-  assert.deepEqual(keptIn(home), ['child.txt'])
-  writeFileSync(join(home, 'state.json'), JSON.stringify(restarted.state))
-  finishSave()
-  await delay(0)
-  assert.deepEqual(keptIn(home), [])
+  db1.close()
+
+  const db2 = openCoordinationDb({ home })
+  const restarted = { home, coordDb: db2, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
+  try {
+    installHandoffs(restarted)
+    assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
+    restarted.dropWork('parent')
+    assert.deepEqual(keptIn(home), ['child.txt'])
+  } finally {
+    db2.close()
+  }
 })
 
-test('a save that resolves without writing during shutdown keeps the durable result', async (t) => {
+test('a durable result written on closeWork survives process restart in handoff-results', async (t) => {
   const { home } = bench(t)
-  const rt = { home, state: { works: {} }, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
-  installHandoffs(rt)
-  rt.openWork('parent', { from: 'a', to: 'b' })
-  rt.openWork('child', { from: 'b', to: 'c', parent: 'parent' })
-  rt.closeWork('child', 'Tester', LONG)
-  await delay(0)
-  const saved = JSON.parse(JSON.stringify(rt.state))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(saved))
-  rt.closeWork('parent', 'Writer', LONG)
-  await delay(0)
-  assert.deepEqual(keptIn(home), ['child.txt'])
-  const restarted = { ...rt, state: saved }
-  installHandoffs(restarted)
-  assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
+  const db1 = openCoordinationDb({ home })
+  try {
+    const rt = { home, coordDb: db1, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
+    installHandoffs(rt)
+    rt.openWork('parent', { from: 'a', to: 'b' })
+    rt.openWork('child', { from: 'b', to: 'c', parent: 'parent' })
+    rt.closeWork('child', 'Tester', LONG)
+    assert.deepEqual(keptIn(home), ['child.txt'])
+  } finally {
+    db1.close()
+  }
+
+  const db2 = openCoordinationDb({ home })
+  try {
+    const restarted = { home, coordDb: db2, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
+    installHandoffs(restarted)
+    assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
+  } finally {
+    db2.close()
+  }
 })
 
 test('a team saved before the result was kept whole still answers, and says what is missing', async (t) => {

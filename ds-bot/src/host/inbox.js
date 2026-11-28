@@ -170,7 +170,7 @@ export function install(rt) {
 
     // Work handed to another Bot that stopped on a loop or a question for the user.
     for (const work of rt.pausedWorksView?.() ?? []) {
-      add('paused', work.id, work.at, { botId: work.from ?? undefined }, {
+      add('paused', work.id, work.at, { botId: work.from ?? work.to ?? undefined, ...(work.roomId ? { roomId: work.roomId } : {}) }, {
         text: clip(work.question || work.goal),
         ...(work.to ? { to: work.to } : {}),
         ...(work.kind ? { reason: String(work.kind) } : {}),

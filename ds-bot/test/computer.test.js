@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -213,15 +213,15 @@ test('cua-driver consent: first call asks, This time lasts the session, Deny ref
   assert.equal((await denied).kind, 'deny')
 })
 
-test('macOS consent answerer: grants allow, the card answers, Always records, DSH Always is never returned', async (t) => {
+test('macOS consent answerer: grants allow, the card answers, Always records only stable identities, DSH Always is never returned', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await rt.load()
   await rt.computerEndpoint('set-enabled', { enabled: true })
   const answerer = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
-  const ask = (sessionId, name = 'Notes') => answerer({
+  const ask = (sessionId, subject = { name: 'Notes' }) => answerer({
     agent: { id: sessionId },
-    questions: [{ id: 'cua-app-access', intent: { subject: { name } }, options: [{ label: 'Allow for this session' }, { label: 'Deny' }] }],
+    questions: [{ id: 'cua-app-access', intent: { subject: typeof subject === 'string' ? { name: subject } : subject }, options: [{ label: 'Allow for this session' }, { label: 'Deny' }] }],
   }, async () => 'next')
   // non-Bot sessions pass through
   assert.equal(await ask('plain'), 'next')
@@ -236,17 +236,26 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
   assert.equal(shown.appName, 'Notes')
   await rt.computerEndpoint('app-answer', { id, answer: 'once' })
   assert.deepEqual(await pending, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
-  // Always records the grant and still answers session-allow
-  const pending2 = ask('w1', 'Mail')
+  // Display name alone never persists a grant on Always
+  const pendingNameOnly = ask('w1', 'Notes')
+  await new Promise(resolve => setImmediate(resolve))
+  const [idNameOnly] = Object.entries(rt.computerLive().asks)[0]
+  await rt.computerEndpoint('app-answer', { id: idNameOnly, answer: 'always' })
+  assert.deepEqual(await pendingNameOnly, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
+  assert.equal(rt.botOf('w1').computer?.apps, undefined)
+  // Always with a stable platform id records the grant and still answers session-allow
+  const mail = { name: 'Mail', id: 'com.apple.Mail' }
+  const pending2 = ask('w1', mail)
   await new Promise(resolve => setImmediate(resolve))
   const [id2] = Object.entries(rt.computerLive().asks)[0]
   await rt.computerEndpoint('app-answer', { id: id2, answer: 'always' })
   const answer2 = await pending2
   assert.equal(answer2.answers[0].selected[0], 'Allow for this session')
   assert.notEqual(answer2.answers[0].selected[0], 'Always allow')
-  // a later ask for the same app is auto-allowed by the grant
-  assert.deepEqual(await ask('w1', 'Mail'), { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
-  assert.equal(rt.botOf('w1').computer.apps['mail']?.name, 'Mail')
+  // a later ask for the same stable identity is auto-allowed by the grant
+  assert.deepEqual(await ask('w1', mail), { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
+  assert.equal(rt.botOf('w1').computer.apps['com.apple.Mail']?.name, 'Mail')
+  assert.equal(rt.botOf('w1').computer.apps['com.apple.Mail']?.id, 'com.apple.Mail')
   // 0.2.2-rc.2 mouse-control consent follows the Bot's foreground level without hanging on DSH's card
   const askMouse = sessionId => answerer({
     agent: { id: sessionId },
@@ -256,6 +265,100 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
   assert.deepEqual(await askMouse('w1'), { answers: [{ id: 'cua-mouse-control', selected: ['Deny'] }] })
   await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
   assert.deepEqual(await askMouse('w1'), { answers: [{ id: 'cua-mouse-control', selected: ['Allow for this session'] }] })
+})
+
+test('legacy macOS getApp accepts task approval and records grants under the returned app identity (#2308)', async (t) => {
+  for (const scenario of ['once', 'always', 'always without a bundle ID']) {
+    await t.test(scenario, { timeout: 3000 }, async (t) => {
+      const choice = scenario === 'once' ? 'once' : 'always'
+      const services = { loader: { import: async name => ({ name }) } }
+      const { ctx, home, rt } = setup({ services })
+      withProvider(ctx, services)
+      t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+      await rt.load()
+      await rt.computerEndpoint('set-enabled', { enabled: true })
+      await rt.computerEndpoint('provider-retry', {})
+      const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+      const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+      const agent = { id: 'w1' }
+      rt.selfOf = id => (id === 'w1-fresh' ? 'w1' : id)
+      rt.isBotSession = id => id === 'w1' || id === 'w1-fresh'
+      const bundleId = scenario === 'always without a bundle ID' ? undefined : 'com.apple.Notes'
+      const appPath = '/System/Applications/Notes.app/Contents/MacOS/Notes'
+      const selected = { isError: false, value: { appHandle: 'notes-handle', pid: 42, name: 'Notes', bundleId } }
+      const providerAllowed = new Set()
+      const getApp = (callId, { agent: caller = agent, path = appPath, result = selected, launch } = {}) => track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: caller, callId }, async () => {
+        if (!providerAllowed.has(caller)) {
+          const answer = await consent({ agent: caller, questions: [{
+            id: 'cua-app-access',
+            question: 'Allow Computer Use to launch if needed, read, capture, and control Notes?',
+            detail: `Application: ${path}\nTask access applies to the selected application instance, including its launch if needed. macOS permissions and approval of sensitive actions remain separate. Saved access can be revoked by removing its allowedApps entry from this provider configuration. Task access ends with the task.`,
+            options: [{ label: 'Allow for this task' }, { label: 'Deny' }],
+          }] }, async () => assert.fail('DS Bot did not handle the provider approval'))
+          if (answer.answers[0]?.selected[0] === 'Allow for this task') providerAllowed.add(caller)
+        }
+        if (!providerAllowed.has(caller)) return { isError: true, error: { code: 'APP_ACCESS_DENIED' } }
+        launch?.()
+        return result
+      })
+      const pending = getApp('get-notes')
+      await new Promise(resolve => setImmediate(resolve))
+      const ask = Object.values(rt.computerLive().asks)[0]
+      await rt.computerEndpoint('app-answer', { id: ask.id, answer: choice })
+      const outcome = await pending
+      const apps = rt.computerView().bots.w1.apps
+      assert.deepEqual(Object.keys(apps), scenario === 'always' ? [bundleId] : [])
+      if (scenario === 'always without a bundle ID') {
+        assert.deepEqual(outcome.value, selected.value)
+        assert.equal(outcome.isError, false)
+        assert.equal(outcome.content?.length, 2)
+        assert.equal(outcome.content[0].text, JSON.stringify(selected.value))
+        assert.match(outcome.content?.at(-1)?.text ?? '', /not saved.*no bundle ID.*this conversation only/i)
+      } else assert.deepEqual(outcome, selected)
+      assert.equal(ask.appName, 'Notes')
+      if (scenario === 'always') {
+        assert.equal(apps[bundleId].id, bundleId)
+        assert.equal(apps[bundleId].name, 'Notes')
+        assert.deepEqual(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots.w1.computer.apps, apps)
+      }
+      assert.deepEqual(await getApp('get-notes-again'), selected)
+      assert.deepEqual(rt.computerLive().asks, {})
+      const fresh = { id: 'w1-fresh' }
+      if (scenario === 'always') providerAllowed.add(fresh)
+      const later = getApp('get-notes-fresh', { agent: fresh })
+      await new Promise(resolve => setImmediate(resolve))
+      const asks = Object.values(rt.computerLive().asks)
+      if (scenario === 'always') {
+        assert.equal(asks.length, 0, 'a verified bundle ID from an already authorized provider should reuse the grant')
+        assert.deepEqual(await later, selected)
+        assert.equal(apps[bundleId].path, appPath)
+        const other = getApp('same-name-different-path', { agent: { ...fresh }, path: '/Applications/Notes.app/Contents/MacOS/Notes' })
+        await new Promise(resolve => setImmediate(resolve))
+        const otherAsks = Object.values(rt.computerLive().asks)
+        assert.equal(otherAsks.length, 1)
+        await rt.computerEndpoint('app-answer', { id: otherAsks[0].id, answer: 'deny' })
+        assert.equal((await other).error.code, 'APP_ACCESS_DENIED')
+        let launched = false
+        const changed = getApp('same-path-different-bundle', {
+          agent: { ...fresh },
+          result: { ...selected, value: { ...selected.value, bundleId: 'example.Notes' } },
+          launch: () => { launched = true },
+        })
+        await new Promise(resolve => setImmediate(resolve))
+        assert.equal(launched, false, 'a matching path must not approve the launch of an unverified app')
+        const replacementAsks = Object.values(rt.computerLive().asks)
+        assert.equal(replacementAsks.length, 1)
+        await rt.computerEndpoint('app-answer', { id: replacementAsks[0].id, answer: 'deny' })
+        assert.equal((await changed).error.code, 'APP_ACCESS_DENIED')
+        assert.equal(launched, false)
+        assert.deepEqual(Object.keys(rt.computerView().bots.w1.apps), [bundleId])
+      } else {
+        assert.equal(asks.length, 1)
+        await rt.computerEndpoint('app-answer', { id: asks[0].id, answer: 'deny' })
+        assert.equal((await later).error.code, 'APP_ACCESS_DENIED')
+      }
+    })
+  }
 })
 
 // A fake Cordis plugin mount + the registry the provider registers on.
@@ -541,25 +644,23 @@ test('a revoke removes the grant, aborts the call, revokes in the provider and t
   await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
   const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
   const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
-  // the Bot got a name-only Always grant, then getApp returned the id
+  // the Bot holds a stable Always grant, then getApp resolves its handle and path
   const bot = rt.botOf('w1')
-  bot.computer = { ...bot.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } }
+  bot.computer = { ...bot.computer, apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g1' },
     async () => ({ isError: false, value: { appHandle: 'h1', pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes', executablePath: '/Applications/Notes.app/Contents/MacOS/Notes' } } }))
-  // the grant learned the id
-  assert.equal(rt.botOf('w1').computer.apps.notes.id, 'com.apple.Notes')
   const allow = async () => 'allowed'
   const call = args => gate({ name: 'cua', arguments: args, agent: { id: 'w1' }, callId: 'c1' }, allow)
   assert.equal(await call({ method: 'click', params: { appHandle: 'h1' } }), 'allowed')
-  // revoke: grant gone, provider revoked, the old handle asks again instead of running
-  assert.equal(await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: 'notes' }), true)
+  // revoke: grant gone, provider revoked, the old handle refuses revoked instead of running
+  assert.equal(await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: 'com.apple.Notes' }), true)
   assert.equal(rt.botOf('w1').computer.apps, undefined)
   assert.deepEqual(revoked, ['hash-notes'])
   // the recorded handle is gone, so the next call refuses revoked, not a card
   assert.match((await call({ method: 'click', params: { appHandle: 'h1' } })).reason, /was revoked/)
   // a fresh getApp asks through the card again
   const answerer = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
-  void answerer({ agent: { id: 'w1' }, questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } }, options: [] }] }, async () => 'next')
+  void answerer({ agent: { id: 'w1' }, questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes', id: 'com.apple.Notes' } }, options: [] }] }, async () => 'next')
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(Object.keys(rt.computerLive().asks).length, 1)
 })
@@ -633,16 +734,16 @@ test('leases release at turn end, stop and takeover; user-busy gates foreground'
   const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
   const allow = async () => 'allowed'
   const call = (sessionId, args) => gate({ name: 'cua', arguments: args, agent: { id: sessionId }, callId: `c-${sessionId}` }, allow)
-  const grant = (botId) => { const bot = rt.botOf(botId); bot.computer = { ...bot.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } } }
+  const grant = (botId) => { const bot = rt.botOf(botId); bot.computer = { ...bot.computer, apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } } }
   const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
   const seed = async sessionId => track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: sessionId }, callId: `g-${sessionId}` },
-    async () => ({ isError: false, value: { appHandle: `h-${sessionId}`, authorization: { name: 'Notes' } } }))
+    async () => ({ isError: false, value: { appHandle: `h-${sessionId}`, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   grant('w1'); grant('m1')
   await seed('w1')
   // m1 sees a different app so only the foreground lease collides with w1's.
-  rt.botOf('m1').computer.apps.mail = { name: 'Mail', grantedAt: 0 }
+  rt.botOf('m1').computer.apps['com.apple.Mail'] = { name: 'Mail', id: 'com.apple.Mail', grantedAt: 0 }
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Mail' } }, agent: { id: 'm1' }, callId: 'g-m1' },
-    async () => ({ isError: false, value: { appHandle: 'h-m1', authorization: { name: 'Mail' } } }))
+    async () => ({ isError: false, value: { appHandle: 'h-m1', authorization: { id: 'com.apple.Mail', name: 'Mail' } } }))
   // user busy gates a foreground call
   await rt.computerEndpoint('user-active', { idleSeconds: 0 })
   const busy = await call('w1', { method: 'activate', params: { appHandle: 'h-w1' } })
@@ -747,9 +848,9 @@ test('Stop all stops only Bots that hold a lease, are in-flight, or are bot/wait
   rt.stopChat = async botId => stopped.push(botId)
   const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
   const bot = rt.botOf('w1')
-  bot.computer = { ...bot.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } }
+  bot.computer = { ...bot.computer, apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g' },
-    async () => ({ isError: false, value: { appHandle: 'h1', authorization: { name: 'Notes' } } }))
+    async () => ({ isError: false, value: { appHandle: 'h1', authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1' } }, agent: { id: 'w1' }, callId: 'c' }, async () => 'allowed')
   // w1 holds a lease; m1 has a control entry but nothing held (simulated by a user state)
   await rt.computerEndpoint('takeover', { botId: 'm1' })
@@ -1103,7 +1204,7 @@ test('computer-shot serves only screenshots the module recorded, with a safe MIM
   assert.match((await rt.computerEndpoint('shot', { attachmentId: 'rec-2' })).dataUrl, /^data:image\/jpeg;base64,/)
 })
 
-test('same-named apps do not share an approval; a name-only consent still matches', async (t) => {
+test('same-named apps do not share an approval; a legacy name-only grant does not auto-approve', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await rt.load()
@@ -1126,14 +1227,17 @@ test('same-named apps do not share an approval; a name-only consent still matche
   assert.equal(Object.keys(rt.computerLive().asks).length, 1)
   await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
   assert.equal((await askB).kind, 'deny')
-  // the macOS consent question carries only a name; that path stays name-matched
+  // a name-only consent question must NOT auto-approve against a legacy name-only grant
   const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
   const w1 = rt.botOf('w1')
   const question = { questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } } }], agent: { id: 'w1', session: { id: 'w1' } }, signal: new AbortController().signal }
-  // drop the path-keyed grants and keep a name-only Always grant
   w1.computer = { apps: { notes: { name: 'Notes', grantedAt: 0 } } }
-  const answer = await consent(question, async () => 'next')
-  assert.deepEqual(answer.answers[0].selected, ['Allow for this session'])
+  const pending = consent(question, async () => 'next')
+  await new Promise(resolve => setImmediate(resolve))
+  const asks = Object.values(rt.computerLive().asks)
+  assert.equal(asks.length, 1)
+  await rt.computerEndpoint('app-answer', { id: asks[0].id, answer: 'deny' })
+  assert.deepEqual((await pending).answers[0].selected, ['Deny'])
 })
 
 test('browser tools need a resolvable target, and the driver-refused methods deny at every level', async (t) => {
@@ -1574,4 +1678,261 @@ test('cancelApprovals denies pending group app asks, pre-aborted signals do not 
   await rt.computerEndpoint('app-answer', { id: remaining.id, answer: 'once' })
   assert.deepEqual(await p2, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
   assert.equal(rt.computerLive().bots.w1?.waitingFor, undefined)
+})
+
+test('computerLive reports foreground leases with appKey: null and appName: null without throwing', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const w1 = rt.botOf('w1')
+  w1.computer = { ...w1.computer, apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g-fg' },
+    async () => ({ isError: false, value: { appHandle: 'h-w1', authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
+  await rt.computerEndpoint('user-active', { idleSeconds: 10 })
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'activate', params: { appHandle: 'h-w1' } }, agent: { id: 'w1' }, callId: 'c-fg' }, async () => 'allowed'), 'allowed')
+  const live = rt.computerLive()
+  const fg = live.leases.find(entry => entry.kind === 'foreground')
+  const app = live.leases.find(entry => entry.kind === 'app')
+  assert.ok(fg, 'expected a foreground lease')
+  assert.equal(fg.appKey, null)
+  assert.equal(fg.appName, null)
+  assert.equal(app?.appName, 'Notes')
+})
+
+test('stable identity Always grants persist (bundleId and executablePath) and avoid repeat prompts across sessions', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  rt.selfOf = id => (id === 'w1-fresh' ? 'w1' : id)
+  rt.isBotSession = id => id === 'w1' || id === 'w1-fresh'
+  const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+
+  // Non-legacy macOS getApp with name-only question subject defers persistence until
+  // getApp returns a real stable bundleId (and ignores whitespace-only authorization.id).
+  const firstGet = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g1' }, async () => {
+    const ans = await consent({
+      agent: { id: 'w1', session: { id: 'w1' } },
+      questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } }, options: [{ label: 'Allow for this session' }, { label: 'Deny' }] }],
+    }, async () => assert.fail('computerConsent should answer'))
+    assert.deepEqual(ans.answers[0].selected, ['Allow for this session'])
+    // Before getApp returns, nothing was saved under the display name.
+    assert.equal(rt.botOf('w1').computer?.apps, undefined)
+    return { isError: false, value: { appHandle: 'h1', name: 'Notes', bundleId: 'com.apple.Notes', authorization: { id: '   ', name: 'Notes' } } }
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  const [askId] = Object.entries(rt.computerLive().asks)[0]
+  await rt.computerEndpoint('app-answer', { id: askId, answer: 'always' })
+  const out = await firstGet
+  assert.equal(out.isError, false)
+  assert.deepEqual(Object.keys(rt.computerView().bots.w1.apps), ['com.apple.Notes'])
+  assert.equal(rt.computerView().bots.w1.apps['com.apple.Notes'].id, 'com.apple.Notes')
+
+  // A fresh session for the same Bot reuses the bundleId grant without prompting again.
+  const secondGet = await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1-fresh' }, callId: 'g2' },
+    async () => ({ isError: false, value: { appHandle: 'h2', name: 'Notes', bundleId: 'com.apple.Notes' } }))
+  assert.equal(secondGet.isError, false)
+  assert.deepEqual(rt.computerLive().asks, {})
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h2' } }, agent: { id: 'w1-fresh' }, callId: 'c2' }, async () => 'allowed'), 'allowed')
+
+  // executablePath-only app also persists under its path and is remembered across sessions.
+  const pathGet = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Editor' } }, agent: { id: 'w1' }, callId: 'g3' },
+    async () => ({ isError: false, value: { appHandle: 'h3', name: 'Editor', executablePath: '/Applications/Editor.app/Contents/MacOS/Editor' } }))
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  const [pathAskId] = Object.entries(rt.computerLive().asks)[0]
+  await rt.computerEndpoint('app-answer', { id: pathAskId, answer: 'always' })
+  await pathGet
+  const saved = rt.computerView().bots.w1.apps['/Applications/Editor.app/Contents/MacOS/Editor']
+  assert.equal(saved?.path, '/Applications/Editor.app/Contents/MacOS/Editor')
+  const pathFresh = await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Editor' } }, agent: { id: 'w1-fresh' }, callId: 'g4' },
+    async () => ({ isError: false, value: { appHandle: 'h4', name: 'Editor', executablePath: '/Applications/Editor.app/Contents/MacOS/Editor' } }))
+  assert.equal(pathFresh.isError, false)
+  assert.deepEqual(rt.computerLive().asks, {})
+})
+
+test('two different apps with the exact same display name each require separate authorization', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+
+  // macOS cua: App A ("Notes", no bundleId/path, handle h-a) approved for this session.
+  const getA = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'ga' },
+    async () => ({ isError: false, value: { appHandle: 'h-a', name: 'Notes' } }))
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'once' })
+  assert.equal((await getA).isError, false)
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h-a' } }, agent: { id: 'w1' }, callId: 'ca' }, allow), 'allowed')
+
+  // App B ("Notes", no bundleId/path, different handle h-b) MUST prompt independently.
+  const getB = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'gb' },
+    async () => ({ isError: false, value: { appHandle: 'h-b', name: 'Notes' } }))
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+  assert.equal((await getB).isError, true)
+  assert.equal((await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h-b' } }, agent: { id: 'w1' }, callId: 'cb' }, allow)).kind, 'deny')
+  // Denying h-b must not affect h-a.
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h-a' } }, agent: { id: 'w1' }, callId: 'ca2' }, allow), 'allowed')
+
+  // App C ("Notes", WITH bundleId com.evil.Notes) MUST prompt independently too (no bleed from h-a or h-b).
+  const getC = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'gc' },
+    async () => ({ isError: false, value: { appHandle: 'h-c', name: 'Notes', bundleId: 'com.evil.Notes' } }))
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+  assert.equal((await getC).isError, true)
+
+  // cua-driver: two pid-only apps with the same display name "Notes" (no id/path) are scoped per pid.
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'lw' }, async () => ({
+    windows: [
+      { pid: 101, name: 'Notes', window_id: 1001 },
+      { pid: 102, name: 'Notes', window_id: 1002 },
+    ],
+  }))
+  const p101 = gate({ name: 'cua_driver_native__click', arguments: { pid: 101 }, agent: { id: 'w1' }, callId: 'd101' }, allow)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'once' })
+  assert.equal(await p101, 'allowed')
+  assert.equal(await gate({ name: 'cua_driver_native__click', arguments: { window_id: 1001 }, agent: { id: 'w1' }, callId: 'd101w' }, allow), 'allowed')
+  // pid 102 shares the display name "Notes" but MUST ask separately.
+  const p102 = gate({ name: 'cua_driver_native__click', arguments: { pid: 102 }, agent: { id: 'w1' }, callId: 'd102' }, allow)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+  assert.equal((await p102).kind, 'deny')
+})
+
+test('legacy display-name-only grants never match and dirty empty-key records are cleaned and hidden', async (t) => {
+  const team = {
+    ...TEAM,
+    bots: {
+      ...TEAM.bots,
+      w1: {
+        ...TEAM.bots.w1,
+        computer: {
+          level: 'background',
+          apps: {
+            '': { name: 'Notes', grantedAt: 1 },
+            '   ': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 1 },
+            notes: { name: 'Notes', grantedAt: 1 },
+          },
+        },
+      },
+    },
+  }
+  const { ctx, home, rt } = setup({ team })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+
+  // Empty and whitespace keys were cleaned on load and do not appear in computerView().
+  const viewApps = rt.computerView().bots.w1.apps
+  assert.equal(Object.hasOwn(viewApps, ''), false)
+  assert.equal(Object.hasOwn(viewApps, '   '), false)
+  // Even if an empty key is injected in memory, grantsOf/computerView filter it out and never match it.
+  rt.botOf('w1').computer.apps[''] = { name: 'Notes', id: 'com.apple.Notes', grantedAt: 2 }
+  assert.equal(Object.hasOwn(rt.computerView().bots.w1.apps, ''), false)
+
+  // Neither the legacy display-name-only grant ("notes") nor the dirty empty key may auto-approve Notes.
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const pending = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g-legacy' },
+    async () => ({ isError: false, value: { appHandle: 'h-legacy', name: 'Notes', bundleId: 'com.apple.Notes' } }))
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+  assert.equal((await pending).isError, true)
+  // The legacy name-only grant was NOT silently upgraded with com.apple.Notes.
+  assert.equal(rt.botOf('w1').computer.apps.notes.id, undefined)
+})
+
+test('Always without stable identity returns unsaved notice and preserves result.value when content is absent', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+
+  // 1) driverConsent(..., persist = false) via consentAfterGetApp when getApp returns no stable identity (only whitespace bundleId).
+  const payload1 = { appHandle: 'h-noid-1', pid: 71, name: 'Notes', bundleId: '   ' }
+  const call1 = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g-noid-1' },
+    async () => ({ isError: false, value: payload1 }))
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'always' })
+  const res1 = await call1
+  assert.equal(res1.isError, false)
+  assert.deepEqual(res1.value, payload1)
+  assert.equal(res1.content.length, 2)
+  assert.deepEqual(JSON.parse(res1.content[0].text), payload1)
+  assert.match(res1.content[1].text, /not saved.*this conversation only/i)
+  assert.deepEqual(rt.computerView().bots.w1.apps, {})
+
+  // 2) Non-legacy computerConsent with display-name-only subject inside getApp returning no stable identity.
+  const payload2 = { appHandle: 'h-noid-2', pid: 72, name: 'Notes' }
+  const call2 = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g-noid-2' }, async () => {
+    const ans = await consent({
+      agent: { id: 'w1', session: { id: 'w1' } },
+      questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } }, options: [{ label: 'Allow for this session' }, { label: 'Deny' }] }],
+    }, async () => assert.fail('computerConsent should answer'))
+    assert.deepEqual(ans.answers[0].selected, ['Allow for this session'])
+    return { isError: false, value: payload2 }
+  })
+  for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'always' })
+  const res2 = await call2
+  assert.equal(res2.isError, false)
+  assert.deepEqual(res2.value, payload2)
+  assert.equal(res2.content.length, 2)
+  assert.deepEqual(JSON.parse(res2.content[0].text), payload2)
+  assert.match(res2.content[1].text, /not saved.*this conversation only/i)
+  assert.deepEqual(rt.computerView().bots.w1.apps, {})
+
+  // 3) cua-driver pid-only app (no id/path): Always surfaces unsaved notice on computerTrack and preserves result.value.
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'lw-noid' },
+    async () => ({ windows: [{ pid: 73, name: 'Scratchpad' }] }))
+  const clickExec = { name: 'cua_driver_native__click', arguments: { pid: 73 }, agent: { id: 'w1' }, callId: 'click-noid' }
+  const gatePromise = gate(clickExec, async () => 'allowed')
+  await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'always' })
+  assert.equal(await gatePromise, 'allowed')
+  assert.deepEqual(rt.computerView().bots.w1.apps, {})
+  const clickOut = await track(clickExec, async () => ({ isError: false, value: { clicked: true } }))
+  assert.equal(clickOut.content.length, 2)
+  assert.deepEqual(JSON.parse(clickOut.content[0].text), { clicked: true })
+  assert.match(clickOut.content[1].text, /not saved.*this conversation only/i)
+})
+
+test('prototype property names never false-match grantFor or revokeApp', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+
+  for (const key of ['constructor', 'toString', 'valueOf']) {
+    const pending = track({ name: 'cua', arguments: { method: 'getApp', params: { selector: key } }, agent: { id: 'w1' }, callId: `g-${key}` },
+      async () => ({ isError: false, value: { appHandle: `h-${key}`, authorization: { id: key, name: key } } }))
+    for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+    assert.equal(Object.keys(rt.computerLive().asks).length, 1, `prototype key ${key} must require consent`)
+    await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+    assert.equal((await pending).isError, true)
+    assert.equal(await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: key }), true)
+  }
 })

@@ -17,6 +17,7 @@ const { outputFiles } = await build({
     contents: [
       "export { pinWatch } from './src/client/header.js'",
       "export { NewDivider, newDividerIn } from './src/client/cells.js'",
+      "export { installDshAdapter, syncDshNode } from './src/client/adapter-dsh.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
   },
@@ -34,10 +35,10 @@ const react = {
 }
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
-  module, exports: module.exports, document, window: dom.window,
+  module, exports: module.exports, document, window: dom.window, MutationObserver: dom.window.MutationObserver,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : name === '@deepseek-ai/dsh-client-ui-primitives' ? { MarkdownText: () => null } : {}),
 })
-const { pinWatch, NewDivider, newDividerIn } = module.exports
+const { pinWatch, NewDivider, newDividerIn, installDshAdapter, syncDshNode } = module.exports
 
 // Mounts a NewDivider the way React would: the element gets the ref, then the layout
 // effect runs. Returns the node and its unmount.
@@ -53,15 +54,15 @@ const mountDivider = (parent) => {
 
 const chat = (pinned) => {
   document.body.innerHTML = [
-    '<div data-conversation-scroll id="scroller"><div class="x_frame">',
-    `<div class="x_root" ${pinned ? 'data-chat-following-tail' : ''}><div data-chat-flow id="flow"><div>a reply</div></div></div>`,
-    pinned ? '' : '<div class="EvIC1a_toBottomSlot"><button type="button">down</button></div>',
+    `<div data-bt-scroll data-bt-following-tail="${pinned ? 'true' : 'false'}" id="scroller"><div class="x_frame">`,
+    '<div class="x_root"><div data-bt-flow id="flow"><div>a reply</div></div></div>',
+    pinned ? '' : '<button type="button" data-bt-to-bottom>down</button>',
     '</div></div>',
   ].join('')
   return document.getElementById('scroller')
 }
 
-test('the pin check reads the following-tail flag and the Back to bottom slot like the old query', () => {
+test('the pin check reads data-bt-following-tail and falls back to data-bt-to-bottom', () => {
   const unpinned = pinWatch()
   let scroller = chat(true)
   assert.equal(unpinned(scroller), false)
@@ -69,24 +70,41 @@ test('the pin check reads the following-tail flag and the Back to bottom slot li
   scroller = chat(false)
   assert.equal(unpinned(scroller), true)
   assert.equal(unpinned(scroller), true)
-  // The shell drops the button but keeps the slot: no longer unpinned.
-  scroller.querySelector('button').remove()
+  // Without data-bt-following-tail, removing the Back to bottom button flips back to pinned.
+  scroller.removeAttribute('data-bt-following-tail')
+  assert.equal(unpinned(scroller), true)
+  scroller.querySelector('[data-bt-to-bottom]').remove()
   assert.equal(unpinned(scroller), false)
   scroller = chat(true)
   assert.equal(unpinned(scroller), false)
 })
 
-test('the pin check flips with the shell in place, without a new chat', () => {
+test('the pin check flips with the scroller in place, and DSH adapter mirrors host attributes', async () => {
   const unpinned = pinWatch()
-  const scroller = chat(true)
-  const root = scroller.querySelector('.x_root')
-  assert.equal(unpinned(scroller), false)
-  root.removeAttribute('data-chat-following-tail')
-  scroller.querySelector('.x_frame').insertAdjacentHTML('beforeend', '<div class="EvIC1a_toBottomSlot"><button type="button">down</button></div>')
-  assert.equal(unpinned(scroller), true)
-  scroller.querySelector('.EvIC1a_toBottomSlot').remove()
-  root.setAttribute('data-chat-following-tail', '')
-  assert.equal(unpinned(scroller), false)
+  document.body.innerHTML = [
+    '<div data-conversation-scroll id="scroller"><div class="x_frame">',
+    '<div class="x_root" data-chat-following-tail><div data-chat-flow id="flow"><div>a reply</div></div></div>',
+    '</div></div>',
+  ].join('')
+  const stop = installDshAdapter(document)
+  try {
+    const scroller = document.getElementById('scroller')
+    const root = scroller.querySelector('.x_root')
+    assert.equal(scroller.getAttribute('data-bt-following-tail'), 'true')
+    assert.equal(unpinned(scroller), false)
+    root.removeAttribute('data-chat-following-tail')
+    scroller.querySelector('.x_frame').insertAdjacentHTML('beforeend', '<div class="EvIC1a_toBottomSlot"><button type="button">down</button></div>')
+    await Promise.resolve()
+    assert.equal(scroller.getAttribute('data-bt-following-tail'), 'false')
+    assert.equal(unpinned(scroller), true)
+    scroller.querySelector('.EvIC1a_toBottomSlot').remove()
+    root.setAttribute('data-chat-following-tail', '')
+    await Promise.resolve()
+    assert.equal(scroller.getAttribute('data-bt-following-tail'), 'true')
+    assert.equal(unpinned(scroller), false)
+  } finally {
+    stop()
+  }
 })
 
 test('the pin check keeps the walk off the transcript while pinned', () => {
@@ -98,6 +116,8 @@ test('the pin check keeps the walk off the transcript while pinned', () => {
   scroller.querySelector = (selector) => { queries += 1; return query(selector) }
   for (let i = 0; i < 5; i++) assert.equal(unpinned(scroller), false)
   assert.equal(queries, 0)
+  // Also confirm syncDshNode stamps explicit attributes cleanly.
+  assert.equal(typeof syncDshNode, 'function')
 })
 
 test('the pills find the first mounted new-message divider inside the scroller', () => {

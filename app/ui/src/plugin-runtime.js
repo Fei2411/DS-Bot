@@ -4,25 +4,16 @@
 // fail in isolation, and recover cleanly on retry (with cache-busted module reload).
 import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
 import { noteClientError } from '../../../ds-bot/src/client/diagnostics.js'
-import { registerTheme } from '../../../ds-bot/src/client/themes.js'
+import { sanitizeUserSheet } from '../../../ds-bot/src/client/theme-css.js'
+import { registerShape, registerTheme } from '../../../ds-bot/src/client/themes.js'
+import { themeCssLoadsRemoteFiles, themeCssWithoutImports } from '../../../ds-bot/src/shared/theme-css.js'
+import { bustImportUrl } from './import-url.js'
 import { slots as defaultSlots } from './slots.js'
+
+export { bustImportUrl }
 
 const EMPTY_PLUGINS = Object.freeze([])
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' && typeof document !== 'undefined' ? useLayoutEffect : useEffect
-
-export function bustImportUrl(url, attempt = 0) {
-  const raw = String(url ?? '')
-  if (!raw || attempt <= 0) return raw
-  const hashIdx = raw.indexOf('#')
-  const hash = hashIdx >= 0 ? raw.slice(hashIdx) : ''
-  const withoutHash = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw
-  const queryIdx = withoutHash.indexOf('?')
-  if (queryIdx < 0) return `${withoutHash}?retry=${attempt}${hash}`
-  const base = withoutHash.slice(0, queryIdx)
-  const params = new URLSearchParams(withoutHash.slice(queryIdx + 1))
-  params.set('retry', String(attempt))
-  return `${base}?${params.toString()}${hash}`
-}
 
 function defaultImporter(specifier) {
   return import(/* @vite-ignore */ specifier)
@@ -39,13 +30,67 @@ function runDisposers(disposers, pluginId) {
   }
 }
 
+function buildSanitizedPluginSheet(cssText, doc) {
+  if (typeof cssText !== 'string' || cssText.trim() === '') return null
+  const view = doc?.defaultView ?? (typeof window !== 'undefined' ? window : globalThis)
+  const SheetCtor = view?.CSSStyleSheet ?? (typeof CSSStyleSheet === 'function' ? CSSStyleSheet : null)
+  if (typeof SheetCtor !== 'function' || typeof SheetCtor.prototype?.replaceSync !== 'function') return null
+  try {
+    const sheet = new SheetCtor()
+    sheet.replaceSync(themeCssWithoutImports(cssText))
+    sanitizeUserSheet(sheet, view)
+    const serialized = Array.from(sheet.cssRules ?? []).map(rule => rule.cssText).join('\n')
+    if (serialized !== '' && themeCssLoadsRemoteFiles(serialized)) {
+      try { sheet.replaceSync('') } catch { /* ignore */ }
+      return null
+    }
+    return { sheet, serialized }
+  } catch {
+    return null
+  }
+}
+
+// Fail-closed offline CSSOM sanitizer for plugin-provided theme CSS: strips @import before
+// parsing, sanitizes in a detached CSSStyleSheet (never touching document.head), and re-checks
+// the serialized CSS text for any residual remote fetch syntax.
+export function sanitizePluginCss(cssText, doc = typeof document !== 'undefined' ? document : undefined) {
+  const built = buildSanitizedPluginSheet(cssText, doc)
+  if (!built) return ''
+  try { built.sheet.replaceSync('') } catch { /* ignore */ }
+  return built.serialized
+}
+
+// Fail-closed offline CSSOM mount for ctx.style(): sanitizes in a detached CSSStyleSheet and
+// attaches via document.adoptedStyleSheets so unsanitized CSS never touches document.head.
+function mountSanitizedPluginStyle(cssText, doc = typeof document !== 'undefined' ? document : undefined) {
+  if (!doc || !Array.isArray(doc.adoptedStyleSheets)) return () => {}
+  const built = buildSanitizedPluginSheet(cssText, doc)
+  if (!built || built.serialized === '') return () => {}
+  const { sheet } = built
+  try {
+    doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
+  } catch {
+    try { sheet.replaceSync('') } catch { /* ignore */ }
+    return () => {}
+  }
+  return () => {
+    try { sheet.replaceSync('') } catch { /* ignore */ }
+    try {
+      if (Array.isArray(doc.adoptedStyleSheets)) {
+        doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter(item => item !== sheet)
+      }
+    } catch { /* ignore */ }
+  }
+}
+
 function normalizePlugin(first, second) {
   const manifest = typeof first === 'object' && first !== null ? first : null
   const apply = typeof second === 'function' ? second : (typeof manifest?.apply === 'function' ? manifest.apply : null)
   const load = typeof manifest?.load === 'function' ? manifest.load : null
   const url = typeof manifest?.url === 'string' && manifest.url.trim() !== '' ? manifest.url.trim() : null
+  const initialError = typeof manifest?.initialError === 'string' && manifest.initialError.trim() !== '' ? manifest.initialError.trim() : null
   const id = typeof manifest?.id === 'string' ? manifest.id.trim() : ''
-  if (id === '' || (apply === null && load === null && url === null)) {
+  if (id === '' || (apply === null && load === null && url === null && initialError === null)) {
     throw new TypeError('UI plugin requires a non-empty string id and an apply(ctx), load(), or url entry')
   }
   const inject = Array.isArray(manifest.inject)
@@ -55,16 +100,37 @@ function normalizePlugin(first, second) {
     ? [...new Set(manifest.pages.filter(name => typeof name === 'string' && name.trim() !== ''))]
     : []
   const name = typeof manifest.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : id
-  return { id, name, inject, pages, apply, load, url, unloadOnLeave: manifest.unloadOnLeave === true }
+  const source = typeof manifest.source === 'string' && manifest.source.trim() !== '' ? manifest.source.trim() : 'builtin'
+  const kind = typeof manifest.kind === 'string' && manifest.kind.trim() !== '' ? manifest.kind.trim() : (url ? 'esm' : 'builtin')
+  const packageName = typeof manifest.packageName === 'string' && manifest.packageName.trim() !== '' ? manifest.packageName.trim() : null
+  const dir = typeof manifest.dir === 'string' && manifest.dir.trim() !== '' ? manifest.dir.trim() : null
+  const external = manifest.external === true || source === 'local' || source === 'bundle'
+  return {
+    id,
+    name,
+    inject,
+    pages,
+    apply,
+    load,
+    url,
+    initialError,
+    source,
+    kind,
+    packageName,
+    dir,
+    external,
+    unloadOnLeave: manifest.unloadOnLeave === true,
+  }
 }
 
 /**
  * Create an isolated UI plugin runtime bound to a SlotRegistry.
- * @param {{ slots?: ReturnType<import('./slots.js').createSlotRegistry>, registerTheme?: typeof registerTheme, importer?: (url: string) => Promise<any> }} [options]
+ * @param {{ slots?: ReturnType<import('./slots.js').createSlotRegistry>, registerTheme?: typeof registerTheme, registerShape?: typeof registerShape, importer?: (url: string) => Promise<any> }} [options]
  */
 export function createPluginRuntime({
   slots = defaultSlots,
   registerTheme: registerThemeFn = registerTheme,
+  registerShape: registerShapeFn = registerShape,
   importer = defaultImporter,
 } = {}) {
   const services = new Map()
@@ -82,6 +148,11 @@ export function createPluginRuntime({
       : Object.freeze(Array.from(plugins.values()).map(entry => Object.freeze({
         id: entry.id,
         name: entry.name,
+        source: entry.source,
+        kind: entry.kind,
+        external: entry.external,
+        ...(entry.packageName ? { packageName: entry.packageName } : {}),
+        ...(entry.dir ? { dir: entry.dir } : {}),
         inject: entry.inject,
         pages: entry.pages,
         status: entry.status,
@@ -150,7 +221,15 @@ export function createPluginRuntime({
       has: name => services.has(name),
       provide: (name, value) => track(provide(name, value)),
       slot: (spec, component) => track(slots.register({ ...spec, pluginId: entry.id, runtime: runtimeRef.api }, component)),
-      theme: (id, themeDef) => track(registerThemeFn(id, themeDef)),
+      theme: (id, themeDef) => {
+        if (themeDef && typeof themeDef === 'object' && typeof themeDef.css === 'string' && themeDef.css.trim() !== '') {
+          const safeCss = sanitizePluginCss(themeDef.css)
+          return track(registerThemeFn(id, { ...themeDef, css: safeCss }))
+        }
+        return track(registerThemeFn(id, themeDef))
+      },
+      shape: (id, shapeDef) => track(registerShapeFn(id, shapeDef)),
+      style: cssText => track(mountSanitizedPluginStyle(cssText)),
       effect: (fn) => {
         if (typeof fn !== 'function') throw new TypeError('ctx.effect requires a function')
         if (entry.disposed || entry.generation !== gen) return () => {}
@@ -190,6 +269,10 @@ export function createPluginRuntime({
     const applyFn = entry.apply ?? entry.loadedApply
     if (typeof applyFn === 'function') {
       runApply(entry, gen, applyFn)
+      return
+    }
+    if (entry.load === null && entry.url === null && entry.initialError !== null) {
+      fail(entry, new Error(entry.initialError))
       return
     }
     entry.status = 'loading'
@@ -356,7 +439,10 @@ export function createPluginRuntime({
   }
 
   function use(first, second) {
-    const { id, name, inject, pages, apply, load, url, unloadOnLeave } = normalizePlugin(first, second)
+    const {
+      id, name, inject, pages, apply, load, url, initialError,
+      source, kind, packageName, dir, external, unloadOnLeave,
+    } = normalizePlugin(first, second)
     const existing = plugins.get(id)
     if (existing !== undefined) {
       existing.disposed = true
@@ -366,16 +452,22 @@ export function createPluginRuntime({
     const entry = {
       id,
       name,
+      source,
+      kind,
+      packageName,
+      dir,
+      external,
       inject: Object.freeze(inject),
       pages: Object.freeze(pages),
       apply,
       load,
       url,
+      initialError,
       unloadOnLeave,
       loadedApply: null,
       everOpened: pages.length === 0,
-      status: pages.length === 0 ? 'waiting' : 'idle',
-      error: null,
+      status: initialError ? 'error' : (pages.length === 0 ? 'waiting' : 'idle'),
+      error: initialError,
       retryCount: 0,
       disposers: [],
       generation: 0,

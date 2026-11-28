@@ -535,3 +535,213 @@ test('on DSH 0.2.2 a one-time task whose time has come cannot be paused', async 
     assert.equal(schedule.tasks.get(id).status, 'active')
   }
 })
+
+// #2418: on DSH 0.2.2+, `@deepseek-ai/dsh-schedule` is a built-in plugin entry
+// (with `entryId` / `patchId: 'schedule'`), not an optional bundle. When disabled,
+// `schedules` reports `canEnable: true` and `schedule-enable` turns it back on.
+test('disabled DSH schedule plugin reports canEnable and schedule-enable re-enables it live', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-schedules-enable-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const schedule = hostSchedule()
+  let enabled = false
+  let attachFn = null
+  const enabledCalls = []
+  const pluginManager = {
+    async listPlugins() {
+      return [{
+        entryId: 'loader-entry-schedule',
+        moduleName: '@deepseek-ai/dsh-schedule',
+        patchId: 'schedule',
+        enabled,
+        fiberPhase: enabled ? 'active' : null,
+      }]
+    },
+    async setPluginEnabled(id, next) {
+      enabledCalls.push([id, next])
+      enabled = next
+      if (next && attachFn) attachFn({ schedule, effect: () => () => {} })
+      return { changed: true, application: 'applied' }
+    },
+  }
+  const ctx = fakeContext({ services: { pluginManager } })
+  ctx.inject = (deps, cb) => { if (Array.isArray(deps) && deps.includes('schedule')) attachFn = cb }
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  createRuntime(ctx, { home })
+  const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  const before = (await call('schedules')).value
+  assert.deepEqual(before, { available: false, tasks: [], canEnable: true, reason: 'disabled' })
+
+  const afterEnable = await call('schedule-enable')
+  assert.equal(afterEnable.ok, true, JSON.stringify(afterEnable))
+  assert.deepEqual(enabledCalls, [['loader-entry-schedule', true]])
+  assert.equal(afterEnable.value.available, true)
+  assert.equal(afterEnable.value.canPause, true)
+})
+
+test('schedules reports startup error diagnostic, redacts error/canEnable for remote clients, and handles failed/overridden/coalesced/restart-required enablement', async (t) => {
+  let mode = 'failed'
+  const pluginCalls = []
+  let resolveSlowEnable = null
+  const pluginManager = {
+    async listPlugins() {
+      if (mode === 'failed') {
+        return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: 'failed', diagnostic: 'corrupt_schedule_log' }]
+      }
+      if (mode === 'overridden' || mode === 'pm-failed-code' || mode === 'pm-unaddressable' || mode === 'pm-failed-generic' || mode === 'coalesce') {
+        return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: false, fiberPhase: null }]
+      }
+      return []
+    },
+    async setPluginEnabled(id, next) {
+      pluginCalls.push([id, next])
+      if (mode === 'overridden') return { changed: false, application: 'overridden' }
+      if (mode === 'pm-failed-code') return { changed: false, application: 'failed', error: { code: 'management-required' } }
+      if (mode === 'pm-unaddressable') return { changed: false, application: 'failed', error: { code: 'unaddressable' } }
+      if (mode === 'pm-failed-generic') return { changed: false, application: 'failed', error: { code: 'unknown-plugin' } }
+      if (mode === 'coalesce') {
+        await new Promise((resolve) => { resolveSlowEnable = resolve })
+        return { changed: true, application: 'restart-required' }
+      }
+      return { changed: true, application: 'restart-required' }
+    },
+  }
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-sched-edge-'))
+  const ctx = fakeContext({ services: { pluginManager } })
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  const rt = createRuntime(ctx, { home })
+  const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  // Local client sees raw startup diagnostic; remote client gets only reason:'error' (no host diagnostic or canEnable).
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], reason: 'error', error: 'corrupt_schedule_log' })
+  assert.deepEqual(await rt.scheduleEndpoint('schedules', {}, { remote: true }), { available: false, tasks: [], reason: 'error' })
+
+  mode = 'overridden'
+  assert.deepEqual(await rt.scheduleEndpoint('schedules', {}, { remote: true }), { available: false, tasks: [], reason: 'disabled' })
+  const overriddenRes = await call('schedule-enable')
+  assert.equal(overriddenRes.ok, false)
+  assert.equal(overriddenRes.error.message, 'Scheduled tasks are locked by your configuration.')
+
+  // DSH 0.2.2 ManagementFailure returns application:'failed' with error.code and no error.diagnostic.
+  mode = 'pm-failed-code'
+  const failedCodeRes = await call('schedule-enable')
+  assert.equal(failedCodeRes.ok, false)
+  assert.equal(failedCodeRes.error.message, 'Scheduled tasks cannot be changed here.')
+  mode = 'pm-unaddressable'
+  const unaddressableRes = await call('schedule-enable')
+  assert.equal(unaddressableRes.ok, false)
+  assert.equal(unaddressableRes.error.message, 'Scheduled tasks cannot be changed here.')
+  mode = 'pm-failed-generic'
+  const genericFailRes = await call('schedule-enable')
+  assert.equal(genericFailRes.ok, false)
+  assert.equal(genericFailRes.error.message, 'Could not turn on scheduled tasks.')
+
+  // Concurrent schedule-enable calls coalesce into one pluginManager call and persist restartRequired across subsequent polls.
+  mode = 'coalesce'
+  pluginCalls.length = 0
+  const p1 = call('schedule-enable')
+  const p2 = call('schedule-enable')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(pluginCalls.length, 1, 'concurrent schedule-enable calls must coalesce into one pluginManager call')
+  resolveSlowEnable()
+  const [r1, r2] = await Promise.all([p1, p2])
+  assert.equal(r1.ok, true)
+  assert.equal(r2.ok, true)
+  assert.deepEqual(r1.value, { available: false, tasks: [], restartRequired: true })
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], restartRequired: true })
+})
+
+test('schedules safely handles real Cordis throwing proxy when pluginManager is absent and treats enabled fiberless plugin as pending', async (t) => {
+  // 1. Real Cordis throws on direct ctx.pluginManager access when uninjected.
+  const home1 = mkdtempSync(join(tmpdir(), 'ds-bot-sched-cordis-'))
+  const ctx1 = fakeContext({ services: {} })
+  Object.defineProperty(ctx1, 'pluginManager', {
+    get() { throw new Error('cannot get property "pluginManager" without inject') },
+  })
+  const reg1 = ctx1.connection.fetch.register
+  ctx1.connection.fetch.register = (route) => { ctx1.route = route; return reg1(route) }
+  createRuntime(ctx1, { home: home1 })
+  const call1 = async (endpoint, payload = {}) => (await ctx1.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx1.dispose(); rmSync(home1, { recursive: true, force: true, maxRetries: 5 }) })
+
+  assert.deepEqual((await call1('schedules')).value, { available: false, tasks: [] })
+  const refusedRes = await call1('schedule-enable')
+  assert.equal(refusedRes.ok, false)
+  assert.equal(refusedRes.error.message, 'Scheduled tasks cannot be turned on from here.')
+
+  // 2. Enabled non-failed plugin whose fiberPhase is null reports pending:true within the
+  // startup/enable grace window, and transitions to reason:'error' once the grace window
+  // expires (e.g. Cordis module import failure) instead of looping forever.
+  const pluginManager = {
+    async listPlugins() {
+      return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: null }]
+    },
+  }
+  const homePending = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-pending-'))
+  const ctxPending = fakeContext({ services: { pluginManager } })
+  ctxPending.inject = () => {}
+  const regPending = ctxPending.connection.fetch.register
+  ctxPending.connection.fetch.register = (route) => { ctxPending.route = route; return regPending(route) }
+  createRuntime(ctxPending, { home: homePending, scheduleAttachWaitMs: 60_000 })
+  const callPending = async (endpoint, payload = {}) => (await ctxPending.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctxPending.dispose(); rmSync(homePending, { recursive: true, force: true, maxRetries: 5 }) })
+  assert.deepEqual((await callPending('schedules')).value, { available: false, tasks: [], pending: true })
+
+  const homeExpired = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-expired-'))
+  const ctxExpired = fakeContext({ services: { pluginManager } })
+  ctxExpired.inject = () => {}
+  const regExpired = ctxExpired.connection.fetch.register
+  ctxExpired.connection.fetch.register = (route) => { ctxExpired.route = route; return regExpired(route) }
+  createRuntime(ctxExpired, { home: homeExpired, scheduleAttachWaitMs: 0 })
+  const callExpired = async (endpoint, payload = {}) => (await ctxExpired.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctxExpired.dispose(); rmSync(homeExpired, { recursive: true, force: true, maxRetries: 5 }) })
+  assert.deepEqual((await callExpired('schedules')).value, { available: false, tasks: [], reason: 'error' })
+})
+
+test('bundle fallback with setBundleEnabled flipping enabled=true preserves restartRequired across polls until attach', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-sched-bundle-'))
+  let bundleEnabled = false
+  let attachFn = null
+  const bundleCalls = []
+  const pluginManager = {
+    async listPlugins() { return [] },
+    async listBundles() {
+      return [{ name: '@deepseek-ai/dsh-experimental-automation-bundle', enabled: bundleEnabled }]
+    },
+    async setBundleEnabled(name, next) {
+      bundleCalls.push([name, next])
+      bundleEnabled = next
+      return { changed: true, application: 'restart-required' }
+    },
+  }
+  const ctx = fakeContext({ services: { pluginManager } })
+  ctx.inject = (deps, cb) => { if (Array.isArray(deps) && deps.includes('schedule')) attachFn = cb }
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  createRuntime(ctx, { home })
+  const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], canEnable: true, reason: 'disabled' })
+  const bundleRes = await call('schedule-enable')
+  assert.equal(bundleRes.ok, true, JSON.stringify(bundleRes))
+  assert.deepEqual(bundleCalls, [['@deepseek-ai/dsh-experimental-automation-bundle', true]])
+  assert.deepEqual(bundleRes.value, { available: false, tasks: [], restartRequired: true })
+  // Even though bundle.enabled is now true on disk, subsequent schedules polls still report restartRequired.
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], restartRequired: true })
+  // Once the service attaches, restartRequired clears and schedules becomes available.
+  attachFn({ schedule: hostSchedule(), effect: () => () => {} })
+  assert.equal((await call('schedules')).value.available, true)
+})
+
+test('schedule-enable stays local-only and is not exposed to remote browser or phone clients', async () => {
+  const { BROWSER_ALLOWED } = await import('../src/shared/browser-endpoints.js')
+  const { TEAM_ENDPOINTS, COMPUTER_ONLY_ENDPOINTS } = await import('../src/shared/remote-endpoints.js')
+  assert.equal(BROWSER_ALLOWED.has('schedule-enable'), false)
+  assert.equal(TEAM_ENDPOINTS.has('schedule-enable'), false)
+  assert.equal(COMPUTER_ONLY_ENDPOINTS.has('schedule-enable'), true)
+})

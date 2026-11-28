@@ -331,7 +331,7 @@ test('B4: group prompt sends full boilerplate once per epoch, shrinks unchanged 
   await runRound('c1', 'Kick off Launch planning')
   const r1 = delivered.find(d => d.sessionId === 'gm1')?.text ?? ''
   assert.match(r1, /Members: the user, Writer, Coder and you \(admin\)\./)
-  assert.match(r1, /Writing "@Name" calls that member at once/)
+  assert.match(r1, /Use delegate_work to assign tasks to group members/)
   assert.match(r1, /Group notice \(shared instructions for every member\):\nAlways include benchmark numbers/)
   assert.match(r1, /You are this group's admin\./)
   assert.match(r1, /Reply with your message for the group, no name prefix/)
@@ -340,7 +340,7 @@ test('B4: group prompt sends full boilerplate once per epoch, shrinks unchanged 
   delivered.length = 0
   await runRound('c2', 'Status check on Launch?')
   const r2 = delivered.find(d => d.sessionId === 'gm1')?.text ?? ''
-  assert.doesNotMatch(r2, /Writing "@Name" calls that member at once/)
+  assert.doesNotMatch(r2, /Use delegate_work to assign tasks to group members/)
   assert.doesNotMatch(r2, /Group notice \(shared instructions for every member\):/)
   assert.doesNotMatch(r2, /You are this group's admin\./)
   assert.match(r2, /Reply for the group \(no name prefix; \[PASS\] to stay silent\)\./)
@@ -637,8 +637,8 @@ test('regression: epoch opening on delegated wake still sends ROOM_CALLS on the 
   const membersList = 'Members: the user, Writer, Coder and you (admin).'
   const adminText = [
     'You are this group\'s admin.',
-    'Plain messages come to you first: answer them, or call the members who should answer with @Name.',
-    '"@all" calls every member. When the user asks, change the group with update_group.',
+    'Plain messages come to you first: answer them, or assign tasks to members with delegate_work.',
+    'When the user asks, change the group with update_group.',
     'When the user wants this group to reach a goal, set it with group_goal: align with the user first (goal-grill skill), then start it.',
   ].join(' ')
   const { createHash } = await import('node:crypto')
@@ -661,13 +661,13 @@ test('regression: epoch opening on delegated wake still sends ROOM_CALLS on the 
   // First ordinary discussion turn after delegated opener MUST receive ROOM_CALLS.
   await runRound('d1', 'Let us discuss the release')
   const ordinary1 = delivered.find(d => d.sessionId === 'gm1')?.text ?? ''
-  assert.match(ordinary1, /Writing "@Name" calls that member at once/)
+  assert.match(ordinary1, /Use delegate_work to assign tasks to group members/)
 
   // Subsequent ordinary turn omits ROOM_CALLS again.
   delivered.length = 0
   await runRound('d2', 'Any other thoughts?')
   const ordinary2 = delivered.find(d => d.sessionId === 'gm1')?.text ?? ''
-  assert.doesNotMatch(ordinary2, /Writing "@Name" calls that member at once/)
+  assert.doesNotMatch(ordinary2, /Use delegate_work to assign tasks to group members/)
 })
 
 test('regression: mcp-stdio.js subscribes to GET SSE after initialize and forwards notifications/tools/list_changed to stdout', async (t) => {

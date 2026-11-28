@@ -279,7 +279,7 @@ export function install(rt) {
 
   ctx.on('llm/stream', (options, next) => {
     const incoming = options.messages ?? []
-    if (options.sessionId === undefined || rt.ownRequest(options) || !(incoming.some(liveImages) || incoming.some(liveFiles))) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || options.sessionId === undefined || rt.ownRequest(options) || !(incoming.some(liveImages) || incoming.some(liveFiles))) return next()
     return (async function* imagesAsTextOrPass() {
       await rt.load()
       const hinted = withFileHints(incoming, isTeamSession(options.sessionId))

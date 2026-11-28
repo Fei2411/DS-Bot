@@ -20,7 +20,7 @@ const { outputFiles } = await build({
       export { buildSessionRows } from './app/ui/src/session-transcript.js'
       export { ToolCallCard } from './app/ui/src/tool-card.js'
       export { createSlotRegistry, TOOL_VIEW_SLOT } from './app/ui/src/slots.js'
-      export { installLocale } from './ds-bot/src/client/i18n.js'
+      export { ensureLocale, installLocale } from './ds-bot/src/client/i18n.js'
       export { PartialArguments } from '@deepseek-ai/dsh-util-values'
     `,
     resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
@@ -823,7 +823,8 @@ test('Subagent card opens child session in viewer, and background job card strea
     prunedInst.unmount()
 
     // 7. JobStopButton localizes host errors via hostText in non-English locales.
-    const { JobStopButton, installLocale } = h.exports
+    const { JobStopButton, ensureLocale, installLocale } = h.exports
+    await ensureLocale('zh')
     const dicts = new Map()
     const disposeLocale = installLocale({
       dicts,

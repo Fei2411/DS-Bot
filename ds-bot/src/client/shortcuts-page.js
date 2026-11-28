@@ -2,7 +2,6 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from './i18n.js'
 import { CloseIcon, SearchIcon } from './icons.js'
 import {
-  SHORTCUT_DEFS,
   SHORTCUT_GROUPS,
   effectiveBinding,
   eventToBinding,
@@ -11,6 +10,7 @@ import {
   isMacPlatform,
   isReservedZoomKeyEvent,
   setShortcutRecording,
+  shortcutsForHost,
   shortcutsStore,
 } from './shortcuts-model.js'
 import { isImeComposing, sendsOnEnter } from './enter-key.js'
@@ -150,7 +150,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
   const wanted = query.trim().toLowerCase()
   const visibleDefs = useMemo(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch }
-    return SHORTCUT_DEFS.filter((def) => {
+    return shortcutsForHost('desktop').filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false
       if (!wanted) return true
       const label = labelForDef(def, classic).toLowerCase()
@@ -171,7 +171,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
       .filter(group => group.items.length > 0)
   }, [visibleDefs])
 
-  const hasCustom = Object.keys(overrides).length > 0
+  const hasCustom = store.hasCustomizations()
   const modCap = mac ? '⌘' : 'Ctrl'
   const shiftCap = mac ? '⇧' : 'Shift'
   const fixedRows = useMemo(() => {
@@ -257,7 +257,8 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides)
         const caps = formatBindingCaps(binding, mac)
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id)
+        const customized = store.isCustomized(def.id)
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id)
         const isRecording = recordingId === def.id
         const rowNotice = notice?.id === def.id ? notice : null
         const label = labelForDef(def, classic)
@@ -268,7 +269,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
               customized ? h('span', { className: 'bt-sc-dot', 'aria-label': t('Customized') }) : null),
           },
           h('div', { className: 'bt-sc-controls' },
-            customized
+            customized || suppressed
               ? h('button', {
                 type: 'button',
                 className: 'bt-mini bt-sc-reset',
@@ -332,11 +333,8 @@ export const SHORTCUTS_PAGE_CSS = `
 .bt-sc-keybtn[data-empty]{border-style:dashed}
 .bt-sc-prompt{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-accent);white-space:nowrap}
 .bt-sc-unset{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-kbd-group{display:inline-flex;align-items:center;gap:4px;flex:none}
-.bt-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1;color:var(--bt-ink)}
 .bt-sc-alert{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 10px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,var(--bt-card));color:var(--bt-danger);font-size:12px;line-height:16px}
 .bt-sc-alert-text{min-width:0}
 .bt-sc-alert-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 .bt-sc-replace{background:color-mix(in srgb,var(--bt-danger) 16%,var(--bt-card));color:var(--bt-danger);font-weight:600}
-.bt-palette-kbd{margin-left:auto;padding-left:8px;flex:none}
 `

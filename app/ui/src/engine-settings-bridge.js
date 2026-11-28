@@ -1,11 +1,14 @@
 // Bridges UI plugin slot registrations (`settings.section`, `settings.section.icon`,
 // `settings.general.item`, `settings.action`) into `SettingsDialog`'s `dsh` prop, and
 // registers the built-in Engine settings pages and Language control through the plugin runtime.
-import { Suspense, createElement as h, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, createElement as h, useEffect, useMemo, useState } from 'react'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
+import { bustImportUrl } from './import-url.js'
 import { LANGUAGE_OPTIONS, getAppLocale } from './locale.js'
-import { bustImportUrl, pluginRuntime, usePlugins } from './plugin-runtime.js'
+import { pluginRuntime, usePlugins } from './plugin-runtime.js'
+import { createRetryableLazy } from './retryable-lazy.js'
+export { createRetryableLazy }
 import {
   SETTINGS_GENERAL_ITEM_SLOT,
   SETTINGS_SECTION_SLOT,
@@ -49,37 +52,6 @@ function defaultLoadEngineSettings(attempt = 0) {
     lastFailedEngineChunkUrl = findEngineChunkUrl(err) || lastFailedEngineChunkUrl
     throw err
   })
-}
-
-/**
- * Wraps `React.lazy` so a failed module load is not stuck on React's cached rejected
- * payload: calling `Component.reset()` bumps the attempt counter and creates a fresh
- * lazy wrapper that invokes `loadModule(attempt)` again on the next render.
- */
-export function createRetryableLazy(loadModule, pickExport) {
-  let attempt = 0
-  let Inner = null
-  const ensure = () => {
-    if (Inner === null) {
-      const currentAttempt = attempt
-      Inner = lazy(() => Promise.resolve(loadModule(currentAttempt)).then((mod) => {
-        const picked = typeof pickExport === 'function' ? pickExport(mod) : mod?.default
-        if (!picked) throw new Error('Settings module did not provide the expected view')
-        return { default: picked }
-      }))
-    }
-    return Inner
-  }
-  function RetryableLazy(props) {
-    const Target = ensure()
-    return h(Target, props)
-  }
-  RetryableLazy.reset = () => {
-    attempt += 1
-    Inner = null
-  }
-  RetryableLazy.attempt = () => attempt
-  return RetryableLazy
 }
 
 const LazyFallback = () => h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
@@ -138,14 +110,12 @@ export function registerEngineSettingsPlugin(runtime, { pages, loadEngineSetting
     const LazyPluginsSection = createRetryableLazy(loadWithRetry, mod => mod.PluginsSettingsPage)
     const LazyAgentPresetsSection = createRetryableLazy(loadWithRetry, mod => mod.AgentPresetsSettingsPage)
     const LazyArchivedSessionsSection = createRetryableLazy(loadWithRetry, mod => mod.ArchivedSessionsPage)
-    const LazySessionLogItem = createRetryableLazy(loadWithRetry, mod => mod.SessionLogGeneralItem)
 
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'account', priority: 10, meta: { labelKey: 'Account' } }, LazyAccountSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'plugins', priority: 20, meta: { labelKey: 'Plugins' } }, LazyPluginsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'agent-presets', priority: 30, meta: { labelKey: 'Agent presets' } }, LazyAgentPresetsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'archived-sessions', priority: 40, meta: { labelKey: 'Archived sessions', surface: 'agent' } }, LazyArchivedSessionsSection)
     ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'language', priority: 1, meta: { sync: true } }, LanguageGeneralItem)
-    ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'session-log-deepseek', priority: 10 }, LazySessionLogItem)
   })
 }
 
@@ -192,6 +162,7 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
 
     return {
       ownWindow: true,
+      pluginSubTarget: true,
       surfaceMode,
       sections,
       items,

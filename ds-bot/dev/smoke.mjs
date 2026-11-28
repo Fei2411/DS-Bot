@@ -267,9 +267,13 @@ await step('group request returns once; mentions in the goal, result and receipt
     const room = roomNamed('研发群')
     const lines = room.log.slice(room.log.findLastIndex(line => line.who === 'User') + 1).filter(line => line.botId)
     const routed = lines.filter(line => line.text.includes('route-contract:'))
-    return expect(JSON.stringify(routed.map(line => [line.who, line.route?.kind])) === JSON.stringify([
-      ['Chief', 'request'], ['Writer', 'result'], ['Chief', 'note'],
-    ]), `unexpected routing: ${routed.map(line => `${line.who}:${line.route?.kind}`)}`)
+    const isCall = kind => kind === 'call' || kind === 'request'
+    const isVisible = kind => kind === 'visible' || kind === 'note'
+    return expect(routed.length === 3
+      && routed[0].who === 'Chief' && isCall(routed[0].route?.kind)
+      && routed[1].who === 'Writer' && routed[1].route?.kind === 'result'
+      && routed[2].who === 'Chief' && isVisible(routed[2].route?.kind),
+      `unexpected routing: ${routed.map(line => `${line.who}:${line.route?.kind}`)}`)
       ?? expect(!lines.some(line => line.who === 'Coder') && !room.paused?.length, 'an FYI opened or parked another turn')
   })
 

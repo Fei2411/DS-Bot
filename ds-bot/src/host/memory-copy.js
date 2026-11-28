@@ -134,14 +134,16 @@ export function writtenIn(texts, fallback) {
 }
 
 // `who` says whose memory it is, and `tag` marks its entries: own or group.
+// Keep the stable memory entries ahead of the volatile character counts so
+// tail appends/edits do not invalidate the prompt cache prefix for earlier entries.
 export const reviewRequest = ({ who, tag = 'own', numbered, left = 0, sizes, where, earlier, fresh, more, language }) => [
   who,
   '',
-  ...(sizes ? [`MEMORY.md has ${sizes.home} of ${sizes.homeLimit} characters (${tag}) and ${sizes.team} of ${sizes.teamLimit} (team).`, ''] : []),
   tag === 'group' ? 'Its memory now (group: shared by the members of this group; team: shared by every Bot):' : 'Its memory now (own: this Bot\'s; team: shared by every Bot):',
   ...(numbered.length > 0 ? numbered.map((item, index) => `[${index + 1}] (${item.scope}${item.file.topic ? ` · ${item.file.topic}` : ''}${item.meta?.pinned ? ' · pinned' : ''}) ${item.text}`) : ['(none yet)']),
   ...(left > 0 ? [`(${left} older topic entries are not shown.)`] : []),
   '',
+  ...(sizes ? [`MEMORY.md has ${sizes.home} of ${sizes.homeLimit} characters (${tag}) and ${sizes.team} of ${sizes.teamLimit} (team).`, ''] : []),
   ...(earlier.length > 0 ? [`Earlier in ${where}, already reviewed (context only):`, ...earlier, ''] : []),
   `New in ${where}, oldest first${more ? ' (newer messages come in the next review)' : ''}:`,
   ...fresh,

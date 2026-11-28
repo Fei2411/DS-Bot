@@ -94,7 +94,9 @@ When registering a bundled skill provider (modeled on `ds-bot/src/host/maintenan
 - **Never claim reserved identifiers:** Do not claim Cordis plugin ID `'bot'`, route prefixes `local-*` or `local-acp-*`, or connector IDs in `CONNECTOR_IDS` (such as `'github'`, `'mail'`, and catalog connectors).
 - **Never edit live profile files:** NEVER mutate live `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`, `package.json`, or `bot/state.json`.
 
-### 5. Desktop App Profile & Offline Install
+### 5. Desktop App Profile, UI/Theme Plugins & Offline Install
 
-- The Desktop App owns profile `'ds-bot'` (`app/src/profile.mjs`), where `claimBundles(dir)` places `BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-experimental-voice-input-bundle', 'ds-bot']` first and preserves user-added plugins afterward.
+- The Desktop App owns profile `'ds-bot'` (`app/src/profile.mjs`), where `claimBundles(dir)` places `BUNDLES = ['@deepseek-ai/dsh-base', 'dsbot-engine', '@deepseek-ai/dsh-experimental-voice-input-bundle', 'ds-bot']` first and preserves user-added plugins afterward.
+- DSH Web frontend entries (`dsh.client`, `@deepseek-ai/dsh-client-ui-theme`, `--dsw-*` skins) do not mount in the Desktop App's own frontend (`app/ui/`). Host tools and custom `cordis.patch.yml` plugins still run and appear in **Settings → Plugins → Engine plugins**.
+- For Desktop UI extensions or custom skins, use **Settings → Appearance** (custom themes / VS Code theme import / `--bt-*` CSS), drop a `manifest.json` (theme JSON or ESM `entry`) into `<DSH_HOME>/ui-plugins/<name>/`, or declare `"dsBot": { "ui": ... }` in an enabled bundle's `package.json`.
 - To install a standalone DSH plugin: obtain user confirmation, stop the DSH host cleanly, run `dsh plugin --profile <profile> add <package-or-tarball>`, verify peer resolution with `pnpm why @deepseek-ai/` and `npx ds-bot doctor --home <DSH_HOME>`, then restart DSH.
