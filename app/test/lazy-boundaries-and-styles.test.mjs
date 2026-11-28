@@ -448,6 +448,151 @@ test('reloadWindowSafely reloads immediately without attachments and confirms be
   }
 })
 
+test('reloadWindowSafely guards failed-send bar attachments when composer is empty and allows reload once cleared', async () => {
+  const teamSrc = readFileSync(new URL('../ui/src/team.js', import.meta.url), 'utf8')
+  assert.match(teamSrc, /from ['"]\.\/failed-send-bar\.js['"]/, 'team.js must eagerly import failed-send-bar.js so the reload guard registers on boot')
+
+  const { outputFiles } = await build({
+    stdin: {
+      contents: [
+        "export { reloadWindowSafely } from './app/ui/src/retryable-lazy.js'",
+        "export { pendingFailedByChat, hasPendingFailedAttachments, clearFailedSends, pruneFailedSends } from './app/ui/src/failed-send-bar.js'",
+        "export { ReloadConfirmHost } from './ds-bot/src/client/reload-recovery.js'",
+        "export { forgetKeptFiles, hasKeptDraftFiles } from './ds-bot/src/client/draft-keep.js'",
+      ].join('\n'),
+      resolveDir: repoDir,
+      loader: 'js',
+    },
+    bundle: true,
+    format: 'cjs',
+    platform: 'browser',
+    write: false,
+    logLevel: 'silent',
+    nodePaths: [`${appDir}/node_modules`],
+    external: ['react', 'react-dom'],
+  })
+
+  const React = await import('react')
+  const ReactDOM = await import('react-dom')
+  const { createRoot } = await import('react-dom/client')
+  const { installMiniDom } = await import('./mini-dom.mjs')
+  installMiniDom()
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  const store = new Map()
+  const fakeStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)) },
+    removeItem: k => { store.delete(k) },
+  }
+  let reloaded = 0
+  const fakeLocation = { reload() { reloaded += 1 } }
+  const mod = { exports: {} }
+  const sandbox = {
+    module: mod,
+    exports: mod.exports,
+    window: globalThis.window,
+    document: globalThis.document,
+    navigator: globalThis.navigator,
+    localStorage: fakeStorage,
+    location: fakeLocation,
+    console,
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame: cb => setTimeout(cb, 0),
+    cancelAnimationFrame: clearTimeout,
+    require: name => (name === 'react' ? React : name === 'react-dom' ? ReactDOM : {}),
+  }
+  sandbox.globalThis = sandbox
+  runInNewContext(outputFiles[0].text, sandbox)
+  const {
+    reloadWindowSafely,
+    pendingFailedByChat,
+    hasPendingFailedAttachments,
+    clearFailedSends,
+    pruneFailedSends,
+    ReloadConfirmHost,
+    forgetKeptFiles,
+    hasKeptDraftFiles,
+  } = mod.exports
+
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  let mounted = true
+  try {
+    forgetKeptFiles()
+    clearFailedSends()
+    await React.act(async () => {
+      root.render(React.createElement(ReloadConfirmHost))
+    })
+
+    // Composer is empty, failed send has only text (no attachments) -> direct reload.
+    assert.equal(hasKeptDraftFiles(), false)
+    pendingFailedByChat.set('bot-text-only', [{ id: 'fail-text', text: 'hello', items: [], error: 'network' }])
+    assert.equal(hasPendingFailedAttachments(), false)
+    assert.equal(reloadWindowSafely(), 'reloaded')
+    assert.equal(reloaded, 1)
+    clearFailedSends()
+
+    // Composer is STILL empty, one failed send with an attachment sits in pendingFailedByChat.
+    pendingFailedByChat.set('bot-failed-att', [{
+      id: 'fail-1',
+      text: 'see attached',
+      items: [{ id: 'att-1', name: 'report.pdf', size: 1024, isImage: false, file: { name: 'report.pdf' } }],
+      error: 'offline',
+    }])
+    assert.equal(hasKeptDraftFiles(), false)
+    assert.equal(hasPendingFailedAttachments(), true)
+
+    let outcome = null
+    await React.act(async () => { outcome = reloadWindowSafely() })
+    assert.equal(outcome, 'confirming', 'must open confirm host instead of silently reloading failed-send attachment')
+    assert.equal(reloaded, 1, 'must NOT reload immediately when failed-send bar holds an attachment')
+    const dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog, 'must render confirmation dialog for failed-send attachment')
+    assert.match(dialog.textContent, /Unsent attachments will be removed/)
+
+    // Cancel preserves failed send and does not reload.
+    const cancelBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent === 'Cancel')
+    await React.act(async () => {
+      clickEl(cancelBtn)
+      await new Promise(r => setTimeout(r, 200))
+    })
+    assert.equal(reloaded, 1)
+    assert.equal(hasPendingFailedAttachments(), true)
+    assert.equal(document.querySelector('[role="alertdialog"]'), null)
+
+    // Confirming reloads the window.
+    await React.act(async () => { outcome = reloadWindowSafely() })
+    assert.equal(outcome, 'confirming')
+    const confirmBtn = [...document.querySelector('[role="alertdialog"]').querySelectorAll('button')].find(b => b.textContent === 'Reload window')
+    await React.act(async () => { clickEl(confirmBtn) })
+    assert.equal(reloaded, 2, 'confirming dialog must proceed with reload')
+
+    // Without host or globalThis.confirm, returns blocked without calling reload.
+    await React.act(async () => { root.unmount() })
+    mounted = false
+    container.remove()
+    let blockedReason = null
+    outcome = reloadWindowSafely({ onBlocked: (reason) => { blockedReason = reason } })
+    assert.equal(outcome, 'blocked', 'must block when neither host nor confirm() exists')
+    assert.equal(reloaded, 2, 'blocked reload must not call location.reload')
+    assert.match(String(blockedReason), /Unsent attachments will be removed/)
+
+    // Pruning / dismissing the failed send clears the guard and allows direct reload again.
+    pruneFailedSends(['bot-failed-att'])
+    assert.equal(hasPendingFailedAttachments(), false)
+    assert.equal(reloadWindowSafely(), 'reloaded')
+    assert.equal(reloaded, 3, 'dismissing/pruning failed sends must allow direct reload again')
+  } finally {
+    if (mounted) await React.act(async () => { root.unmount() })
+    container.remove()
+    clearFailedSends()
+    forgetKeptFiles()
+  }
+})
+
 test('SettingsPalette failure in SettingsDialog is caught locally without unmounting SettingsDialog', async () => {
   const { outputFiles } = await build({
     stdin: {
