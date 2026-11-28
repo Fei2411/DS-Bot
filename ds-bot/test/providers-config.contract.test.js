@@ -553,3 +553,26 @@ test('providersView hydrates inherited defaultMode for hand-edited retryPolicy o
   await fresh.rt.setProviderKey('anthropic', 'sk-ant-later')
   assert.equal(fresh.store.ANTHROPIC_API_KEY, 'sk-ant-later')
 })
+
+test('addProviderConfig enforces strict revision fencing (bot/stale without writing creds) and retryDefaults exposes integer/min/max/step metadata', async () => {
+  const { rt, store, writes } = createRealSchemaHost()
+  const view = await rt.providersView()
+  const maxRetriesMeta = view.retryDefaults?.branches?.normal?.maxRetries
+  assert.equal(maxRetriesMeta?.step, 1)
+  assert.equal(maxRetriesMeta?.integer, true)
+  assert.equal(maxRetriesMeta?.min, 0)
+  assert.equal(typeof maxRetriesMeta?.max, 'number')
+  assert.equal(typeof view.retryDefaults?.branches?.normal?.backoff?.fields?.initialDelayMs?.max, 'number')
+
+  // Stale revision must fail fast with bot/stale before writing settings or credentials
+  await assert.rejects(
+    rt.addProviderConfig({
+      provider: 'anthropic',
+      key: 'sk-should-not-write',
+      revision: (view.revision ?? 1) + 99,
+    }),
+    error => error.code === 'bot/stale',
+  )
+  assert.equal(store.ANTHROPIC_API_KEY, undefined, 'stale addProviderConfig must not write credentials')
+  assert.equal(writes.length, 0, 'stale addProviderConfig must not mutate settings')
+})
