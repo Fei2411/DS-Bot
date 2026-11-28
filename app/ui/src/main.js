@@ -8,6 +8,7 @@ import { BROWSER_CSS } from '../../../ds-bot/src/client/browser-pane.js'
 import { CHANGES_CSS } from '../../../ds-bot/src/client/changes-card.js'
 import { COMPUTER_CSS } from '../../../ds-bot/src/client/computer.js'
 import { CONNECTOR_CSS } from '../../../ds-bot/src/client/connectors.js'
+import { noteClientError } from '../../../ds-bot/src/client/diagnostics.js'
 import { FEEDBACK_CSS } from '../../../ds-bot/src/client/feedback.js'
 import { FOLDER_CSS } from '../../../ds-bot/src/client/folder-menu.js'
 import { GOAL_CSS } from '../../../ds-bot/src/client/goal.js'
@@ -23,8 +24,6 @@ import { PASTE_CSS } from '../../../ds-bot/src/client/paste-card.js'
 import { PRIVACY_CSS } from '../../../ds-bot/src/client/privacy-page.js'
 import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
-import { APPEARANCE_PAGE_CSS } from '../../../ds-bot/src/client/appearance-page.js'
-import { SHORTCUTS_PAGE_CSS } from '../../../ds-bot/src/client/shortcuts-page.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
 import { RETURN_CSS, SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
@@ -52,7 +51,9 @@ registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
 const appLocale = createLocale(navigator.language)
 setAppLocaleService(appLocale)
-installLocale(appLocale)
+installLocale(appLocale, {
+  onError: (_lang, err) => { noteClientError('i18n-load', err) },
+})
 installMotionRest()
 pluginRuntime.provide('slots', slots)
 pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views', pages: ['chat'] }, () => registerBuiltinToolViews(slots))
@@ -71,7 +72,7 @@ for (const [tag, text] of [
   ['secrets', SECRET_CSS], ['connectors', CONNECTOR_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
   ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + GOAL_CSS + TASK_CSS + TASKS_CSS + LEARNING_CSS],
-  ['schedules', SCHEDULE_CSS], ['appearance', APPEARANCE_PAGE_CSS], ['shortcuts', SHORTCUTS_PAGE_CSS],
+  ['schedules', SCHEDULE_CSS],
   ['feedback', FEEDBACK_CSS], ['privacy', PRIVACY_CSS], ['members', MEMBER_CSS],
 ]) installStyles(text, tag)
 
@@ -79,6 +80,12 @@ for (const [tag, text] of [
 paintMode(undefined)
 
 const root = createRoot(document.getElementById('root'))
-void ensureLocale(appLocale.getLocale().active).catch(() => {}).finally(() => {
-  root.render(h(App))
-})
+const initialLang = appLocale.getLocale().active
+void ensureLocale(initialLang)
+  .catch((err) => {
+    console.error(`ds-bot: failed to load initial locale "${initialLang}"`, err)
+    noteClientError('i18n-load', err)
+  })
+  .finally(() => {
+    root.render(h(App))
+  })

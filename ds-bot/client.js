@@ -21654,9 +21654,10 @@ function loadAllLocales() {
 var fill = (text, params) => params ? text.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match) : text;
 var service = null;
 var bound = null;
-function installLocale(locale) {
+function installLocale(locale, options = {}) {
   if (!locale || typeof locale.register !== "function" || typeof locale.bind !== "function") return () => {
   };
+  const onLoadError = typeof options?.onError === "function" ? options.onError : null;
   service = locale;
   bound = locale.bind(NAMESPACE);
   const offs = [];
@@ -21733,7 +21734,9 @@ function installLocale(locale) {
     const active = locale.getLocale?.()?.active;
     const lang = resolveLangKey(active);
     if (lang !== "en" && !loadedPacks.has(lang)) {
-      void ensureLocale(lang).catch(() => {
+      void ensureLocale(lang).catch((err) => {
+        console.error(`ds-bot: failed to load locale "${lang}"`, err);
+        onLoadError?.(lang, err);
       });
     }
   };
@@ -26460,7 +26463,12 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 /* Settings → Connectors. */
 .bt-connector{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
 .bt-connector-head{display:flex;align-items:center;gap:12px;min-width:0}
-.bt-connector-mark{flex:none;width:36px;height:36px;border-radius:10px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 1px 2px rgba(0,0,0,.04);display:flex;align-items:center;justify-content:center;color:var(--bt-ink)}
+.bt-connector-mark{--bt-mark-ink:var(--bt-ink);flex:none;width:36px;height:36px;border-radius:10px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 1px 2px rgba(0,0,0,.04);display:flex;align-items:center;justify-content:center;color:var(--bt-ink)}
+.bt-about-link{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.bt-about-link svg{width:14px;height:14px}
+.bt-kbd-group{display:inline-flex;align-items:center;gap:4px;flex:none}
+.bt-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1;color:var(--bt-ink)}
+.bt-palette-kbd{margin-left:auto;padding-left:8px;flex:none}
 .bt-connector-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .bt-connector-title{display:flex;align-items:center;gap:6px;min-width:0}
 .bt-connector-name{font-size:14px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -42784,6 +42792,28 @@ label.bt-bs-row{cursor:text}
   .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
 }
 @media (prefers-reduced-motion:reduce){.bt-switch,.bt-switch-knob{transition:none}.bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:none}}
+/* ChatBackgroundSection / BackgroundEditor (shared with Bot/Group details drawers). */
+.bt-look-color{display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink);cursor:pointer;flex-wrap:wrap}
+.bt-look-color input{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:6px;background:none;cursor:pointer}
+.bt-look-color input::-webkit-color-swatch-wrapper{padding:0}
+.bt-look-color input::-webkit-color-swatch{border:0;border-radius:6px}
+.bt-look-warn{flex-basis:100%;padding-left:32px;color:var(--bt-warn);font-size:11px}
+.bt-look-pair{display:flex;gap:16px}
+.bt-look-cin{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-look-cin .bt-look-warn{flex-basis:auto;padding:0}
+.bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:var(--bt-mono,ui-monospace,Menlo,Consolas,monospace);font-size:12px;text-transform:uppercase}
+.bt-look-well{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:8px;background:none;cursor:pointer}
+.bt-look-well::-webkit-color-swatch-wrapper{padding:0}
+.bt-look-well::-webkit-color-swatch{border:0;border-radius:8px}
+.bt-look-kinds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 16px}
+@container (max-width:360px){.bt-look-kinds{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}
+.bt-look-kind[data-kind=color]{background:var(--bt-bubble)}
+.bt-look-kind[data-kind=gradient]{background:linear-gradient(135deg,var(--bt-accent),var(--bt-bubble))}
+.bt-look-kind[data-kind=image]{background:linear-gradient(160deg,var(--bt-ink-3),var(--bt-active))}
+.bt-look-kind[data-kind=gradient] span,.bt-look-kind[data-kind=image] span{padding:1px 6px;border-radius:999px;background:var(--bt-card);color:var(--bt-ink)}
+.bt-look-kind[data-on]{border-color:var(--bt-accent);box-shadow:0 0 0 1px var(--bt-accent)}
+.bt-look-note{padding:10px 16px 0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 `;
 
 // src/client/open-window.js
@@ -43770,6 +43800,9 @@ function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   return (0, import_react34.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react34.createElement)(MailSendCard, { key: request.id, sessionId, bot, request, roster, actions })));
 }
 var CONNECTOR_CSS = `
+.bt-connector-mark{--bt-mark-ink:var(--bt-ink)}
+.bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bt-provider-pair .bt-sel{height:36px}
 .bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
@@ -51431,6 +51464,7 @@ var FEEDBACK_CSS = `
 .bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease;flex:none;white-space:nowrap}
 .bt-fb-primary:hover{filter:brightness(1.08)}
 .bt-fb-primary:active{filter:brightness(.94)}
+.bt-fb-primary:disabled{opacity:.6;cursor:default;filter:none}
 .bt-fb-note{margin:-8px 4px 0}
 .bt-fb-entry{cursor:default;align-items:flex-start}
 .bt-fb-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;margin-top:6px;background:var(--bt-danger,#e02135)}
@@ -64089,6 +64123,20 @@ var PageBoundary = class extends import_react76.Component {
     return this.state.failed ? (0, import_react76.createElement)("div", { className: "bt-error", role: "alert" }, t("This page could not be shown.")) : this.props.children;
   }
 };
+var PaletteBoundary = class extends import_react76.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error) {
+    console.error("ds-bot: settings palette failed", error);
+    noteClientError("settings-palette", error);
+    this.props.onError?.(error);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+};
 function partAt(box) {
   const parts = [...box?.querySelectorAll?.("[data-part]") ?? []];
   if (parts.length === 0) return null;
@@ -64285,9 +64333,29 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     };
     const frame3 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(settle) : 0;
     const later = setTimeout(settle, 420);
+    let observer2 = null;
+    let stopObserve = 0;
+    const box = scrollRef.current;
+    if (box && typeof ResizeObserver === "function") {
+      observer2 = new ResizeObserver(() => {
+        if (userScrolled.current) {
+          observer2?.disconnect();
+          observer2 = null;
+          return;
+        }
+        settle();
+      });
+      for (const el of box.querySelectorAll?.("[data-part]") ?? []) observer2.observe(el);
+      stopObserve = setTimeout(() => {
+        observer2?.disconnect();
+        observer2 = null;
+      }, 3e3);
+    }
     return () => {
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame3);
       clearTimeout(later);
+      clearTimeout(stopObserve);
+      observer2?.disconnect();
     };
   }, [shown, pageKey, jump]);
   const onPartsScroll = () => {
@@ -64591,7 +64659,13 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         ) : null
       ),
       (0, import_react76.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react76.createElement)(CloseIcon)),
-      palette && !leaving ? (0, import_react76.createElement)(SettingsPalette, {
+      palette && !leaving ? (0, import_react76.createElement)(PaletteBoundary, {
+        onError: () => {
+          SettingsPalette.reset?.();
+          setPalette(false);
+          setError(t("This page could not be shown."));
+        }
+      }, (0, import_react76.createElement)(SettingsPalette, {
         roster,
         extra,
         dsh,
@@ -64601,7 +64675,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         onPick: pickHit,
         onClose: () => setPalette(false),
         returnFocus: true
-      }) : null,
+      })) : null,
       leaving ? null : (0, import_react76.createElement)(SettingsTour, {
         tour,
         currentPage: activePart ?? shown,

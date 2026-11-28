@@ -361,6 +361,19 @@ class PageBoundary extends Component {
   render() { return this.state.failed ? h('div', { className: 'bt-error', role: 'alert' }, t('This page could not be shown.')) : this.props.children }
 }
 
+// Isolates failures inside SettingsPalette (including lazy chunk errors) so the Settings
+// dialog stays open, the broken overlay dismisses cleanly, and retry works on reopen.
+class PaletteBoundary extends Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch(error) {
+    console.error('ds-bot: settings palette failed', error)
+    noteClientError('settings-palette', error)
+    this.props.onError?.(error)
+  }
+  render() { return this.state.failed ? null : this.props.children }
+}
+
 // Where a part of a scrolling page sits, for the anchor row: the last part whose top
 // has passed the top of the box, or the last one once the box is scrolled to its end.
 function partAt(box) {
@@ -585,7 +598,25 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     const settle = () => { if (!userScrolled.current) scrollToPart(shown, false) }
     const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(settle) : 0
     const later = setTimeout(settle, 420)
-    return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame); clearTimeout(later) }
+    // Lazy sibling sections above the target part may resolve after 420 ms and grow;
+    // keep re-anchoring until the user takes over scrolling or the settle window ends.
+    let observer = null
+    let stopObserve = 0
+    const box = scrollRef.current
+    if (box && typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => {
+        if (userScrolled.current) { observer?.disconnect(); observer = null; return }
+        settle()
+      })
+      for (const el of box.querySelectorAll?.('[data-part]') ?? []) observer.observe(el)
+      stopObserve = setTimeout(() => { observer?.disconnect(); observer = null }, 3000)
+    }
+    return () => {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+      clearTimeout(later)
+      clearTimeout(stopObserve)
+      observer?.disconnect()
+    }
   }, [shown, pageKey, jump])
   const onPartsScroll = () => {
     const next = partAt(scrollRef.current)
@@ -815,12 +846,18 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'usage' ? errorLine : null,
           h(PageBoundary, { reset: shown }, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
       h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon)),
-      palette && !leaving ? h(SettingsPalette, {
+      palette && !leaving ? h(PaletteBoundary, {
+        onError: () => {
+          SettingsPalette.reset?.()
+          setPalette(false)
+          setError(t('This page could not be shown.'))
+        },
+      }, h(SettingsPalette, {
         roster, extra, dsh, icons: PAGE_ICONS, pageAvailable, hasSurface,
         onPick: pickHit,
         onClose: () => setPalette(false),
         returnFocus: true,
-      }) : null,
+      })) : null,
       leaving ? null : h(SettingsTour, {
         tour,
         currentPage: activePart ?? shown,

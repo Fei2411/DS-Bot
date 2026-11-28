@@ -136,8 +136,9 @@ let service = null
 let bound = null
 
 // `locale` is the DSH locale service; without one, copy stays English.
-export function installLocale(locale) {
+export function installLocale(locale, options = {}) {
   if (!locale || typeof locale.register !== 'function' || typeof locale.bind !== 'function') return () => {}
+  const onLoadError = typeof options?.onError === 'function' ? options.onError : null
   service = locale
   bound = locale.bind(NAMESPACE)
   const offs = []
@@ -218,7 +219,10 @@ export function installLocale(locale) {
     const active = locale.getLocale?.()?.active
     const lang = resolveLangKey(active)
     if (lang !== 'en' && !loadedPacks.has(lang)) {
-      void ensureLocale(lang).catch(() => {})
+      void ensureLocale(lang).catch((err) => {
+        console.error(`ds-bot: failed to load locale "${lang}"`, err)
+        onLoadError?.(lang, err)
+      })
     }
   }
 

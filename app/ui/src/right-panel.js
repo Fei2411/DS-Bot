@@ -1,7 +1,7 @@
 // Workspace right-panel body and tab builders hosted inside unified `BotPanel`:
 // File Tree, Multi-Format Document Preview, Turn Changes Diff Review, Interactive
 // Terminal, and `sidebar.right.pane.tab` plugin slot support.
-import { createElement as h, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
@@ -12,7 +12,11 @@ import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-h
 import { ChangesReview } from './changes-review.js'
 import { FilePreview } from './file-preview.js'
 import { defaultSlots, RIGHT_PANE_TAB_SLOT, SlotErrorBoundary, useSlotEntries } from './slots.js'
-const WorkspaceTerminal = lazy(() => import('./workspace-terminal.js').then(mod => ({ default: mod.WorkspaceTerminal })))
+import { createChunkLoader, createRetryableLazy } from './retryable-lazy.js'
+const WorkspaceTerminal = createRetryableLazy(
+  createChunkLoader(() => import('./workspace-terminal.js'), /\/workspace-terminal(?:-[^/?#]+)?\.js(?:$|[?#])/i),
+  mod => mod.WorkspaceTerminal,
+)
 
 const RefreshIcon = () => h('svg', {
   width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
@@ -1037,7 +1041,12 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       : null,
     hasTerminal
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'terminal' },
-        h(Suspense, { fallback: null },
+        h(SlotErrorBoundary, {
+          slotName: 'workspace:terminal',
+          resetKey: `terminal:${sessionId ?? ''}`,
+          onRetry: () => { WorkspaceTerminal.reset?.() },
+        },
+        h(Suspense, { fallback: h('div', { className: 'dsb-rp-empty', role: 'status' }, t('Loading…')) },
           h(WorkspaceTerminal, {
             sessionId,
             feed,
@@ -1047,7 +1056,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
             active: visible && activeTab === 'terminal',
             focusNonce: terminalFocusNonce,
             onConsumeFocusNonce: onConsumeTerminalFocus,
-          })))
+          }))))
       : null,
     activePlugin
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible },
