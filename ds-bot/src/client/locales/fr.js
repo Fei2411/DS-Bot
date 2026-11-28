@@ -2936,6 +2936,15 @@ export const FR = {
   "No new replies": "Aucune nouvelle réponse",
   "New replies": "Nouvelles réponses",
   "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
+  "Engine settings are read-only in this profile.": "Les paramètres du moteur sont en lecture seule dans ce profil.",
+  "Overridden by {fields}": "Remplacé par {fields}",
+  "Max response bytes": "Octets max de réponse",
+  "Max body chars": "Caractères max du corps",
+  "Max redirects": "Redirections max",
+  "User agent": "User-Agent",
+  "Max session log bytes": "Octets max du journal de session",
+  "Managed by environment": "Géré par l'environnement",
+  "Enter a positive integer": "Saisissez un entier positif",
 }
 
 export const HOST_ERRORS_FR = [

@@ -3065,7 +3065,16 @@ var JA = {
   "Nothing waits for you": "対応待ちはありません",
   "No new replies": "新しい返信はありません",
   "New replies": "新しい返信",
-  "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む"
+  "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む",
+  "Engine settings are read-only in this profile.": "このプロファイルのエンジン設定は読み取り専用です。",
+  "Overridden by {fields}": "{fields} により上書き済み",
+  "Max response bytes": "最大レスポンスバイト数",
+  "Max body chars": "最大本文文字数",
+  "Max redirects": "最大リダイレクト回数",
+  "User agent": "User-Agent",
+  "Max session log bytes": "最大セッションログバイト数",
+  "Managed by environment": "環境変数で管理",
+  "Enter a positive integer": "正の整数を入力してください"
 };
 var HOST_ERRORS_JA = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -6778,7 +6787,16 @@ var KO = {
   "Nothing waits for you": "확인할 항목이 없습니다",
   "No new replies": "새 답장이 없습니다",
   "New replies": "새 답장",
-  "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터"
+  "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
+  "Engine settings are read-only in this profile.": "이 프로필의 엔진 설정은 읽기 전용입니다.",
+  "Overridden by {fields}": "{fields}에 의해 재정의됨",
+  "Max response bytes": "최대 응답 바이트",
+  "Max body chars": "최대 본문 문자 수",
+  "Max redirects": "최대 리디렉션 횟수",
+  "User agent": "User-Agent",
+  "Max session log bytes": "최대 세션 로그 바이트",
+  "Managed by environment": "환경 변수로 관리됨",
+  "Enter a positive integer": "양의 정수를 입력하세요"
 };
 var HOST_ERRORS_KO = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -10492,7 +10510,16 @@ var ES = {
   "Nothing waits for you": "No hay nada pendiente",
   "No new replies": "No hay respuestas nuevas",
   "New replies": "Respuestas nuevas",
-  "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo"
+  "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
+  "Engine settings are read-only in this profile.": "Los ajustes del motor son de solo lectura en este perfil.",
+  "Overridden by {fields}": "Anulado por {fields}",
+  "Max response bytes": "Bytes máximos de respuesta",
+  "Max body chars": "Caracteres máximos del cuerpo",
+  "Max redirects": "Redirecciones máximas",
+  "User agent": "User-Agent",
+  "Max session log bytes": "Bytes máximos del registro de sesión",
+  "Managed by environment": "Gestionado por el entorno",
+  "Enter a positive integer": "Introduce un entero positivo"
 };
 var HOST_ERRORS_ES = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -14162,7 +14189,16 @@ var FR = {
   "Nothing waits for you": "Rien ne vous attend",
   "No new replies": "Aucune nouvelle réponse",
   "New replies": "Nouvelles réponses",
-  "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe"
+  "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
+  "Engine settings are read-only in this profile.": "Les paramètres du moteur sont en lecture seule dans ce profil.",
+  "Overridden by {fields}": "Remplacé par {fields}",
+  "Max response bytes": "Octets max de réponse",
+  "Max body chars": "Caractères max du corps",
+  "Max redirects": "Redirections max",
+  "User agent": "User-Agent",
+  "Max session log bytes": "Octets max du journal de session",
+  "Managed by environment": "Géré par l'environnement",
+  "Enter a positive integer": "Saisissez un entier positif"
 };
 var HOST_ERRORS_FR = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -17875,7 +17911,16 @@ var DE = {
   "Nothing waits for you": "Nichts wartet auf dich",
   "No new replies": "Keine neuen Antworten",
   "New replies": "Neue Antworten",
-  "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern"
+  "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern",
+  "Engine settings are read-only in this profile.": "Engine-Einstellungen sind in diesem Profil schreibgeschützt.",
+  "Overridden by {fields}": "Überschrieben durch {fields}",
+  "Max response bytes": "Max. Antwort-Bytes",
+  "Max body chars": "Max. Textzeichen",
+  "Max redirects": "Max. Weiterleitungen",
+  "User agent": "User-Agent",
+  "Max session log bytes": "Max. Sitzungsprotokoll-Bytes",
+  "Managed by environment": "Durch Umgebung verwaltet",
+  "Enter a positive integer": "Positive ganze Zahl eingeben"
 };
 var HOST_ERRORS_DE = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -21343,7 +21388,16 @@ var ZH = {
   "Nothing waits for you": "没有等你处理的事",
   "No new replies": "没有新回复",
   "New replies": "新回复",
-  "Filter by Bot or group chat": "按 Bot 或群聊筛选"
+  "Filter by Bot or group chat": "按 Bot 或群聊筛选",
+  "Engine settings are read-only in this profile.": "当前配置的引擎设置为只读。",
+  "Overridden by {fields}": "已被 {fields} 覆盖",
+  "Max response bytes": "最大响应字节数",
+  "Max body chars": "最大正文字符数",
+  "Max redirects": "最大重定向次数",
+  "User agent": "User-Agent",
+  "Max session log bytes": "单次会话日志最大字节数",
+  "Managed by environment": "由环境变量管理",
+  "Enter a positive integer": "请输入正整数"
 };
 var HOST_ERRORS = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],
@@ -60279,6 +60333,7 @@ var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href
 function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnly = false }) {
   const [state, setState] = (0, import_react65.useState)(null);
   const [showLog, setShowLog] = (0, import_react65.useState)(false);
+  const [maxBytesText, setMaxBytesText] = (0, import_react65.useState)("");
   const [note, setNote] = (0, import_react65.useState)("");
   const noteTimer = (0, import_react65.useRef)(0);
   const mounted2 = (0, import_react65.useRef)(true);
@@ -60289,6 +60344,11 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
       clearTimeout(noteTimer.current);
     };
   }, []);
+  (0, import_react65.useEffect)(() => {
+    if (Number.isInteger(state?.dshSessionLogMaxBytes)) {
+      setMaxBytesText(String(state.dshSessionLogMaxBytes));
+    }
+  }, [state?.dshSessionLogMaxBytes]);
   const flashNote = (message) => {
     clearTimeout(noteTimer.current);
     setNote(message);
@@ -60311,6 +60371,15 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
       setState(next);
       flashNote(t("Saved"));
     }));
+  };
+  const commitMaxBytes = () => {
+    if (readOnly || state?.dshSessionLogWritable === false) return;
+    const parsed = Number(maxBytesText.trim());
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed !== state?.dshSessionLogMaxBytes) {
+      void save({ dshSessionLogMaxBytes: parsed });
+    } else if (Number.isInteger(state?.dshSessionLogMaxBytes)) {
+      setMaxBytesText(String(state.dshSessionLogMaxBytes));
+    }
   };
   const resetId = () => {
     flashNote("");
@@ -60376,15 +60445,54 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
     (0, import_react65.createElement)(
       Section2,
       { key: "dsh", title: t("DeepSeek Harness (Engine)") },
-      (0, import_react65.createElement)(Row4, {
-        label: t("Upload Session Log to DeepSeek API"),
-        hint: t("Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.")
-      }, (0, import_react65.createElement)(Switch, {
-        label: t("Upload Session Log to DeepSeek API"),
-        on: state?.dshSessionLog === true,
-        disabled: readOnly || state === null,
-        onChange: (dshSessionLog) => save({ dshSessionLog })
-      })),
+      state?.dshSessionLogWritable === false ? (0, import_react65.createElement)(
+        "div",
+        { className: "bt-set-row", role: "status" },
+        (0, import_react65.createElement)("span", { className: "bt-set-hint" }, t("Engine settings are read-only in this profile."))
+      ) : null,
+      (0, import_react65.createElement)(
+        Row4,
+        {
+          label: t("Upload Session Log to DeepSeek API"),
+          hint: t("Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.")
+        },
+        state?.dshSessionLogOverridden === true ? (0, import_react65.createElement)("button", {
+          type: "button",
+          className: "bt-mini",
+          disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
+          onClick: () => save({ resetDshSessionLog: true })
+        }, t("Reset")) : null,
+        (0, import_react65.createElement)(Switch, {
+          label: t("Upload Session Log to DeepSeek API"),
+          on: state?.dshSessionLog === true,
+          disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
+          onChange: (dshSessionLog) => save({ dshSessionLog })
+        })
+      ),
+      Number.isInteger(state?.dshSessionLogMaxBytes) ? (0, import_react65.createElement)(
+        Row4,
+        { label: t("Max session log bytes") },
+        state?.dshSessionLogMaxBytesOverridden === true ? (0, import_react65.createElement)("button", {
+          type: "button",
+          className: "bt-mini",
+          disabled: readOnly || state?.dshSessionLogWritable === false,
+          onClick: () => save({ dshSessionLogMaxBytes: null })
+        }, t("Reset")) : null,
+        (0, import_react65.createElement)("input", {
+          className: "bt-input bt-set-number",
+          type: "number",
+          min: 1,
+          step: 1,
+          "aria-label": t("Max session log bytes"),
+          disabled: readOnly || state?.dshSessionLogWritable === false,
+          value: maxBytesText,
+          onChange: (event) => setMaxBytesText(event.target.value),
+          onBlur: commitMaxBytes,
+          onKeyDown: (event) => {
+            if (event.key === "Enter") event.target.blur();
+          }
+        })
+      ) : null,
       (0, import_react65.createElement)(Row4, {
         label: t("Send feedback sessions to DeepSeek"),
         hint: t("Only used when submitting feedback in Classic Agent mode. Private Bots and secrets are excluded. Restart to apply fully.")
@@ -63774,6 +63882,7 @@ var ENGINE_PLUGIN_SEARCH_ENTRIES = [
   { id: "engine:web-search", label: "Web search", page: "plugins", target: "dsh:web-search", icon: "browser", keywords: "web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费" },
   { id: "engine:shell", label: "Shell", page: "plugins", target: "dsh:shell", icon: "local-agents", keywords: "shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时" },
   { id: "engine:agent-loop", label: "Agent loop", page: "plugins", target: "dsh:agent-loop", icon: "models", keywords: "agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用" },
+  { id: "engine:default-model", label: "Default model", page: "plugins", target: "dsh:default-model", icon: "models", keywords: "agent default model provider reasoning effort 默认模型 提供方 推理强度" },
   { id: "engine:subagent", label: "Subagents", page: "plugins", target: "dsh:subagent", icon: "bot-models", surfaceMode: "agent", keywords: "subagents subagent max depth active models 子代理 子智能体 深度" }
 ];
 var ENGINE_MODELS_SEARCH_ENTRY = {

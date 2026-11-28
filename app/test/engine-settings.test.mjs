@@ -1855,3 +1855,98 @@ test('PluginsSettingsPage surfaces custom profile plugins, DSH Web UI-only label
   const folderRows = findAll(emptyTree, n => n.props?.className === 'bt-set-row' && /Folder/.test(textOf(n)) && /\/tmp\/dsh-home\/ui-plugins/.test(textOf(n)))
   assert.equal(folderRows.length, 1, 'empty Window plugins card uses standard padded bt-set-row with Folder label')
 })
+
+test('WebSearchDetailForm exposes all fields on auto provider, manages credentials via ctx.credentials, shows YAML billing overrides, and AgentDefaultModelDetailForm edits agent-default-model', async () => {
+  const credCalls = []
+  let credConfigured = false
+  const mutated = []
+  const { mod } = loadMod(async (endpoint, payload) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-web-providers') {
+      return {
+        available: true,
+        search: [{ id: 'auto' }, { id: 'deepseek-search-api' }, { id: 'deepseek-official' }],
+        fetch: [{ id: 'auto' }, { id: 'http' }, { id: 'deepseek-fetch-api' }],
+      }
+    }
+    if (endpoint === 'engine-credentials-describe') {
+      credCalls.push([endpoint, payload])
+      return { available: true, views: { DEEPSEEK_API_KEY: { configured: credConfigured, writable: true } } }
+    }
+    if (endpoint === 'engine-credentials-set') {
+      credCalls.push([endpoint, payload])
+      credConfigured = true
+      return { ref: payload.ref, configured: true, writable: true }
+    }
+    if (endpoint === 'engine-credentials-unset') {
+      credCalls.push([endpoint, payload])
+      credConfigured = false
+      return { ref: payload.ref, configured: false, writable: true }
+    }
+    if (endpoint === 'engine-model-catalog') {
+      return {
+        available: true,
+        partial: false,
+        groups: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }, { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' }] }],
+      }
+    }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [
+          { ns: 'web', autoGenerate: true, revision: 1, value: { searchProvider: 'auto', fetchProvider: 'auto' }, base: { searchProvider: 'auto', fetchProvider: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'web-deepseek-api', autoGenerate: true, revision: 1, value: { count: 10, searchRequestsPerSecond: 5, sendOriginalQuestion: true, searchBilling: 'auto', fetchBilling: 'auto', searchBaseURL: 'https://override.example' }, base: { count: 10, searchRequestsPerSecond: 5, sendOriginalQuestion: true, searchBilling: 'auto', fetchBilling: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'web-search-deepseek', autoGenerate: true, revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-v4-flash', apiVersion: '2023-06-01', maxTokens: 4096, maxUses: 5 }, base: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-v4-flash', apiVersion: '2023-06-01', maxTokens: 4096, maxUses: 5 }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'web-fetch-http', autoGenerate: true, revision: 1, value: { maxResponseBytes: 5000000, maxBodyChars: 100000, timeoutMs: 30000, maxRedirects: 5, userAgent: 'dsh' }, base: { maxResponseBytes: 5000000, maxBodyChars: 100000, timeoutMs: 30000, maxRedirects: 5, userAgent: 'dsh' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'agent-default-model', autoGenerate: false, revision: 1, value: { provider: 'deepseek-official', model: 'deepseek-flash' }, base: { provider: 'deepseek-official', model: 'deepseek-flash' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-mutate') {
+      mutated.push(payload)
+      return { ns: payload.ns, autoGenerate: false, revision: 2, value: { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'high' }, base: { provider: 'deepseek-official', model: 'deepseek-flash' }, user: { model: 'deepseek-v4-pro', reasoningEffort: 'high' }, secrets: [], schema: { type: 'object', dict: {} } }
+    }
+    return {}
+  })
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'web-search' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  let tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+
+  // Under default `auto`, Results per search, Search RPS, Max searches per request, Direct HTTP fields, and override badge all render!
+  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search').length === 1, 'Results per search visible under auto')
+  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Search requests per second').length === 1, 'Search requests per second visible under auto')
+  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Max searches per request').length === 1, 'Max searches per request visible under auto')
+  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Max response bytes').length === 1, 'Direct HTTP Max response bytes visible under auto')
+  assert.match(textOf(tree), /Overridden by searchBaseURL/, 'custom searchBaseURL shows billing override badge')
+
+  // Legacy credential row uses engine-credentials-describe / set / unset.
+  const credRow = findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0]
+  assert.ok(credRow, 'DEEPSEEK_API_KEY credential row rendered')
+  const credInput = findAll(credRow, n => n.type === 'input' && n.props?.type === 'password')[0]
+  credInput.props.onChange({ target: { value: 'sk-new-key' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const credSave = findAll(findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0], n => n.type === 'button' && textOf(n) === 'Save')[0]
+  credSave.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.ok(credCalls.some(([ep, p]) => ep === 'engine-credentials-set' && p?.ref === 'DEEPSEEK_API_KEY' && p?.value === 'sk-new-key'))
+  assert.match(textOf(findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0]), /Configured/)
+
+  // Default model (`agent-default-model`, autoGenerate: false) opens cleanly and saves reasoningEffort.
+  harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
+  const effortInput = findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Reasoning effort')[0]
+  assert.ok(effortInput, 'AgentDefaultModelDetailForm renders Reasoning effort input')
+  effortInput.props.onChange({ target: { value: 'high' } })
+  tree = harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
+  const saveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').at(-1)
+  saveBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(mutated.some(m => m.ns === 'agent-default-model' && m.ops.some(op => op.op === 'set' && op.path[0] === 'reasoningEffort' && op.value === 'high')))
+})

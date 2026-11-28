@@ -700,6 +700,9 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-engine-loading,.dsb-engine-empty{padding:18px 4px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-set-card>.dsb-engine-empty{padding:14px 16px}
 .dsb-engine-notice{padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-accent) 10%,transparent);color:var(--bt-ink);font-size:13px;line-height:18px}
+.dsb-engine-readonly{padding:9px 12px;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-sidebar);color:var(--bt-ink-2);font-size:12.5px;line-height:18px}
+.dsb-engine-reset-all{margin-right:auto}
+.dsb-engine-override-tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:14px;font-weight:500}
 .dsb-engine-inline{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .dsb-engine-link{text-decoration:none;display:inline-flex;align-items:center;min-height:28px}
 .dsb-engine-val{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);font-variant-numeric:tabular-nums}

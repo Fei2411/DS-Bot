@@ -2970,6 +2970,15 @@ export const DE = {
   "No new replies": "Keine neuen Antworten",
   "New replies": "Neue Antworten",
   "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern",
+  "Engine settings are read-only in this profile.": "Engine-Einstellungen sind in diesem Profil schreibgeschützt.",
+  "Overridden by {fields}": "Überschrieben durch {fields}",
+  "Max response bytes": "Max. Antwort-Bytes",
+  "Max body chars": "Max. Textzeichen",
+  "Max redirects": "Max. Weiterleitungen",
+  "User agent": "User-Agent",
+  "Max session log bytes": "Max. Sitzungsprotokoll-Bytes",
+  "Managed by environment": "Durch Umgebung verwaltet",
+  "Enter a positive integer": "Positive ganze Zahl eingeben",
 }
 
 export const HOST_ERRORS_DE = [

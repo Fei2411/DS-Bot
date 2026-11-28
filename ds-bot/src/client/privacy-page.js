@@ -13,6 +13,7 @@ const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href
 export function PrivacyPage({ actions, run, Section, Row, readOnly = false }) {
   const [state, setState] = useState(null)
   const [showLog, setShowLog] = useState(false)
+  const [maxBytesText, setMaxBytesText] = useState('')
   const [note, setNote] = useState('')
   const noteTimer = useRef(0)
   const mounted = useRef(true)
@@ -23,6 +24,11 @@ export function PrivacyPage({ actions, run, Section, Row, readOnly = false }) {
       clearTimeout(noteTimer.current)
     }
   }, [])
+  useEffect(() => {
+    if (Number.isInteger(state?.dshSessionLogMaxBytes)) {
+      setMaxBytesText(String(state.dshSessionLogMaxBytes))
+    }
+  }, [state?.dshSessionLogMaxBytes])
   const flashNote = (message) => {
     clearTimeout(noteTimer.current)
     setNote(message)
@@ -36,6 +42,15 @@ export function PrivacyPage({ actions, run, Section, Row, readOnly = false }) {
   const save = (patch) => {
     flashNote('')
     return run((typeof actions.telemetryUpdate === 'function' ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Saved')) }))
+  }
+  const commitMaxBytes = () => {
+    if (readOnly || state?.dshSessionLogWritable === false) return
+    const parsed = Number(maxBytesText.trim())
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed !== state?.dshSessionLogMaxBytes) {
+      void save({ dshSessionLogMaxBytes: parsed })
+    } else if (Number.isInteger(state?.dshSessionLogMaxBytes)) {
+      setMaxBytesText(String(state.dshSessionLogMaxBytes))
+    }
   }
   const resetId = () => {
     flashNote('')
@@ -92,15 +107,51 @@ export function PrivacyPage({ actions, run, Section, Row, readOnly = false }) {
         : null),
     note ? h('div', { key: 'note', className: 'bt-note bt-fb-note', role: 'status' }, note) : null,
     h(Section, { key: 'dsh', title: t('DeepSeek Harness (Engine)') },
+      state?.dshSessionLogWritable === false
+        ? h('div', { className: 'bt-set-row', role: 'status' },
+          h('span', { className: 'bt-set-hint' }, t('Engine settings are read-only in this profile.')))
+        : null,
       h(Row, {
         label: t('Upload Session Log to DeepSeek API'),
         hint: t('Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.'),
-      }, h(Switch, {
+      },
+      state?.dshSessionLogOverridden === true
+        ? h('button', {
+          type: 'button',
+          className: 'bt-mini',
+          disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
+          onClick: () => save({ resetDshSessionLog: true }),
+        }, t('Reset'))
+        : null,
+      h(Switch, {
         label: t('Upload Session Log to DeepSeek API'),
         on: state?.dshSessionLog === true,
-        disabled: readOnly || state === null,
+        disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
         onChange: dshSessionLog => save({ dshSessionLog }),
       })),
+      Number.isInteger(state?.dshSessionLogMaxBytes)
+        ? h(Row, { label: t('Max session log bytes') },
+          state?.dshSessionLogMaxBytesOverridden === true
+            ? h('button', {
+              type: 'button',
+              className: 'bt-mini',
+              disabled: readOnly || state?.dshSessionLogWritable === false,
+              onClick: () => save({ dshSessionLogMaxBytes: null }),
+            }, t('Reset'))
+            : null,
+          h('input', {
+            className: 'bt-input bt-set-number',
+            type: 'number',
+            min: 1,
+            step: 1,
+            'aria-label': t('Max session log bytes'),
+            disabled: readOnly || state?.dshSessionLogWritable === false,
+            value: maxBytesText,
+            onChange: event => setMaxBytesText(event.target.value),
+            onBlur: commitMaxBytes,
+            onKeyDown: event => { if (event.key === 'Enter') event.target.blur() },
+          }))
+        : null,
       h(Row, {
         label: t('Send feedback sessions to DeepSeek'),
         hint: t('Only used when submitting feedback in Classic Agent mode. Private Bots and secrets are excluded. Restart to apply fully.'),
