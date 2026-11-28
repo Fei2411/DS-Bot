@@ -470,7 +470,8 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
         for (const match of line.matchAll(/\bactions\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g)) {
           const name = match[1]
           if (PLUGIN_ONLY_ACTIONS.has(name)) continue
-          if (new RegExp(`typeof\\s+actions\\.${name}\\b|\\bactions\\.${name}\\s*(?:\\?|&&)`).test(line)) continue
+          const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          if (new RegExp(`typeof\\s+actions\\.${escaped}\\b|\\bactions\\.${escaped}\\s*(?:\\?|&&)`).test(line)) continue
           if (typeof desktopActions[name] !== 'function') {
             missing.push(`${file.slice(dsBotClientDir.length)}: actions.${name}()`)
           }

@@ -124,7 +124,7 @@ function cleanBundle(bundle) {
 
 function cleanPlugin(plugin) {
   const id = plugin.entryId ?? plugin.id ?? ''
-  const status = plugin.status ?? (plugin.fiberPhase === 'failed' ? 'error' : plugin.fiberPhase ?? (plugin.enabled === false ? 'disabled' : 'active'))
+  const status = plugin.status ?? (plugin.fiberPhase === 'failed' ? 'error' : plugin.fiberPhase ?? (plugin.enabled === false ? 'disabled' : 'inactive'))
   const error = plugin.error ?? (typeof plugin.diagnostic === 'string' && plugin.diagnostic !== '' ? { diagnostic: plugin.diagnostic } : undefined)
   return {
     id: String(id),

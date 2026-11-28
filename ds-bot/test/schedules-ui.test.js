@@ -253,5 +253,117 @@ test('SchedulesPage shows startup failure diagnostics instead of the obsolete Au
   const tree = harness.render(el())
   assert.match(textOf(tree), /Scheduled tasks failed to start/)
   assert.match(textOf(tree), /corrupt_schedule_log/)
+  assert.match(textOf(tree), /Restart DS Bot, or refresh status after fixing the issue\./)
+  const refreshBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Refresh status')[0]
+  assert.ok(refreshBtn, 'startup failure must offer Refresh status')
+  assert.equal(refreshBtn.props['data-tour'], undefined, 'error Refresh status button must not hijack SettingsTour anchor')
   assert.equal(textOf(tree).includes('Turn on Automation tasks in DSH'), false)
+})
+
+test('useSchedulesState ignores stale in-flight poll responses after scheduleEnable and reschedules fast polling on pending:true', async (t) => {
+  const scheduledDelays = []
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  const timers = new Map()
+  let nextTimerId = 1
+  globalThis.setTimeout = (fn, ms) => {
+    const id = nextTimerId++
+    scheduledDelays.push(ms)
+    timers.set(id, fn)
+    return id
+  }
+  globalThis.clearTimeout = (id) => { timers.delete(id) }
+
+  const code = await loadSchedulesModule()
+  const harness = makeReact()
+  t.after(() => {
+    try { harness.unmount() } finally {
+      globalThis.setTimeout = origSetTimeout
+      globalThis.clearTimeout = origClearTimeout
+    }
+  })
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+    id === 'react-dom' ? { createPortal: el => el } : harness.React
+  ))
+  const { SchedulesPage } = mod.exports
+
+  let resolvePoll1
+  let pollCount = 0
+  const actions = {
+    schedules: () => {
+      pollCount += 1
+      if (pollCount === 1) return Promise.resolve({ available: false, tasks: [], canEnable: true, reason: 'disabled' })
+      if (pollCount === 2) return new Promise((resolve) => { resolvePoll1 = resolve })
+      return Promise.resolve({ available: true, canPause: true, tasks: [] })
+    },
+    scheduleEnable: async () => ({ available: false, tasks: [], pending: true }),
+    openSettings() {},
+  }
+  const el = () => harness.React.createElement(SchedulesPage, { roster: ROSTER, actions })
+  harness.render(el())
+  await tick()
+  await tick()
+  const off = harness.render(el())
+  assert.equal(scheduledDelays.at(-1), 30_000, 'idle disabled state schedules 30s poll')
+
+  // Trigger a second poll (e.g. via timer) that stays in-flight while user clicks enable.
+  const pendingTimerFn = [...timers.values()].at(-1)
+  timers.clear()
+  pendingTimerFn()
+  assert.equal(pollCount, 2)
+
+  // User clicks enable -> resolves with pending:true while poll #2 is still in flight.
+  const enableBtn = findAll(off, n => n.type === 'button' && textOf(n) === 'Turn on scheduled tasks')[0]
+  enableBtn.props.onClick()
+  await tick()
+  await tick()
+  const starting = harness.render(el())
+  assert.match(textOf(starting), /Starting scheduled tasks…/)
+
+  // Now the stale poll #2 resolves with the old disabled snapshot; it must NOT overwrite pending:true,
+  // and the next poll timer must be shortened to 1000ms (PENDING_POLL_MS).
+  resolvePoll1({ available: false, tasks: [], canEnable: true, reason: 'disabled' })
+  await tick()
+  await tick()
+  const stillStarting = harness.render(el())
+  assert.match(textOf(stillStarting), /Starting scheduled tasks…/)
+  assert.equal(scheduledDelays.at(-1), 1_000, 'pending:true must shorten polling interval to 1s')
+})
+
+test('BotSchedules and ScheduleSummary handle restartRequired, pending, readOnly, and locked-disabled consistently', async (t) => {
+  const code = await loadSchedulesModule()
+  for (const [label, view, roster, expectText, expectButtonDisabled, expectNoButton] of [
+    ['restartRequired', { available: false, tasks: [], restartRequired: true }, ROSTER, /Restart DS Bot for scheduled tasks to take effect\./, false, true],
+    ['pending', { available: false, tasks: [], pending: true }, ROSTER, /Starting scheduled tasks…/, false, true],
+    ['readOnly', { available: false, tasks: [], canEnable: true, reason: 'disabled' }, { ...ROSTER, readOnly: 'Another window owns the team' }, /Scheduled tasks are off/, true, false],
+    ['locked-disabled', { available: false, tasks: [], reason: 'disabled' }, ROSTER, /Scheduled tasks are off/, false, true],
+  ]) {
+    const harness = makeReact()
+    t.after(() => harness.unmount())
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { BotSchedules, ScheduleSummary } = mod.exports
+    const actions = {
+      schedules: async () => view,
+      scheduleEnable: async () => view,
+      openSettings() {},
+    }
+    const bot = ROSTER.bots[0]
+    const tree = harness.React.createElement(harness.React.Fragment, null,
+      harness.React.createElement(BotSchedules, { bot, roster, actions }),
+      harness.React.createElement(ScheduleSummary, { bot, actions }))
+    harness.render(tree)
+    await tick()
+    await tick()
+    const rendered = harness.render(tree)
+    const text = textOf(rendered)
+    assert.match(text, expectText, `${label}: expected text`)
+    assert.equal(text.includes('Open Plugins'), false, `${label}: must not fall back to Open Plugins`)
+    const enableBtns = findAll(rendered, n => n.type === 'button' && textOf(n) === 'Turn on scheduled tasks')
+    if (expectNoButton) assert.equal(enableBtns.length, 0, `${label}: must not render enable button`)
+    else assert.equal(enableBtns[0]?.props.disabled, expectButtonDisabled, `${label}: button disabled state`)
+  }
 })

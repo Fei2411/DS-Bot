@@ -100,6 +100,8 @@ export function install(rt) {
   const SCHEDULE_ATTACH_GRACE_MS = rt.config?.scheduleAttachWaitMs ?? 10_000
   let service = null
   let disposed = false
+  let restartRequired = false
+  let enableInFlight = null
   let scheduleDeadline = typeof ctx.inject === 'function' ? Date.now() + SCHEDULE_ATTACH_GRACE_MS : 0
   let scheduleGraceTimer
   const attachWaiters = new Set()
@@ -150,6 +152,7 @@ export function install(rt) {
     if (disposed) return
     const own = sub.schedule
     service = own
+    restartRequired = false
     clearGraceTimer()
     settleAttachWaiters(true)
     sub.effect(() => () => {
@@ -230,8 +233,9 @@ export function install(rt) {
     return entry === undefined || sessionOf(entry) !== sessionId ? undefined : entry
   }
 
-  async function schedulesView() {
+  async function schedulesView({ remote = false } = {}) {
     if (service === null) {
+      if (restartRequired) return { available: false, tasks: [], restartRequired: true }
       const pm = pluginManagerOf()
       const target = await findScheduleTarget(pm)
       let canEnable = false
@@ -243,10 +247,10 @@ export function install(rt) {
         const entryId = row.entryId ?? row.id
         if (row.enabled === false) {
           reason = 'disabled'
-          canEnable = row.readOnlyReason === undefined && typeof entryId === 'string' && entryId !== '' && typeof pm.setPluginEnabled === 'function'
+          canEnable = !remote && row.readOnlyReason === undefined && typeof entryId === 'string' && entryId !== '' && typeof pm.setPluginEnabled === 'function'
         } else if (row.fiberPhase === 'failed' || row.status === 'error' || diagnosticOf(row) !== undefined) {
           reason = 'error'
-          error = diagnosticOf(row)
+          if (!remote) error = diagnosticOf(row)
         } else if (schedulesPending() || row.fiberPhase === 'pending' || row.fiberPhase === 'loading') {
           pending = true
         }
@@ -254,10 +258,10 @@ export function install(rt) {
         const { bundle } = target
         if (bundle.enabled === false) {
           reason = 'disabled'
-          canEnable = bundle.readOnlyReason === undefined && typeof pm.setBundleEnabled === 'function'
+          canEnable = !remote && bundle.readOnlyReason === undefined && typeof pm.setBundleEnabled === 'function'
         } else if (diagnosticOf(bundle) !== undefined) {
           reason = 'error'
-          error = diagnosticOf(bundle)
+          if (!remote) error = diagnosticOf(bundle)
         } else if (schedulesPending()) {
           pending = true
         }
@@ -291,41 +295,49 @@ export function install(rt) {
   }
 
   const endpoints = {
-    schedules: () => schedulesView(),
+    schedules: (_body, meta) => schedulesView(meta),
     async 'schedule-enable'() {
       const readOnly = rt.readOnly?.()
       if (readOnly !== undefined) throw Object.assign(new Error(readOnly), { code: 'bot/read-only' })
-      if (service !== null) return schedulesView()
-      const pm = pluginManagerOf()
-      if (pm === undefined) throw refused('Plugin manager is not available on this host')
-      const target = await findScheduleTarget(pm)
-      if (target === null) throw refused('Scheduled tasks plugin is not available in this DSH profile')
-      let outcome
-      if (target.kind === 'plugin') {
-        const { row } = target
-        const entryId = row.entryId ?? row.id
-        if (row.readOnlyReason !== undefined) throw refused('Scheduled tasks cannot be changed in this profile')
-        if (typeof entryId !== 'string' || entryId === '' || typeof pm.setPluginEnabled !== 'function') {
-          throw refused('Scheduled tasks cannot be enabled automatically on this host')
+      if (service !== null || restartRequired) return schedulesView()
+      if (enableInFlight !== null) return enableInFlight
+      enableInFlight = (async () => {
+        const pm = pluginManagerOf()
+        if (pm === undefined) throw refused('Scheduled tasks cannot be turned on from here.')
+        const target = await findScheduleTarget(pm)
+        if (target === null) throw refused('Scheduled tasks are not available in this installation.')
+        let outcome
+        if (target.kind === 'plugin') {
+          const { row } = target
+          const entryId = row.entryId ?? row.id
+          if (row.readOnlyReason !== undefined) throw refused('Scheduled tasks cannot be changed here.')
+          if (typeof entryId !== 'string' || entryId === '' || typeof pm.setPluginEnabled !== 'function') {
+            throw refused('Scheduled tasks cannot be turned on from here.')
+          }
+          outcome = await pm.setPluginEnabled(entryId, true)
+        } else {
+          const { bundle } = target
+          if (bundle.readOnlyReason !== undefined) throw refused('Scheduled tasks cannot be changed here.')
+          if (typeof pm.setBundleEnabled !== 'function') {
+            throw refused('Scheduled tasks cannot be turned on from here.')
+          }
+          outcome = await pm.setBundleEnabled(bundle.name, true)
         }
-        outcome = await pm.setPluginEnabled(entryId, true)
-      } else {
-        const { bundle } = target
-        if (bundle.readOnlyReason !== undefined) throw refused('Scheduled tasks cannot be changed in this profile')
-        if (typeof pm.setBundleEnabled !== 'function') {
-          throw refused('Scheduled tasks cannot be enabled automatically on this host')
+        if (outcome?.application === 'overridden' || outcome?.outcome === 'overridden') {
+          throw refused('Scheduled tasks are locked by your configuration.')
         }
-        outcome = await pm.setBundleEnabled(bundle.name, true)
-      }
-      if (outcome?.error?.diagnostic) throw refused(outcome.error.diagnostic)
-      if (outcome?.application === 'overridden' || outcome?.outcome === 'overridden') {
-        throw refused('Scheduled tasks are overridden by a higher-priority profile patch')
-      }
-      if (outcome?.application === 'restart-required') {
-        return { ...(await schedulesView()), restartRequired: true }
-      }
-      await waitForAttach()
-      return schedulesView()
+        if (outcome?.error !== undefined || outcome?.application === 'failed' || outcome?.application === 'cancelled') {
+          const detail = outcome?.error?.diagnostic || outcome?.error?.code
+          throw refused(typeof detail === 'string' && detail.trim() !== '' ? detail.trim() : 'Could not turn on scheduled tasks.')
+        }
+        if (outcome?.application === 'restart-required') {
+          restartRequired = true
+          return schedulesView()
+        }
+        await waitForAttach()
+        return schedulesView()
+      })().finally(() => { enableInFlight = null })
+      return enableInFlight
     },
     async 'schedule-create'(body) {
       if (service === null) throw invalid('Automation tasks are off in DSH')
@@ -517,5 +529,5 @@ export function install(rt) {
     return { ...result, value: { ...result.value, items, shown: items.length, total: positions.length, limit, offset } }
   })
 
-  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules, schedulesPending })
+  Object.assign(rt, { scheduleEndpoint: (endpoint, body, meta) => endpoints[endpoint](body ?? {}, meta ?? {}), moveSchedules, schedulesPending })
 }

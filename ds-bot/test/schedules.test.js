@@ -581,56 +581,104 @@ test('disabled DSH schedule plugin reports canEnable and schedule-enable re-enab
   assert.equal(afterEnable.value.canPause, true)
 })
 
-test('schedules reports startup error diagnostic and schedule-enable handles restart-required, overridden, and bundle fallback', async (t) => {
+test('schedules reports startup error diagnostic, redacts error/canEnable for remote clients, and handles failed/overridden/coalesced/restart-required enablement', async (t) => {
   let mode = 'failed'
-  const bundleCalls = []
+  const pluginCalls = []
+  let resolveSlowEnable = null
   const pluginManager = {
     async listPlugins() {
       if (mode === 'failed') {
         return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: 'failed', diagnostic: 'corrupt_schedule_log' }]
       }
-      if (mode === 'restart' || mode === 'overridden') {
+      if (mode === 'overridden' || mode === 'pm-failed-code' || mode === 'coalesce') {
         return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: false, fiberPhase: null }]
       }
       return []
     },
-    async listBundles() {
-      if (mode === 'bundle') {
-        return [{ name: '@deepseek-ai/dsh-experimental-automation-bundle', enabled: false }]
+    async setPluginEnabled(id, next) {
+      pluginCalls.push([id, next])
+      if (mode === 'overridden') return { changed: false, application: 'overridden' }
+      if (mode === 'pm-failed-code') return { changed: false, application: 'failed', error: { code: 'management-required' } }
+      if (mode === 'coalesce') {
+        await new Promise((resolve) => { resolveSlowEnable = resolve })
+        return { changed: true, application: 'restart-required' }
       }
-      return []
-    },
-    async setPluginEnabled() {
-      return mode === 'overridden'
-        ? { changed: false, application: 'overridden' }
-        : { changed: true, application: 'restart-required' }
-    },
-    async setBundleEnabled(name, next) {
-      bundleCalls.push([name, next])
       return { changed: true, application: 'restart-required' }
     },
   }
-  const { ctx, home, call } = setup({ pluginManager })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-sched-edge-'))
+  const ctx = fakeContext({ services: { pluginManager } })
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  const rt = createRuntime(ctx, { home })
+  const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
 
+  // Local client sees raw startup diagnostic; remote client gets only reason:'error' (no host diagnostic or canEnable).
   assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], reason: 'error', error: 'corrupt_schedule_log' })
-
-  mode = 'restart'
-  const restartRes = await call('schedule-enable')
-  assert.equal(restartRes.ok, true, JSON.stringify(restartRes))
-  assert.equal(restartRes.value.restartRequired, true)
+  assert.deepEqual(await rt.scheduleEndpoint('schedules', {}, { remote: true }), { available: false, tasks: [], reason: 'error' })
 
   mode = 'overridden'
+  assert.deepEqual(await rt.scheduleEndpoint('schedules', {}, { remote: true }), { available: false, tasks: [], reason: 'disabled' })
   const overriddenRes = await call('schedule-enable')
   assert.equal(overriddenRes.ok, false)
-  assert.match(overriddenRes.error.message, /higher-priority profile patch/)
+  assert.equal(overriddenRes.error.message, 'Scheduled tasks are locked by your configuration.')
 
-  mode = 'bundle'
+  // DSH 0.2.2 ManagementFailure returns application:'failed' with error.code and no error.diagnostic.
+  mode = 'pm-failed-code'
+  const failedCodeRes = await call('schedule-enable')
+  assert.equal(failedCodeRes.ok, false)
+  assert.equal(failedCodeRes.error.message, 'management-required')
+
+  // Concurrent schedule-enable calls coalesce into one pluginManager call and persist restartRequired across subsequent polls.
+  mode = 'coalesce'
+  pluginCalls.length = 0
+  const p1 = call('schedule-enable')
+  const p2 = call('schedule-enable')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(pluginCalls.length, 1, 'concurrent schedule-enable calls must coalesce into one pluginManager call')
+  resolveSlowEnable()
+  const [r1, r2] = await Promise.all([p1, p2])
+  assert.equal(r1.ok, true)
+  assert.equal(r2.ok, true)
+  assert.deepEqual(r1.value, { available: false, tasks: [], restartRequired: true })
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], restartRequired: true })
+})
+
+test('bundle fallback with setBundleEnabled flipping enabled=true preserves restartRequired across polls until attach', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-sched-bundle-'))
+  let bundleEnabled = false
+  let attachFn = null
+  const bundleCalls = []
+  const pluginManager = {
+    async listPlugins() { return [] },
+    async listBundles() {
+      return [{ name: '@deepseek-ai/dsh-experimental-automation-bundle', enabled: bundleEnabled }]
+    },
+    async setBundleEnabled(name, next) {
+      bundleCalls.push([name, next])
+      bundleEnabled = next
+      return { changed: true, application: 'restart-required' }
+    },
+  }
+  const ctx = fakeContext({ services: { pluginManager } })
+  ctx.inject = (deps, cb) => { if (Array.isArray(deps) && deps.includes('schedule')) attachFn = cb }
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  createRuntime(ctx, { home })
+  const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
   assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], canEnable: true, reason: 'disabled' })
   const bundleRes = await call('schedule-enable')
   assert.equal(bundleRes.ok, true, JSON.stringify(bundleRes))
   assert.deepEqual(bundleCalls, [['@deepseek-ai/dsh-experimental-automation-bundle', true]])
-  assert.equal(bundleRes.value.restartRequired, true)
+  assert.deepEqual(bundleRes.value, { available: false, tasks: [], restartRequired: true })
+  // Even though bundle.enabled is now true on disk, subsequent schedules polls still report restartRequired.
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], restartRequired: true })
+  // Once the service attaches, restartRequired clears and schedules becomes available.
+  attachFn({ schedule: hostSchedule(), effect: () => () => {} })
+  assert.equal((await call('schedules')).value.available, true)
 })
 
 test('schedule-enable stays local-only and is not exposed to remote browser or phone clients', async () => {
