@@ -2024,3 +2024,121 @@ test('WebSearchDetailForm gates provider-specific fields strictly, handles env-m
   const emptyDefTree = emptyDefHarness.render({ readOnly: false, subTarget: 'default-model' })
   assert.equal(findAll(emptyDefTree, n => n.type === 'button' && textOf(n) === 'Discard')[0]?.props?.disabled, true, 'empty AgentDefaultModelDetailForm mounts clean')
 })
+
+test('PluginInventorySection renders Session and Global plugins, supports search, cross-preset jump, failed-first sort, details, and Retry', async () => {
+  let failOnce = true
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-settings-list') return { available: true, writable: true, namespaces: [] }
+    if (endpoint === 'engine-plugins-inventory') {
+      if (failOnce) {
+        failOnce = false
+        throw new Error('inventory offline')
+      }
+      return {
+        available: true,
+        entries: [
+          { entryId: 'g-ok', moduleName: '@deepseek-ai/dsh-alpha', enabled: false, fiberPhase: null, meta: { title: { en: 'Alpha Helper' } } },
+          { entryId: 'g-cond', moduleName: '@deepseek-ai/dsh-cond', enabled: false, fiberPhase: 'loading', meta: { title: { en: 'Cond Tool' } } },
+          { entryId: 'g-bad', moduleName: '@deepseek-ai/dsh-zeta', enabled: true, fiberPhase: 'failed', diagnostic: 'crash on boot', meta: { title: { en: 'Zeta Broken' }, error: 'bad manifest' } },
+        ],
+        agentPresets: [
+          {
+            id: 'standard',
+            isDefault: true,
+            rows: [
+              { entryId: 'p-alpha', moduleName: '@deepseek-ai/dsh-alpha', enabled: true, fiberPhase: 'loading', meta: { title: { en: 'Alpha Helper' } } },
+              { entryId: 'p-cond', moduleName: '@deepseek-ai/dsh-cond', enabled: 'conditional', condition: 'platform == darwin', fiberPhase: 'loading', meta: { title: { en: 'Cond Tool' } } },
+            ],
+          },
+          {
+            id: 'ptc',
+            isDefault: false,
+            broken: 'invalid yaml',
+            rows: [
+              { entryId: 'p-batch', moduleName: '@deepseek-ai/dsh-batch', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Batch Runner' } } },
+            ],
+          },
+        ],
+      }
+    }
+    return {}
+  })
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  harness.render({ readOnly: false })
+  await new Promise(resolve => setTimeout(resolve, 25))
+  let tree = harness.render({ readOnly: false })
+
+  // First load failed -> shows error alert with Retry button.
+  assert.match(textOf(tree), /inventory offline/)
+  const retryBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Retry')[0]
+  assert.ok(retryBtn, 'Retry button shown when plugin inventory fails')
+  retryBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render({ readOnly: false })
+  tree = harness.render({ readOnly: false })
+
+  // Global section auto-opened due to failed entry and sorted failed entry first; Alpha Helper gets Via presets tag,
+  // while conditional-only Cond Tool is NOT counted as Via presets and does NOT show a live dot when disabled.
+  const globalScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'global')[0]
+  assert.ok(globalScope, 'Global plugins scope rendered')
+  const globalEntries = findAll(globalScope, n => Boolean(n.props?.['data-inventory-entry']))
+  assert.equal(globalEntries.length, 3)
+  assert.equal(globalEntries[0].props['data-inventory-entry'], '@deepseek-ai/dsh-zeta', 'failed global plugin sorted first')
+  assert.match(textOf(globalEntries[0]), /crash on boot/)
+  assert.match(textOf(globalEntries[0]), /Metadata error: bad manifest/, 'surfaces meta.error on global entry')
+  assert.match(textOf(globalEntries[1]), /Via presets/)
+  const globalCondEntry = globalEntries.find(e => e.props['data-inventory-entry'] === '@deepseek-ai/dsh-cond')
+  assert.equal(/Via presets/.test(textOf(globalCondEntry)), false, 'conditional preset row excluded from Via presets')
+  assert.equal(findAll(globalCondEntry, n => n.props?.className === 'dsb-inv-live-dot').length, 0, 'disabled entry hides live phase dot')
+
+  // Preset switcher SelectMenu receives aria-label and localized preset display name (Standard mode (default)).
+  const presetScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'preset')[0]
+  const presetSelect = findAll(presetScope, n => n.type === 'button' && n.props?.['aria-label'] === 'Choose the agent preset to inspect')[0]
+  assert.ok(presetSelect, 'SelectMenu renders with aria-label')
+  assert.match(textOf(presetSelect), /Standard mode \(default\)/, 'built-in preset uses presetDisplayCopy')
+
+  // Live phase dot renders ONLY on enabled === true (Alpha Helper), NOT on enabled === conditional (Cond Tool).
+  const presetAlphaItem = findAll(presetScope, n => n.props?.['data-inventory-entry'] === '@deepseek-ai/dsh-alpha')[0]
+  const presetCondItem = findAll(presetScope, n => n.props?.['data-inventory-entry'] === '@deepseek-ai/dsh-cond')[0]
+  assert.equal(findAll(presetAlphaItem, n => n.props?.className === 'dsb-inv-live-dot').length, 1, 'enabled transitional entry shows live dot')
+  assert.equal(findAll(presetCondItem, n => n.props?.className === 'dsb-inv-live-dot').length, 0, 'conditional entry hides live dot')
+
+  // Expand a preset row to verify detail facts (Module, Entry ID, From = preset display name, Disabled when, Status).
+  const condRowBtn = findAll(presetScope, n => n.type === 'button' && /Cond Tool/.test(textOf(n)))[0]
+  assert.ok(condRowBtn)
+  condRowBtn.props.onClick()
+  tree = harness.render({ readOnly: false })
+  const condFacts = findAll(tree, n => n.type === 'dl' && n.props?.className === 'dsb-inv-facts')[0]
+  assert.ok(condFacts)
+  assert.match(textOf(condFacts), /Entry IDp-cond/, 'entryId labeled as Entry ID')
+  assert.match(textOf(condFacts), /FromStandard mode/, 'From shows owning preset display name')
+  assert.match(textOf(condFacts), /platform == darwin/)
+  assert.match(textOf(condFacts), /Loading/)
+
+  // Expand a global row -> Entry ID shown, From omitted, Enabled in uses localized preset name.
+  const globalAlphaBtn = findAll(globalScope, n => n.type === 'button' && /Alpha Helper/.test(textOf(n)))[0]
+  globalAlphaBtn.props.onClick()
+  tree = harness.render({ readOnly: false })
+  const globalFacts = findAll(tree, n => n.type === 'dl' && n.props?.className === 'dsb-inv-facts').at(-1)
+  assert.match(textOf(globalFacts), /Entry IDg-ok/)
+  assert.equal(/From/.test(textOf(globalFacts)), false, 'global row omits From')
+  assert.match(textOf(globalFacts), /Enabled inStandard mode/)
+
+  // Search for a plugin in another preset ("batch") -> shows localized cross-preset jump chip (PTC mode) and switches preset on click.
+  const searchInput = findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Search plugins')[0]
+  assert.ok(searchInput)
+  searchInput.props.onChange({ target: { value: 'batch' } })
+  tree = harness.render({ readOnly: false })
+  const jumpBtn = findAll(tree, n => n.type === 'button' && n.props?.['data-jump-preset'] === 'ptc')[0]
+  assert.ok(jumpBtn, 'cross-preset match jump button shown for PTC')
+  assert.equal(textOf(jumpBtn), 'PTC mode (1)', 'cross-preset jump chip uses localized preset display name')
+  jumpBtn.props.onClick()
+  tree = harness.render({ readOnly: false })
+  const ptcScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'preset')[0]
+  assert.match(textOf(ptcScope), /invalid yaml/, 'broken preset warning shown')
+  assert.match(textOf(ptcScope), /Batch Runner/, 'switched to PTC preset rows')
+})

@@ -16,6 +16,7 @@ const CREDENTIAL_REF_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
 const MAX_CREDENTIAL_REFS = 16
 const MAX_CREDENTIAL_VALUE_BYTES = 16 * 1024
 const APP_BOOT_MODULE = '@deepseek-ai/dsh-app-boot'
+const PLUGIN_INVENTORY_MODULE = '@deepseek-ai/dsh-host-plugin-inventory'
 const CORE_DS_BOT_BUNDLES = new Set(['ds-bot', '@deepseek-ai/ds-bot', 'dsbot-engine', '@deepseek-ai/dsh-base'])
 const MAX_PKG_JSON_BYTES = 256 * 1024
 
@@ -312,6 +313,28 @@ export function install(rt) {
 
   function pluginManagerService() {
     return safeService('pluginManager')
+  }
+
+  function pluginInventoryService() {
+    return safeService('pluginInventory')
+  }
+
+  let pluginInventoryPromise = null
+  const loadPluginInventory = () => {
+    pluginInventoryPromise ??= (async () => {
+      try {
+        const loader = ctx.get?.('loader')
+        if (typeof loader?.import === 'function') {
+          const exports = await loader.import(PLUGIN_INVENTORY_MODULE)
+          return exports?.readPluginInventory ?? exports?.default?.readPluginInventory ?? null
+        }
+        const mod = await import(PLUGIN_INVENTORY_MODULE)
+        return mod?.readPluginInventory ?? null
+      } catch {
+        return null
+      }
+    })()
+    return pluginInventoryPromise
   }
 
   function agentPresetsService() {
@@ -665,6 +688,78 @@ export function install(rt) {
           ...(uiPluginsDir ? { uiPluginsDir } : {}),
           bundles,
           plugins,
+        }
+      }
+      case 'plugins-inventory': {
+        const fiberPhaseOf = (phase, state) => {
+          if (typeof phase === 'string' || phase === null) return phase
+          if (state === 0) return 'pending'
+          if (state === 1) return 'loading'
+          if (state === 2) return 'active'
+          if (state === 3) return 'failed'
+          if (state === 5) return 'unloading'
+          return null
+        }
+        const cleanInventoryEntry = entry => ({
+          entryId: String(entry?.entryId ?? entry?.id ?? ''),
+          moduleName: String(entry?.moduleName ?? ''),
+          enabled: entry?.enabled !== false,
+          fiberPhase: fiberPhaseOf(entry?.fiberPhase, entry?.fiberState),
+          ...(typeof entry?.diagnostic === 'string' && entry.diagnostic !== '' ? { diagnostic: entry.diagnostic } : {}),
+          ...(entry?.meta === undefined ? {} : { meta: entry.meta }),
+        })
+        const cleanPresetGroup = group => ({
+          id: String(group?.id ?? ''),
+          ...(typeof group?.name === 'string' && group.name !== '' ? { name: group.name } : {}),
+          isDefault: Boolean(group?.isDefault),
+          ...(typeof group?.broken === 'string' && group.broken !== '' ? { broken: group.broken } : {}),
+          rows: Array.isArray(group?.rows)
+            ? group.rows.map(row => ({
+              entryId: row?.entryId === null || row?.entryId === undefined ? null : String(row.entryId),
+              moduleName: String(row?.moduleName ?? ''),
+              enabled: row?.enabled === 'conditional' ? 'conditional' : Boolean(row?.enabled),
+              ...(typeof row?.condition === 'string' && row.condition !== '' ? { condition: row.condition } : {}),
+              fiberPhase: fiberPhaseOf(row?.fiberPhase, row?.fiberState),
+              ...(row?.meta === undefined ? {} : { meta: row.meta }),
+            }))
+            : [],
+        })
+        const svc = pluginInventoryService()
+        if (svc !== undefined && typeof svc.list === 'function') {
+          try {
+            const snap = await svc.list()
+            return {
+              available: true,
+              entries: Array.isArray(snap?.entries) ? snap.entries.map(cleanInventoryEntry) : [],
+              agentPresets: Array.isArray(snap?.agentPresets) ? snap.agentPresets.map(cleanPresetGroup) : [],
+            }
+          } catch {}
+        }
+        const readFn = await loadPluginInventory()
+        const loader = safeService('loader')
+        if (typeof readFn === 'function' && loader && typeof loader.entries === 'function') {
+          try {
+            const snap = await readFn({ get: safeService, loader, baseUrl: ctx.baseUrl })
+            return {
+              available: true,
+              entries: Array.isArray(snap?.entries) ? snap.entries.map(cleanInventoryEntry) : [],
+              agentPresets: Array.isArray(snap?.agentPresets) ? snap.agentPresets.map(cleanPresetGroup) : [],
+            }
+          } catch {}
+        }
+        const pm = pluginManagerService()
+        const presets = agentPresetsService()
+        if (pm === undefined && presets === undefined) {
+          return { available: false, entries: [], agentPresets: [] }
+        }
+        const [rawPlugins, rawCompositions] = await Promise.all([
+          typeof pm?.listPlugins === 'function' ? pm.listPlugins() : [],
+          typeof presets?.compositionInventory === 'function' ? presets.compositionInventory() : [],
+        ])
+        return {
+          available: true,
+          entries: Array.isArray(rawPlugins) ? rawPlugins.map(cleanInventoryEntry) : [],
+          agentPresets: Array.isArray(rawCompositions) ? rawCompositions.map(cleanPresetGroup) : [],
         }
       }
       case 'plugins-open-ui-dir': {

@@ -22,6 +22,7 @@ import {
   PaletteIcon,
   PlusIcon,
   PuzzleIcon,
+  SearchIcon,
   SlidersIcon,
   TerminalIcon,
 } from '../../../ds-bot/src/client/icons.js'
@@ -43,6 +44,7 @@ subscribeDesktopAccountState((reply, meta) => {
   accountCache = reply
 })
 let pluginsCache = null
+let inventoryCache = null
 let settingsCache = null
 let presetsCache = null
 let archivedCache = null
@@ -2451,6 +2453,391 @@ function PluginIconBox({ src, fallback, accent = false }) {
     : (fallback || h(PuzzleIcon)))
 }
 
+// Localized display metadata for DSH's shipped presets (when a preset omits custom copy).
+const BUILTIN_PRESET_COPY = {
+  standard: {
+    name: 'Standard mode',
+    description: 'Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.',
+  },
+  ptc: {
+    name: 'PTC mode',
+    description: 'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.',
+  },
+  minimal: {
+    name: 'Minimal mode',
+    description: 'The agent uses a terminal and image reading, with context compaction. Useful for testing and comparing its basic performance.',
+  },
+  cordis: {
+    name: 'Creator mode',
+    description: 'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.',
+  },
+}
+
+const isBuiltInPreset = preset => !preset?.name && Object.prototype.hasOwnProperty.call(BUILTIN_PRESET_COPY, preset?.id)
+
+function presetDisplayCopy(preset) {
+  if (isBuiltInPreset(preset)) {
+    const copy = BUILTIN_PRESET_COPY[preset.id]
+    return { name: t(copy.name), description: t(copy.description) }
+  }
+  return {
+    name: preset?.name || preset?.id || '',
+    description: preset?.description || t('No description.'),
+  }
+}
+
+function inventoryItemDisplay(item, lang) {
+  const title = resolveLocalizedMetaText(item?.meta?.title, lang)
+    || formatSegment(shortBundleName(item?.moduleName))
+    || item?.moduleName
+    || item?.entryId
+    || ''
+  const description = resolveLocalizedMetaText(item?.meta?.description, lang)
+  return { title, description }
+}
+
+function prepareInventoryItem(item, lang) {
+  const { title, description } = inventoryItemDisplay(item, lang)
+  const haystack = `${title}\n${description}\n${item?.moduleName ?? ''}\n${item?.entryId ?? ''}`.toLowerCase()
+  return { item, title, description, haystack }
+}
+
+function inventoryFiberStatus(phase) {
+  if (phase === 'active') return t('Running')
+  if (phase === 'pending') return t('Waiting for dependencies')
+  if (phase === 'loading') return t('Loading')
+  if (phase === 'failed') return t('Failed to start')
+  if (phase === 'unloading') return t('Unloading')
+  return t('Not running')
+}
+
+function isLiveFiberPhase(phase) {
+  return phase === 'pending' || phase === 'loading' || phase === 'unloading'
+}
+
+function PluginInventorySection({ activeLang }) {
+  const [snap, setSnap] = useState(() => inventoryCache)
+  const [loading, setLoading] = useState(() => !inventoryCache)
+  const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [selectedPresetId, setSelectedPresetId] = useState('')
+  const [sessionOpen, setSessionOpen] = useState(true)
+  const [globalOpen, setGlobalOpen] = useState(false)
+  const [expanded, setExpanded] = useState(() => new Set())
+  const mounted = useRef(true)
+  const initializedGlobalOpen = useRef(false)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  const loadInventory = useCallback(async ({ force = false } = {}) => {
+    if (!inventoryCache || force) setLoading(true)
+    setError('')
+    try {
+      const next = await call('engine-plugins-inventory')
+      inventoryCache = next
+      if (mounted.current) setSnap(next)
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)) || t('Plugins are temporarily unavailable.'))
+    } finally {
+      if (mounted.current) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void loadInventory() }, [loadInventory])
+
+  const entries = useMemo(() => (Array.isArray(snap?.entries) ? snap.entries : []), [snap])
+  const agentPresets = useMemo(() => (Array.isArray(snap?.agentPresets) ? snap.agentPresets : []), [snap])
+
+  const hasFailedGlobal = useMemo(() => entries.some(entry => entry.fiberPhase === 'failed'), [entries])
+  useEffect(() => {
+    if (!initializedGlobalOpen.current && entries.length > 0) {
+      initializedGlobalOpen.current = true
+      if (hasFailedGlobal) setGlobalOpen(true)
+    }
+  }, [entries.length, hasFailedGlobal])
+
+  const preparedPresets = useMemo(() => {
+    void activeLang
+    return agentPresets.map(preset => ({
+      preset,
+      displayName: presetDisplayCopy(preset).name,
+      rows: (preset.rows ?? []).map(row => prepareInventoryItem(row, activeLang)),
+    }))
+  }, [agentPresets, activeLang])
+
+  const activePresetGroup = useMemo(() => {
+    if (preparedPresets.length === 0) return null
+    return preparedPresets.find(g => g.preset.id === selectedPresetId)
+      ?? preparedPresets.find(g => g.preset.isDefault)
+      ?? preparedPresets[0]
+  }, [preparedPresets, selectedPresetId])
+
+  const activePreset = activePresetGroup?.preset ?? null
+
+  const normalizedQuery = query.trim().toLowerCase()
+  const searching = normalizedQuery.length > 0
+
+  const presetNamesByModule = useMemo(() => {
+    const map = new Map()
+    for (const group of preparedPresets) {
+      const label = group.displayName
+      for (const { item: row } of group.rows) {
+        if (row.enabled !== true || !row.moduleName) continue
+        const list = map.get(row.moduleName) ?? []
+        if (!list.includes(label)) list.push(label)
+        map.set(row.moduleName, list)
+      }
+    }
+    return map
+  }, [preparedPresets])
+
+  const sortedGlobalEntries = useMemo(() => {
+    void activeLang
+    return entries
+      .map(entry => prepareInventoryItem(entry, activeLang))
+      .sort((a, b) => {
+        const failDiff = Number(b.item.fiberPhase === 'failed') - Number(a.item.fiberPhase === 'failed')
+        if (failDiff !== 0) return failDiff
+        return a.title.localeCompare(b.title)
+      })
+  }, [entries, activeLang])
+
+  const filteredGlobal = useMemo(() => (
+    searching ? sortedGlobalEntries.filter(p => p.haystack.includes(normalizedQuery)) : sortedGlobalEntries
+  ), [sortedGlobalEntries, searching, normalizedQuery])
+
+  const activePresetRows = useMemo(() => (
+    activePresetGroup ? activePresetGroup.rows : []
+  ), [activePresetGroup])
+
+  const filteredPresetRows = useMemo(() => (
+    searching ? activePresetRows.filter(p => p.haystack.includes(normalizedQuery)) : activePresetRows
+  ), [activePresetRows, searching, normalizedQuery])
+
+  const otherPresetMatches = useMemo(() => {
+    if (!searching || !activePreset) return []
+    const out = []
+    for (const group of preparedPresets) {
+      if (group.preset.id === activePreset.id) continue
+      const count = group.rows.filter(p => p.haystack.includes(normalizedQuery)).length
+      if (count > 0) out.push({ id: group.preset.id, label: group.displayName, count })
+    }
+    return out
+  }, [searching, activePreset, preparedPresets, normalizedQuery])
+
+  const otherPresetMatchTotal = otherPresetMatches.reduce((sum, item) => sum + item.count, 0)
+
+  const toggleExpanded = (key) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  if (snap && snap.available === false && !error) return null
+
+  const presetOptions = preparedPresets.map(({ preset, displayName }) => {
+    let label = displayName
+    if (preset.broken) label = t('{name} (failed to load)', { name: displayName })
+    else if (preset.isDefault) label = t('{name} (default)', { name: displayName })
+    return { value: preset.id, label }
+  })
+
+  const isSessionExpanded = searching || sessionOpen
+  const isGlobalExpanded = searching || globalOpen
+  const hasAnyPlugins = entries.length > 0 || agentPresets.length > 0
+
+  const renderFact = (label, value, { mono = false, tone } = {}) => (
+    value
+      ? h('div', { className: 'dsb-inv-fact' },
+        h('dt', null, label),
+        h('dd', { className: mono ? 'dsb-inv-mono' : undefined, 'data-tone': tone }, value))
+      : null
+  )
+
+  const renderPresetRow = (prepared, index) => {
+    const { item: row, title, description } = prepared
+    const key = `preset:${activePreset?.id ?? ''}:${row.entryId || row.moduleName}:${index}`
+    const open = expanded.has(key)
+    const live = row.enabled === true && isLiveFiberPhase(row.fiberPhase)
+    const metaError = typeof row.meta?.error === 'string' && row.meta.error !== '' ? row.meta.error : ''
+    const statusTag = row.fiberPhase === 'failed'
+      ? { label: t('Failed'), status: 'error' }
+      : row.enabled === false
+        ? { label: t('Disabled'), status: 'idle' }
+        : row.enabled === 'conditional'
+          ? { label: t('Conditional'), status: 'warn' }
+          : null
+    const configLabel = row.enabled === false
+      ? t('Disabled')
+      : row.enabled === 'conditional'
+        ? t('Conditional')
+        : t('Enabled')
+    return h('div', { key, className: 'dsb-inv-item', 'data-inventory-entry': row.moduleName || row.entryId || String(index) },
+      h('button', {
+        type: 'button',
+        className: 'dsb-inv-row',
+        'aria-expanded': open,
+        onClick: () => toggleExpanded(key),
+      },
+      h('div', { className: 'dsb-plug-copy' },
+        h('div', { className: 'dsb-plug-title-row' },
+          h('span', { className: 'dsb-plug-name' }, title),
+          live ? h('span', { className: 'dsb-inv-live-dot', title: inventoryFiberStatus(row.fiberPhase), 'aria-label': inventoryFiberStatus(row.fiberPhase) }) : null,
+          statusTag ? h('span', { className: 'dsb-ui-plug-status', 'data-status': statusTag.status }, statusTag.label) : null),
+        (description || row.entryId || row.moduleName) ? h('span', { className: 'dsb-plug-desc' }, description || row.entryId || row.moduleName) : null,
+        metaError ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, t('Metadata error: {error}', { error: metaError })) : null),
+      h('span', { className: 'dsb-plug-chev', 'aria-hidden': true }, open ? h(ChevronUpIcon) : h(ChevronDownIcon))),
+      open ? h('dl', { className: 'dsb-inv-facts' },
+        renderFact(t('Module'), row.moduleName, { mono: true }),
+        renderFact(t('Entry ID'), row.entryId, { mono: true }),
+        renderFact(t('From'), activePresetGroup?.displayName || ''),
+        renderFact(t('Configuration'), configLabel),
+        row.condition ? renderFact(t('Disabled when'), row.condition, { mono: true }) : null,
+        renderFact(t('Status'), inventoryFiberStatus(row.fiberPhase))) : null)
+  }
+
+  const renderGlobalRow = (prepared, index) => {
+    const { item: entry, title, description } = prepared
+    const key = `global:${entry.entryId || entry.moduleName}:${index}`
+    const open = expanded.has(key)
+    const live = entry.enabled === true && isLiveFiberPhase(entry.fiberPhase)
+    const metaError = typeof entry.meta?.error === 'string' && entry.meta.error !== '' ? entry.meta.error : ''
+    const presetsUsing = presetNamesByModule.get(entry.moduleName) ?? []
+    const viaPresets = entry.enabled === false && presetsUsing.length > 0
+    const statusTag = entry.fiberPhase === 'failed'
+      ? { label: t('Failed'), status: 'error' }
+      : viaPresets
+        ? { label: t('Via presets'), status: 'active' }
+        : entry.enabled === false
+          ? { label: t('Disabled'), status: 'idle' }
+          : null
+    const configLabel = viaPresets
+      ? t('Disabled globally; agent presets provide it per session')
+      : entry.enabled === false
+        ? t('Disabled')
+        : t('Enabled')
+    return h('div', { key, className: 'dsb-inv-item', 'data-inventory-entry': entry.moduleName || entry.entryId || String(index) },
+      h('button', {
+        type: 'button',
+        className: 'dsb-inv-row',
+        'aria-expanded': open,
+        onClick: () => toggleExpanded(key),
+      },
+      h('div', { className: 'dsb-plug-copy' },
+        h('div', { className: 'dsb-plug-title-row' },
+          h('span', { className: 'dsb-plug-name' }, title),
+          live ? h('span', { className: 'dsb-inv-live-dot', title: inventoryFiberStatus(entry.fiberPhase), 'aria-label': inventoryFiberStatus(entry.fiberPhase) }) : null,
+          statusTag ? h('span', { className: 'dsb-ui-plug-status', 'data-status': statusTag.status }, statusTag.label) : null),
+        (description || entry.entryId || entry.moduleName) ? h('span', { className: 'dsb-plug-desc' }, description || entry.entryId || entry.moduleName) : null,
+        metaError ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, t('Metadata error: {error}', { error: metaError })) : null,
+        entry.diagnostic ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, entry.diagnostic) : null),
+      h('span', { className: 'dsb-plug-chev', 'aria-hidden': true }, open ? h(ChevronUpIcon) : h(ChevronDownIcon))),
+      open ? h('dl', { className: 'dsb-inv-facts' },
+        renderFact(t('Module'), entry.moduleName, { mono: true }),
+        renderFact(t('Entry ID'), entry.entryId, { mono: true }),
+        renderFact(t('Configuration'), configLabel),
+        viaPresets ? renderFact(t('Enabled in'), presetsUsing.join(', ')) : null,
+        renderFact(t('Status'), inventoryFiberStatus(entry.fiberPhase)),
+        entry.diagnostic ? renderFact(t('Failed'), entry.diagnostic, { tone: 'error' }) : null) : null)
+  }
+
+  const countText = (shown, total) => (searching ? `${shown}/${total}` : String(total))
+
+  return h(EngineSection, {
+    title: t('Plugin list'),
+    action: h('button', {
+      type: 'button',
+      className: 'bt-soft bt-soft-sm',
+      disabled: loading,
+      onClick: () => { void loadInventory({ force: true }) },
+    }, loading ? t('Loading…') : t('Refresh')),
+  },
+  error
+    ? h('div', { className: 'dsb-inv-error', role: 'alert' },
+      h('span', null, error),
+      h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: loading,
+        onClick: () => { void loadInventory({ force: true }) },
+      }, t('Retry')))
+    : loading && !snap
+      ? h('div', { className: 'dsb-engine-empty', role: 'status' }, t('Loading…'))
+      : !hasAnyPlugins
+        ? h('div', { className: 'dsb-engine-empty' }, t('No plugins are available.'))
+        : h('div', { className: 'dsb-inv-wrap', 'data-plugin-inventory': '' },
+          h('div', { className: 'dsb-inv-search' },
+            h('span', { className: 'dsb-inv-search-ico', 'aria-hidden': true }, h(SearchIcon)),
+            h('input', {
+              className: 'dsb-inv-search-input',
+              type: 'search',
+              value: query,
+              placeholder: t('Search plugins'),
+              'aria-label': t('Search plugins'),
+              onChange: event => setQuery(event.target.value),
+            }),
+            query ? h('button', {
+              type: 'button',
+              className: 'bt-icon-btn dsb-inv-search-clear',
+              'aria-label': t('Clear search'),
+              onClick: () => setQuery(''),
+            }, h(CloseIcon)) : null),
+          agentPresets.length > 0 ? h('div', { className: 'dsb-inv-group', 'data-plugin-scope': 'preset' },
+            h('div', { className: 'dsb-inv-group-head' },
+              h('button', {
+                type: 'button',
+                className: 'dsb-inv-group-toggle',
+                'aria-expanded': isSessionExpanded,
+                onClick: () => setSessionOpen(open => !open),
+              },
+              isSessionExpanded ? h(ChevronDownIcon) : h(ChevronRightIcon),
+              h('span', { className: 'dsb-inv-group-title' }, t('Session plugins')),
+              h('span', { className: 'dsb-inv-group-count' }, countText(filteredPresetRows.length, activePresetRows.length))),
+              presetOptions.length > 0 ? h('div', { className: 'dsb-inv-preset-picker' },
+                h(SelectMenu, {
+                  value: activePreset?.id ?? '',
+                  options: presetOptions,
+                  'aria-label': t('Choose the agent preset to inspect'),
+                  onChange: next => setSelectedPresetId(next),
+                })) : null),
+            isSessionExpanded ? h('div', { className: 'dsb-inv-group-body' },
+              activePreset?.broken ? h('div', { className: 'dsb-inv-broken', role: 'alert' }, activePreset.broken) : null,
+              filteredPresetRows.length > 0
+                ? filteredPresetRows.map(renderPresetRow)
+                : h('div', { className: 'dsb-inv-empty' }, searching ? t('No matching plugins.') : t('No plugins are available.')),
+              otherPresetMatches.length > 0 ? h('div', { className: 'dsb-inv-other-presets' },
+                h('span', { className: 'dsb-inv-other-label' }, t('{count} more matches in other presets:', { count: otherPresetMatchTotal })),
+                h('div', { className: 'dsb-inv-other-chips' },
+                  otherPresetMatches.map(item => h('button', {
+                    key: item.id,
+                    type: 'button',
+                    className: 'bt-soft bt-soft-sm',
+                    'data-jump-preset': item.id,
+                    onClick: () => setSelectedPresetId(item.id),
+                  }, `${item.label} (${item.count})`)))) : null) : null) : null,
+          entries.length > 0 ? h('div', { className: 'dsb-inv-group', 'data-plugin-scope': 'global' },
+            h('div', { className: 'dsb-inv-group-head' },
+              h('button', {
+                type: 'button',
+                className: 'dsb-inv-group-toggle',
+                'aria-expanded': isGlobalExpanded,
+                onClick: () => setGlobalOpen(open => !open),
+              },
+              isGlobalExpanded ? h(ChevronDownIcon) : h(ChevronRightIcon),
+              h('span', { className: 'dsb-inv-group-title' }, t('Global plugins')),
+              h('span', { className: 'dsb-inv-group-count' }, countText(filteredGlobal.length, entries.length)))),
+            isGlobalExpanded ? h('div', { className: 'dsb-inv-group-body' },
+              filteredGlobal.length > 0
+                ? filteredGlobal.map(renderGlobalRow)
+                : h('div', { className: 'dsb-inv-empty' }, searching ? t('No matching plugins.') : t('No plugins are available.'))) : null) : null))
+}
+
 export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump = 0, surfaceMode = 'bot', runtime = pluginRuntime }) {
   const uiPlugins = usePlugins(runtime)
   const [data, setData] = useState(() => pluginsCache)
@@ -3136,6 +3523,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
         h('div', { className: 'dsb-plug-title-row' },
           h('span', { className: 'dsb-plug-name' }, item.title))),
       h('span', { className: 'dsb-plug-chev', 'aria-hidden': true }, h(ChevronRightIcon))))) : null,
+    h(PluginInventorySection, { activeLang }),
     visibleOptional.length > 0 ? h(EngineSection, { title: t('Experimental plugins') },
       visibleOptional.map(bundle => renderBundleRow(bundle, { showExperimentalBadge: false })),
       hasMoreToggle ? h('button', {
@@ -3146,39 +3534,6 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
       },
       showMoreOptional ? t('Show fewer') : t('More'),
       showMoreOptional ? h(ChevronUpIcon) : h(ChevronDownIcon)) : null) : null)
-}
-
-// Localized display metadata for DSH's shipped presets (when a preset omits custom copy).
-const BUILTIN_PRESET_COPY = {
-  standard: {
-    name: 'Standard mode',
-    description: 'Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.',
-  },
-  ptc: {
-    name: 'PTC mode',
-    description: 'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.',
-  },
-  minimal: {
-    name: 'Minimal mode',
-    description: 'The agent uses a terminal and image reading, with context compaction. Useful for testing and comparing its basic performance.',
-  },
-  cordis: {
-    name: 'Creator mode',
-    description: 'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.',
-  },
-}
-
-const isBuiltInPreset = preset => !preset.name && Object.prototype.hasOwnProperty.call(BUILTIN_PRESET_COPY, preset.id)
-
-function presetDisplayCopy(preset) {
-  if (isBuiltInPreset(preset)) {
-    const copy = BUILTIN_PRESET_COPY[preset.id]
-    return { name: t(copy.name), description: t(copy.description) }
-  }
-  return {
-    name: preset.name || preset.id,
-    description: preset.description || t('No description.'),
-  }
 }
 
 function PresetConfigModal({ doc, onClose }) {
