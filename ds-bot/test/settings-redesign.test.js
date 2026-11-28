@@ -758,7 +758,7 @@ test('SettingsTour replays from step 0 without unmounting, ends when search open
     const fallbackTree = drawStandalone({ mode: 'schedules', nonce: 2 })
     const schedLayer = findAll(fallbackTree, n => n.props?.className === 'bt-tour-layer')[0]
     assert.equal(schedLayer.props['data-tour-step'], 'open-plugins')
-    assert.equal(schedLayer.props['aria-label'], 'Turn on Automation tasks in DSH')
+    assert.equal(schedLayer.props['aria-label'], 'Turn on scheduled tasks')
     assert.equal(findAll(fallbackTree, n => n.props?.className === 'bt-tour-spot').length, 1)
     harness.unmount()
   })
