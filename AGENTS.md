@@ -54,7 +54,15 @@ The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The part
   - Write `Agent: <Agent> (<Model>)` in the PR body (for example, `Agent: Antigravity (Gemini 4 Neon)` or `Agent: Claude Code (Claude Opus 5.5)`).
   - Always add the matching `agent/*` label (`agent/antigravity`, `agent/claude-code`, `agent/codex`, `agent/devin`, `agent/dsbot`, or `agent/other`).
   - If a target release version has been decided (for example `v0.3.9` or `v0.4.0`), attach the matching GitHub Milestone.
-  - Still keep the human requester as the git commit author without `Co-authored-by`.
+  - Still keep the human requester as the git commit author without an AI `Co-authored-by`.
+- When a PR fixes or implements a substantive external issue or accepted Discussion idea (clear reproduction, root-cause trace, or accepted design/feature proposal—not a one-line wish or a self-filed issue):
+  - Unless the reporter opted out, credit them at the end of the implementing commit (or merge commit) using their GitHub noreply address fetched via `gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'`:
+    ```text
+    Fixes #<number>
+    Reported-by: @<login>
+    Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>
+    ```
+    Use `Idea-by: @<login>` for accepted feature ideas. Never put a personal email in commit history, and mention the planned credit in the issue before merging when practical so the author can opt out.
 - When completing an independent review on a pull request:
   - Post a structured comment (or review) on the PR starting with:
     ```
@@ -82,5 +90,5 @@ The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The part
 - Follow the code around your change. Keep functions small and names plain.
 - Write a comment only when the reason is not clear from the code: a hidden constraint, an invariant, a workaround. Do not describe what the code does.
 - Commit messages in English, imperative subject, the reason in the body. Keep commits small.
-- The person who asked for the change is the commit author. Do not set an AI agent or bot as author or committer, and do not add `Co-authored-by` lines for one.
+- The person who asked for the change is the commit author. Do not set an AI agent or bot as author or committer, and do not add `Co-authored-by` lines for one. Human authors of substantive external issues or accepted ideas may be credited via `Co-authored-by` using their GitHub noreply address (see [CONTRIBUTING.md](CONTRIBUTING.md#issue-co-author-credit)).
 - User-facing text in the plugin is English. Keep the README and README.zh.md in step when you change one of them.
