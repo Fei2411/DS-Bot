@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { runStatsOf } from '../src/client/text.js'
+import { runStatsValues } from '../src/host/channel.js'
 
 const texts = values => runStatsOf(values).map(entry => entry.text)
 
@@ -33,4 +34,45 @@ test('nothing to count leaves the line empty', () => {
   assert.deepEqual(runStatsOf(null), [])
   assert.deepEqual(runStatsOf({ sessionStats: { turns: 0, decodeMs: 0, decodeTokens: 0 }, tokenUsage: { uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } }), [])
   assert.deepEqual(texts({ contextPressure: { contextWindow: 100 } }), [])
+})
+
+test('runStatsValues replaces cumulative DSH contextPressure with CLI per-step occupancy without mutating (#1896)', () => {
+  const snapshot = {
+    sessionStats: { turns: 1, decodeMs: 1000, decodeTokens: 50 },
+    contextPressure: { pressureTokens: 6_000_000, projectedTokens: 6_000_000, contextWindow: 200_000, staleExtra: true },
+  }
+  const replaced = runStatsValues(snapshot, { used: 242_746, size: 1_048_576, compactions: 0 })
+  assert.notEqual(replaced, snapshot)
+  assert.equal(snapshot.contextPressure.contextWindow, 200_000)
+  assert.deepEqual(replaced.contextPressure, {
+    pressureTokens: 242_746,
+    projectedTokens: 242_746,
+    contextWindow: 1_048_576,
+  })
+  assert.equal(runStatsOf(replaced).at(-1).text, 'Context 23%')
+
+  // When CLI reported used without size, fall back to the resolved/persisted snapshot contextWindow.
+  const usedOnly = runStatsValues(
+    { ...snapshot, contextPressure: { pressureTokens: 6_000_000, projectedTokens: 6_000_000, contextWindow: 1_048_576 } },
+    { used: 104_858, compactions: 0 },
+  )
+  assert.deepEqual(usedOnly.contextPressure, {
+    pressureTokens: 104_858,
+    projectedTokens: 104_858,
+    contextWindow: 1_048_576,
+  })
+
+  // When CLI has no fresh occupancy (stale after compaction or before first report), drop cumulative DSH pressure.
+  assert.equal(runStatsValues(snapshot, { used: undefined, size: 1_048_576, compactions: 1 }).contextPressure, undefined)
+  assert.equal(runStatsValues(snapshot, { used: 123, size: 1_048_576, stale: true }).contextPressure, undefined)
+  assert.equal(runStatsValues(snapshot, undefined).contextPressure, undefined)
+  assert.equal(runStatsValues(snapshot, { used: -10, size: 1_048_576 }).contextPressure, undefined)
+  assert.equal(runStatsValues(snapshot, { used: 100.5, size: 1_048_576 }).contextPressure, undefined)
+  assert.equal(runStatsValues(snapshot, { used: Number.MAX_SAFE_INTEGER + 1, size: 1_048_576 }).contextPressure, undefined)
+  assert.deepEqual(runStatsValues(snapshot, { used: 0, size: 1_048_576 }).contextPressure, {
+    pressureTokens: 0,
+    projectedTokens: 0,
+    contextWindow: 1_048_576,
+  })
+  assert.equal(runStatsValues(null, { used: 10, size: 1_048_576 }), null)
 })

@@ -117,11 +117,13 @@ function digestChunks(messages) {
 
 // Marks the one retry of a turn whose saved Claude conversation was gone.
 const RESUME_RETRIED = Symbol('resume retried')
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
+const nonNegativeInt = value => (Number.isSafeInteger(value) && value >= 0 ? value : undefined)
 
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
   //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
-  //        usedModels(route)}
+  //        usedModels(route), savedWindow(route,model), saveWindow(route,model,size)}
   constructor(deps) {
     super()
     this.deps = deps
@@ -249,6 +251,28 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
   }
 
+  dropWindows(route) {
+    if (route === undefined) {
+      this.windows.clear()
+      return
+    }
+    const prefix = `${route}\u0000`
+    for (const key of this.windows.keys()) {
+      if (key.startsWith(prefix)) this.windows.delete(key)
+    }
+  }
+
+  // The window a CLI last reported for this (route, model), hydrated across restarts
+  // so model cards and request/context do not fall back to 200K after restart (#1896).
+  windowOf(route, model) {
+    const key = windowKey(route, model)
+    const cached = this.windows.get(key)
+    if (cached !== undefined) return cached
+    const saved = positiveInt(this.deps.savedWindow?.(route, model))
+    if (saved !== undefined) this.windows.set(key, saved)
+    return saved
+  }
+
   async resolveModel(route, model) {
     const spec = this.specOf(route)
     const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
@@ -258,7 +282,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       id: model,
       name: listed?.name ?? model,
       inputModalities: supportsImage ? ['text', 'image'] : ['text'],
-      context: { contextWindow: spec?.contextWindow ?? this.windows.get(windowKey(route, model)) ?? DEFAULT_CONTEXT_WINDOW },
+      context: { contextWindow: positiveInt(spec?.contextWindow) ?? this.windowOf(route, model) ?? DEFAULT_CONTEXT_WINDOW },
       // The thinking levels the engine advertises for this model, if any.
       ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
     }
@@ -273,9 +297,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const run = (async () => {
       if (prev !== undefined) await prev.catch(() => {})
       this.dropModelCache(route)
-      for (const key of this.windows.keys()) {
-        if (key.startsWith(`${route}\u0000`)) this.windows.delete(key)
-      }
+      this.dropWindows(route)
       const matching = [...this.live.values()].filter(live => live.route === route)
       for (const live of matching) {
         const active = !live.started || live.state !== 'idle' || live.waiters.length > 0 || live.pending.size > 0 || live.queue.length > 0
@@ -421,6 +443,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // What the CLI reported of its own context ({used, size, stale}) and how often
       // it condensed in this Session; the parts module decides with them.
       context: record?.context,
+      contextDirty: false,
       compactions: record?.compactions ?? 0,
       // Output of a request DS Bot made for itself may trail its end (Devin's
       // "Context compacted"); until the next prompt, text, thoughts and activity drop.
@@ -449,7 +472,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         const hadFlushed = live.flushedContext !== undefined
         live.turnConfirmed = true
         live.flushedContext = undefined
-        if (hadFlushed) this.deps.saveRecord(live.sessionId, this.recordOf(live))
+        if (hadFlushed) {
+          live.contextDirty = false
+          this.deps.saveRecord(live.sessionId, this.recordOf(live))
+        }
       }
       this.observe(live, event)
       if (event?.type === 'models') return
@@ -496,16 +522,18 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (event?.type === 'effort') {
       if (event.defaultEffort !== undefined) live.defaultEffort = event.defaultEffort
       live.effort = event.effort
+      live.contextDirty = false
       this.deps.saveRecord(live.sessionId, this.recordOf(live))
       return
     }
     if (event?.type === 'context') {
       // A size the CLI reports now, as against one carried by the Session from its
       // record: only the former is this model's window.
-      const reported = Number.isFinite(event.size) && event.size > 0 ? event.size : undefined
+      const reported = positiveInt(event.size)
       const size = reported ?? live.context?.size
-      live.context = Number.isFinite(event.used)
-        ? { used: event.used, ...(size === undefined ? {} : { size }) }
+      const used = nonNegativeInt(event.used)
+      live.context = used !== undefined
+        ? { used, ...(size === undefined ? {} : { size }) }
         : { ...live.context, ...(size === undefined ? {} : { size }) }
       // The same figure is the model's window: the model card and the percentage it
       // renders read it from resolveModel, so it is kept for the route and model this
@@ -513,7 +541,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       // no size, and the Session may still hold the size of the model it ran before:
       // publishing that one under this model's key would give the new model a window
       // nothing has reported for it.
-      if (reported !== undefined) this.windows.set(windowKey(live.route, live.model), reported)
+      if (reported !== undefined && this.windowOf(live.route, live.model) !== reported) {
+        this.windows.set(windowKey(live.route, live.model), reported)
+        this.deps.saveWindow?.(live.route, live.model, reported)
+      }
+      live.contextDirty = true
       this.deps.patchRecord?.(live.sessionId, { context: live.context })
       return
     }
@@ -539,8 +571,18 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (Array.isArray(live.pendingContext) && live.pendingContext.length > 0) {
       live.pendingContext = live.pendingContext.filter(entry => !MEMORY_CONTEXT_KINDS.has(entry.kind ?? entry.key))
     }
+    live.contextDirty = false
     this.deps.saveRecord(live.sessionId, this.recordOf(live))
     this.deps.onCompaction?.(live.sessionId, { compactions: live.compactions, kind: live.spec.kind, reason: 'cli-self-compact' })
+  }
+
+  // Persist the latest CLI context sample once a turn settles, suspends for bridged
+  // work/approval, or before closing the bridge so patchRecord-only updates survive
+  // a restart without saving state on every stream delta.
+  flushContext(live) {
+    if (!live?.contextDirty || live.context === undefined || live.sessionId === undefined) return
+    live.contextDirty = false
+    if (this.deps.record(live.sessionId) !== undefined) this.deps.saveRecord(live.sessionId, this.recordOf(live))
   }
 
   // {used, size, compactions} of a Session's CLI session; `used` is undefined while
@@ -566,6 +608,7 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   async closeLive(live, { idle = false, error } = {}) {
     if (live.dead) return
+    this.flushContext(live)
     live.dead = true
     clearTimeout(live.idle)
     if (error !== undefined) {
@@ -743,6 +786,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.started = false
           live.forkFallbackRetry = true
           live.applyForkFallback = true
+          live.contextDirty = false
           this.deps.saveRecord(sessionId, this.recordOf(live))
           return
         }
@@ -763,6 +807,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.handed = live.handedBefore
           if (Object.hasOwn(live, 'promptHashBefore')) live.promptHash = live.promptHashBefore
         }
+        live.contextDirty = false
         this.deps.saveRecord(sessionId, this.recordOf(live))
         return
       }
@@ -772,6 +817,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.handed = live.handedBefore
       if (Object.hasOwn(live, 'promptHashBefore')) live.promptHash = live.promptHashBefore
       restoreContext()
+      live.contextDirty = false
       this.deps.saveRecord(sessionId, this.recordOf(live))
     }
   }
@@ -918,6 +964,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== '') {
         live.applyForkFallback = true
       }
+      live.contextDirty = false
       this.deps.saveRecord(sessionId, this.recordOf(live))
     }
     const priorCliId = live.cliSessionId
@@ -1033,6 +1080,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       })()
       if (live.spec.kind === 'claude' && instructions !== undefined) live.promptHash = promptHash
       else if (live.spec.kind === 'codex' && (freshCli || resumeDropped) && instructions !== undefined) live.promptHash = promptHash
+      live.contextDirty = false
       this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, model: options.model }))
       // Claude reports its session id with `system/init`, after start() resolved:
       // the record above has no id yet, so persist it when it lands or the next
@@ -1046,6 +1094,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.cliSessionId = id
           live.forkFrom = false
           if (live.applyForkFallback !== true) live.forkFallbackContext = undefined
+          live.contextDirty = false
           this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, model: options.model }))
         })
       }
@@ -1198,6 +1247,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.promptHashBefore = prevPromptHash
     live.handedRolledBack = false
     live.handed = id
+    live.contextDirty = false
     this.deps.saveRecord(live.sessionId, this.recordOf(live, { promptHash }))
   }
 
@@ -1250,7 +1300,10 @@ export class LocalAgentAdapter extends LlmAdapter {
             const hadFlushed = live.flushedContext !== undefined
             live.turnConfirmed = true
             live.flushedContext = undefined
-            if (hadFlushed) this.deps.saveRecord(live.sessionId, this.recordOf(live))
+            if (hadFlushed) {
+          live.contextDirty = false
+          this.deps.saveRecord(live.sessionId, this.recordOf(live))
+        }
           }, recover)
       } catch {
         return recover()
@@ -1288,7 +1341,10 @@ export class LocalAgentAdapter extends LlmAdapter {
             live.turnConfirmed = true
             live.flushedContext = undefined
             if (turnId !== undefined) live.turnTag = turnId
-            if (hadFlushed) this.deps.saveRecord(live.sessionId, this.recordOf(live))
+            if (hadFlushed) {
+          live.contextDirty = false
+          this.deps.saveRecord(live.sessionId, this.recordOf(live))
+        }
           }
         })
         .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
@@ -1456,6 +1512,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           }
           yield* closeBlocks()
           live.state = 'suspended'
+          this.flushContext(live)
           // Team tools the CLI invoked over the loopback MCP server (coalesced into
           // one DSH tool-calls step when parallel requests arrive together).
           for (const chunk of emitCalls(batch)) yield chunk
@@ -1476,6 +1533,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           }
           yield* closeBlocks()
           live.state = 'suspended'
+          this.flushContext(live)
           // The CLI's own permission prompt, bridged as an approval tool call.
           const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}), ...(event.evidence ? { evidence: event.evidence } : {}) }, dshCallId: event.id }
           live.pending.set(event.id, {
@@ -1506,6 +1564,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           yield* closeBlocks()
           if (event.usage !== undefined) yield addUsage(event.usage)
           live.state = 'idle'
+          this.flushContext(live)
           // Input queued while this turn ran goes out as the next prompt
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
@@ -1682,6 +1741,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         signal?.throwIfAborted()
         if (ended && (!compaction || condensed)) {
           live.state = 'idle'
+          this.flushContext(live)
           return { text, usage }
         }
         const next = take()
@@ -1712,6 +1772,7 @@ export class LocalAgentAdapter extends LlmAdapter {
             break
           case 'quiet':
             live.state = 'idle'
+            this.flushContext(live)
             return { text, usage }
           case 'usage': add(event.usage); break
           case 'done':

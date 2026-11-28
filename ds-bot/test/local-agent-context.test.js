@@ -61,7 +61,7 @@ test('Codex 0.166, as recorded: the last request is the context, its usage count
 const user = (id, text) => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
 const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', text }], source: { kind: 'system-prompt' } })
 
-function makeAdapter({ kind = 'acp', args = [], records = {}, usage = [], engines = [] } = {}) {
+function makeAdapter({ kind = 'acp', args = [], records = {}, usage = [], engines = [], windows = {}, windowSaves = [] } = {}) {
   const file = FIXTURE(kind === 'acp' ? 'fake-acp.mjs' : 'fake-codex.mjs')
   return new LocalAgentAdapter({
     rt: { warn: () => {} },
@@ -76,6 +76,11 @@ function makeAdapter({ kind = 'acp', args = [], records = {}, usage = [], engine
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
+    savedWindow: (route, model) => windows[`${route}/${model}`],
+    saveWindow: (route, model, size) => {
+      windows[`${route}/${model}`] = size
+      windowSaves.push([route, model, size])
+    },
     patchRecord: (sessionId, patch) => { if (records[sessionId]) Object.assign(records[sessionId], patch) },
     recordUsage: entry => usage.push(entry),
     presetFor: () => 'workspace-write',
@@ -1208,4 +1213,247 @@ test('channel run-stats replaces distorted cumulative DSH contextPressure with C
   assert.equal(staleRes.ok, true)
   assert.equal(staleRes.value.contextPressure, undefined)
   assert.equal(runStatsOf(staleRes.value).find(item => item.key === 'context'), undefined)
+})
+
+test('a CLI-reported context window persists across restarts without redundant saves (#1896)', async (t) => {
+  const records = {}
+  const windows = {}
+  const windowSaves = []
+  const first = makeAdapter({ records, windows, windowSaves })
+  t.after(() => first.dispose())
+
+  await turn(first, 's1', [system('sys', 'rules'), user('m1', 'hello')])
+  assert.deepEqual(windowSaves, [['local-acp-fake', 'default', 262_000]])
+
+  // A second turn with the same window must not trigger redundant saves.
+  await turn(first, 's1', [system('sys', 'rules'), user('m1', 'hello'), { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, user('m2', 'again')])
+  assert.equal(windowSaves.length, 1)
+
+  // A fresh adapter (simulated host restart) hydrates the persisted window before any turn runs.
+  const restarted = makeAdapter({ records, windows, windowSaves })
+  t.after(() => restarted.dispose())
+  assert.equal((await restarted.resolveModel('local-acp-fake', 'default')).context.contextWindow, 262_000)
+  // Another model on the same route must not inherit the first model's window.
+  assert.equal((await restarted.resolveModel('local-acp-fake', 'other-model')).context.contextWindow, 200_000)
+  // dropWindows clears in-memory cache by route or globally.
+  delete windows['local-acp-fake/default']
+  restarted.dropWindows('local-acp-fake')
+  assert.equal((await restarted.resolveModel('local-acp-fake', 'default')).context.contextWindow, 200_000)
+})
+
+test('settling, suspending on call/permission, or collecting flushes CLI context occupancy to disk (#1896)', async (t) => {
+  const saved = {}
+  const liveRecords = {}
+  const saveCounts = { s1: 0 }
+  const file = FIXTURE('fake-acp.mjs')
+  const make = () => new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }],
+    findExecutable: path => path,
+    spawnEngine: (_kind, route, spec) => new AcpEngine(route, { ...spec, command: process.execPath, args: [file] }, { findExecutable: path => path }),
+    record: sessionId => liveRecords[sessionId],
+    saveRecord: (sessionId, record) => {
+      saveCounts[sessionId] = (saveCounts[sessionId] ?? 0) + 1
+      liveRecords[sessionId] = record
+      saved[sessionId] = structuredClone(record)
+    },
+    patchRecord: (sessionId, patch) => {
+      if (liveRecords[sessionId]) Object.assign(liveRecords[sessionId], patch)
+    },
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
+    probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
+    toolsFor: () => [],
+  })
+
+  const first = make()
+  t.after(() => first.dispose())
+  const history = [system('sys', 'rules'), user('m1', 'hello grow:10000')]
+  const firstOut = await turn(first, 's1', history)
+  const usedAfterFirst = first.contextOf('s1').used
+  assert.equal(saved.s1.context.used, usedAfterFirst)
+
+  // Turn 2 with unchanged window still flushes updated occupancy on settle.
+  await turn(first, 's1', [...history, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: firstOut.text }] }, user('m2', 'more grow:20000')])
+  const usedAfterSecond = first.contextOf('s1').used
+  assert.ok(usedAfterSecond > usedAfterFirst)
+  assert.equal(saved.s1.context.used, usedAfterSecond)
+
+  // Suspending on a bridged call or permission flushes dirty context before returning.
+  const live = first.live.get('s1')
+  const beforeSuspendSaves = saveCounts.s1
+  first.observe(live, { type: 'context', used: usedAfterSecond + 1234, size: 262_000 })
+  assert.equal(live.contextDirty, true)
+  live.push({ type: 'call', name: 'list_bots', args: {}, dshCallId: 'dsbot-1' })
+  const chunks = []
+  for await (const chunk of first.drain(live, { signal: AbortSignal.timeout(5_000) })) chunks.push(chunk)
+  assert.equal(chunks.at(-1)?.reason?.kind, 'tool-calls')
+  assert.equal(saveCounts.s1, beforeSuspendSaves + 1)
+  assert.equal(saved.s1.context.used, usedAfterSecond + 1234)
+  assert.equal(live.contextDirty, false)
+
+  // Invalid negative or non-integer context figures are ignored.
+  first.observe(live, { type: 'context', used: -5, size: 1.5 })
+  assert.equal(live.context.used, usedAfterSecond + 1234)
+  assert.equal(live.context.size, 262_000)
+
+  // collect() flushes dirty context on settle as well.
+  const beforeCollectSaves = saveCounts.s1
+  first.observe(live, { type: 'context', used: usedAfterSecond + 2000, size: 262_000 })
+  live.events.length = 0
+  live.events.push({ type: 'text', text: 'note body' }, { type: 'done', reason: 'end_turn' })
+  const collected = await first.collect(live, () => first.take(live), AbortSignal.timeout(5_000))
+  assert.equal(collected.text, 'note body')
+  assert.equal(saveCounts.s1, beforeCollectSaves + 1)
+  assert.equal(saved.s1.context.used, usedAfterSecond + 2000)
+})
+
+test('savedWindow/saveWindow guard prototype keys and custom agent update/remove/adopt clear windows (#1896)', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-win-guard-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: [],
+    bots: {},
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    localAgents: {
+      custom: [{ id: 'mycli', name: 'My CLI', command: process.execPath, args: ['-v'] }],
+      sessions: {},
+      // Deliberately corrupted windows value (array) to verify store() sanitizes it.
+      windows: ['bad'],
+    },
+    revision: 0,
+  }))
+  const adapters = new Map()
+  const ctx = fakeContext()
+  Object.assign(ctx, {
+    llm: {
+      listProviders: () => [...adapters.keys()].map(id => ({ id })),
+      listModels: async () => [],
+      resolveModelInfo: async () => ({}),
+      registerAdapter: (routes, adapter) => {
+        for (const r of routes) adapters.set(r, adapter)
+        return Object.assign(() => { for (const r of routes) adapters.delete(r) }, {
+          replace(next) {
+            adapters.clear()
+            for (const r of next) adapters.set(r, adapter)
+          },
+        })
+      },
+    },
+  })
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true })
+  })
+  await rt.load()
+  const route = 'local-acp-mycli'
+  const adapter = adapters.get(route)
+  assert.ok(adapter, 'custom agent route should be registered')
+
+  // Prototype pollution attempts must be ignored without touching Object or Object.prototype.
+  adapter.deps.saveWindow('constructor', 'pollutedTestProp', 999_999)
+  adapter.deps.saveWindow('__proto__', 'pollutedProtoProp', 999_999)
+  adapter.deps.saveWindow(route, '__proto__', 999_999)
+  assert.equal(Object.pollutedTestProp, undefined)
+  assert.equal(({}).pollutedProtoProp, undefined)
+  assert.equal(adapter.deps.savedWindow('constructor', 'toString'), undefined)
+  assert.equal(adapter.deps.savedWindow(route, 'toString'), undefined)
+
+  // Persisted window hydrates via resolveModel and clears when command/args change.
+  adapter.deps.saveWindow(route, 'default', 512_000)
+  assert.equal((await adapter.resolveModel(route, 'default')).context.contextWindow, 512_000)
+
+  // Renaming only keeps the cached window.
+  await rt.localAgentsEndpoint('local-agent-update', { id: 'mycli', name: 'Renamed CLI' })
+  assert.equal(rt.state.localAgents.windows[route]?.default, 512_000)
+
+  // Changing command/args drops both persisted and in-memory windows.
+  await rt.localAgentsEndpoint('local-agent-update', { id: 'mycli', args: ['--version'] })
+  assert.equal(rt.state.localAgents.windows[route], undefined)
+  assert.equal((await adapter.resolveModel(route, 'default')).context.contextWindow, 200_000)
+
+  // Removing the custom agent also drops persisted and in-memory windows.
+  adapter.deps.saveWindow(route, 'default', 768_000)
+  assert.equal((await adapter.resolveModel(route, 'default')).context.contextWindow, 768_000)
+  await rt.localAgentsEndpoint('local-agent-remove', { id: 'mycli' })
+  assert.equal(rt.state.localAgents.windows[route], undefined)
+  assert.equal(adapter.windows.size, 0)
+})
+
+test('CLI profile config update and removal drop persisted and in-memory windows (#1896)', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-prof-win-'))
+  const profileDir = join(home, 'profiles', 'codex-work')
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: [],
+    bots: {
+      b1: { id: 'b1', name: 'Work Codex', role: 'Dev', sessionId: 'dm-b1', model: 'local-codex-cli@work/gpt-5.4', createdAt: 1 },
+    },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    localAgents: {
+      custom: [],
+      profiles: [{ id: 'work', baseRoute: 'local-codex-cli', name: 'Work', configDir: profileDir }],
+      retiredProfiles: [],
+      sessions: {},
+      windows: {},
+    },
+    revision: 0,
+  }))
+  const adapters = new Map()
+  const ctx = fakeContext()
+  Object.assign(ctx, {
+    llm: {
+      listProviders: () => [...adapters.keys()].map(id => ({ id })),
+      listModels: async () => [],
+      resolveModelInfo: async () => ({}),
+      registerAdapter: (routes, adapter) => {
+        for (const r of routes) adapters.set(r, adapter)
+        return Object.assign(() => { for (const r of routes) adapters.delete(r) }, {
+          replace(next) {
+            adapters.clear()
+            for (const r of next) adapters.set(r, adapter)
+          },
+        })
+      },
+    },
+  })
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true })
+  })
+  await rt.load()
+  const route = 'local-codex-cli@work'
+  const adapter = adapters.get(route)
+  assert.ok(adapter, 'profile route should be registered via Bot ref')
+
+  adapter.deps.saveWindow(route, 'gpt-5.4', 1_048_576)
+  assert.equal((await adapter.resolveModel(route, 'gpt-5.4')).context.contextWindow, 1_048_576)
+
+  // Renaming a profile keeps its learned window.
+  await rt.localAgentsEndpoint('local-agent-profile-update', { baseRoute: 'local-codex-cli', id: 'work', name: 'Work Renamed' })
+  assert.equal(rt.state.localAgents.windows[route]?.['gpt-5.4'], 1_048_576)
+
+  // Changing profile env clears persisted and in-memory windows for that profile route.
+  await rt.localAgentsEndpoint('local-agent-profile-update', { baseRoute: 'local-codex-cli', id: 'work', env: { OPENAI_BASE_URL: 'https://example.invalid/v1' } })
+  assert.equal(rt.state.localAgents.windows[route], undefined)
+  assert.equal((await adapter.resolveModel(route, 'gpt-5.4')).context.contextWindow, 200_000)
+
+  // Removing a profile clears persisted and in-memory windows as well.
+  adapter.deps.saveWindow(route, 'gpt-5.4', 512_000)
+  assert.equal((await adapter.resolveModel(route, 'gpt-5.4')).context.contextWindow, 512_000)
+  await rt.localAgentsEndpoint('local-agent-profile-remove', { baseRoute: 'local-codex-cli', id: 'work' })
+  assert.equal(rt.state.localAgents.windows[route], undefined)
+  assert.equal(adapter.windows.size, 0)
 })
