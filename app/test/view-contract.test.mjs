@@ -695,10 +695,10 @@ test('desktop team keeps monotonic turnOutline across two voice rounds and serve
     assert.equal(outline2[1].turn, 1)
     assert.equal(team.actions.closingReply('sess-a', 1), 'reply round 2')
 
-    // Multi-block unnumbered feed reply (same seq, no item.turn) aggregates on one turn without spawning a phantom turn.
+    // Multi-block unnumbered feed reply (same seq, distinct block ordinals, no item.turn) aggregates on one turn without spawning a phantom turn.
     emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'build status?', time: 3000 } })
-    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'The build passed.', seq: 42, time: 3100 } })
-    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'All 12 checks passed.', seq: 42, time: 3101 } })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'The build passed.', seq: 42, block: 0, time: 3100 } })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'All 12 checks passed.', seq: 42, block: 1, time: 3101 } })
     const outline3 = team.snapshots.sessions().byId['sess-a']?.projectionValues?.turnOutline
     assert.equal(outline3.length, 3)
     assert.equal(outline3[2].turn, 2)
@@ -1036,8 +1036,138 @@ test('resumed feed replay and fillGap canonical facts do not duplicate synthetic
     assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], undefined, 'replayed/covered feed items must not create phantom turns or false unread dot')
 
     // A genuinely new background turn (turn 2, seq 40) still lights up the unread dot cleanly.
-    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'new reply', turn: 2, seq: 40, time: 3000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'new reply', turn: 2, seq: 40, block: 0, time: 3000 } })
     assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], true)
+  } finally {
+    stop()
+  }
+})
+
+test('DM with historical turnOutline keeps NewMessagePills baseline aligned across loadEarlier and first live reply', async () => {
+  const { team } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [{ id: 'bot-a', sessionId: 'sess-a', name: 'Alpha' }],
+          rooms: [],
+        }
+      }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  // Exact selector used by ds-bot/src/client/header.js NewMessagePills.
+  const pillReplies = (list, sid) => {
+    const row = list.byId?.[sid]
+    if (typeof row?.replyCount === 'number') return row.replyCount
+    const outline = list.projectionsBySession?.[sid]?.values?.turnOutline ?? row?.projectionValues?.turnOutline
+    return Array.isArray(outline) ? outline.reduce((count, entry) => count + (entry.response ? 1 : 0), 0) : 0
+  }
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    team.actions.openSession('bot-a')
+
+    // Opening snapshot backfills 3 historical responded turns into turnOutline.
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed', start: { seq: 1, time: 100 }, end: { seq: 2, time: 110 } }],
+        [1, { turn: 1, status: 'closed', start: { seq: 3, time: 200 }, end: { seq: 4, time: 210 } }],
+        [2, { turn: 2, status: 'closed', start: { seq: 5, time: 300 }, end: { seq: 6, time: 310 } }],
+      ]),
+      closingReplies: new Map([
+        [0, 'old reply 0'],
+        [1, 'old reply 1'],
+        [2, 'old reply 2'],
+      ]),
+    })
+
+    // User scrolls up: NewMessagePills captures the baseline.
+    const base = pillReplies(team.snapshots.sessions(), 'sess-a')
+
+    // Loading earlier history adds more historical turns to turnOutline without showing a false pill.
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed', start: { seq: 1, time: 100 }, end: { seq: 2, time: 110 } }],
+        [1, { turn: 1, status: 'closed', start: { seq: 3, time: 200 }, end: { seq: 4, time: 210 } }],
+        [2, { turn: 2, status: 'closed', start: { seq: 5, time: 300 }, end: { seq: 6, time: 310 } }],
+        [3, { turn: 3, status: 'closed', start: { seq: 7, time: 400 }, end: { seq: 8, time: 410 } }],
+      ]),
+      closingReplies: new Map([
+        [0, 'old reply 0'],
+        [1, 'old reply 1'],
+        [2, 'old reply 2'],
+        [3, 'old reply 3'],
+      ]),
+    })
+    assert.equal(pillReplies(team.snapshots.sessions(), 'sess-a') - base, 0, 'loading historical turns must not trigger a false new-message pill')
+
+    // First live tail reply arrives -> fresh MUST equal 1 (never negative).
+    team.actions.noteReplyArrival('sess-a', 1)
+    assert.equal(pillReplies(team.snapshots.sessions(), 'sess-a') - base, 1, 'first live reply after opening history must yield fresh === 1')
+
+    // Second live tail reply arrives -> fresh MUST equal 2.
+    team.actions.noteReplyArrival('sess-a', 1)
+    assert.equal(pillReplies(team.snapshots.sessions(), 'sess-a') - base, 2, 'second live reply must yield fresh === 2')
+  } finally {
+    stop()
+  }
+})
+
+test('same-seq repeated text blocks all arrive on first delivery and are skipped cleanly on resumed replay', async () => {
+  const { team, emitFeed } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [
+            { id: 'bot-a', sessionId: 'sess-a', name: 'Alpha' },
+            { id: 'bot-b', sessionId: 'sess-b', name: 'Beta' },
+          ],
+          rooms: [],
+        }
+      }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    team.actions.openSession('bot-a')
+
+    // First delivery: assistant message at seq 42 emits three blocks with identical text at blocks 0 and 2.
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Ready', seq: 42, block: 0, turn: 0, time: 1000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Set', seq: 42, block: 1, turn: 0, time: 1000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Ready', seq: 42, block: 2, turn: 0, time: 1000 } })
+
+    const rowAfterFirst = team.snapshots.sessions().byId['sess-b']
+    assert.equal(rowAfterFirst?.projectionValues?.turnOutline?.[0]?.response, 'Ready\n\nSet\n\nReady', 'identical text blocks within the same seq must all survive first delivery')
+    assert.equal(team.actions.closingReply('sess-b', 0), 'Ready\n\nSet\n\nReady')
+    assert.equal(rowAfterFirst?.replyCount, 1, 'multi-block message increments replyCount once')
+
+    // Resumed reconnect replays all three frames (plus an older seq): every frame must be skipped.
+    emitFeed('hello', { revision: 1, feedSeq: 50, resumed: true })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'stale', seq: 40, block: 0, turn: 0, time: 900 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Ready', seq: 42, block: 0, turn: 0, time: 1000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Set', seq: 42, block: 1, turn: 0, time: 1000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Ready', seq: 42, block: 2, turn: 0, time: 1000 } })
+
+    const rowAfterReplay = team.snapshots.sessions().byId['sess-b']
+    assert.equal(rowAfterReplay?.projectionValues?.turnOutline?.length, 1)
+    assert.equal(rowAfterReplay?.projectionValues?.turnOutline?.[0]?.response, 'Ready\n\nSet\n\nReady', 'resumed replay must not duplicate blocks')
+    assert.equal(team.actions.closingReply('sess-b', 0), 'Ready\n\nSet\n\nReady')
+    assert.equal(rowAfterReplay?.replyCount, 1, 'resumed replay must not double-count replyCount')
+
+    // Subsequent newer seq still delivers cleanly.
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'Go', seq: 43, block: 0, turn: 1, time: 2000 } })
+    const rowAfterNext = team.snapshots.sessions().byId['sess-b']
+    assert.equal(rowAfterNext?.projectionValues?.turnOutline?.length, 2)
+    assert.equal(rowAfterNext?.projectionValues?.turnOutline?.[1]?.response, 'Go')
+    assert.equal(rowAfterNext?.replyCount, 2)
   } finally {
     stop()
   }

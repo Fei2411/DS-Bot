@@ -216,7 +216,7 @@ export function createTeam() {
     const before = shown.getSnapshot()
     shown.set(id)
     if (before) editRow(before, row => ({ ...row, retainedBy: { mainView: 0 } }))
-    editRow(id, row => ({ ...row, retainedBy: { mainView: 1 } }))
+    editRow(id, row => ({ ...row, replyCount: row.replyCount ?? 0, retainedBy: { mainView: 1 } }))
     setStatus(id, { completionUnread: false })
   }
 
@@ -266,7 +266,7 @@ export function createTeam() {
     for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
     for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id)
     for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id)
-    for (const id of [...seenFeedItems.keys()]) if (!keep(id)) seenFeedItems.delete(id)
+    for (const id of [...lastFeedMessageCursor.keys()]) if (!keep(id)) lastFeedMessageCursor.delete(id)
     for (const [fileId, entry] of [...draftFileStore.entries()]) {
       if (entry?.sessionId && !keep(entry.sessionId)) draftFileStore.delete(fileId)
     }
@@ -596,23 +596,18 @@ export function createTeam() {
       try { listener(sessionId, maxTurn) } catch {}
     }
   }
-  const seenFeedItems = new Map()
-  const rememberFeedItem = (sessionId, seq, kind, text) => {
-    if (!sessionId || !Number.isInteger(seq) || !text) return false
-    let bySeq = seenFeedItems.get(sessionId)
-    if (!bySeq) { bySeq = new Map(); seenFeedItems.set(sessionId, bySeq) }
-    const sig = `${kind}\0${text}`
-    let set = bySeq.get(seq)
-    if (set?.has(sig)) return true
-    if (!set) {
-      set = new Set()
-      bySeq.set(seq, set)
-      if (bySeq.size > 128) {
-        const oldest = bySeq.keys().next().value
-        bySeq.delete(oldest)
-      }
+  // Per-session monotonic `(seq, block)` watermark for live feed `message` items:
+  // O(1) state per session with no eviction cap, preserving identical text blocks
+  // within the same `seq` while skipping any replayed `(seq, block) <= watermark`.
+  const lastFeedMessageCursor = new Map()
+  const advanceFeedMessageCursor = (sessionId, seq, block) => {
+    if (!sessionId || !Number.isInteger(seq)) return false
+    const ordinal = Number.isInteger(block) && block >= 0 ? block : 0
+    const prev = lastFeedMessageCursor.get(sessionId)
+    if (prev !== undefined && (seq < prev.seq || (seq === prev.seq && ordinal <= prev.block))) {
+      return true
     }
-    set.add(sig)
+    lastFeedMessageCursor.set(sessionId, { seq, block: ordinal })
     return false
   }
   const maxCoveredSeqOf = (sessionId) => {
@@ -676,7 +671,8 @@ export function createTeam() {
           }
         }
       }
-      if (!changed) return list
+      const needReplyCount = typeof row.replyCount !== 'number'
+      if (!changed && !needReplyCount) return list
       const nextOutline = [...byTurn.values()].sort((a, b) => a.turn - b.turn)
       if (nextOutline.length > 0) reconciledMaxTurn = nextOutline[nextOutline.length - 1].turn
       return {
@@ -685,6 +681,7 @@ export function createTeam() {
           ...list.byId,
           [sessionId]: {
             ...row,
+            replyCount: row.replyCount ?? 0,
             projectionValues: { ...(row.projectionValues ?? {}), turnOutline: nextOutline },
           },
         },
@@ -1383,7 +1380,14 @@ export function createTeam() {
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
     noteReplyArrival: (sessionId, delta) => {
       if (!sessionId || !Number.isFinite(delta) || delta <= 0) return
-      editRow(sessionId, row => ({ ...row, replyCount: (row.replyCount ?? 0) + delta }))
+      editRow(sessionId, (row) => {
+        const base = typeof row.replyCount === 'number'
+          ? row.replyCount
+          : (Array.isArray(row.projectionValues?.turnOutline)
+            ? row.projectionValues.turnOutline.reduce((count, entry) => count + (entry?.response ? 1 : 0), 0)
+            : 0)
+        return { ...row, replyCount: base + delta }
+      })
     },
     reconnectFeed: () => { restartFeed() },
   }
@@ -1554,7 +1558,7 @@ export function createTeam() {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
       const hasSeq = Number.isInteger(item.seq)
-      const isReplay = Boolean(text && hasSeq && rememberFeedItem(sessionId, item.seq, item.kind, text))
+      const isReplay = Boolean(hasSeq && advanceFeedMessageCursor(sessionId, item.seq, item.block))
       const coveredByFacts = Boolean(
         text
         && hasSeq
@@ -1581,7 +1585,9 @@ export function createTeam() {
         let effectiveTurn = null
         editRow(sessionId, (row) => {
           const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
-          const replyPatch = countReply ? { replyCount: (row.replyCount ?? 0) + 1 } : {}
+          const replyPatch = countReply
+            ? { replyCount: (row.replyCount ?? 0) + 1 }
+            : (typeof row.replyCount === 'number' ? {} : { replyCount: 0 })
           if (!text) return { ...row, updatedAt, ...replyPatch }
           const resolvedTurn = Number.isInteger(item.turn) && item.turn >= 0 ? item.turn : openTurnOf(sessionId)
           const next = appendTurnOutline(row, {

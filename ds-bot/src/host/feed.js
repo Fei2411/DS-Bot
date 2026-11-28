@@ -243,7 +243,12 @@ export function install(rt) {
     if (rt.taskOwners?.has(session.id)) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
-    for (const item of rt.displayItems(session.id, [event])) publish('message', { botId, sessionId: session.id, item })
+    const items = rt.displayItems(session.id, [event])
+    for (let block = 0; block < items.length; block += 1) {
+      const raw = items[block]
+      const item = Number.isInteger(raw?.seq) && !Number.isInteger(raw.block) ? { ...raw, block } : raw
+      publish('message', { botId, sessionId: session.id, item })
+    }
     if (event.type === 'tool/call') live()
   })
 
