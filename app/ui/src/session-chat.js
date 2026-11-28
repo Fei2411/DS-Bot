@@ -19,6 +19,7 @@ import { BotMark, RoomAvatar } from '../../../ds-bot/src/client/mark.js'
 import { noHover } from '../../../ds-bot/src/client/motion.js'
 import { ReplyGuide } from '../../../ds-bot/src/client/reading.js'
 import { addPage, applyFrame, emptyLog, pageBefore, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
+import { messageAnchor } from '../../../ds-bot/src/client/message-jump.js'
 import { clockLabel, messageClock, normalizeFileLinks } from '../../../ds-bot/src/client/text.js'
 import { layoutOf, thinkingShown } from '../../../ds-bot/src/client/themes.js'
 import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.js'
@@ -722,7 +723,7 @@ const UserRow = memo(function UserRow({ row, sessionId, parent, mode, ancestors,
       sentAt ? h('span', { className: 'dsb-dsh-msg-time', title: timeTitle }, sentAt) : null,
       row.text !== '' ? h(CopyTextButton, { text: copyText, className: 'dsb-dsh-act-btn' }) : null) : null)
   }
-  return h('div', { ref: container, className: 'bt-umsg' },
+  return h('div', { ref: container, className: 'bt-umsg', ...messageAnchor(sessionId, row.turn, 'prompt') },
     h('div', { className: 'bt-ustack' },
       h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode, ancestors }),
       row.text !== '' ? h('div', { className: 'bt-ubody', title: timeTitle, 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },
@@ -878,6 +879,7 @@ const AssistantRow = memo(function AssistantRow({
       actions,
       streaming: row.streaming,
       sessionId,
+      turn: row.turn,
       msgKey,
       mentions: fileMentions,
       useUi,

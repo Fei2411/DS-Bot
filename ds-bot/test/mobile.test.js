@@ -188,6 +188,17 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
   assert.deepEqual(open, [{ callId: 'r2', at: 7 }])
 })
 
+test('roomItems carries the current turn across pages and changes it at the next turn start', () => {
+  const user = seq => ({ seq, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Hello' }] } })
+  const { items } = roomItems([
+    user(1),
+    { seq: 2, type: 'turn/start', data: { turn: 8 } },
+    user(3),
+    relayResult(4, 'round', [{ botId: 'm1', text: 'Reply', time: 11 }]),
+  ], undefined, 7)
+  assert.deepEqual(items.map(item => [item.kind, item.turn]), [['user', 7], ['user', 8], ['bot', 8]])
+})
+
 test('roomItems reads group_relay results prefixed with a §N§ handle', () => {
   const seenRanges = []
   const events = [
@@ -255,6 +266,10 @@ test('a group round logs notices a returning client reads back, and the feed say
   assert.equal(caught.reset, false)
   const groupNotices = caught.notices.filter(notice => notice.kind === 'group')
   assert.deepEqual(groupNotices.map(notice => [notice.botId, notice.roomId, notice.title, notice.text]), [[chief, room.id, 'Launch', 'Chief here.'], [writer.id, room.id, 'Launch', 'Writer here.']])
+  assert.match(groupNotices[0].messageId, /^line:\d+$/)
+  assert.notEqual(groupNotices[0].messageId, groupNotices[1].messageId)
+  assert.deepEqual(done.items.filter(item => item.kind === 'bot').map(item => item.messageId), groupNotices.map(notice => notice.messageId))
+  assert.equal(live.items[1].messageId, groupNotices[0].messageId)
   const latest = caught.seq
   assert.deepEqual((await call('notices', { boot, since: latest })).value.notices, [])
   // A client from before a restart starts over.

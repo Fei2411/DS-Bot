@@ -3,8 +3,9 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ArrowDownIcon } from '../../../ds-bot/src/client/icons.js'
+import { findMessageRow, highlightMessage, messageJumpStep } from '../../../ds-bot/src/client/message-jump.js'
 import { reducedMotion } from '../../../ds-bot/src/client/motion.js'
-import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
+import { pageBefore, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
@@ -20,6 +21,36 @@ const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
 const MemoChatRows = memo(ChatRows)
+
+function watchMessageCenter(node, row, onStop) {
+  if (typeof ResizeObserver !== 'function') return undefined
+  const column = row.closest('.dsb-column')
+  if (!column) return undefined
+  const observer = new ResizeObserver(() => {
+    const rect = row.getBoundingClientRect()
+    const center = node.getBoundingClientRect().top + node.clientHeight / 2
+    if (Math.abs(rect.top + rect.height / 2 - center) > 1) {
+      row.scrollIntoView({ block: 'center', behavior: 'instant' })
+    }
+  })
+  let watching = true
+  const stop = () => {
+    if (!watching) return
+    watching = false
+    observer.disconnect()
+    node.removeEventListener('pointerdown', stop)
+    node.removeEventListener('wheel', stop)
+    node.ownerDocument.removeEventListener('keydown', stop, true)
+    onStop()
+  }
+  node.addEventListener('pointerdown', stop)
+  node.addEventListener('wheel', stop, { passive: true })
+  node.ownerDocument.addEventListener('keydown', stop, true)
+  observer.observe(column)
+  observer.observe(row)
+  observer.observe(node)
+  return stop
+}
 
 const itemIdKey = item => (item?.id !== undefined && item?.id !== null
   ? `${item.sessionId ?? ''}:${item.id}`
@@ -42,6 +73,8 @@ export function adaptRoomItem(item) {
       id: item.id,
       kind: 'post',
       seq: item.id,
+      ...(item.messageId ? { messageId: item.messageId } : {}),
+      ...(Number.isInteger(item.turn) ? { turn: item.turn } : {}),
       botId: item.botId,
       name: item.name,
       color: item.color,
@@ -383,6 +416,7 @@ export const Transcript = memo(function Transcript({
 
   const sessionBlank = useSessions(list => list.byId[activeSessionId]?.blank === true)
   const viewedUpdatedAt = useSessions(list => list.byId[viewedSessionId]?.updatedAt)
+  const messageJump = hooks.useUi?.(state => state?.messageJump?.sessionId === sessionId ? state.messageJump : null)
   const sessionRunning = hooks.useSessionStatus(map => map.get(activeSessionId)?.running === true)
   const feedDisconnected = hooks.useConnection ? hooks.useConnection(state => state.status !== 'connected') : false
 
@@ -391,8 +425,12 @@ export const Transcript = memo(function Transcript({
   const smoothScrollRef = useRef(null)
   const [following, setFollowing] = useState(true)
   const keep = useRef(null)
+  const jumpProgress = useRef(null)
+  const stopJumpCentering = useRef()
 
-  useEffect(() => {
+  useLayoutEffect(() => () => stopJumpCentering.current?.(), [viewedSessionId])
+
+  useLayoutEffect(() => {
     keep.current = null
     follow.current = true
     smoothScrollRef.current = null
@@ -402,10 +440,12 @@ export const Transcript = memo(function Transcript({
   if (transcriptRef) {
     transcriptRef.current = {
       followBottom() {
+        stopJumpCentering.current?.()
         follow.current = true
         setFollowing(true)
       },
       resetFollow() {
+        stopJumpCentering.current?.()
         follow.current = true
         setFollowing(true)
         keep.current = null
@@ -446,6 +486,7 @@ export const Transcript = memo(function Transcript({
   useLayoutEffect(() => {
     const node = scrollerRef.current
     if (!node) return
+    if (messageJump) return
     if (keep.current !== null) {
       node.scrollTop = node.scrollHeight - keep.current
       keep.current = null
@@ -454,11 +495,11 @@ export const Transcript = memo(function Transcript({
       follow.current = true
       setFollowing(true)
     }
-  }, [contentRevision, pending, running, question, scrollerRef])
+  }, [contentRevision, pending, running, question, scrollerRef, messageJump])
 
   const onScroll = () => {
     const node = scrollerRef.current
-    if (!node) return
+    if (!node || messageJump) return
     const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
     if (atBottom) {
       smoothScrollRef.current = null
@@ -476,6 +517,7 @@ export const Transcript = memo(function Transcript({
   }
 
   const scrollToBottom = () => {
+    stopJumpCentering.current?.()
     follow.current = true
     setFollowing(true)
     const node = scrollerRef.current
@@ -494,17 +536,73 @@ export const Transcript = memo(function Transcript({
     ? Boolean(roomChat.view.cursor && !roomChat.view.loading && !roomChat.view.failed && roomChat.view.sessionId !== null)
     : Boolean(dmChat.hasMore && !dmChat.loading && !dmChat.paging && !dmChat.pageFailed)
   const loadEarlierRef = useRef(null)
-  loadEarlierRef.current = () => {
+  loadEarlierRef.current = (preserveScroll = true) => {
+    const scroller = preserveScroll ? scrollerRef.current : undefined
     if (isRoom) {
-      if (roomChat.view.cursor) void roomChat.load(roomChat.view.cursor, scrollerRef.current)
+      if (roomChat.view.cursor) void roomChat.load(roomChat.view.cursor, scroller)
     } else if (dmChat.hasMore) {
-      void dmChat.loadEarlier(scrollerRef.current)
+      void dmChat.loadEarlier(scroller)
     }
   }
+  const jumpViewRef = useRef(viewedSessionId)
+  useLayoutEffect(() => {
+    const viewChanged = jumpViewRef.current !== viewedSessionId
+    jumpViewRef.current = viewedSessionId
+    if (!messageJump) {
+      jumpProgress.current = null
+      return undefined
+    }
+    const node = scrollerRef.current
+    if (!node) return undefined
+    if (viewingSubagent) {
+      onSelectSubagentDepth(0)
+      return undefined
+    }
+    if (viewChanged) return undefined
+    if (jumpProgress.current?.target !== messageJump) {
+      stopJumpCentering.current?.()
+      jumpProgress.current = { target: messageJump, tried: new Set(), followedTail: follow.current }
+    }
+    follow.current = false
+    smoothScrollRef.current = null
+    keep.current = null
+    setFollowing(false)
+    const roomCursor = roomChat.view.cursor
+    const cursor = isRoom
+      ? (roomCursor?.beforeSeq == null ? null : `${roomCursor.part}:${roomCursor.beforeSeq}`)
+      : pageBefore(dmChat.log)
+    const failed = isRoom ? roomChat.view.failed : (dmChat.failed || dmChat.pageFailed || dmChat.terminalError)
+    const tried = jumpProgress.current.tried
+    const reachedTurnStart = !isRoom && dmChat.log.events.some(event => event.type === 'turn/start' && event.data?.turn === messageJump.turn)
+    const row = busy ? undefined : findMessageRow(node, messageJump, reachedTurnStart || cursor == null || failed || tried.has(cursor))
+    const step = messageJumpStep({ row, waiting: busy, failed, cursor }, tried)
+    if (step === 'load') {
+      tried.add(cursor)
+      loadEarlierRef.current(false)
+    } else if (step === 'found') {
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          keep.current = null
+          stopJumpCentering.current = watchMessageCenter(node, row, () => { stopJumpCentering.current = undefined })
+          highlightMessage(row, stopJumpCentering.current)
+          actions.finishMessageJump(messageJump)
+        })
+      })
+      return () => cancelAnimationFrame(frame)
+    } else if (step === 'stop') {
+      if (jumpProgress.current.followedTail) {
+        follow.current = true
+        setFollowing(true)
+      }
+      actions.finishMessageJump(messageJump)
+    }
+    return undefined
+  }, [messageJump, isRoom, busy, dmChat.log, dmChat.failed, dmChat.pageFailed, dmChat.terminalError, roomChat.view, viewedSessionId, viewingSubagent, onSelectSubagentDepth, actions, scrollerRef])
+
   // Auto-load the previous page when the user scrolls near the top, mirroring `EarlierParts`.
   // Gated on `!following` so initial open (before scroll-to-bottom) and live tail following never trigger it.
   useEffect(() => {
-    if (!canAutoLoadEarlier || following || typeof IntersectionObserver !== 'function') return undefined
+    if (messageJump || !canAutoLoadEarlier || following || typeof IntersectionObserver !== 'function') return undefined
     const topNode = earlierTopRef.current
     const rootNode = scrollerRef.current
     if (!topNode || !rootNode) return undefined
@@ -515,7 +613,7 @@ export const Transcript = memo(function Transcript({
     }, { root: rootNode, rootMargin: '600px 0px 0px 0px' })
     observer.observe(topNode)
     return () => observer.disconnect()
-  }, [canAutoLoadEarlier, following, isRoom, roomChat.view.cursor, dmChat.hasMore, scrollerRef])
+  }, [messageJump, canAutoLoadEarlier, following, isRoom, roomChat.view.cursor, dmChat.hasMore, scrollerRef])
 
   const earlier = isRoom
     ? (roomChat.view.loading && roomChat.view.sessionId !== null ? h(Shimmer, null, t('Loading earlier messages…'))

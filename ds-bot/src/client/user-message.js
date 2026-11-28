@@ -11,6 +11,7 @@ import { CheckIcon, CopyIcon, EyeIcon, FileIcon, HideIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
 import { noHover } from './motion.js'
 import { clockLabel, messageClock } from './text.js'
+import { messageAnchor } from './message-jump.js'
 import { useFold } from './fold.js'
 
 const EMPTY_REVEALED_SECRETS = new Set()
@@ -367,7 +368,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
     setToolsOpen(value => !value)
   }
   const fold = { data, text, shown, folded, control, onClick: tapTools }
-  return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined },
+  return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined, ...messageAnchor(sessionId, node.location?.turn?.turn ?? data.turn, 'prompt') },
     h('div', { className: 'bt-ustack' },
       prepared === undefined
         ? h(ProjectedContent, { ...fold, fullSecrets, revealedSecrets, onToggleSecret: toggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill })

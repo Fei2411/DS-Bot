@@ -439,7 +439,8 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   team.actions.openSession('b1')
   team.actions.openInbox()
   sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', text: 'while inbox open', time: 110 } })
-  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update', time: 111 })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update', time: 111, seq: 12, messageId: 'line:3' })
+  assert.equal(team.hooks.useSessions(list => list.byId.r1.projectionValues.turnOutline[0].messageId), 'line:3')
   assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'active chat reply marks unread while Inbox covers it')
   assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'group reply notice marks group unread')
   // Opening r1 from Inbox clears r1 without clearing b1!

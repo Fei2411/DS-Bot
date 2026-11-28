@@ -339,7 +339,7 @@ test('a parallel part cannot write or clear the viewed part stream', async () =>
   }
 })
 
-function mountRoom(callImpl) {
+function mountRoom(callImpl, ui = {}, uiActions = {}) {
   sandbox.__testCall = callImpl
   const listeners = new Set()
   const sent = []
@@ -355,6 +355,7 @@ function mountRoom(callImpl) {
   }
   const team = {
     actions: {
+      ...uiActions,
       noteSent() {},
       send: async (sessionId, text) => { sent.push([sessionId, text]) },
       speech: () => undefined,
@@ -364,7 +365,7 @@ function mountRoom(callImpl) {
     },
     hooks: {
       useRoster: select => select(roster),
-      useUi: select => select({}),
+      useUi: select => select(ui),
       useSessionStatus: select => select(new Map()),
     },
     chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
@@ -454,6 +455,53 @@ test('group chat cancels queued reload when unmounted during an in-flight reques
     assert.equal(calls, 1, 'unmounted component must not fire queued reload in finally')
   } finally {
     sandbox.__testCall = defaultCall
+  }
+})
+
+test('a synthetic group message jump pages within the searched part until it finds the reply or exhausts it', async () => {
+  for (const [snippet, rendered, found] of [
+    ['Use **palette jump** to open the message.', 'Use palette jump to open the message.', true],
+    ['Done', 'Done', true],
+    ['Done', 'Done', false],
+  ]) {
+    const cursors = []
+    const scrolled = []
+    const target = { sessionId: 'r1', turn: 5, snippet, synthetic: true, role: 'response', messageId: 'line:1', group: true }
+    const ui = { messageJump: target }
+    const row = (id, sessionId = 'r1') => ({
+      textContent: rendered,
+      getAttribute: name => ({ 'data-bt-message-session': sessionId, 'data-bt-message-role': 'response', 'data-bt-message-id': id })[name],
+      scrollIntoView: ({ block }) => scrolled.push([id, block]),
+      classList: { add() {}, remove() {} },
+    })
+    const newer = row('line:2')
+    const otherSession = row('line:1', 'other-part')
+    field.querySelectorAll = () => []
+    const room = mountRoom(async (name, body) => {
+      assert.equal(name, 'room-chat')
+      cursors.push(body.cursor?.beforeSeq)
+      const older = body.cursor?.beforeSeq === 10
+      field.querySelectorAll = () => older && found ? [newer, otherSession, row('line:1')] : [newer, otherSession]
+      const next = body.cursor === undefined ? { part: 1, beforeSeq: 10 } : { part: 0 }
+      const id = older ? 'line:1' : 'line:2'
+      return { roomId: 'r1', items: older && !found ? [] : [{ id, messageId: id, sessionId: 'r1', kind: 'bot', botId: 'b1', text: snippet }], cursor: next }
+    }, ui, {
+      finishMessageJump: (jump) => { assert.equal(jump, target); ui.messageJump = null },
+    })
+    try {
+      for (let i = 0; i < 4; i += 1) {
+        await tick()
+        room.rowsOf()
+      }
+      await tick()
+      await tick()
+      assert.deepEqual(cursors, [undefined, 10])
+      assert.deepEqual(scrolled, found ? [['line:1', 'center']] : [])
+      assert.equal(ui.messageJump, null)
+    } finally {
+      room.unmount()
+      delete field.querySelectorAll
+    }
   }
 })
 
@@ -951,7 +999,8 @@ test('DSH Agent blank session renders AgentEmptyHero with workspace folder and f
 test('adaptRoomItem preserves presented files on group Bot messages for ChatRows', () => {
   const { adaptRoomItem } = module.exports
   const file = { name: 'report.pdf', path: '/work/report.pdf', description: 'Final', sessionId: 'm1', seq: 5, index: 0 }
-  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file] })
+  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file], messageId: 'line:1' })
+  assert.equal(adapted.messageId, 'line:1')
   assert.equal(adapted.kind, 'post')
   assert.deepEqual(adapted.presented, [file])
 })

@@ -8,6 +8,7 @@ import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppea
 import { dshAppearanceCss } from './appearance-dsh.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
+import { jumpToMountedMessage, messageJumpTarget } from './message-jump.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installLastStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { DSH_CONVERSATION_CSS, DSH_SHELL_CSS, dshThemeCss } from './styles-dsh.js'
 import { installDshAdapter } from './adapter-dsh.js'
@@ -766,7 +767,7 @@ export function apply(ctx) {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: id => isAgentSessionId(id),
-    openSession: (id) => {
+    openSession: (id, message) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       navSeq += 1
@@ -777,6 +778,9 @@ export function apply(ctx) {
         : state))
       setPlain(false)
       show(target)
+      const jump = messageJumpTarget(id, message)
+      const nav = navSeq
+      if (jump && target === id) jumpToMountedMessage(document, jump, mainView, () => nav === navSeq)
     },
     retryOpening: (target) => {
       if (!target) return

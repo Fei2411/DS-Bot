@@ -1614,6 +1614,9 @@ body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-s
 `
 
 export const CONVERSATION_CSS = `
+.bt-message-jump{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:8px}
+@media(prefers-reduced-motion:no-preference){.bt-message-jump{animation:bt-message-jump-fade 1.8s both}}
+@keyframes bt-message-jump-fade{75%{outline-color:var(--bt-accent)}to{outline-color:transparent}}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}

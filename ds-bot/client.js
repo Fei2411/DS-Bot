@@ -23317,9 +23317,9 @@ function hasOtherTabPartDraft({ chatId, part, text }, storage = globalThis.local
 var contentText2 = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
 var isQuoteLine = (line) => line.startsWith(">");
 function normalizeQuoteText(text) {
-  const normalized = text.replace(/\r\n?/gu, "\n").trim();
-  if (!normalized.includes(">")) return normalized;
-  const lines = normalized.split("\n");
+  const normalized2 = text.replace(/\r\n?/gu, "\n").trim();
+  if (!normalized2.includes(">")) return normalized2;
+  const lines = normalized2.split("\n");
   const out = [];
   let prevKind = null;
   let pendingBlanks = [];
@@ -25333,6 +25333,54 @@ function writeSkinSurfaceVars(doc, read) {
       }
     }
   };
+}
+
+// src/client/message-jump.js
+var HIGHLIGHT_MS = 1800;
+var HIGHLIGHT_CLASS = "bt-message-jump";
+var messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn) && !(target.group && target.synthetic && !target.messageId) ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true, role: target.role, ...target.group ? { group: true } : {}, ...target.messageId ? { messageId: target.messageId } : {} } : null;
+var messageAnchor = (sessionId, turn, role, messageId) => sessionId !== void 0 ? { "data-bt-message-session": sessionId, "data-bt-message-turn": Number.isInteger(turn) ? turn : void 0, "data-bt-message-role": role, "data-bt-message-id": messageId } : void 0;
+var normalized = (text) => String(text ?? "").replace(/\s+/g, "").toLowerCase();
+function findMessageRow(root, { sessionId, turn, snippet, synthetic, role, group, messageId }, allowFallback = true) {
+  const selector = messageId ? "[data-bt-message-id]" : `[data-bt-message-turn="${turn}"]`;
+  const rows2 = [...root?.querySelectorAll(selector) ?? []].filter((row) => row.getAttribute("data-bt-message-session") === sessionId);
+  const preferred = role === void 0 ? rows2 : rows2.filter((row) => row.getAttribute("data-bt-message-role") === role);
+  if (messageId) return preferred.find((row) => row.getAttribute("data-bt-message-id") === messageId);
+  if (group) return synthetic ? void 0 : preferred[0];
+  const match = normalized(snippet).replace(/^…/, "");
+  const matches3 = match ? preferred.filter((row) => normalized(row.textContent).includes(match)) : [];
+  if (synthetic) return matches3.length === 1 ? matches3[0] : void 0;
+  return matches3[0] ?? (allowFallback ? preferred[0] ?? rows2[0] : void 0);
+}
+var highlights = /* @__PURE__ */ new WeakMap();
+function highlightMessage(row, onClear) {
+  highlights.get(row)?.();
+  row.scrollIntoView({ block: "center", behavior: "instant" });
+  row.classList.add(HIGHLIGHT_CLASS);
+  const clear = () => {
+    clearTimeout(timer2);
+    row.classList.remove(HIGHLIGHT_CLASS);
+    highlights.delete(row);
+    onClear?.();
+  };
+  const timer2 = setTimeout(clear, HIGHLIGHT_MS);
+  highlights.set(row, clear);
+}
+function jumpToMountedMessage(root, target, currentSession, isCurrent) {
+  const started = Date.now();
+  const find = () => {
+    if (!isCurrent() || Date.now() - started >= 2e3) return;
+    const row = currentSession() === target.sessionId ? findMessageRow(root, target) : void 0;
+    if (row) highlightMessage(row);
+    else setTimeout(find, 50);
+  };
+  setTimeout(find, 0);
+}
+function messageJumpStep({ row, waiting, failed, cursor }, triedCursors) {
+  if (row) return "found";
+  if (waiting) return "wait";
+  if (failed || cursor == null || triedCursors.has(cursor)) return "stop";
+  return "load";
 }
 
 // src/client/css-scale.js
@@ -27455,6 +27503,9 @@ body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `;
 var CONVERSATION_CSS = `
+.bt-message-jump{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:8px}
+@media(prefers-reduced-motion:no-preference){.bt-message-jump{animation:bt-message-jump-fade 1.8s both}}
+@keyframes bt-message-jump-fade{75%{outline-color:var(--bt-accent)}to{outline-color:transparent}}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -45956,7 +46007,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const fold = { data, text, shown, folded, control, onClick: tapTools };
   return (0, import_react38.createElement)(
     "div",
-    { ref: row, className: "bt-umsg", "data-steering": steering || void 0 },
+    { ref: row, className: "bt-umsg", "data-steering": steering || void 0, ...messageAnchor(sessionId, node.location?.turn?.turn ?? data.turn, "prompt") },
     (0, import_react38.createElement)(
       "div",
       { className: "bt-ustack" },
@@ -46019,8 +46070,8 @@ var ASSISTANT_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "pr
 var TRIGGER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "prefs", "closedCards"];
 var TOOL_ROSTER_FIELDS = ["bots", "byId", "rooms", "roomsById", "exchangeTurns", "prefs", "closedCards", "questions", "views", "secrets", "secretRequests", "connectors", "connectorRequests", "mailRequests", "browser", "computer"];
 var sameStringList = (a, b2) => a === b2 || Array.isArray(a) && Array.isArray(b2) && a.length === b2.length && a.every((item, i) => item === b2[i]);
-var sameBubbles = (a, b2) => sameStringList(a.texts, b2.texts) && a.selfId === b2.selfId && a.actions === b2.actions && a.streaming === b2.streaming && a.lang === b2.lang && a.sessionId === b2.sessionId && a.msgKey === b2.msgKey && a.useUi === b2.useUi && a.lead === b2.lead && a.mentions === b2.mentions && a.fold === b2.fold && a.whole === b2.whole && a.time === b2.time && a.textInteractionSource === b2.textInteractionSource && a.roster?.bots === b2.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b2.roster?.byId?.[b2.selfId]?.name;
-var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole: whole2, time, textInteractionSource }) {
+var sameBubbles = (a, b2) => sameStringList(a.texts, b2.texts) && a.selfId === b2.selfId && a.actions === b2.actions && a.streaming === b2.streaming && a.lang === b2.lang && a.sessionId === b2.sessionId && a.anchor === b2.anchor && a.turn === b2.turn && a.msgKey === b2.msgKey && a.useUi === b2.useUi && a.lead === b2.lead && a.mentions === b2.mentions && a.fold === b2.fold && a.whole === b2.whole && a.time === b2.time && a.textInteractionSource === b2.textInteractionSource && a.roster?.bots === b2.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b2.roster?.byId?.[b2.selfId]?.name;
+var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, anchor = true, turn, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole: whole2, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -46033,7 +46084,7 @@ var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, s
   const reactions = useReadUi((state) => msgKey ? state.reactions?.[msgKey] ?? null : null);
   return (0, import_react39.createElement)(
     "div",
-    { className: "bt-astack", "data-lead": lead ? "" : void 0, onClickCapture: onClick },
+    { className: "bt-astack", "data-lead": lead ? "" : void 0, ...anchor ? messageAnchor(sessionId, turn, "response") : void 0, onClickCapture: onClick },
     cleaned.map((text, index) => {
       const first = index === 0;
       const last = index === cleaned.length - 1;
@@ -46359,7 +46410,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       // time makes one Elapsed show settled + running.
       ...thinking !== void 0 ? { at: typeof thinking.time === "number" ? thinking.time - (ms ?? 0) : void 0 } : { ms }
     }) : null,
-    texts2.length ? (0, import_react39.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0, textInteractionSource }) : null
+    texts2.length ? (0, import_react39.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, turn: data.turn, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0, textInteractionSource }) : null
   );
 }
 var activityParts = (line) => line.split("`").map((part, index) => index % 2 === 1 ? (0, import_react39.createElement)("code", { key: index }, part) : part);
@@ -46446,7 +46497,7 @@ function claimLines(claims) {
   for (const path2 of claims.missingFiles ?? []) lines.push({ kind: "file", text: t("File not found: {path}", { path: path2 }) });
   return lines;
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile, room: room2, sessionId, roster, actions, msgKey, useUi, whole: whole2, time, duration, claims, changes }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile, room: room2, sessionId, roster, actions, msgKey, useUi, whole: whole2, time, duration, claims, changes, anchorSessionId, turn, messageId }) {
   const ref = (0, import_react39.useRef)(null);
   (0, import_react39.useLayoutEffect)(() => {
     const el = ref.current;
@@ -46471,7 +46522,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
   const fileCards = fileList.length > 0 ? (0, import_react39.createElement)(PresentedFiles, { files: fileList, openFile, actions }) : null;
   return (0, import_react39.createElement)(
     "div",
-    { ref, className: "bt-group-msg", "data-bot-id": bot.id },
+    { ref, className: "bt-group-msg", "data-bot-id": bot.id, ...messageAnchor(anchorSessionId, turn, "response", messageId) },
     (0, import_react39.createElement)(
       "span",
       { className: "bt-group-name", style: flat ? void 0 : { color: inkText(colorOf(bot)) } },
@@ -46484,7 +46535,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
     filesOnly ? flat ? fileCards : (0, import_react39.createElement)("div", { className: "bt-pfiles-row" }, lead, fileCards) : (0, import_react39.createElement)(
       import_react39.Fragment,
       null,
-      (0, import_react39.createElement)(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole: whole2, textInteractionSource: true }),
+      (0, import_react39.createElement)(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, anchor: anchorSessionId === void 0, msgKey, useUi, lead: flat ? null : lead, whole: whole2, textInteractionSource: true }),
       fileCards
     ),
     changes === void 0 ? null : (0, import_react39.createElement)(ChangesCard, { changes, actions }),
@@ -46656,7 +46707,7 @@ function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, r
   const hasMeta = row.via !== void 0 || showTime && Number.isFinite(row.time);
   return (0, import_react39.createElement)(
     "div",
-    { className: "bt-urow" },
+    { className: "bt-urow", ...messageAnchor(row.sessionId, row.turn, "prompt") },
     attachments,
     showBubble ? (0, import_react39.createElement)(
       "div",
@@ -46903,7 +46954,10 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         changes: row.changes,
         useUi,
         whole: stableWhole(row, actions),
-        locale
+        locale,
+        anchorSessionId: row.sessionId,
+        turn: row.turn,
+        messageId: row.messageId
       });
     }
     case "relay": {
@@ -47050,6 +47104,8 @@ function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTur
           useUi,
           time: data.time,
           claims: source.claims,
+          anchorSessionId: sessionId,
+          turn,
           changes: source.changes,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : void 0
         });
@@ -53662,9 +53718,9 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
       if (value === null) {
         if (def.defaultBinding !== null) clean[id] = null;
       } else {
-        const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
-          clean[id] = normalized;
+        const normalized2 = normalizeBinding(value);
+        if (normalized2 && validateBinding(normalized2, mac).ok && !bindingsEqual(normalized2, def.defaultBinding, mac)) {
+          clean[id] = normalized2;
         }
       }
     }
@@ -53689,9 +53745,9 @@ function saveShortcutOverrides(overrides, storage = typeof localStorage === "und
       if (value === null) {
         if (def.defaultBinding !== null) clean[id] = null;
       } else {
-        const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
-          clean[id] = normalized;
+        const normalized2 = normalizeBinding(value);
+        if (normalized2 && validateBinding(normalized2, mac).ok && !bindingsEqual(normalized2, def.defaultBinding, mac)) {
+          clean[id] = normalized2;
         }
       }
     }
@@ -53740,18 +53796,18 @@ function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
         commit(nextExplicit);
         return { ok: true };
       }
-      const normalized = normalizeBinding(binding);
-      const check = validateBinding(normalized, mac);
+      const normalized2 = normalizeBinding(binding);
+      const check = validateBinding(normalized2, mac);
       if (!check.ok) return check;
-      const conflict = findConflict(id, normalized, effective, mac);
+      const conflict = findConflict(id, normalized2, effective, mac);
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict };
         nextExplicit[conflict.id] = null;
       }
-      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+      if (bindingsEqual(normalized2, def.defaultBinding, mac)) {
         delete nextExplicit[id];
       } else {
-        nextExplicit[id] = normalized;
+        nextExplicit[id] = normalized2;
       }
       commit(nextExplicit);
       return { ok: true };
@@ -66530,8 +66586,8 @@ function selectReleaseNotes(entry, locale = "en") {
   if (notes === null || typeof notes !== "object") return null;
   const byLower = /* @__PURE__ */ new Map();
   for (const [key, val] of Object.entries(notes)) {
-    const normalized = normalizeNoteValue(val);
-    if (normalized !== null) byLower.set(key.toLowerCase(), { locale: key, ...normalized });
+    const normalized2 = normalizeNoteValue(val);
+    if (normalized2 !== null) byLower.set(key.toLowerCase(), { locale: key, ...normalized2 });
   }
   if (byLower.size === 0) return null;
   const raw = String(locale ?? "en").trim().toLowerCase().replace(/_/gu, "-");
@@ -70081,7 +70137,8 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS);
   };
   useEscape(close);
-  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(currentPart)];
+  const rooms = new Map(roster.rooms.map((room2) => [currentPart(room2), room2]));
+  const ids = [...roster.bots.map(currentPart), ...rooms.keys()];
   const found = useSessions((list) => {
     if (wanted.length < 2) return "[]";
     const hits = [];
@@ -70092,12 +70149,12 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
       for (let index2 = outline2.length - 1; index2 >= 0 && hits.length < 30; index2 -= 1) {
         const entry = outline2[index2];
         if (hidden.includes(entry.turn)) continue;
-        for (const raw of [entry.response, entry.prompt]) {
-          const text = stripHeader(raw ?? "").replace(/\s+/g, " ").trim();
+        for (const role of ["response", "prompt"]) {
+          const text = stripHeader(entry[role] ?? "").replace(/\s+/g, " ").trim();
           const at2 = text.toLowerCase().indexOf(wanted);
           if (at2 < 0) continue;
           const from = Math.max(0, at2 - 24);
-          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60)]);
+          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60), entry._synthetic === true, role, role === "response" ? entry.messageId : void 0]);
           break;
         }
       }
@@ -70139,15 +70196,15 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     run: () => actions.openAgent(agent.id)
   }));
   if (agents.length) sections.push(["DSH Agent", agents]);
-  const messages = JSON.parse(found).map(([id, turn, snippet]) => {
+  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic, role, messageId]) => {
     const bot = roster.byId[id];
-    const room2 = roster.roomsById[id];
+    const room2 = rooms.get(id);
     return {
       key: `${id}:${turn}`,
       title: bot?.name ?? room2?.name ?? t("Bot"),
       subtitle: snippet,
       avatar: bot ? (0, import_react86.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react86.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
-      run: () => actions.openSession(id)
+      run: () => actions.openSession(id, { turn, snippet, role, ...synthetic ? { synthetic } : {}, ...room2 ? { group: true } : {}, ...messageId ? { messageId } : {} })
     };
   });
   if (messages.length) sections.push([t("Messages"), messages]);
@@ -77509,7 +77566,7 @@ function apply(ctx) {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: (id) => isAgentSessionId(id),
-    openSession: (id) => {
+    openSession: (id, message) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
       navSeq += 1;
       const target = partFor(id);
@@ -77517,6 +77574,9 @@ function apply(ctx) {
       ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null } : state);
       setPlain(false);
       show2(target);
+      const jump = messageJumpTarget(id, message);
+      const nav = navSeq;
+      if (jump && target === id) jumpToMountedMessage(document, jump, mainView, () => nav === navSeq);
     },
     retryOpening: (target) => {
       if (!target) return;
