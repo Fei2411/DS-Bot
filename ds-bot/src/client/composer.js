@@ -250,6 +250,28 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
       }
     }
   }, [quote?.token])
+  // The Reader's "Add to chat": text for this composer, put in once and kept beside what
+  // the user already typed.
+  const draft = useUi(state => (state.draft?.sessionId === sessionId ? state.draft : null))
+  useEffect(() => {
+    if (!draft || !inputActions) return
+    actions.clearDraftInsert(draft.token)
+    inputActions.insertText(`${draft.text}\n\n`, inputActions.captureInsertion())
+    syncHostAncestors(composerRoot.current)
+    const box = composerRoot.current?.closest?.('[data-bt-composer]')?.querySelector?.('[data-bt-composer-input]')
+      ?? document.querySelector('[data-bt-composer] [data-bt-composer-input]')
+    if (box && typeof box.focus === 'function') {
+      box.focus()
+      if (typeof box.value === 'string' && typeof box.setSelectionRange === 'function') {
+        const end = box.value.length
+        box.setSelectionRange(end, end)
+      } else if (typeof HTMLElement !== 'undefined' && box instanceof HTMLElement) {
+        const selection = window.getSelection?.()
+        selection?.selectAllChildren(box)
+        selection?.collapseToEnd()
+      }
+    }
+  }, [draft?.token])
   if (sessionId === undefined) return null
   // With DSH Web's Voice Input UI plugin on, its own microphone sits in this composer.
   // DS Bot's own desktop window provides no separate DSH UI mic, so it keeps this button

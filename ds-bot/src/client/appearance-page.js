@@ -13,6 +13,7 @@ import { backgroundPaint, DEFAULT_APPEARANCE_CHANGE, leaveSafeAppearance, onSafe
 import { call } from './api.js'
 import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, fontStack, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, MAX_FONT, READABLE, readAppearance, readThemeFile, SURFACE, themeFile, utf8Length } from '../shared/appearance.js'
 import { Segmented, useLinger } from './motion.js'
+import { LayoutChoice, sideLayoutOf } from './side-layout-ui.js'
 import { registerPopupOwner } from './popup-ownership.js'
 import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { measureSelectPlace } from './select-menu.js'
@@ -747,6 +748,9 @@ export function AppearancePage({ roster, actions, run, Section, Row, Choice, Swi
       layoutOf(prefs) === 'flat' ? h(Row, { label: t('Text width') }, h(Slider, { label: t('Text width'), value: flatWidthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
       h(Row, { label: t('Bubble width') }, h(Slider, { label: t('Bubble width'), value: widthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: width => run(actions.setPrefs({ width })) })),
       h(Row, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
+    h(Section, { key: 'side-apps', title: t('Side Apps') },
+      h(Row, { label: t('Side App layout for new conversations'), hint: t('Each Bot and group keeps the layout it was made with. Change one in its own settings.') },
+        h(LayoutChoice, { label: t('Side App layout for new conversations'), value: sideLayoutOf(prefs), onPick: sideLayout => run(actions.setPrefs({ sideLayout })) }))),
     h(Section, { key: 'motion', title: t('Motion'), tour: 'motion' },
       h(Row, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
       h(Row, { label: t('Bot animation') }, h(Choice, { label: t('Bot animation'), value: motion, options: MOTIONS, className: 'bt-motion-seg', pick: id => run(actions.setPrefs({ motion: id })) }))),

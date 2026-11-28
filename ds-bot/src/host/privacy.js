@@ -12,7 +12,7 @@ import { openSessions, retiredTaskSessionIds } from './threads.js'
 // Older DSH releases lack @deepseek-ai/dsh-fs-patch; patchPathsOf also scans headers directly.
 const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
 
-const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path' }
+const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path', open_canvas: 'path', open_reader: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 const SEARCH_TOOLS = ['glob', 'grep']
 const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send', 'run_code']

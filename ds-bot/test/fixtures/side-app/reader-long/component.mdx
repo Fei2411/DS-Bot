@@ -1,0 +1,14 @@
+# MDX rendered as Markdown
+
+The Reader accepts `.mdx` in V1, but renders it as ordinary Markdown. The JSX
+below is inert text, never a component and never executed.
+
+export const answer = 42
+
+<Callout tone="warning">This must display as source-like Markdown content, not run.</Callout>
+
+## Still just Markdown
+
+- expressions like {answer} have no special meaning in V1
+- imports do not load
+- JSX does not create elements

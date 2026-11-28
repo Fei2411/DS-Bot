@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font: 15px/1.5 system-ui, sans-serif;
+  background: #f5f1e8;
+  color: #2b2620;
+}
+
+.shell {
+  max-width: 34rem;
+  margin: 3rem auto;
+  padding: 2rem;
+  border-radius: 18px;
+  background: #fffaf0;
+  box-shadow: 0 12px 32px rgb(43 38 32 / 12%);
+}
+
+.badge {
+  border-radius: 12px;
+}
+
+.status {
+  min-height: 1.5em;
+  color: #6f4f9f;
+}
+
+button {
+  padding: 0.55rem 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: #375edc;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}

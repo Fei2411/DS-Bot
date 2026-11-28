@@ -10,6 +10,8 @@ export const STORAGE = {
   agentSessions: 'ds-bot:agent-sessions',
   agentForks: 'ds-bot:pending-agent-forks',
   browserWidth: 'ds-bot:browser-width',
+  sideWidths: 'ds-bot:side-widths',
+  sideApps: 'ds-bot:side-apps',
   browserImportSource: 'ds-bot:browser-import-source',
   sidebar: 'ds-bot:sidebar',
   browsers: 'ds-bot.browser.v2',

@@ -69,6 +69,16 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   'connector-import',
   // Claims the computer's own post-upgrade release notes notice; phones track their own app version locally.
   'release-notes-claim',
+  // Side Apps act on this computer alone: `open` moves a window on it, and
+  // read/diff/preview/opened/bytes all read files out of the computer's own working
+  // folders. No phone authorization surface exists for them yet, so a paired phone
+  // stays refused rather than widening by default.
+  'side-app-open',
+  'side-app-read',
+  'side-app-diff',
+  'side-app-preview',
+  'side-app-opened',
+  'side-app-bytes',
   // Enables the host's DSH schedule plugin via pluginManager; engine plugin changes stay on this computer.
   'schedule-enable',
 ])

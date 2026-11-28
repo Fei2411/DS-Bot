@@ -80,6 +80,7 @@ export const TEAM_TOOLS = [
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability', 'use_pack', 'drop_pack', 'group_goal', 'group_task', 'list_connectors', 'request_connector',
   'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
+  'open_canvas', 'open_reader',
 ]
 // Team-meta, memory, and status-inspection tools do not count as external work progress
 // when checking Bot-to-Bot or group ping-pong loops.
@@ -102,6 +103,7 @@ export const INSTANT_WORK_TOOLS = new Set([
   'prepare_ds_bot_issue', 'request_secret', 'request_connector',
   'save_capability', 'delete_capability', 'attach_capability', 'detach_capability',
   'use_pack', 'drop_pack', 'task_send', 'task_stop',
+  'open_canvas', 'open_reader',
 ])
 
 // Pure silent/pass/stage-direction text produced on a Bot-triggered own-chat turn when
@@ -117,6 +119,7 @@ export const isSilentTurnText = text => {
 export const USER_UI_TOOLS = new Set([
   'show_view', 'ask_user', 'request_secret', 'request_connector',
   'mail_send', 'browser_handoff', 'computer_handoff', 'present_file',
+  'open_canvas', 'open_reader',
 ])
 
 // Short wrap-up / acknowledgement / standby texts used to detect ACK-of-ACK ping-pong
@@ -166,6 +169,7 @@ export const TASK_HIDDEN_TEAM_TOOLS = [
   'browser_handoff',
   'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
   'ask_user', 'show_view', 'request_secret', 'prepare_ds_bot_issue',
+  'open_canvas', 'open_reader',
 ]
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.

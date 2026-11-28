@@ -96,6 +96,9 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on session/event',
     'on agent/disposed',
     'effect ds-bot: deepseek services',
+    // side-app.js: the write/edit diff-base capture, then the module's own cleanup.
+    'on tools/execute',
+    'effect ds-bot: side apps',
     'effect ds-bot: chat index',
     'effect ds-bot: group rounds',
     'on session/event',

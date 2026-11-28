@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canvas fixture</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <img class="badge" src="assets/badge.svg" alt="fixture badge" width="48" height="48">
+    <h1>Draft counter</h1>
+    <p id="status" class="status">Waiting for input.</p>
+    <button id="increment" type="button">Increment</button>
+    <section id="nested-log" aria-live="polite"></section>
+    <form id="probe-form" method="post" action="https://formprobe.invalid/submit">
+      <button id="submit-probe" type="submit">Submit probe</button>
+    </form>
+    <img id="external-image" src="https://external.invalid/pixel.png" alt="external probe" width="1" height="1">
+  </main>
+  <script src="app.js"></script>
+  <script src="nested/extra.js"></script>
+  <script>
+    document.body.dataset.inlineReady = 'yes'
+    document.getElementById('probe-form')?.addEventListener('submit', () => {
+      document.body.dataset.formSubmitted = 'yes'
+    })
+    window.probeNetwork = async () => {
+      try {
+        await fetch('https://external.invalid/probe')
+        document.body.dataset.fetchResult = 'fulfilled'
+      } catch {
+        document.body.dataset.fetchResult = 'rejected'
+      }
+    }
+    window.probeTopAccess = () => {
+      try {
+        document.body.dataset.topAccess = String(window.top.location.href)
+      } catch {
+        document.body.dataset.topAccess = 'blocked'
+      }
+    }
+    window.probeTopAccess()
+  </script>
+</body>
+</html>

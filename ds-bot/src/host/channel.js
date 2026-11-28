@@ -9,6 +9,7 @@ import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { cleanSideLayout } from '../shared/side-layout.js'
 import { presentedFileName } from '../shared/group-replies.js'
 import { COMPUTER_APPEARANCE_FIELDS } from '../shared/appearance.js'
 
@@ -267,6 +268,9 @@ export function install(rt) {
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
     // Release notes state for local windows (excluded from remote/relay payloads).
     releaseNotes: rt.releaseNotesView?.() ?? null,
+    // Side App opens no window has claimed yet. An open appears when a tool call ends,
+    // with no revision bump, so it rides on the live fields.
+    sideAppOpens: rt.sideAppOpensView?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -284,7 +288,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'job-list', 'job-read', 'session-controls', 'session-commands', 'session-skills', 'session-files', 'workspace-list', 'workspace-read', 'workspace-changes', 'workspace-watch', 'workspace-unwatch', 'workspace-open', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'engine-feedback-list', 'engine-web-providers', 'engine-model-catalog', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'job-list', 'job-read', 'session-controls', 'session-commands', 'session-skills', 'session-files', 'workspace-list', 'workspace-read', 'workspace-changes', 'workspace-watch', 'workspace-unwatch', 'workspace-open', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'engine-feedback-list', 'engine-web-providers', 'engine-model-catalog', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail', 'side-app-open', 'side-app-read', 'side-app-diff', 'side-app-preview', 'side-app-opened', 'side-app-bytes'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -448,6 +452,13 @@ export function install(rt) {
       else delete state.prefs.approvalModel
     }
     rt.appearancePrefs(body)
+    // The layout new conversations start with; each keeps the one it was made with.
+    if (body.sideLayout !== undefined) {
+      const cleaned = cleanSideLayout(body.sideLayout)
+      if (!cleaned.ok) throw invalid('Side App layout must be docked, drawer or centered')
+      if (cleaned.value === null || cleaned.value === 'docked') delete state.prefs.sideLayout
+      else state.prefs.sideLayout = cleaned.value
+    }
     return { secretShellModeChanged, secretProvidersChanged }
   }
 
@@ -470,7 +481,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, userQuestions: _uq, sessionQueues: _sq, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, userQuestions: _uq, sessionQueues: _sq, sideAppOpens: _sao, ...remoteLive } = answer.value
           const liveValue = remote
             ? {
               ...remoteLive,
@@ -1082,6 +1093,15 @@ export function install(rt) {
           if (typeof body.sessionId !== 'string' || body.sessionId === '' || typeof body.cardId !== 'string' || body.cardId === '') return fail('Nothing to delete', 'bot/invalid')
           await rt.load()
           return ok(await rt.btwDelete({ sessionId: body.sessionId, cardId: body.cardId }))
+        }
+        case 'side-app-open':
+        case 'side-app-read':
+        case 'side-app-diff':
+        case 'side-app-preview':
+        case 'side-app-opened':
+        case 'side-app-bytes': {
+          await rt.load()
+          return ok(await rt.sideAppEndpoint(endpoint, body))
         }
         // Side chats in the Bot's panel: each question is an aside on a fresh
         // snapshot of this Bot's private chat; the earlier finished pairs of

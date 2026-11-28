@@ -1,0 +1,1 @@
+Plain text is outside Reader V1. The open_reader tool must refuse this file even though it is readable UTF-8 text.

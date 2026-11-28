@@ -17,6 +17,8 @@ import { MemoryDialog } from './memory-panel.js'
 import { reducedMotion, useLinger } from './motion.js'
 import { OpeningCover, openingModel } from './opening.js'
 import { OverlayBoundary } from './overlay-boundary.js'
+import { effectiveSideLayout } from '../shared/side-layout.js'
+import { SideAppOpens } from './side-app-opens.js'
 import { settingsOwnsKeyboard } from './overlay-hooks.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
@@ -24,6 +26,7 @@ const DIALOG_EXIT_MS = 160
 const MENU_EXIT_MS = 120
 
 const useDefaultFrame = () => ({ viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 })
+const NO_TABS = []
 const useDefaultSidebarPref = () => 'open'
 const useDefaultFalse = () => false
 const useDefaultNull = () => null
@@ -48,14 +51,18 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     previous.current = current
     if (current) actions.followPanel?.(current)
   }, [current])
-  const open = ui.details ? { id: ui.details, view: ui.view ?? 'details', renaming: ui.renaming, tab: ui.tab, side: ui.side, task: ui.task } : null
+  const open = ui.details ? { id: ui.details, view: ui.view ?? 'details', renaming: ui.renaming, tab: ui.tab, side: ui.side, task: ui.task, fileTab: ui.fileTab } : null
+  // The panel draws in its conversation's own layout. DSH's workspace view has no Bot or
+  // group behind it and stays docked.
+  const subject = open ? roster.byId[open.id] ?? roster.roomsById?.[open.id] : undefined
+  const sideLayout = open && open.view !== 'workspace' ? effectiveSideLayout(subject) : 'docked'
   // A panel that no longer fits folds away: its state stays open, it just is not
   // mounted — the usual exit plays and the webview goes with it — until the room
   // returns and it shows again on its own.
   const layout = frameLayout({
     viewport: frameSnap.viewport, sidebarWidth: frameSnap.sidebarWidth,
     pref, drawer: ui.leftDrawer === true,
-    panel: open ? { view: open.view, yielded: ui.panelYield === true } : null,
+    panel: open ? { view: open.view, yielded: ui.panelYield === true, layout: sideLayout } : null,
   })
   const shown = open !== null && layout.panel !== 'folded' ? open : null
   const [kept, setKept] = useState(shown)
@@ -63,7 +70,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     if (shown) { setKept(shown); return undefined }
     const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS)
     return () => clearTimeout(timer)
-  }, [ui.details, ui.view, ui.renaming, ui.tab, ui.side, ui.task, shown === null])
+  }, [ui.details, ui.view, ui.renaming, ui.tab, ui.side, ui.task, ui.fileTab, shown === null])
   const pane = shown ?? kept
   // The settings shell draws the dialog while DS Bot holds the seat.
   const shellHeld = useReadSettingsShellHeld(value => value)
@@ -211,13 +218,15 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   return h(Fragment, null,
     h(OverlayBoundary, { key: 'ds-bot:notifications', name: 'notifications', notify: false },
       h(NotificationWatcher, { useSessions, useSessionStatus, useRoster, actions })),
+    h(OverlayBoundary, { key: 'ds-bot:side-app-opens', name: 'side-app-opens', notify: false },
+      h(SideAppOpens, { useRoster, useSessions, actions })),
     opening ? h(OverlayBoundary, { name: 'opening', reset: opening.id, notify: false },
       createPortal(h(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)) : null,
     pane ? h(OverlayBoundary, {
       name: 'panel', active: shown !== null, notify: shown !== null,
-      reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}:${workspace?.active ?? ''}`,
+      reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}:${pane.fileTab ?? ''}:${workspace?.active ?? ''}`,
       onDismiss: () => actions.closePanel?.(), actions,
-    }, createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds, workspace }), document.body)) : null,
+    }, createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', floating: layout.panel === 'floating', layout: layout.panel === 'overlay' ? 'docked' : sideLayout, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds, workspace, fileTabs: ui.fileTabs?.[roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id] ?? NO_TABS }), document.body)) : null,
     ui.newChat ? h(OverlayBoundary, {
       name: 'new-chat', reset: `${ui.newChat}:${ui.newChatSection ?? ''}`,
       onDismiss: () => (actions.closeNewChat ?? actions.closeOverlay)?.(), actions,

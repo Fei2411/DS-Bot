@@ -5,10 +5,13 @@
 // the chat. These rules are pure so tests can drive them; the DOM side lives in
 // frame-watch.js.
 import { STORAGE } from './storage.js'
+import { PANEL_MINIMUMS } from './side-apps.js'
 
 export const MIN_CHAT = 420
 export const RAIL_WIDTH = 88
-export const PANEL_MIN = { details: 320, browser: 360, side: 320, workspace: 360 }
+// What each panel view needs besides the chat; side-apps.js owns the shared
+// entries, and DSH's workspace panel keeps its own floor.
+export const PANEL_MIN = { ...PANEL_MINIMUMS, workspace: 360 }
 // The shell collapses its own sidebar below this width.
 export const DSH_NARROW = 1024
 // What the shell's collapsed track takes from the window. A phone-width shell parks the
@@ -41,20 +44,24 @@ export const nextCollapsedWidth = ({ measured, collapsed, animating = false, las
 /**
  * @param {{viewport: number, sidebarWidth: number,
  *   pref: 'open'|'rail'|'hidden', drawer?: boolean,
- *   panel: null | {view: string, yielded: boolean}}} input
- * @returns {{left: 'open'|'rail'|'drawer'|'hidden', panel: 'none'|'shown'|'folded'|'overlay', column: number, room: number}}
+ *   panel: null | {view: string, yielded: boolean, layout?: 'docked'|'drawer'|'centered'}}} input
+ * @returns {{left: 'open'|'rail'|'drawer'|'hidden', panel: 'none'|'shown'|'folded'|'overlay'|'floating', column: number, room: number}}
  *   `column` is what the left column occupies: its full width when open, nothing
  *   when hidden, else the rail's — a drawer floats over the rail's place, so the
  *   chat does not move under it. New chat, Bot exchanges and voice mode start at
  *   this edge. `room` is the width the panel and the conversation share: the
- *   viewport minus `column`.
+ *   viewport minus `column`. A `drawer` or `centered` panel floats over the chat and
+ *   shares nothing with it: it is `floating` whatever the room, and never folds or
+ *   moves the left column. Below its own floor it covers the window like any overlay.
  */
 export function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
   const fits = pref === 'open' && viewport >= sidebarWidth + MIN_CHAT
   let left = pref === 'hidden' ? 'hidden' : fits ? 'open' : drawer && pref === 'open' ? 'drawer' : 'rail'
   let occupied = left === 'open' ? sidebarWidth : left === 'hidden' ? 0 : RAIL_WIDTH
   let panelState = 'none'
-  if (panel !== null) {
+  if (panel !== null && floatsOver(panel.layout)) {
+    panelState = viewport >= (PANEL_MIN[panel.view] ?? PANEL_MIN.details) ? 'floating' : 'overlay'
+  } else if (panel !== null) {
     const need = (PANEL_MIN[panel.view] ?? PANEL_MIN.details) + MIN_CHAT
     if (occupied + need <= viewport) panelState = 'shown'
     else if (panel.yielded === true) {
@@ -66,6 +73,9 @@ export function frameLayout({ viewport, sidebarWidth, pref, drawer = false, pane
   }
   return { left, panel: panelState, column: occupied, room: Math.max(0, viewport - occupied) }
 }
+
+/** The layouts whose panel floats over the chat instead of sharing the window with it. */
+export const floatsOver = layout => layout === 'drawer' || layout === 'centered'
 
 /**
  * Where a drag of the column's edge to `x` lands: short of RAIL_SNAP the rail;

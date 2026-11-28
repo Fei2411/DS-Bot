@@ -7,6 +7,7 @@ import { Segmented, useLinger } from './motion.js'
 import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { PermissionPicker } from './permission-picker.js'
 import { ChatBackgroundSection } from './appearance-page.js'
+import { SideLayoutCard } from './side-layout-ui.js'
 import { t } from './i18n.js'
 import { ApprovalSettings } from './approval-settings.js'
 
@@ -147,6 +148,7 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
           : admin ? t('{name} leads this group: it can call members with @Name, change the group, and post here.', { name: admin.name })
             : t('No admin yet. An admin can call members with @Name, change the group, and post here.')))),
     h(ChatBackgroundSection, { owner: room, ownerKind: 'room', actions, run, Section: Card }),
+    h(SideLayoutCard, { subject: room, Card, run, setFlags: actions.setFlags }),
     h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: room.pinned === true, onChange: pinned => run(actions.setFlags(room.id, { pinned })) }),
       h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: room.hidden === true, onChange: hidden => run(actions.setFlags(room.id, { hidden })) })),

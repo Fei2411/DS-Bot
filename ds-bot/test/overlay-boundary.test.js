@@ -331,13 +331,13 @@ test('Overlays wraps every overlay and watcher child in an OverlayBoundary', () 
   })
 
   const children = tree.props.children.filter(Boolean)
-  assert.equal(children.length, 11, 'all 11 overlay slots are mounted in the test fixture')
+  assert.equal(children.length, 12, 'all 12 overlay slots are mounted in the test fixture')
   for (const child of children) {
     assert.equal(child.type, OverlayBoundary, `expected OverlayBoundary wrapper, got ${child.type?.name ?? String(child.type)}`)
   }
   const names = children.map(child => child.props.name)
   assert.deepEqual(names, [
-    'notifications', 'opening', 'panel', 'new-chat', 'palette',
+    'notifications', 'side-app-opens', 'opening', 'panel', 'new-chat', 'palette',
     'group-search', 'exchange', 'voice', 'menu', 'settings', 'memory',
   ])
   const openingBoundary = children.find(child => child.props.name === 'opening')

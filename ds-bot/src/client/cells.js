@@ -6,6 +6,7 @@ import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText,
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, EyeIcon, HideIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { detectSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
 import { ChangesCard } from './changes-card.js'
+import { SideAppCard } from './side-app-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
@@ -1490,7 +1491,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
 const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'computer_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
+const DRAWN = new Set(['message_bot', 'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'computer_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget', 'open_canvas', 'open_reader'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
 export const isBotTool = name => DRAWN.has(name) || isComputerCall(name)
@@ -1605,6 +1606,9 @@ function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWor
       return h(ConnectorToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
     case 'mail_send':
       return h(MailToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
+    case 'open_canvas':
+    case 'open_reader':
+      return h(SideAppCard, { tool, done, isError: call.isError === true, content: call.content, arg, sessionId, actions })
     case 'browser_handoff':
       return h(HandoffCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
     case 'computer_handoff':

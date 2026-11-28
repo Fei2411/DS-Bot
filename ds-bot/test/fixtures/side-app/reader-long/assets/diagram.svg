@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="320" height="120" role="img" aria-label="Reader fixture diagram">
+  <rect width="320" height="120" rx="16" fill="#f5f1e8"/>
+  <rect x="24" y="28" width="80" height="64" rx="10" fill="#375edc"/>
+  <rect x="122" y="28" width="80" height="64" rx="10" fill="#6f4f9f"/>
+  <rect x="220" y="28" width="76" height="64" rx="10" fill="#b4566f"/>
+  <path d="M104 60h18M202 60h18" stroke="#2b2620" stroke-width="4" stroke-linecap="round"/>
+  <text x="64" y="66" text-anchor="middle" font-family="system-ui" font-size="14" fill="white">read</text>
+  <text x="162" y="66" text-anchor="middle" font-family="system-ui" font-size="14" fill="white">diff</text>
+  <text x="258" y="66" text-anchor="middle" font-family="system-ui" font-size="14" fill="white">send</text>
+</svg>
