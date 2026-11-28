@@ -402,27 +402,31 @@ function findLatexClose(text, start, closer, singleLine = false) {
 
 const CURRENCY_NUM_RE = /^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[kKmMbBtT](?![A-Za-z0-9_]))?/
 
-function findNextSingleDollar(text, start) {
+function findNextSingleDollar(text, start, includeEscaped = false) {
   for (let i = start; i < text.length; i += 1) {
     const ch = text[i]
-    if (ch === '\n' || ch === '`') return -1
-    // remark-math treats backslashes inside an open inline span as literal.
-    if (ch === '\\' && text[i + 1] !== '$') { i += 1; continue }
+    if (ch === '\n' || ch === '`') return null
+    if (ch === '\\') {
+      // remark-math treats backslashes inside an open inline span as literal.
+      if (includeEscaped && text[i + 1] === '$' && text[i + 2] !== '$') {
+        return { index: i + 1, escaped: true }
+      }
+      i += 1
+      continue
+    }
     if (ch === '$') {
-      if (text[i + 1] === '$') return -1
-      return i
+      if (text[i + 1] === '$') return null
+      return { index: i, escaped: false }
     }
   }
-  return -1
+  return null
 }
 
-function isCurrencyOpeningDollar(text, open, close) {
-  if (close === -1) return false
+function isCurrencyOpeningDollar(text, open, closer) {
+  if (!closer) return false
+  const { index: close, escaped } = closer
   if (open > 0 && /[A-Za-z0-9]/.test(text[open - 1])) return false
-  // Keep literal backslash pairs but exclude the closing dollar's Markdown escape from the price heuristic.
-  let escapeStart = close
-  while (text[escapeStart - 1] === '\\') escapeStart -= 1
-  const inner = text.slice(open + 1, close - (close - escapeStart) % 2)
+  const inner = text.slice(open + 1, escaped ? close - 1 : close)
   if (inner === '') return false
   const numMatch = CURRENCY_NUM_RE.exec(inner)
   if (!numMatch) return false
@@ -508,14 +512,20 @@ export function escapeCurrencyDollars(text) {
       }
       return i + 2
     }
-    const close = findNextSingleDollar(src, i + 1)
-    if (isCurrencyOpeningDollar(src, i, close)) {
+    let closer = findNextSingleDollar(src, i + 1, true)
+    let currency = isCurrencyOpeningDollar(src, i, closer)
+    // Keep the legacy unescaped lookahead if an escaped candidate is inconclusive.
+    if (!currency && closer?.escaped) {
+      closer = findNextSingleDollar(src, closer.index + 1)
+      currency = isCurrencyOpeningDollar(src, i, closer)
+    }
+    if (currency) {
       flushSeg(i)
       out.push('\\$')
       return i + 1
     }
     // Real inline math span `$...$`: skip verbatim through closing `$` so we don't inspect its body.
-    if (close !== -1) return close + 1
+    if (closer) return closer.index + 1
     return i + 1
   })
 }
