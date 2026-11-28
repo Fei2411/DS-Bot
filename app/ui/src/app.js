@@ -503,6 +503,7 @@ export function App() {
     const isSettingsOpen = Boolean(uiSnap.settings)
     const isPaletteOpen = Boolean(uiSnap.palette)
     const focusComposerSoon = () => {
+      closeSidebarPanel()
       const focus = () => {
         if (typeof document === 'undefined') return
         if (document.querySelector('[aria-modal="true"]')) return
@@ -675,7 +676,7 @@ export function App() {
         focusComposerSoon()
       }
     }
-  }, [team, actions])
+  }, [team, actions, closeSidebarPanel])
 
   // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 66 releaseNotes > 61 memory > 60 settings > dialogs > inbox).
   const activeModalOf = useCallback(resolveActiveModal, [])

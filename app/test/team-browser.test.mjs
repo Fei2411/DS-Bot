@@ -914,7 +914,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
     'plugin-runtime.js': 'export const pluginRuntime = {}; export const usePluginPage = () => {}',
     'right-panel.js': 'export const WorkspacePaneBody = () => null; export const buildWorkspaceTabs = () => []',
     'shortcuts.js': 'export const ShortcutsDialog = () => null; export const matchGlobalShortcut = (...args) => globalThis.__testMatchShortcut?.(...args) ?? null; export const resolveActiveModal = () => null; export const setLiveShortcutContext = () => {}',
-    'shortcuts-model.js': 'export const SHORTCUT_BY_ID = {}; export const isCommandAvailable = () => false; export const isShortcutRecording = () => false; export const shortcutsStore = { getSnapshot: () => ({}), subscribe: () => () => {} }; export const visibleClassicSessions = () => []; export const visibleSidebarTargets = () => []',
+    'shortcuts-model.js': 'export const SHORTCUT_BY_ID = {}; export const isCommandAvailable = () => false; export const isShortcutRecording = () => false; export const shortcutsStore = { getSnapshot: () => ({}), subscribe: () => () => {} }; export const visibleClassicSessions = () => []; export const visibleSidebarTargets = () => globalThis.__testSidebarTargets ?? []',
     'sidebar-slots.js': 'export const useSidebarPanel = (_registry, id) => globalThis.__testSidebarPanels?.get(id); export const SidebarFooterActions = () => null; export const SidebarMainPanel = () => null; export const SidebarSlotRows = () => null',
     'slots.js': 'export const RIGHT_PANE_TAB_SLOT = "rp"; export const ShellOverlayHost = () => null; export const slots = {}; export const useSlotEntries = () => []',
     'team.js': 'export const createTeam = () => globalThis.__testTeam',
@@ -1265,6 +1265,26 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   assert.equal(panelNode(), undefined)
   assert.equal(chatSeat().props.hidden, false)
   assert.equal(chatCovered, false)
+
+  const focusFrames = []
+  let composerFocuses = 0
+  sandbox.requestAnimationFrame = fn => focusFrames.push(fn)
+  doc.querySelector = selector => selector === '[data-bt-composer-input]' && !chatSeat().props.hidden
+    ? { focus() { composerFocuses += 1 } }
+    : null
+  sandbox.__testSidebarTargets = [{ id: shownId, kind: 'bot' }]
+  for (const shortcut of ['focus-composer', 'switch-bot-1']) {
+    botSidebar.props.renderPluginRows(true).props.onSelectPanel('sample')
+    tree = render()
+    assert.equal(chatSeat().props.hidden, true)
+    sandbox.__testMatchShortcut = () => shortcut
+    fireKey()
+    tree = render()
+    assert.equal(chatSeat().props.hidden, false, shortcut)
+    assert.equal(focusFrames.length, 1)
+    focusFrames.shift()()
+  }
+  assert.equal(composerFocuses, 2)
 
   surfaceMode = 'agent'
   tree = render()
