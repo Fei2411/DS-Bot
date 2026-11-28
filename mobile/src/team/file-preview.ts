@@ -72,7 +72,10 @@ function staticHtml(source: string) {
     const body = node.children.map(child => render(child, depth + 1)).join('')
     if (!KEEP.has(node.name)) return body
     let attrs = ''
-    if (node.name === 'ol') attrs = numericAttribute(node, 'start', /^-?[0-9]+$/)
+    if (node.name === 'ol') {
+      attrs = numericAttribute(node, 'start', /^-?[0-9]+$/)
+      if ('reversed' in node.attribs) attrs += ' reversed'
+    }
     if (node.name === 'li') attrs = numericAttribute(node, 'value', /^-?[0-9]+$/)
     if (node.name === 'td' || node.name === 'th') {
       attrs = numericAttribute(node, 'colspan', /^0*[1-9][0-9]*$/) + numericAttribute(node, 'rowspan', /^[0-9]+$/)

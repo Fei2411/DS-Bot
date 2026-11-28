@@ -51,6 +51,15 @@ test('previews preserve numeric list numbering and table spans only on supported
   assert.match(markdown.content, /<ol start="3">/)
 })
 
+test('HTML previews preserve countdown lists with a bare reversed attribute', async () => {
+  const html = '<ol start="10" reversed="&quot; onclick=&quot;bad"><li>Ten</li><li>Nine</li></ol>'
+    + '<ul reversed><li reversed>Not a countdown</li></ul>'
+  assert.deepEqual(await preview({ name: 'Notes.html', seq: 1 }, html), {
+    kind: 'html',
+    content: '<ol start="10" reversed><li>Ten</li><li>Nine</li></ol><ul><li>Not a countdown</li></ul>',
+  })
+})
+
 test('text previews honor UTF-16 LE and BE byte order marks', async () => {
   const le = Uint8Array.from([0xff, 0xfe, 0x2d, 0x4e, 0x3d, 0xd8, 0x00, 0xde])
   const be = Uint8Array.from([0xfe, 0xff, 0x4e, 0x2d, 0xd8, 0x3d, 0xde, 0x00])
