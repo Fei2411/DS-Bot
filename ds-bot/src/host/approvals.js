@@ -32,7 +32,10 @@ async function nativeEvidence(ctx, exec) {
     // argument the model typed. Targets that cannot be bound stay absent, which
     // the review treats as unknown instead of guessing.
     const targets = await resolveFileTargets(ctx, { name: exec.name, args: evidence.arguments, agent: exec.agent, signal: exec.signal }).catch(() => undefined)
-    return targets === undefined ? evidence : { ...evidence, targets }
+    let sessionCwd
+    try { sessionCwd = await ctx.get?.('workingDirectory')?.ensure?.(exec.agent, exec.signal) } catch { sessionCwd = undefined }
+    const cwd = typeof sessionCwd === 'string' && isAbsolute(sessionCwd) ? sessionCwd : undefined
+    return targets === undefined ? evidence : { ...evidence, targets, ...(cwd === undefined ? {} : { sessionCwd: cwd, cwd }) }
   }
   if (!['bash', 'pwsh'].includes(exec.name)) return evidence
   const directories = ctx.get?.('workingDirectory')
@@ -413,6 +416,14 @@ export function install(rt) {
         if (reviewer.signal.aborted || !enabled(owner)) throw reviewError('superseded', 'Automatic review was invalidated')
         if (decision.decision === 'manual') {
           manual(decision.reasonCode)
+          auditFinal(decision)
+          return
+        }
+        // A deterministic hard-floor refusal is final when it is produced:
+        // later context or evidence drift cannot reopen it as a manual card.
+        if (decision.hardFloor === true) {
+          if (!pending.has(id) || entry.answering) return
+          complete(OUTCOMES[decision.decision])
           auditFinal(decision)
           return
         }

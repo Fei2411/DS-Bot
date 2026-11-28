@@ -5,7 +5,7 @@
 ## 范围与参考
 
 - 沿用 DSH `workspace-write` + `ask`、群统一模式优先、子会话更窄的沙箱和已有 `approval/request` 触发点。现有宿主硬守卫继续执行。配置沿用团队审批模型设置和现有模型 API，外部 CLI 继续使用适配器的单次回复。V2 不引入任务 Grant、常驻允许规则或 DSH 核心补丁。浏览器支付、隐私外发、持久目录授权和原来需要用户接管的路径继续遵守自身规则。此次不扩大对尚未发出审批请求的工具或外部 CLI 的拦截面。
-- Codex [政策模板](<H:/Reference/codex/codex-rs/prompts/templates/guardian/policy_template.md>) 和 [默认政策](<H:/Reference/codex/codex-rs/prompts/templates/guardian/policy.md>) 定义风险、授权和证据门槛。[动作结构](<H:/Reference/codex/codex-rs/ext/guardian-reviewer/src/approval_request.rs>) 使用实际参数、执行环境、目录和权限。[审查设置](<H:/Reference/codex/codex-rs/ext/guardian-reviewer/src/settings.rs>) 将 reviewer 权限与只读上限取交集，审批策略为 `Never`。[审查生命周期](<H:/Reference/codex/codex-rs/core/src/guardian/review_request.rs>) 跟踪用户授权与上下文版本、截止时间及取消。DS Bot 使用公开文件接口实现专用只读取证，不引入通用 shell、会话复用、多 reviewer 路由或网络代理。
+- Codex 的 Guardian 政策模板与默认政策定义风险、授权和证据门槛；其审批请求结构使用实际参数、执行环境、目录和权限；审查设置将 reviewer 权限与只读上限取交集，审批策略为 `Never`；审查生命周期跟踪用户授权与上下文版本、截止时间及取消。DS Bot 使用公开文件接口实现专用只读取证，不引入通用 shell、会话复用、多 reviewer 路由或网络代理。
 - 可信来源遵循 [角色与权限](2026-10-07-roles-and-permissions.md)。用户当前 shell 环境已被攻陷不纳入插件威胁模型。宿主评估能观察到的命令、参数、配置和实际迹象，无须证明每个可执行体、子进程或依赖的所有未来行为。已观察到的显式环境覆盖、脚本间接执行、敏感访问、陌生下载源等仍须作为证据评估。
 
 ## 风险、授权与裁决

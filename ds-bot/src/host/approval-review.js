@@ -226,7 +226,7 @@ function groupContext(direct, records, relaySessionId) {
   const lines = []
   const claimed = new Set()
   for (const record of records) {
-    const base = record.botId ? 'bot' : record.kind === 'user' || record.who === 'User' ? 'user' : 'context'
+    const base = record.schedule === true ? 'schedule' : record.botId ? 'bot' : record.kind === 'user' || record.who === 'User' ? 'user' : 'context'
     if (base !== 'user' || typeof record.text !== 'string') {
       lines.push({ source: base === 'user' ? 'user-unverified' : base, text: record.text })
       continue
@@ -247,10 +247,23 @@ function groupContext(direct, records, relaySessionId) {
     }
     if (!bound) lines.push({ source: 'user-unverified', text: record.text })
   }
-  // Events the ledger has not digested join after it, in their own order.
-  for (const [index, line] of trusted.entries()) {
-    if (!claimed.has(index)) lines.push(trustedLine(line))
+  // Events the ledger has not digested join in sequence order. An event older
+  // than the newest claimed in-window user event belongs before that window:
+  // appending it would invert authorize-then-revoke into revoke-then-authorize.
+  let lastClaimedSeq
+  for (const index of claimed) {
+    if (Number.isInteger(trusted[index]?.seq)) lastClaimedSeq = Math.max(lastClaimedSeq ?? trusted[index].seq, trusted[index].seq)
   }
+  const beforeWindow = []
+  const afterWindow = []
+  for (const [index, line] of trusted.entries()) {
+    if (claimed.has(index)) continue
+    const entry = trustedLine(line)
+    if (lastClaimedSeq !== undefined && Number.isInteger(line.seq) && line.seq <= lastClaimedSeq) beforeWindow.push(entry)
+    else afterWindow.push(entry)
+  }
+  lines.unshift(...beforeWindow)
+  lines.push(...afterWindow)
   // The snapshot records the relay identity explicitly: a rotation changes
   // the snapshot even when texts and event numbers coincide exactly.
   return { lines, relaySessionId }
@@ -321,24 +334,33 @@ export function scanShell(command) {
   let quote = null
   let tokenQuoted = false
   let tokenSingleQuoted = true
-  const pushToken = () => {
-    if (token === '' && !tokenQuoted) return
-    const substitution = !tokenSingleQuoted && /[$`]|\$\(|\$\{|\$\w/.test(token)
-    current.tokens.push({ text: token, substitution })
+  const resetToken = () => {
     token = ''
     tokenQuoted = false
     tokenSingleQuoted = true
+  }
+  const pushToken = () => {
+    if (token === '' && !tokenQuoted) return
+    if (redirecting) {
+      current.redirections.push(token)
+      redirecting = false
+      resetToken()
+      return
+    }
+    const substitution = !tokenSingleQuoted && /[$`]|\$\(|\$\{|\$\w/.test(token)
+    current.tokens.push({ text: token, substitution })
+    resetToken()
   }
   const pushSegment = () => {
     pushToken()
     if (current.tokens.length > 0 || current.redirections.length > 0) segments.push(current)
     current = { tokens: [], redirections: [] }
+    redirecting = false
   }
   let escapedFrom = null
   let redirecting = false
   for (let i = 0; i < command.length; i += 1) {
     const char = command[i]
-    if (quote === null && escapedFrom === null && char === '#') break
     if (escapedFrom !== null) {
       token += char
       if (escapedFrom !== "'") tokenSingleQuoted = false
@@ -353,21 +375,24 @@ export function scanShell(command) {
       if (quote === '"') tokenSingleQuoted = false
       continue
     }
+    if (char === '\r' || char === '\n') { pushSegment(); continue }
+    if (char === '#' && token === '' && !tokenQuoted) {
+      while (i + 1 < command.length && command[i + 1] !== '\n' && command[i + 1] !== '\r') i += 1
+      continue
+    }
     if (char === '"' || char === "'") { quote = char; tokenQuoted = true; if (char === '"') tokenSingleQuoted = false; continue }
     if (char === '\\') { escapedFrom = null; tokenSingleQuoted = false; i += 1; if (i < command.length) token += command[i]; continue }
-    if (/\s/.test(char)) { if (redirecting && token !== '') { current.redirections.push(token); token = ''; redirecting = false; continue } pushToken(); continue }
+    if (/\s/.test(char)) { pushToken(); continue }
     if (char === '>' || char === '<') {
       pushToken()
       // A redirection target attaches to the current segment as a file effect.
       redirecting = true
       continue
     }
-    if (char === ';' || char === '|' || char === '&') { pushSegment(); redirecting = false; continue }
-    if (redirecting) { current.redirections.push(token + char); token = ''; redirecting = false; continue }
+    if (char === ';' || char === '|' || char === '&') { pushSegment(); continue }
     tokenSingleQuoted = false
     token += char
   }
-  if (redirecting && token !== '') { current.redirections.push(token); token = ''; redirecting = false }
   pushSegment()
   return segments
 }
@@ -388,10 +413,11 @@ export function analyzeShell(command) {
   const composite = segments.length > 1
   const facts = []
   for (const segment of segments) {
-    if (segment.tokens.some(token => token.substitution)) opaque = 'substitution'
+    if (segment.tokens.some(token => token.substitution)) segment.opaque = 'substitution'
     for (const token of segment.tokens) {
-      if (/^(HOME|PATH|SHELL|COMSPEC|SystemRoot)=/i.test(token.text)) opaque = 'shadowed-variable'
+      if (/^(HOME|PATH|SHELL|COMSPEC|SystemRoot)=/i.test(token.text)) segment.opaque = 'shadowed-variable'
     }
+    if (segment.opaque !== undefined && opaque === undefined) opaque = segment.opaque
     if (segment.redirections.length > 0) facts.push({ redirections: segment.redirections.length })
     if (segment.tokens.length > 0) facts.push({ name: COMMAND_NAME(segment.tokens[0]) })
   }
@@ -439,7 +465,7 @@ export function externalAgentStructuredPayload(action) {
 // risk review untouched. Precision matters more than recall here: a doubtful
 // shape belongs to the model and the matrix, not to this floor.
 
-const ROOT_TARGETS = new Set(['/', '~', '$home', '%userprofile%', '$env:userprofile'])
+const ROOT_TARGETS = new Set(['/', '~', '$home', '${home}', '%userprofile%', '$env:userprofile'])
 const ROOTISH_SYSTEM = /^\/(?:etc|usr|bin|sbin|lib|lib64|boot|system|opt)(?:\/[^\s/]*)?$/
 
 function rootishTarget(token) {
@@ -493,7 +519,7 @@ function exfiltrationVisible(analysis) {
     if (tokens.length === 0) continue
     const name = COMMAND_NAME(segment.tokens[0])
     if (EGRESS_VERBS.has(name)) egressSeen = true
-    if (tokens.some(token => SECRETISH_PATH.test(token))) secretSeen = true
+    if (tokens.some(token => SECRETISH_PATH.test(token)) || segment.redirections.some(target => SECRETISH_PATH.test(target))) secretSeen = true
     if (name === 'printenv') secretSeen = true
     if (name === 'env' && tokens.slice(1).filter(token => !token.startsWith('-')).length === 0) secretSeen = true
     if (/^(?:get-childitem|gci|dir|ls)$/i.test(name) && tokens.slice(1).some(token => /^env:/i.test(token))) secretSeen = true
@@ -503,7 +529,6 @@ function exfiltrationVisible(analysis) {
 
 export function hardFloorShell(analysis) {
   if (!analysis || !Array.isArray(analysis.segments) || analysis.segments.length === 0) return undefined
-  if (analysis.opaque !== undefined) return undefined
   if (deletionHitsRoot(analysis)) return 'recursive deletion of a system root or home directory'
   if (exfiltrationVisible(analysis)) return 'credential material visibly leaving for the network'
   return undefined
@@ -526,12 +551,15 @@ const boundedText = text => typeof text === 'string' && text.length > INSPECT_TE
 // still sees that a credential exists without ever seeing it.
 export function redactSensitive(text) {
   if (typeof text !== 'string') return text
-  let out = text.replace(/^(\s*[^\s=:@"'/]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key|signature)[^\s=:@"'/]*\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gim,
+  let out = text.replace(/^(\s*(?:export\s+)?["']?[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key|signature)[A-Za-z0-9_.-]*["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gim,
     '$1[redacted-credential-value]')
+  out = out.replace(/(_authToken\s*=\s*)[^\s]+/gi, '$1[redacted-credential-value]')
+  out = out.replace(/([,{]\s*["']?[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key|signature)[A-Za-z0-9_.-]*["']?\s*:\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, '$1[redacted-credential-value]')
+  out = out.replace(/\b((?:authorization|proxy-authorization|x-api-key|x-auth-token|x-access-token)\s*:\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi, '$1[redacted-credential-value]')
   out = out.replace(/\/\/([^/\s:@]+):([^/\s@]+)@/g, '//$1:[redacted-credential-value]@')
   out = out.replace(/((?:bearer|basic)\s+)[A-Za-z0-9+/_.=-]{8,}/gi, '$1[redacted-credential-value]')
   out = out.replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[redacted-private-key]')
-  out = out.replace(/\b(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|(?:ghp|gho|ghu|ghs|ghr|github_pat|sk|sk_live|rk_live|pk_live|xox[baprs]|AKIA)[A-Za-z0-9_-]{8,})\b/g, '[redacted-credential-value]')
+  out = out.replace(/\b(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|(?:ghp|gho|ghu|ghs|ghr|github_pat|sk|sk_live|rk_live|pk_live|xox[baprs]|AKIA|npm_|glpat-)[A-Za-z0-9_-]{8,})\b/g, '[redacted-credential-value]')
   return out
 }
 
@@ -556,6 +584,29 @@ const fingerprintOf = (info) => {
   if (info === undefined) return 'absent'
   const token = info?.version === undefined ? '' : (typeof info.version === 'string' ? info.version : JSON.stringify(info.version))
   return `${info?.type ?? 'unknown'}:${info?.size ?? ''}:${token}`
+}
+
+function keyNamesOnly(text) {
+  const keys = []
+  const add = key => {
+    const clean = String(key ?? '').trim().replace(/^['"]|['"]$/g, '')
+    if (clean !== '' && !keys.includes(clean)) keys.push(clean.slice(0, 120))
+  }
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) Object.keys(parsed).forEach(add)
+      if (keys.length > 0) return keys.slice(0, 64)
+    } catch { /* not JSON: fall through to line shapes */ }
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const env = line.match(/^\s*(?:export\s+)?([^=\s#;]+)\s*=/)
+    if (env) { add(env[1]); continue }
+    const mapping = line.match(/^\s*["']?([A-Za-z0-9_.-]+)["']?\s*:/)
+    if (mapping) add(mapping[1])
+  }
+  return keys.slice(0, 64)
 }
 
 async function inspectTarget(rt, { cwd }, target, signal) {
@@ -592,6 +643,20 @@ async function inspectTarget(rt, { cwd }, target, signal) {
       size: info?.size,
       link: link?.type === 'symlink' ? 'symlink' : undefined,
       ...(escaped ? { linkEscapesScope: true } : {}),
+    }
+    const secretish = SECRETISH_PATH.test(target) || (typeof processPath === 'string' && SECRETISH_PATH.test(processPath))
+    if (secretish && !escaped) {
+      result.secretish = true
+      result.withheld = 'credential-bearing target; plaintext is not disclosed'
+      if (info?.type === 'file' && (info.size ?? 0) <= INSPECT_TEXT_MAX && typeof fs.readBytes === 'function') {
+        const bytes = await fs.readBytes(resolved, signal, INSPECT_TEXT_MAX)
+        const content = new TextDecoder().decode(bytes)
+        observations.push({ path, kind: 'content', processPath, fingerprint: `sha256:${createHash('sha256').update(bytes).digest('hex')}:size:${bytes.byteLength}` })
+        if (!content.includes('\u0000')) result.keysOnly = keyNamesOnly(content)
+      } else if ((info?.size ?? 0) > INSPECT_TEXT_MAX) {
+        result.note = 'exceeds the inspection size limit; key names were not read'
+      }
+      return { data: result, observations }
     }
     if (escaped) {
       result.error = 'the resolved target is outside the action directory; content was not read'
@@ -662,22 +727,30 @@ async function inspectProject(rt, { cwd }, _target, signal) {
         ...(parsed.packageManager ? { packageManager: parsed.packageManager } : {}),
         ...(parsed.engines ? { engines: parsed.engines } : {}),
         dependenciesCount: Object.keys(parsed.dependencies ?? {}).length + Object.keys(parsed.devDependencies ?? {}).length,
-        lifecycleHooks: Object.keys(parsed.scripts ?? {}).filter(key => /^(pre|post)/.test(key)),
+        lifecycleHooks: Object.keys(parsed.scripts ?? {}).filter(key => key === 'install' || key === 'prepare' || /^(pre|post)/.test(key)),
       }
     } catch { result.manifestError = 'unparseable' }
   } else if (manifestFile?.error !== undefined) result.manifestError = manifestFile.error
+  const lockfiles = []
+  const lockfileErrors = []
   for (const lock of ['package-lock.json', 'pnpm-lock.yaml', 'npm-shrinkwrap.json']) {
     const content = await read(lock)
     if (content?.text !== undefined) {
       const sources = new Set()
-      for (const match of content.text.matchAll(/https?:\/\/[^\s"']+/g)) {
-        try { sources.add(new URL(match[0]).hostname) } catch { /* not a url */ }
+      for (const match of content.text.matchAll(/(?:git\+https|git\+ssh|https?|ssh|git):\/\/[^\s"']+|(?:file|link):[^\s"']+/g)) {
+        if (/^(?:file|link):/.test(match[0])) sources.add(match[0])
+        else {
+          try { sources.add(new URL(match[0]).hostname) } catch { /* not a url */ }
+        }
       }
-      result.lockfile = { name: lock, sources: [...sources].slice(0, 16), size: content.text.length }
+      const all = [...sources]
+      lockfiles.push({ name: lock, sources: all.slice(0, 16), sourcesTruncated: Math.max(0, all.length - 16), size: content.text.length })
     } else if (content?.error !== undefined) {
-      result.lockfileError = { name: lock, error: content.error }
+      lockfileErrors.push({ name: lock, error: content.error })
     }
   }
+  if (lockfiles.length > 0) result.lockfiles = lockfiles
+  if (lockfileErrors.length > 0) result.lockfileErrors = lockfileErrors
   // Credential-bearing configuration never crosses as text: .npmrc is a
   // protected class by shape, so the host sends only which keys exist. The
   // script files are code the verdict must judge; they cross with credential
@@ -693,10 +766,13 @@ async function inspectProject(rt, { cwd }, _target, signal) {
   } else if (npmrc?.error !== undefined) result.npmrc = { present: true, error: npmrc.error }
   for (const config of ['.pnpmfile.cjs', 'pnpm-workspace.yaml']) {
     const content = await read(config)
+    const key = config.replace(/^\./, '').replace(/[^\w]/g, '_')
     if (content?.text !== undefined) {
-      result[config.replace(/^\./, '').replace(/[^\w]/g, '_')] = redactSensitive(boundedText(content.text.slice(0, 4096)))
+      const truncated = content.text.length > 4096
+      result[key] = { text: redactSensitive(content.text.slice(0, 4096)), truncated }
+      if (config === '.pnpmfile.cjs' && truncated) result.incomplete = 'the executable .pnpmfile.cjs evidence is truncated'
     } else if (content?.error !== undefined) {
-      result[`${config.replace(/^\./, '').replace(/[^\w]/g, '_')}Error`] = content.error
+      result[`${key}Error`] = content.error
     }
   }
   return { data: Object.keys(result).length > 0 ? result : { error: 'no project evidence found at the action directory' }, observations }
@@ -793,6 +869,18 @@ export async function reviewApproval(rt, { request, owner, evidence, validateEvi
   } catch {
     throw reviewError('stale-evidence', 'The native execution directory or arguments changed')
   }
+  const shellAnalysis = ['bash', 'pwsh'].includes(execution?.tool) ? analyzeShell(execution.arguments?.command) : undefined
+  // The deterministic hard floor runs before context collection or any model
+  // call. Its verdict is final and must not be downgraded by later drift.
+  if (shellAnalysis !== undefined) {
+    const floorHit = hardFloorShell(shellAnalysis)
+    if (floorHit !== undefined) {
+      return {
+        decision: 'reject', reasonCode: 'hard-denied', riskLevel: 'critical', authorization: 'unknown', hardFloor: true,
+        rationale: `Refused by the host hard floor: ${floorHit}.`, context: [], observations: [],
+      }
+    }
+  }
   const fullContext = await reviewContext(rt, owner, signal)
   const ref = rt.state.prefs.approvalModel || await rt.defaultBotModel()
   if (rt.isLocalAgentRef?.(ref)) throw reviewError('model-unavailable', 'Select a model API for approval review')
@@ -805,7 +893,6 @@ export async function reviewApproval(rt, { request, owner, evidence, validateEvi
   // protected material. Conversation text crosses as evidence because the
   // approval model is a user-configured route of the same team, and user
   // restrictions are exactly what it must read.
-  const shellAnalysis = ['bash', 'pwsh'].includes(execution?.tool) ? analyzeShell(execution.arguments?.command) : undefined
   const payloadAction = (() => {
     if (['bash', 'pwsh'].includes(execution?.tool)) {
       return {
@@ -839,19 +926,6 @@ export async function reviewApproval(rt, { request, owner, evidence, validateEvi
     return { kind: 'tool', tool: execution?.tool ?? request.toolName, arguments: execution?.arguments ?? {} }
   })()
 
-  // The host's own hard floor runs before the model: shapes that are refused
-  // unconditionally never need a verdict. Everything else — every build, test
-  // and dependency operation included — goes to the risk review untouched.
-  if (shellAnalysis !== undefined) {
-    const floorHit = hardFloorShell(shellAnalysis)
-    if (floorHit !== undefined) {
-      return {
-        decision: 'reject', reasonCode: 'hard-denied', riskLevel: 'critical', authorization: 'unknown',
-        rationale: `Refused by the host hard floor: ${floorHit}.`, context: fullContext, observations: [],
-      }
-    }
-  }
-
   // Every byte that reaches the model passes this choke point: the raw JSON
   // is what the vault scan sees, so a registered secret in any field still
   // withholds the entire call; what crosses is the structurally redacted
@@ -884,6 +958,7 @@ export async function reviewApproval(rt, { request, owner, evidence, validateEvi
   let inspectionsUsed = 0
   let rounds = 0
   let verdict
+  let evidenceIncomplete = false
   for (;;) {
     rounds += 1
     if (rounds > INSPECT_MAX_CALLS + 1) throw reviewError('input-limit', 'The review used up its inspection budget')
@@ -921,6 +996,7 @@ export async function reviewApproval(rt, { request, owner, evidence, validateEvi
     const inspectionResult = await runInspection(rt, scope, inspection, signal).catch(error => ({ data: { error: String(error?.message ?? error).slice(0, 200) }, observations: [] }))
     observations.push(...inspectionResult.observations)
     const result = inspectionResult.data
+    if (result?.incomplete !== undefined) evidenceIncomplete = true
     if (rt.redactSecrets && rt.redactSecrets(JSON.stringify(result)) !== JSON.stringify(result)) {
       evidenceItems.push({ kind: inspection.kind, protected: true, note: 'inspection result withheld: it contains protected information' })
     } else {
@@ -949,6 +1025,7 @@ export async function reviewApproval(rt, { request, owner, evidence, validateEvi
   if (JSON.stringify(await reviewContext(rt, owner, signal)) !== JSON.stringify(fullContext)) {
     throw reviewError('stale-context', 'The conversation changed during review')
   }
+  if (evidenceIncomplete) throw reviewError('evidence-incomplete', 'Decisive project evidence is incomplete; review manually')
   // A citation only counts when the model could actually have read the line it
   // cites: verification runs against the exact context the model received.
   const authorization = verifyAuthorization(verdict.authorization, fullContext)
