@@ -266,3 +266,9 @@ test('a Session with no Bot follows the sandbox its preset writes through (#2466
   assert.equal(requests.length, 0)
   assert.match(texts(agent), /allowed via allow-once/)
 })
+
+test('a local agent refuses to review its own pending action instead of stalling (#2466)', async () => {
+  const adapter = makeAdapter(new Context())
+  const stream = adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's-review', purpose: 'auto-review', messages: [] })
+  await assert.rejects(stream.next(), /cannot review its own actions/)
+})
