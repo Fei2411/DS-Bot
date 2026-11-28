@@ -16,6 +16,7 @@ const ADAPTERS_SYNC_MS = 100
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
+const SCHEDULED_REQUEST_RETRIES = 2
 // Fatal or deterministic failures that must never spin under `retryPolicy.mode === 'always'`.
 const NON_RETRYABLE_ALWAYS_CODES = new Set([
   'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'INVALID_CREDENTIAL', 'MISSING_CREDENTIAL',
@@ -145,10 +146,20 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
 
 export function install(rt) {
   const { ctx, state } = rt
+  const lifetime = new AbortController()
 
   const malformedRetries = new WeakMap()
   const alwaysRetries = new WeakMap()
   const singleToolRetries = new WeakMap()
+  const scheduledTurns = new WeakMap()
+  ctx.on?.('agent/pre-step', async ({ agent, step, signal }, next) => {
+    const decision = await next()
+    if (step === 1 && signal !== undefined && rt.chatOwners?.has(agent.id) && !rt.taskOwners?.has(agent.id)
+      && decision?.kind === 'enter' && decision.messages.some(message => message.source.kind === 'schedule')) {
+      scheduledTurns.set(signal, { retries: 0 })
+    }
+    return decision
+  }, { prepend: true })
   serviceOf(ctx, 'systemPrompt')?.context?.({
     name: 'ds-bot:single-tool-retry',
     order: 0,
@@ -195,6 +206,16 @@ export function install(rt) {
       }
     } else {
       decided = await next()
+    }
+    // Let the provider retry first. Resume only the failed request, not the entire
+    // occurrence: earlier steps may already have run tools with side effects.
+    const scheduled = signal === undefined ? undefined : scheduledTurns.get(signal)
+    if (scheduled !== undefined && decided === undefined && !signal.aborted && policy?.mode !== 'always'
+      && (code === 'TRANSPORT' || code === 'SERVER') && scheduled.retries < SCHEDULED_REQUEST_RETRIES) {
+      const delay = retryDelayMs(policy, failure, scheduled.retries + 1, rt.config?.llmRetryBackoff, Math.random)
+      if (delay === undefined) return undefined
+      scheduled.retries += 1
+      return await waitRetryDelay(delay, AbortSignal.any([signal, lifetime.signal])) ? { kind: 'retry' } : undefined
     }
     if (code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
     // A retry policy may name MALFORMED_RESPONSE (DSH 0.2.2-rc.5 offers it as a choice), so
@@ -1075,7 +1096,6 @@ export function install(rt) {
     selectedSessions.delete(id)
   })
 
-  const lifetime = new AbortController()
   ctx.effect?.(() => () => {
     closing = true
     lifetime.abort()

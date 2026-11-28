@@ -8,7 +8,7 @@ import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { validateViewAnswer } from 'deep-view/core'
-import { HANDOFF_ACK } from '../constants.js'
+import { HANDOFF_ACK, REPLY_KIND } from '../constants.js'
 import { viewReply } from '../parts.js'
 import { textOf } from '../text.js'
 import { turnFailure } from '../turns.js'
@@ -17,6 +17,7 @@ import { usageChunk } from '../usage.js'
 const EVENT_BUFFER_MAX = 400
 const IDEMPOTENCY_MAX_LEN = 200
 const TERMINAL_STATUSES = new Set(['completed', 'stopped', 'failed'])
+const COMPOSER_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const isTerminal = status => TERMINAL_STATUSES.has(status)
 const newRunId = () => `run_${randomBytes(6).toString('hex')}`
@@ -734,7 +735,7 @@ export function createRunCoordinator(rt, auth) {
     const { run } = tracker
     const botId = run.target.kind === 'bot' ? run.target.id : undefined
     const roomId = run.target.kind === 'group' ? run.target.id : undefined
-    const sessionIds = [...tracker.sessions]
+    const sessionIds = run.target.kind === 'bot' && run.mode === 'chat' ? [run.sessionId] : [...tracker.sessions]
 
     // 1. Open tool approvals (live view, preserving privacy check)
     const approvals = rt.approvalsView?.() ?? []
@@ -984,33 +985,117 @@ export function createRunCoordinator(rt, auth) {
   // idle/disabled gateway adds zero per-event overhead to normal chats.
   let offSessionEvent = null
   let offStreamEvent = null
+  let sessionTurns = new WeakMap()
+
+  function bindChatTurn(tracker, sid, turn) {
+    tracker.chatTurn = turn
+    tracker.composerAnswer = undefined
+    tracker.resumeSession = undefined
+    tracker.waitingReply = undefined
+    tracker.sessions.add(sid)
+    tracker.run.sessionId = sid
+    tracker.run.partId = sid
+    if (tracker.run.status === 'queued') {
+      tracker.run.status = 'running'
+      tracker.run.startedAtMs = Date.now()
+      syncWorkMeta(tracker.run)
+      emitRunEvent(tracker, 'run.started', { sessionId: sid, partId: sid, turn: turn.number })
+    } else {
+      clearWaitingHuman(tracker)
+    }
+  }
+
+  function isComposerAnswer(source, ownerComposer) {
+    // Direct DSH composer submissions use UUIDs; linked submissions are marked at the host channel.
+    return source?.kind === 'user' && source.handoff !== true && source.principal === undefined
+      && source.imOrigin === undefined && typeof source.rpcId === 'string'
+      && (ownerComposer === true || COMPOSER_REQUEST_ID.test(source.rpcId))
+  }
+
+  function stopForClosedCard(tracker) {
+    finishRun(tracker, 'stopped', { error: { code: 'api/cancelled', message: 'The pending card closed without an answer for this run' } })
+  }
+
+  function onApiCardClosed(sessionId, card, { session, source, ownerComposer } = {}) {
+    const turn = session === undefined ? undefined : sessionTurns.get(session)
+    for (const tracker of active.values()) {
+      if (isTerminal(tracker.run.status)) continue
+      const action = tracker.run.pendingAction
+      if ((action?.kind !== 'question' && action?.kind !== 'view') || action.actionId !== card.id
+        || tracker.waitingReply?.callId === undefined) continue
+      if (turn !== undefined && !turn.hasPrompt && isComposerAnswer(source, ownerComposer)) {
+        bindChatTurn(tracker, sessionId, turn)
+        tracker.composerAnswer = source
+      } else if (turn !== undefined && source?.kind === REPLY_KIND && source.callId === tracker.waitingReply.callId
+        && !source.rpcId?.startsWith('im:')) {
+        bindChatTurn(tracker, sessionId, turn)
+      } else {
+        stopForClosedCard(tracker)
+      }
+    }
+  }
 
   function handleSessionEvent(session, event) {
     const sid = session?.id
     if (!sid || !event) return
+    if (event.type === 'turn/start') sessionTurns.set(session, { number: event.data.turn })
+    const turn = sessionTurns.get(session)
+    if (event.type === 'turn/end' && event.data?.turn === turn?.number) sessionTurns.delete(session)
 
     // 1. Match freshly queued user/message by rpcId so we bind exact session/part even after fg-handoff.
     if (event.type === 'user/message') {
-      const rpcId = event.data?.source?.rpcId
+      const source = event.data?.source
+      const rpcId = source?.rpcId
+      const fromIm = typeof rpcId === 'string' && rpcId.startsWith('im:')
+      if (turn !== undefined && (source?.kind === 'user' || source?.kind === 'schedule' || fromIm)) {
+        turn.hasPrompt = true
+        for (const tracker of activeSessionTrackers(sid)) {
+          if (tracker.chatTurn === turn && tracker.composerAnswer !== undefined && tracker.composerAnswer !== source) {
+            finishRun(tracker, 'stopped', { error: { code: 'api/stopped', message: 'The answer shared a turn with another prompt' } })
+          }
+        }
+      }
       if (typeof rpcId === 'string' && rpcId.startsWith('api:')) {
         const runId = byRequestId.get(rpcId)
         const tracker = runId ? active.get(runId) : undefined
-        if (tracker !== undefined) {
+        if (tracker !== undefined && !isTerminal(tracker.run.status)) {
           if (Number.isInteger(event.seq)) {
             apiVia.set(sid, { ...apiVia.get(sid), [event.seq]: tracker.run.tokenName || 'API' })
           }
-          tracker.userSeq = event.seq
-          tracker.run.sessionId = sid
-          tracker.run.partId = sid
-          tracker.sessions.add(sid)
           if (tracker.run.target.kind === 'group') {
+            tracker.run.sessionId = sid
+            tracker.run.partId = sid
+            tracker.sessions.add(sid)
             const room = rt.roomOf(tracker.run.target.id)
             tracker.lastRoomSeq = Math.max(tracker.lastRoomSeq, Number(room?.seq ?? 0))
             tracker.run.status = 'running'
             tracker.run.startedAtMs ??= Date.now()
             syncWorkMeta(tracker.run)
             emitRunEvent(tracker, 'run.started', { sessionId: sid, partId: sid })
+          } else if (tracker.run.mode === 'chat' && turn !== undefined && tracker.run.status === 'queued') {
+            bindChatTurn(tracker, sid, turn)
           }
+        }
+      }
+      if (turn !== undefined && (source?.kind === REPLY_KIND || source?.role === 'secret'
+        || (source?.handoff === true && source.resume === true))) {
+        for (const tracker of active.values()) {
+          const { run } = tracker
+          if (run.target.kind !== 'bot' || run.mode !== 'chat' || isTerminal(run.status)) continue
+          const reply = tracker.waitingReply
+          const cardReply = reply?.sessionId === sid && source.kind === REPLY_KIND
+            && reply.callId !== undefined && reply.callId === source.callId
+          if (cardReply && fromIm) {
+            stopForClosedCard(tracker)
+            continue
+          }
+          const answersCard = cardReply || (reply?.sessionId === sid && source.role === 'secret'
+            && reply.secretKey !== undefined && reply.secretKey === source.idempotencyKey)
+          const resumesHandoff = source.handoff === true && source.resume === true && (
+            tracker.resumeSession === sid || (tracker.chatTurn !== undefined && run.sessionId !== sid
+              && rt.chatOf(run.target.id) === sid && rt.live.get(run.sessionId)?.switched === true)
+          )
+          if (answersCard || resumesHandoff) bindChatTurn(tracker, sid, turn)
         }
       }
     }
@@ -1062,20 +1147,18 @@ export function createRunCoordinator(rt, auth) {
     for (const tracker of trackers) {
       if (isTerminal(tracker.run.status)) continue
       if (tracker.run.target.kind === 'group') continue
+      if (tracker.run.mode === 'chat' && (turn === undefined || tracker.chatTurn !== turn
+        || (event.data?.turn !== undefined && event.data.turn !== turn.number))) continue
 
       if (event.type === 'turn/start') {
         const turnNum = event.data?.turn
         if (tracker.run.status === 'queued') {
           tracker.run.status = 'running'
           tracker.run.startedAtMs = Date.now()
-          tracker.activeTurn = turnNum
           syncWorkMeta(tracker.run)
           emitRunEvent(tracker, 'run.started', { sessionId: sid, partId: sid, turn: turnNum })
         } else if (tracker.run.status === 'waiting_human') {
-          tracker.activeTurn = turnNum
           clearWaitingHuman(tracker)
-        } else if (tracker.activeTurn === undefined) {
-          tracker.activeTurn = turnNum
         }
       } else if (event.type === 'tool/call') {
         emitRunEvent(tracker, 'tool.call', {
@@ -1127,12 +1210,12 @@ export function createRunCoordinator(rt, auth) {
       } else if (event.type === 'turn/end') {
         // For task mode, bot-tasks.js / coordDb owns final task settlement.
         if (tracker.run.mode === 'task') continue
-        // Ignore a turn/end from an earlier queued turn before our user/message ran.
-        if (tracker.run.status === 'queued') continue
+        tracker.chatTurn = undefined
         // If the Bot switched to a new part mid-run, follow the new part instead of settling.
         const currentChat = rt.chatOf(tracker.run.target.id)
-        if (currentChat && currentChat !== sid && rt.live.get(sid)?.switched === true) {
-          tracker.sessions.add(currentChat)
+        const live = rt.live.get(sid)
+        if (currentChat && currentChat !== sid && (live?.switched === true || live?.lastSwitched === true)) {
+          tracker.resumeSession = currentChat
           tracker.run.sessionId = currentChat
           tracker.run.partId = currentChat
           syncWorkMeta(tracker.run)
@@ -1151,6 +1234,13 @@ export function createRunCoordinator(rt, auth) {
         // Check if this turn paused to wait for a human card (question/view/secret/browser_hold).
         const pending = detectPendingAction(tracker)
         if (pending !== null) {
+          const card = pending.kind === 'question' ? rt.own(state.questions, pending.sessionId)
+            : pending.kind === 'view' ? rt.own(state.views, pending.sessionId) : undefined
+          tracker.waitingReply = {
+            sessionId: pending.sessionId,
+            callId: card !== undefined || pending.kind === 'browser_hold' ? card?.callId ?? pending.actionId : undefined,
+            secretKey: pending.kind === 'secret' ? `secret:${pending.actionId}` : undefined,
+          }
           setWaitingHuman(tracker, pending)
           continue
         }
@@ -1163,11 +1253,22 @@ export function createRunCoordinator(rt, auth) {
   function handleAssistantStream({ agent, frame }) {
     const sid = agent?.id
     if (!sid) return
+    const turn = sessionTurns.get(agent.session)
+    if (frame?.type === 'start') {
+      if (turn !== undefined && frame.turn === turn.number) turn.attemptId = frame.attemptId
+      return
+    }
+    if (frame?.type === 'end') {
+      if (turn !== undefined && frame.attemptId === turn.attemptId) turn.attemptId = undefined
+      return
+    }
     if (frame?.type !== 'chunk' || frame.chunk?.type !== 'text-delta') return
     const text = frame.chunk.text
     if (typeof text !== 'string' || text === '') return
     for (const tracker of activeSessionTrackers(sid)) {
       if (isTerminal(tracker.run.status) || tracker.run.target.kind === 'group') continue
+      if (tracker.run.mode === 'chat' && (turn === undefined || tracker.chatTurn !== turn
+        || frame.attemptId === undefined || frame.attemptId !== turn.attemptId)) continue
       if (tracker.run.status === 'queued') {
         tracker.run.status = 'running'
         tracker.run.startedAtMs ??= Date.now()
@@ -1189,6 +1290,7 @@ export function createRunCoordinator(rt, auth) {
     offSessionEvent = null
     offStreamEvent?.()
     offStreamEvent = null
+    sessionTurns = new WeakMap()
   }
 
   // Track approval open/settled transitions for active runs.
@@ -1197,7 +1299,9 @@ export function createRunCoordinator(rt, auth) {
       if (isTerminal(tracker.run.status) || tracker.dispatched === false) continue
       const match = tracker.run.target.kind === 'group'
         ? data?.roomId === tracker.run.target.id
-        : (tracker.sessions.has(data?.sessionId) || (tracker.run.taskId && data?.taskId === tracker.run.taskId))
+        : tracker.run.mode === 'chat'
+          ? tracker.chatTurn !== undefined && data?.sessionId === tracker.run.sessionId
+          : (tracker.sessions.has(data?.sessionId) || (tracker.run.taskId && data?.taskId === tracker.run.taskId))
       if (!match) continue
       if (kind === 'open') {
         setWaitingHuman(tracker, approvalActionOf(data))
@@ -1305,7 +1409,9 @@ export function createRunCoordinator(rt, auth) {
   const offSaved = rt.onSaved?.(() => {
     for (const tracker of active.values()) {
       if (isTerminal(tracker.run.status)) continue
-      if (tracker.run.status === 'waiting_human') {
+      const action = tracker.run.pendingAction
+      const waitsForCard = tracker.waitingReply?.callId !== undefined && (action?.kind === 'question' || action?.kind === 'view')
+      if (tracker.run.status === 'waiting_human' && !waitsForCard) {
         const current = detectPendingAction(tracker)
         if (current === null) clearWaitingHuman(tracker)
       }
@@ -1370,8 +1476,6 @@ export function createRunCoordinator(rt, auth) {
       settleCheckQueued: false,
       lastRoomSeq: 0,
       roomHeardActivity: false,
-      activeTurn: undefined,
-      userSeq: undefined,
       releaseSlot: slot.release,
     }
     active.set(runId, tracker)
@@ -1415,12 +1519,9 @@ export function createRunCoordinator(rt, auth) {
           ...(cleanText !== '' ? [{ type: 'text', text: cleanText }] : []),
           ...attachments.map(att => att.block),
         ]
-        const beforeSid = rt.chatOf(bot.id)
-        if (beforeSid) tracker.sessions.add(beforeSid)
         await rt.sendUser({ sessionId: bot.id, content, requestId, idempotencyKey: requestId })
         const afterSid = rt.chatOf(bot.id)
-        if (afterSid && !tracker.sessions.has(afterSid)) {
-          tracker.sessions.add(afterSid)
+        if (afterSid && record.status === 'queued') {
           record.sessionId = afterSid
           record.partId = afterSid
         }
@@ -1501,8 +1602,6 @@ export function createRunCoordinator(rt, auth) {
       settleCheckQueued: false,
       lastRoomSeq: Number(room.seq ?? 0),
       roomHeardActivity: false,
-      activeTurn: undefined,
-      userSeq: undefined,
       releaseSlot: slot.release,
       tryLaunch: null,
     }
@@ -1860,6 +1959,7 @@ export function createRunCoordinator(rt, auth) {
   function dispose() {
     disposed = true
     if (rt.reconcileApiRuns === reconcileInterruptedApiRunsAsync) rt.reconcileApiRuns = undefined
+    if (rt.onApiCardClosed === onApiCardClosed) rt.onApiCardClosed = undefined
     detachListeners()
     offApproval?.()
     offTaskEvent?.()
@@ -1877,6 +1977,7 @@ export function createRunCoordinator(rt, auth) {
   }
 
   rt.reconcileApiRuns = reconcileInterruptedApiRunsAsync
+  rt.onApiCardClosed = onApiCardClosed
   reconcileInterruptedApiRuns()
 
   return {

@@ -1230,6 +1230,7 @@ export function install(rt) {
             await rt.sendUser({
               sessionId: body.sessionId,
               ...(requestId !== undefined ? { requestId } : {}),
+              ownerComposer: meta?.ownerComposer === true,
               mode,
               content: [
                 ...(text === '' ? [] : [{ type: 'text', text }]),
@@ -1636,7 +1637,20 @@ export function install(rt) {
   }
 
   rt.channelCall = handle
-  rt.phoneServe((endpoint, payload, signal) => handle(endpoint, payload, signal, true))
+  rt.phoneServe((endpoint, payload, signal) => handle(endpoint, payload, signal, { remote: true, ownerComposer: true }))
+
+  const ownerPrompts = new Map()
+  const forgetOwnerPrompt = (sid, requestId) => {
+    const pending = ownerPrompts.get(sid)
+    const marked = pending?.delete(requestId) === true
+    if (pending?.size === 0) ownerPrompts.delete(sid)
+    return marked
+  }
+  rt.takeOwnerComposerPrompt = forgetOwnerPrompt
+  ctx.on('agent/inbox/discarded', ({ agent, message }) => {
+    forgetOwnerPrompt(agent.id, message.source.rpcId)
+  })
+  ctx.on('agent/disposed', ({ agent }) => ownerPrompts.delete(agent.id))
 
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
   // part of either resolves to its current part. `content` is the prompt blocks DSH
@@ -1659,7 +1673,7 @@ export function install(rt) {
     return undefined
   }
 
-  async function sendUser({ sessionId: ref, content, files = [], requestId: providedRequestId, mode = 'queue' }) {
+  async function sendUser({ sessionId: ref, content, files = [], requestId: providedRequestId, mode = 'queue', ownerComposer = false }) {
     const callerSupplied = providedRequestId !== undefined
     const requestId = providedRequestId ?? randomUUID()
     const past = rt.pastOwners.get(ref)
@@ -1713,27 +1727,36 @@ export function install(rt) {
     }
     await rt.ensureCapabilities(sessionId)
     const promptMode = !handoffFallback && mode === 'steer' ? 'steer' : 'queue'
+    // Linked clients choose their own idempotency key; it must not claim another channel's ID.
+    const registerOwner = ownerComposer && !requestId.startsWith('im:') && !requestId.startsWith('api:')
+    if (registerOwner) {
+      const pending = ownerPrompts.get(sessionId) ?? new Set()
+      pending.add(requestId)
+      ownerPrompts.set(sessionId, pending)
+    }
+    let accepted = false
     try {
-      await ctx.sessionController.prompt({
-        requestId,
-        sessionId,
-        mode: promptMode,
-        content: blocks,
-      }, AbortSignal.timeout(30_000))
-      rt.noteSendPrompted?.(sessionId, requestId)
-      return { sessionId, alreadyAdmitted: false, durable: false }
-    } catch (error) {
-      if (promptMode === 'steer' && error?.code === 'session/steer-unavailable') {
+      try {
+        await ctx.sessionController.prompt({
+          requestId,
+          sessionId,
+          mode: promptMode,
+          content: blocks,
+        }, AbortSignal.timeout(30_000))
+      } catch (error) {
+        if (promptMode !== 'steer' || error?.code !== 'session/steer-unavailable') throw error
         await ctx.sessionController.prompt({
           requestId,
           sessionId,
           mode: 'queue',
           content: blocks,
         }, AbortSignal.timeout(30_000))
-        rt.noteSendPrompted?.(sessionId, requestId)
-        return { sessionId, alreadyAdmitted: false, durable: false }
       }
-      throw error
+      accepted = true
+      rt.noteSendPrompted?.(sessionId, requestId)
+      return { sessionId, alreadyAdmitted: false, durable: false }
+    } finally {
+      if (registerOwner && !accepted) forgetOwnerPrompt(sessionId, requestId)
     }
   }
 

@@ -3,7 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
+import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
+import { startRelayServer } from '../../link/server/server.ts'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 function createHarness(initialState, { onPrompt } = {}) {
@@ -52,15 +55,15 @@ function createHarness(initialState, { onPrompt } = {}) {
         followups: [],
         followup(msg) {
           this.followups.push(msg)
-          emitSessionEvent(sid, {
-            type: 'user/message',
-            seq: ++seqCounter,
-            time: Date.now(),
-            data: { content: msg.content, source: msg.source },
-          })
           // Automatically complete a follow-up turn unless customized
           setTimeout(() => {
             emitSessionEvent(sid, { type: 'turn/start', seq: ++seqCounter, time: Date.now(), data: { turn: 2 } })
+            emitSessionEvent(sid, {
+              type: 'user/message',
+              seq: ++seqCounter,
+              time: Date.now(),
+              data: { content: msg.content, source: msg.source },
+            })
             emitSessionEvent(sid, {
               type: 'assistant/message',
               seq: ++seqCounter,
@@ -90,10 +93,14 @@ function createHarness(initialState, { onPrompt } = {}) {
       listener(s, event)
     }
   }
-  const emitStream = (sid, text) => {
+  const emitStream = (sid, ...deltas) => {
     const agent = agents.get(sid) ?? (ensureSession(sid), agents.get(sid))
+    const attemptId = ++seqCounter
+    const turn = agent.session.events.findLast(event => event.type === 'turn/start').data.turn
     for (const listener of ctx.listeners.get('agent/assistant-stream') ?? []) {
-      listener({ agent, frame: { type: 'chunk', chunk: { type: 'text-delta', text } } })
+      listener({ agent, frame: { type: 'start', attemptId, turn } })
+      for (const text of deltas) listener({ agent, frame: { type: 'chunk', attemptId, chunk: { type: 'text-delta', text } } })
+      listener({ agent, frame: { type: 'end', attemptId } })
     }
   }
   const triggerApproval = (request) => {
@@ -133,6 +140,7 @@ function createHarness(initialState, { onPrompt } = {}) {
     prompt: async ({ requestId, sessionId, content }) => {
       prompted.push({ requestId, sessionId, content })
       const text = (content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
+      emitSessionEvent(sessionId, { type: 'turn/start', seq: ++seqCounter, time: Date.now(), data: { turn: 1 } })
       emitSessionEvent(sessionId, {
         type: 'user/message',
         seq: ++seqCounter,
@@ -145,9 +153,7 @@ function createHarness(initialState, { onPrompt } = {}) {
       }
       // Default realistic turn completion with streaming + usage
       setTimeout(() => {
-        emitSessionEvent(sessionId, { type: 'turn/start', seq: ++seqCounter, time: Date.now(), data: { turn: 1 } })
-        emitStream(sessionId, 'Hello ')
-        emitStream(sessionId, 'world!')
+        emitStream(sessionId, 'Hello ', 'world!')
         emitSessionEvent(sessionId, { type: 'tool/call', seq: ++seqCounter, time: Date.now(), data: { callId: 'c1', name: 'read' } })
         emitSessionEvent(sessionId, { type: 'tool/result', seq: ++seqCounter, time: Date.now(), data: { message: { toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] } } })
         emitSessionEvent(sessionId, {
@@ -503,7 +509,6 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   let approvalPromise
   const h = createHarness(undefined, {
     async onPrompt({ sessionId, text, emitSessionEvent, triggerApproval, rt, agents, nextSeq }) {
-      emitSessionEvent(sessionId, { type: 'turn/start', seq: nextSeq(), time: Date.now(), data: { turn: 1 } })
       if (text === 'need-approval' || text === 'privacy-outbound' || text === 'privacy-reworded') {
         approvalPromise = triggerApproval({
           agent: agents.get(sessionId),
@@ -599,6 +604,14 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   assert.equal(runQ.status, 'waiting_human')
   assert.equal(runQ.pendingAction.kind, 'question')
 
+  const sid = runQ.pendingAction.sessionId
+  h.emitSessionEvent(sid, { type: 'turn/start', data: { turn: 2 } })
+  h.emitSessionEvent(sid, { type: 'tool/call', data: { turn: 2, callId: 'unrelated', name: 'read' } })
+  h.emitSessionEvent(sid, { type: 'turn/end', data: { turn: 2, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'Connection error' } } } })
+  const stillWaiting = await fetch(`${view.baseUrl}/v1/runs/${runQ.runId}`, { headers: { Authorization: `Bearer ${msgOnlyToken}` } }).then(r => r.json())
+  assert.equal(stillWaiting.status, 'waiting_human')
+  assert.equal(stillWaiting.output.text, '')
+
   assert.equal((await respond(runQ, { answer: 'Yes' })).status, 400)
   const question = h.rt.state.questions[runQ.pendingAction.sessionId]
   h.rt.state.questions[runQ.pendingAction.sessionId] = { ...question, id: 'replacement' }
@@ -657,6 +670,247 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
     body: JSON.stringify({ actionId: runS.pendingAction.actionId, answer: 'sk-123' }),
   })
   assert.equal(refuseSecret.status, 403)
+  const secretSid = runS.pendingAction.sessionId
+  const secretAgent = h.agents.get(secretSid)
+  secretAgent.followup({ content: [], source: { role: 'secret', idempotencyKey: 'secret:other-card' } })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const stillWaitingForSecret = await fetch(`${view.baseUrl}/v1/runs/${runS.runId}`, { headers: { Authorization: `Bearer ${approveToken}` } }).then(r => r.json())
+  assert.equal(stillWaitingForSecret.status, 'waiting_human')
+  delete h.rt.state.secretRequests[secretSid]
+  secretAgent.followup({ content: [], source: { role: 'secret', idempotencyKey: `secret:${runS.pendingAction.actionId}` } })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const doneS = await fetch(`${view.baseUrl}/v1/runs/${runS.runId}`, { headers: { Authorization: `Bearer ${approveToken}` } }).then(r => r.json())
+  assert.equal(doneS.status, 'completed')
+  assert.equal(doneS.output.text, 'Continued after human input.')
+})
+
+test('an API run waiting for ask_user completes after a typed composer answer', async t => {
+  const questionId = 'composer-question'
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, text, emitSessionEvent, rt, nextSeq }) {
+      if (text === 'Ask a question') {
+        rt.state.questions[sessionId] = { id: questionId, callId: 'question-call', question: 'Proceed?' }
+      } else {
+        emitSessionEvent(sessionId, {
+          type: 'assistant/message', seq: nextSeq(), time: Date.now(),
+          data: { message: { content: [{ type: 'text', text: `Continuing: ${text}` }] } },
+        })
+      }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Caller', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const post = text => fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+    method: 'POST', headers, body: JSON.stringify({ text, wait: 5 }),
+  })
+  const getRun = runId => fetch(`${view.baseUrl}/v1/runs/${runId}`, { headers }).then(r => r.json())
+  const response = await post('Ask a question')
+  assert.equal(response.status, 202)
+  const run = await response.json()
+  assert.equal(run.status, 'waiting_human')
+  assert.equal(run.pendingAction.actionId, questionId)
+
+  const sid = run.pendingAction.sessionId
+  await h.rt.sendUser({ sessionId: sid, requestId: '00000000-0000-4000-8000-000000000001', content: [{ type: 'text', text: 'Yes, please' }] })
+  assert.equal(h.rt.state.questions[sid], undefined)
+  const done = await getRun(run.runId)
+  assert.equal(done.status, 'completed')
+  assert.equal(done.output.text, 'Continuing: Yes, please')
+
+  const waiting = await post('Ask a question').then(r => r.json())
+  assert.equal(waiting.status, 'waiting_human')
+  const other = await post('Separate API prompt').then(r => r.json())
+  assert.equal(other.status, 'completed')
+  assert.equal(other.output.text, 'Continuing: Separate API prompt')
+  const oldRun = await getRun(waiting.runId)
+  assert.notEqual(oldRun.status, 'completed')
+  assert.equal(oldRun.output.text, '')
+})
+
+async function assertImTurnIsPrivate(t, { mixed = false } = {}) {
+  const imRequestId = 'im:weixin:separate-chat'
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, requestId, emitSessionEvent, emitStream, rt, nextSeq }) {
+      if (requestId.startsWith('api:')) {
+        rt.state.questions[sessionId] = { id: 'q-im', callId: 'call-im', question: 'Proceed?' }
+      } else {
+        if (mixed) {
+          emitSessionEvent(sessionId, {
+            type: 'user/message', seq: nextSeq(), time: Date.now(),
+            data: { content: [{ type: 'text', text: 'IM prompt' }], source: { kind: 'user', rpcId: imRequestId } },
+          })
+        }
+        emitStream(sessionId, 'Reply for IM')
+        emitSessionEvent(sessionId, {
+          type: 'assistant/message', seq: nextSeq(), time: Date.now(),
+          data: { message: { content: [{ type: 'text', text: 'Reply for IM' }] } },
+        })
+      }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Message only', scopes: ['message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const url = `${view.baseUrl}/v1/bots/b1/messages`
+  assert.equal((await fetch(url, { headers })).status, 403)
+  const response = await fetch(url, {
+    method: 'POST', headers, body: JSON.stringify({ text: 'Ask a question', stream: true }),
+    signal: AbortSignal.timeout(5000),
+  })
+  assert.equal(response.status, 200)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let events = ''
+  while (!events.includes('event: human.required')) {
+    const { value, done } = await reader.read()
+    assert.equal(done, false)
+    events += decoder.decode(value, { stream: true })
+  }
+  const sid = h.rt.chatOf('b1')
+  await h.rt.sendUser({
+    sessionId: sid,
+    requestId: mixed ? '00000000-0000-4000-8000-000000000001' : imRequestId,
+    content: [{ type: 'text', text: mixed ? 'Yes, please' : 'IM prompt' }],
+  })
+  assert.equal(h.rt.state.questions[sid], undefined)
+  await h.rt.apiEndpoint('api-set', { enabled: false })
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    events += decoder.decode(value, { stream: true })
+  }
+  assert.doesNotMatch(events, /event: (?:delta|run\.completed)|Reply for IM/)
+  assert.match(events, /event: run\.stopped/)
+  if (!mixed) assert.doesNotMatch(events, /event: run\.resumed/)
+}
+
+test('an IM turn does not reach an API stream waiting on an ask_user card', async t => {
+  await assertImTurnIsPrivate(t)
+})
+
+test('an IM prompt sharing a composer answer turn does not reach the API stream', async t => {
+  await assertImTurnIsPrivate(t, { mixed: true })
+})
+
+test('a linked phone owner can type an answer on a waiting API run', async t => {
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, requestId, text, emitSessionEvent, emitStream, rt, nextSeq }) {
+      if (requestId.startsWith('api:')) {
+        rt.state.questions[sessionId] = { id: 'q-phone', callId: 'call-phone', question: 'Proceed?' }
+      } else {
+        emitStream(sessionId, `Continuing: ${text}`)
+        emitSessionEvent(sessionId, {
+          type: 'assistant/message', seq: nextSeq(), time: Date.now(),
+          data: { message: { content: [{ type: 'text', text: `Continuing: ${text}` }] } },
+        })
+      }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const relay = await startRelayServer()
+  let phone
+  t.after(async () => {
+    await phone?.close()
+    await relay.close()
+  })
+  await h.rt.phoneEndpoint('phone-set', { server: relay.url, on: true })
+  const ready = AbortSignal.timeout(5000)
+  while (h.rt.phoneView().status !== 'online') await delay(25, undefined, { signal: ready })
+  const paired = await h.rt.phoneEndpoint('phone-pair', {})
+  const offer = parsePairingUri(paired.pairing.uri)
+  const keys = generateKeyPair()
+  const self = { deviceId: deviceIdFor(keys.publicKey), ...keys }
+  const transport = new RelayTransport(offer.server, {
+    deviceId: self.deviceId, identityKey: self.publicKey, accessToken: randomToken(), targetDeviceId: offer.hostDeviceId,
+  })
+  phone = new RpcClient(new SecureTransport(transport, self, { deviceId: offer.hostDeviceId, identityKey: offer.hostKey }, {
+    hello: { pairingCode: offer.code, name: 'Owner phone' }, handshakeTimeoutMs: 2000,
+  }), 5000)
+  await phone.connect()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Caller', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const ask = () => fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+    method: 'POST', headers, body: JSON.stringify({ text: 'Ask a question', wait: 5 }),
+  }).then(response => response.json())
+  const get = runId => fetch(`${view.baseUrl}/v1/runs/${runId}`, { headers }).then(response => response.json())
+  const waiting = await ask()
+  assert.equal(waiting.status, 'waiting_human')
+  const sessionId = waiting.pendingAction.sessionId
+  const requestId = '1795886463884-ownerphone'
+  const sent = await phone.rpc('bot', { endpoint: 'send', payload: { sessionId, requestId, text: 'Yes, from my phone' } })
+  assert.equal(sent.ok, true)
+  assert.equal(h.rt.state.questions[sessionId], undefined)
+  assert.equal(h.prompted.at(-1).requestId, requestId)
+  const done = await get(waiting.runId)
+  assert.equal(done.status, 'completed')
+  assert.equal(done.output.text, 'Continuing: Yes, from my phone')
+
+  const unlinked = await ask()
+  assert.equal(unlinked.status, 'waiting_human')
+  assert.equal((await h.rt.channelCall('send', {
+    sessionId, requestId: '1795886463885-unlinked', text: 'Not a link answer', ownerComposer: true,
+  })).ok, true)
+  const stopped = await get(unlinked.runId)
+  assert.equal(stopped.status, 'stopped')
+  assert.equal(stopped.output.text, '')
+})
+
+test('dismissing a question carried to a new chat part stops its API run', async t => {
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, rt, emitSessionEvent, nextSeq }) {
+      rt.state.questions[sessionId] = { id: 'q-rollover', callId: 'call-rollover', question: 'Proceed?' }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Caller', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const response = await fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+    method: 'POST', headers, body: JSON.stringify({ text: 'Ask a question', wait: 5 }),
+  })
+  assert.equal(response.status, 202)
+  const run = await response.json()
+  assert.equal(run.status, 'waiting_human')
+
+  const oldId = run.pendingAction.sessionId
+  const freshId = 'b1-fresh'
+  const old = h.agents.get(oldId)
+  old.inbox = { nextStep: [], nextTurn: [] }
+  old.whenIdle = async () => {}
+  old.runMaintenance = async job => job(AbortSignal.timeout(5000))
+  h.rt.teamFolder = () => old.session.header.cwd
+  h.rt.createSession = async () => {
+    h.ensureSession(freshId)
+    const fresh = h.agents.get(freshId)
+    fresh.inbox = { nextStep: [], nextTurn: [] }
+    fresh.followup = message => fresh.inbox.nextTurn.push(message)
+    return freshId
+  }
+  h.ctx.workspaceRegistry.archiveSession = async () => {}
+  h.rt.botOf('b1').failures = { [oldId]: { code: 'CONTEXT_WINDOW_EXCEEDED' } }
+  assert.deepEqual(await h.rt.recoverOverflowPart('b1', oldId), { sessionId: freshId })
+  assert.equal(h.rt.state.questions[oldId], undefined)
+  assert.equal(h.rt.state.questions[freshId].id, run.pendingAction.actionId)
+  assert.equal(h.rt.state.questions[freshId].callSessionId, oldId)
+  assert.equal((await h.rt.channelCall('dismiss-question', { sessionId: freshId })).ok, true)
+  assert.equal(h.rt.state.questions[freshId], undefined)
+
+  const stopped = await fetch(`${view.baseUrl}/v1/runs/${run.runId}`, { headers }).then(response => response.json())
+  assert.equal(stopped.status, 'stopped')
+  assert.equal(stopped.pendingAction, null)
+  assert.equal(stopped.error.code, 'api/cancelled')
 })
 
 test('group chat multi-member batch settlement collects ordered replies', async (t) => {
@@ -724,7 +978,6 @@ test('run cancel, deliverables file download authorization, and global SSE strea
     revision: 1,
   }, {
     async onPrompt({ sessionId, text, emitSessionEvent, nextSeq }) {
-      emitSessionEvent(sessionId, { type: 'turn/start', seq: nextSeq(), time: Date.now(), data: { turn: 1 } })
       if (text === 'slow-cancel') {
         // Stay running until cancelled
         return

@@ -1062,6 +1062,7 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
+    const ownerComposer = event.type === 'user/message' && rt.takeOwnerComposerPrompt?.(id, event.data?.source?.rpcId) === true
     const switchedEnd = event.type === 'turn/end' && live.get(id)?.switched === true && rt.pastOwners?.has(id)
     // A DSH Agent's plain Session is only watched for its running turn, for the phone's Stop.
     if (rt.agentOf?.(id) !== undefined && !rt.isBotSession(id)) {
@@ -1474,13 +1475,15 @@ export function install(rt) {
             rt.resetBotLoops?.(own)
           }
           let dropped = false
-          if (state.questions[id] !== undefined) {
-            rt.closeCard(id, state.questions[id], 'replied')
+          const question = state.questions[id]
+          if (question !== undefined) {
+            rt.closeCard(id, question, 'replied', { session, source, ownerComposer })
             delete state.questions[id]
             dropped = true
           }
-          if (state.views?.[id] !== undefined) {
-            rt.closeCard(id, state.views[id], 'replied')
+          const view = state.views?.[id]
+          if (view !== undefined) {
+            rt.closeCard(id, view, 'replied', { session, source, ownerComposer })
             delete state.views[id]
             dropped = true
           }

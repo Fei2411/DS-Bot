@@ -1109,7 +1109,7 @@ export function install(rt) {
           })
           settle(botId, request, 'saved')
           await rt.save()
-          await tell(botId, `The user provided ${request.name} as a one-time secret reference: ${ref}. Pass this handle to a Bot host tool that accepts secret-ref handles (such as save_capability); it is deleted on first use and expires in 24 hours. You cannot see the value.`)
+          await tell(botId, `The user provided ${request.name} as a one-time secret reference: ${ref}. Pass this handle to a Bot host tool that accepts secret-ref handles (such as save_capability); it is deleted on first use and expires in 24 hours. You cannot see the value.`, request, 'saved')
           return { name: request.name, delivery: 'ref', status: 'saved' }
         }
         if (delivery === 'file') {
@@ -1122,7 +1122,7 @@ export function install(rt) {
           })
           settle(botId, request, 'saved')
           await rt.save()
-          await tell(botId, `The user provided ${request.name} in a private temporary file (0600): ${filePath} (expires at ${new Date(expiresAt).toISOString()}). Read it from that path in your command and never print, echo, or log its contents.`)
+          await tell(botId, `The user provided ${request.name} in a private temporary file (0600): ${filePath} (expires at ${new Date(expiresAt).toISOString()}). Read it from that path in your command and never print, echo, or log its contents.`, request, 'saved')
           return { name: request.name, delivery: 'file', expiresAt, status: 'saved' }
         }
         const existing = secrets.get(request.name)

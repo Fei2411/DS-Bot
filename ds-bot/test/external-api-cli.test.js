@@ -47,14 +47,15 @@ function startApiServer() {
     page: async () => ({ records: [], hasMore: false }),
     prompt: async ({ requestId, sessionId, content }) => {
       const text = (content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
+      const session = { id: sessionId }
       for (const listener of ctx.listeners.get('session/event') ?? []) {
-        listener({ id: sessionId }, { type: 'user/message', seq: ++seq, time: Date.now(), data: { content, source: { kind: 'user', rpcId: requestId } } })
+        listener(session, { type: 'turn/start', seq: ++seq, time: Date.now(), data: { turn: 1 } })
+        listener(session, { type: 'user/message', seq: ++seq, time: Date.now(), data: { content, source: { kind: 'user', rpcId: requestId } } })
       }
       setTimeout(() => {
         for (const listener of ctx.listeners.get('session/event') ?? []) {
-          listener({ id: sessionId }, { type: 'turn/start', seq: ++seq, time: Date.now(), data: { turn: 1 } })
-          listener({ id: sessionId }, { type: 'assistant/message', seq: ++seq, time: Date.now(), data: { message: { content: [{ type: 'text', text: `CLI Reply: ${text}` }] } } })
-          listener({ id: sessionId }, { type: 'turn/end', seq: ++seq, time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+          listener(session, { type: 'assistant/message', seq: ++seq, time: Date.now(), data: { message: { content: [{ type: 'text', text: `CLI Reply: ${text}` }] } } })
+          listener(session, { type: 'turn/end', seq: ++seq, time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
         }
       }, 10)
     },
