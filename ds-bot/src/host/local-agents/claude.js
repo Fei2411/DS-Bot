@@ -9,17 +9,36 @@ import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
+// Stop reasons that end an assistant message without expecting a tool result
+// or automatic continuation (note: `max_tokens` triggers Claude Code's
+// `max_output_tokens_recovery` continuation in the same turn).
+const TERMINAL_STOP_REASONS = new Set(['end_turn', 'stop_sequence', 'refusal', 'model_context_window_exceeded'])
+// Grace window after a definitive end-of-message signal (`message_stop` or terminal `stop_reason`)
+// before completing a turn when stream-json never emits `result` (#2382).
+// Kept long enough that late `result` events (including errors) are not cut off.
+const DEFAULT_RESULT_GRACE_MS = 30_000
+// Fallback quiet window when neither `stream_event` nor `stop_reason` is available.
+const DEFAULT_RESULT_FALLBACK_MS = 60_000
 // On Windows, CreateProcessW caps total command-line length at 32K chars (and .cmd shims at 8K);
 // pass long appended system prompts via `--append-system-prompt-file` to stay well below OS limits.
 const DEFAULT_SYSTEM_FILE_THRESHOLD = process.platform === 'win32' ? 4_000 : 64_000
 
 export class ClaudeEngine {
-  constructor(route, engine, { findExecutable, systemFileThreshold = DEFAULT_SYSTEM_FILE_THRESHOLD } = {}) {
+  constructor(route, engine, {
+    findExecutable,
+    systemFileThreshold = DEFAULT_SYSTEM_FILE_THRESHOLD,
+    resultGraceMs = DEFAULT_RESULT_GRACE_MS,
+    resultFallbackMs = DEFAULT_RESULT_FALLBACK_MS,
+  } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.systemFileThreshold = systemFileThreshold
+    this.resultGraceMs = resultGraceMs
+    this.resultFallbackMs = resultFallbackMs
     this.noPromptFile = false
+    this.noPartialMessages = false
+    this.noHookEvents = false
     this.forkSupported = undefined
     this.sessions = new Map()
   }
@@ -79,8 +98,25 @@ class ClaudeSession {
     this.events = []
     this.waiters = []
     this.dead = false
+    this.retired = false
+    this.pendingPrompts = 0
+    this.settledTurn = false
     this.idWaiters = []
     this.turnCalls = new Set()
+    this.pendingToolUses = new Set()
+    this.pendingPermissions = new Set()
+    this.pendingHooks = new Set()
+    this.awaitingToolResult = false
+    this.compacting = false
+    this.inMessage = false
+    this.lastMessageId = null
+    this.messageHasToolUse = false
+    this.messageStopReason = null
+    this.messageStopped = false
+    this.turnSawStreamEvent = false
+    this.turnHasAssistantOutput = false
+    this.turnUsage = undefined
+    this.resultTimer = undefined
   }
 
   emit(event) {
@@ -105,6 +141,14 @@ class ClaudeSession {
     // The stream-json formats only exist in print mode: without `--print` the
     // CLI starts an interactive session and never speaks this protocol.
     const args = [...(this.engine.engine.args ?? []), '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+    if (!this.engine.noPartialMessages) {
+      args.push('--include-partial-messages')
+      this.usedPartialMessages = true
+    }
+    if (!this.engine.noHookEvents) {
+      args.push('--include-hook-events')
+      this.usedHookEvents = true
+    }
     if (resumeId !== undefined) {
       if (forkSession === true && this.engine.forkSupported === false) {
         // Never silently resume the parent conversation when a fork was requested but unsupported.
@@ -173,8 +217,34 @@ class ClaudeSession {
     // stderr is not part of the protocol, but it is where a CLI that cannot
     // start says why; its tail goes into the error the turn shows.
     let stderr = ''
+    const detectStderrFlags = () => {
+      if (this.cliSessionId !== undefined) return
+      // Older Claude CLI builds without `--append-system-prompt-file` reject it before init.
+      if (this.usedPromptFile === true && /unknown option.*append-system-prompt-file|unrecognized option.*append-system-prompt-file/i.test(stderr)) {
+        this.engine.noPromptFile = true
+        this.promptFileUnsupported = true
+      }
+      if (this.usedPartialMessages === true && /unknown option.*include-partial-messages|unrecognized option.*include-partial-messages/i.test(stderr)) {
+        this.engine.noPartialMessages = true
+        this.cliFlagUnsupported = true
+      }
+      if (this.usedHookEvents === true && /unknown option.*include-hook-events|unrecognized option.*include-hook-events/i.test(stderr)) {
+        this.engine.noHookEvents = true
+        this.cliFlagUnsupported = true
+      }
+      if (this.usedForkSession === true && /unknown option.*fork-session|unrecognized option.*fork-session/i.test(stderr)) {
+        this.engine.forkSupported = false
+        this.forkUnsupported = true
+      }
+      // Claude Code deletes old conversations; resuming one that is gone exits
+      // before init with this line on stderr.
+      if (this.resumeId !== undefined && /no conversation found/i.test(stderr)) this.resumeMissing = true
+    }
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4_000) })
+    child.stderr.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-4_000)
+      detectStderrFlags()
+    })
     const fail = (message) => Object.assign(
       new Error(stderr.trim() === '' ? message : `${message}: ${stderr.trim().split('\n').slice(-5).join(' ')}`),
       { code: 'LOCAL_AGENT_EXIT' },
@@ -185,6 +255,9 @@ class ClaudeSession {
     // not on the child: without this listener the host dies with an unhandled
     // stream error. The failure goes into the session queue instead.
     child.stdin.on('error', (error) => {
+      if (this.retired) return
+      detectStderrFlags()
+      this.cancelResultTimer()
       this.dead = true
       const failure = fail(`${this.engine.engine.name} stopped reading input: ${error.message}`)
       this.rejectStart?.(failure)
@@ -192,6 +265,8 @@ class ClaudeSession {
       this.emit({ type: 'error', error: failure })
     })
     child.on('error', (error) => {
+      if (this.retired) return
+      this.cancelResultTimer()
       this.dead = true
       this.cleanupSystemFile()
       const failure = fail(`${this.engine.engine.name} could not start: ${error.message}`)
@@ -199,22 +274,30 @@ class ClaudeSession {
       this.rejectStart = undefined
       this.emit({ type: 'error', error: failure })
     })
-    child.on('exit', (code, signal) => {
+    child.on('exit', () => {
+      detectStderrFlags()
+      this.cancelResultTimer()
+      this.dead = true
+    })
+    // Wait for `close` (after stdout/stderr drain) before deciding whether to
+    // synthesize completion or fail, so a buffered `result` line is never raced.
+    child.on('close', (code, signal) => {
+      detectStderrFlags()
+      this.cancelResultTimer()
       this.dead = true
       this.cleanupSystemFile()
-      // Older Claude CLI builds without `--append-system-prompt-file` reject it before init.
-      if (this.usedPromptFile === true && this.cliSessionId === undefined && /unknown option.*append-system-prompt-file|unrecognized option.*append-system-prompt-file/i.test(stderr)) {
-        this.engine.noPromptFile = true
-        this.promptFileUnsupported = true
+      if (this.retired || (this.pendingPrompts === 0 && this.settledTurn)) {
+        for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
+        return
       }
-      if (this.usedForkSession === true && this.cliSessionId === undefined && /unknown option.*fork-session|unrecognized option.*fork-session/i.test(stderr)) {
-        this.engine.forkSupported = false
-        this.forkUnsupported = true
+      if (code === 0 && signal === null && this.pendingPrompts > 0 && this.canFinishWithoutResult()) {
+        for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
+        this.finishWithoutResult({ retireChild: false })
+        return
       }
-      // Claude Code deletes old conversations; resuming one that is gone exits
-      // before init with this line on stderr.
-      if (this.resumeId !== undefined && this.cliSessionId === undefined && /no conversation found/i.test(stderr)) this.resumeMissing = true
       for (const resolve of this.idWaiters.splice(0)) resolve(undefined)
+      this.pendingPrompts = 0
+      this.running = false
       this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
     })
     // The CLI sends `system/init` only once the first message arrives on stdin,
@@ -229,24 +312,96 @@ class ClaudeSession {
   }
 
   onLine(line) {
+    if (this.retired) return
     let event
     try { event = JSON.parse(line) } catch { return }
     switch (event?.type) {
       case 'system':
+        // Any system event (e.g. api_retry, hook_started, hook_progress, status)
+        // means the CLI is still active; disarm fallback until a terminal point.
+        this.cancelResultTimer()
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
           if (typeof event.cwd === 'string' && isAbsolute(event.cwd)) this.cwd = event.cwd
           this.model = event.model
           for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
-        } else if (event.subtype === 'compact_boundary') this.emit({ type: 'compaction', status: 'completed' })
-        else if (event.subtype === 'status' && event.status === 'compacting') this.emit({ type: 'compaction', status: 'started' })
+        } else if (event.subtype === 'compact_boundary') {
+          this.compacting = false
+          this.emit({ type: 'compaction', status: 'completed' })
+          this.maybeScheduleResultFallback()
+        } else if (event.subtype === 'status' && event.status === 'compacting') {
+          this.compacting = true
+          this.emit({ type: 'compaction', status: 'started' })
+        } else if (event.subtype === 'status' && this.compacting) {
+          this.compacting = false
+          this.maybeScheduleResultFallback()
+        } else if (event.subtype === 'hook_started') {
+          this.pendingHooks.add(event.hook_id ?? event.uuid ?? 'hook')
+        } else if (event.subtype === 'hook_response') {
+          if (event.hook_id !== undefined || event.uuid !== undefined) this.pendingHooks.delete(event.hook_id ?? event.uuid)
+          else this.pendingHooks.clear()
+          this.maybeScheduleResultFallback()
+        }
         break
+      case 'stream_event': {
+        if (event.parent_tool_use_id != null) break
+        this.turnSawStreamEvent = true
+        const inner = event.event
+        switch (inner?.type) {
+          case 'message_start':
+            this.cancelResultTimer()
+            this.inMessage = true
+            this.messageHasToolUse = false
+            this.messageStopReason = null
+            this.messageStopped = false
+            this.recordTurnUsage(inner.message?.usage)
+            break
+          case 'content_block_start':
+            this.cancelResultTimer()
+            if (inner.content_block?.type === 'tool_use') {
+              this.messageHasToolUse = true
+              this.turnHasAssistantOutput = false
+            }
+            break
+          case 'content_block_delta':
+          case 'content_block_stop':
+            this.cancelResultTimer()
+            break
+          case 'message_delta':
+            this.cancelResultTimer()
+            if (typeof inner.delta?.stop_reason === 'string') this.messageStopReason = inner.delta.stop_reason
+            this.recordTurnUsage(inner.usage)
+            this.maybeScheduleResultFallback()
+            break
+          case 'message_stop':
+            this.inMessage = false
+            this.messageStopped = true
+            this.maybeScheduleResultFallback()
+            break
+          default: break
+        }
+        break
+      }
       case 'assistant': {
+        const topLevel = event.parent_tool_use_id == null
         // Each response carries its usage, and what it read plus what it wrote is
         // what the context holds now. A subagent's (parent_tool_use_id) is its own.
         const usage = event.message?.usage
-        if (usage !== undefined && event.parent_tool_use_id == null) {
+        if (topLevel) {
+          this.cancelResultTimer()
+          const msgId = typeof event.message?.id === 'string' && event.message.id !== '' ? event.message.id : null
+          if (msgId !== null && msgId !== this.lastMessageId) {
+            this.lastMessageId = msgId
+            if (!this.inMessage) {
+              this.messageHasToolUse = false
+              this.messageStopReason = null
+            }
+          }
+          if (typeof event.message?.stop_reason === 'string') this.messageStopReason = event.message.stop_reason
+        }
+        if (usage !== undefined && topLevel) {
           if (typeof event.message?.id === 'string' && event.message.id !== '') this.turnCalls.add(event.message.id)
+          this.recordTurnUsage(usage)
           const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
           if (used > 0) this.emit({ type: 'context', used })
         }
@@ -259,19 +414,39 @@ class ClaudeSession {
             this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
           }
         }
+        if (topLevel) this.noteAssistantBlocks(event.message?.content)
+        break
+      }
+      case 'user': {
+        if (event.parent_tool_use_id != null) break
+        const content = event.message?.content
+        if (!Array.isArray(content)) break
+        for (const block of content) {
+          if (block?.type === 'tool_result') {
+            this.cancelResultTimer()
+            if (typeof block.tool_use_id === 'string') this.pendingToolUses.delete(block.tool_use_id)
+            this.awaitingToolResult = false
+            this.messageHasToolUse = false
+            this.messageStopReason = null
+          }
+        }
         break
       }
       case 'control_request': {
         const request = event.request ?? {}
         if (request.subtype === 'can_use_tool') {
+          this.cancelResultTimer()
+          const requestId = event.request_id
+          if (requestId !== undefined) this.pendingPermissions.add(requestId)
           const tool = request.tool_name ?? 'tool'
           this.emit({
-            type: 'permission', id: event.request_id, cwd: this.cwd,
+            type: 'permission', id: requestId, cwd: this.cwd,
             reply: (optionId) => {
+              if (requestId !== undefined) this.pendingPermissions.delete(requestId)
               if (optionId === 'allow' && !READ_TOOLS.has(tool)) this.cwd = undefined
               this.write({
                 type: 'control_response',
-                response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
+                response: { subtype: 'success', request_id: requestId, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
               })
             },
             action: `Run ${tool}`,
@@ -283,10 +458,15 @@ class ClaudeSession {
         break
       }
       case 'result':
+        this.cancelResultTimer()
+        if (this.pendingPrompts === 0) break
         // A resume of a conversation the CLI no longer has ends at once, before
         // init and with no turn.
         if (this.resumeId !== undefined && this.cliSessionId === undefined && event.is_error === true && (event.num_turns ?? 0) === 0) {
           this.resumeMissing = true
+          this.pendingPrompts = 0
+          this.settledTurn = true
+          this.running = false
           // It exits next and reads no more input.
           this.dead = true
           this.emit({ type: 'error', error: Object.assign(new Error(`${this.engine.engine.name} no longer has this conversation`), { code: 'LOCAL_AGENT_EXIT' }) })
@@ -299,15 +479,126 @@ class ClaudeSession {
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
         const observedCalls = this.turnCalls.size
-        this.turnCalls.clear()
+        this.resetTurnState()
+        this.pendingPrompts -= 1
+        this.running = this.pendingPrompts > 0
+        if (this.pendingPrompts === 0) {
+          this.settledTurn = true
+          this.pendingPermissions.clear()
+        }
         const calls = positiveInt(event.num_turns) ?? (observedCalls > 0 ? observedCalls : undefined)
-        this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage, calls) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
         break
       default: break
     }
+  }
+
+  recordTurnUsage(usage) {
+    if (usage === undefined || usage === null || typeof usage !== 'object') return
+    const prev = this.turnUsage ?? {}
+    const cacheRead = usage.cache_read_input_tokens ?? prev.cache_read_input_tokens
+    const cacheWrite = usage.cache_creation_input_tokens ?? prev.cache_creation_input_tokens
+    this.turnUsage = {
+      input_tokens: usage.input_tokens ?? prev.input_tokens ?? 0,
+      output_tokens: usage.output_tokens ?? prev.output_tokens ?? 0,
+      ...(cacheRead ? { cache_read_input_tokens: cacheRead } : {}),
+      ...(cacheWrite ? { cache_creation_input_tokens: cacheWrite } : {}),
+    }
+  }
+
+  resetTurnState() {
+    this.cancelResultTimer()
+    this.turnCalls.clear()
+    this.pendingToolUses.clear()
+    this.pendingHooks.clear()
+    this.awaitingToolResult = false
+    this.inMessage = false
+    this.lastMessageId = null
+    this.messageHasToolUse = false
+    this.messageStopReason = null
+    this.messageStopped = false
+    this.turnSawStreamEvent = false
+    this.turnHasAssistantOutput = false
+    this.turnUsage = undefined
+  }
+
+  noteAssistantBlocks(blocks) {
+    let sawToolUse = false
+    let sawText = false
+    for (const block of blocks ?? []) {
+      if (block.type === 'text' && typeof block.text === 'string' && block.text !== '') {
+        sawText = true
+      } else if (block.type === 'tool_use') {
+        sawToolUse = true
+        this.messageHasToolUse = true
+        this.turnHasAssistantOutput = false
+        if (typeof block.id === 'string' && block.id !== '') this.pendingToolUses.add(block.id)
+        else this.awaitingToolResult = true
+      }
+    }
+    if (!sawToolUse && sawText) this.turnHasAssistantOutput = true
+    this.maybeScheduleResultFallback()
+  }
+
+  canFinishWithoutResult() {
+    if (this.pendingPrompts === 0 || this.retired) return false
+    if (!this.turnHasAssistantOutput) return false
+    if ((this.inMessage && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) || this.messageHasToolUse) return false
+    if (this.messageStopReason !== null && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) return false
+    if (this.pendingToolUses.size > 0 || this.awaitingToolResult) return false
+    if (this.pendingPermissions.size > 0 || this.pendingHooks.size > 0 || this.compacting) return false
+    return true
+  }
+
+  cancelResultTimer() {
+    if (this.resultTimer !== undefined) {
+      clearTimeout(this.resultTimer)
+      this.resultTimer = undefined
+    }
+  }
+
+  maybeScheduleResultFallback() {
+    this.cancelResultTimer()
+    if (this.dead || !this.canFinishWithoutResult()) return
+    const definitive = this.messageStopped || TERMINAL_STOP_REASONS.has(this.messageStopReason)
+    if (!definitive && this.turnSawStreamEvent) return
+    const delay = definitive
+      ? (this.engine.resultGraceMs ?? DEFAULT_RESULT_GRACE_MS)
+      : (this.engine.resultFallbackMs ?? DEFAULT_RESULT_FALLBACK_MS)
+    if (!(delay > 0)) return
+    this.resultTimer = setTimeout(() => {
+      this.resultTimer = undefined
+      if (this.dead || !this.canFinishWithoutResult()) return
+      this.finishWithoutResult({ retireChild: true })
+    }, delay)
+    this.resultTimer.unref?.()
+  }
+
+  // Some Claude Code runs emit the full assistant reply and never emit the
+  // closing `result` line (#2382). Complete the turn with the output already
+  // streamed and retire the wedged child so the next turn resumes cleanly.
+  finishWithoutResult({ retireChild }) {
+    if (this.pendingPrompts === 0) return
+    this.pendingPrompts = 0
+    this.settledTurn = true
+    const observedCalls = this.turnCalls.size
+    const calls = observedCalls > 0 ? observedCalls : undefined
+    const usage = usageOf(this.turnUsage, calls)
+    this.resetTurnState()
+    this.pendingPermissions.clear()
+    this.running = false
+    if (retireChild) {
+      this.retired = true
+      this.dead = true
+      this.cleanupSystemFile()
+      for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
+      const child = this.child
+      this.child = undefined
+      terminateChild(child)
+    }
+    this.emit({ type: 'done', reason: 'stop', usage })
   }
 
   // The CLI reports its session id with `system/init`, which arrives after
@@ -319,7 +610,18 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
-    if (this.running !== true) this.turnCalls.clear()
+    if (this.pendingPrompts === 0) {
+      this.resetTurnState()
+    } else {
+      this.cancelResultTimer()
+      this.inMessage = false
+      this.messageHasToolUse = false
+      this.messageStopReason = null
+      this.messageStopped = false
+      this.turnHasAssistantOutput = false
+    }
+    this.pendingPrompts += 1
+    this.settledTurn = false
     this.running = true
     this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
@@ -336,6 +638,7 @@ class ClaudeSession {
   }
 
   cancel() {
+    this.cancelResultTimer()
     // The documented interrupt asks the turn to stop cleanly.
     this.write({ type: 'control_request', request: { subtype: 'interrupt' } })
   }
@@ -352,6 +655,7 @@ class ClaudeSession {
   }
 
   kill() {
+    this.cancelResultTimer()
     this.dead = true
     this.cleanupSystemFile()
     const child = this.child
