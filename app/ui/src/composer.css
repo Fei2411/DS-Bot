@@ -1,0 +1,2 @@
+/* The auto-height includes padding because it is measured with scrollHeight. */
+.dsb-composer-input textarea{box-sizing:border-box}
