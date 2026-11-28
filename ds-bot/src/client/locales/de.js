@@ -3005,6 +3005,8 @@ export const DE = {
   "Max output tokens must be a positive whole number": "Die maximalen Ausgabetokens müssen eine positive ganze Zahl sein",
   "Base URL must not include credentials, query, or fragment": "Die Basis-URL darf keine Zugangsdaten, Abfrageparameter oder Fragmente enthalten",
   "API key is required": "Ein API-Schlüssel ist erforderlich",
+  "Using built-in catalog ({count} models)": "Integrierter Katalog aktiv ({count} Modelle)",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Lade neu oder verwirf deine Änderungen und versuche es erneut.",
 }
 
 export const HOST_ERRORS_DE = [

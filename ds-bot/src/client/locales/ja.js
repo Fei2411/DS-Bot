@@ -2971,6 +2971,8 @@ export const JA = {
   "Max output tokens must be a positive whole number": "最大出力トークン数は正の整数である必要があります",
   "Base URL must not include credentials, query, or fragment": "Base URL に認証情報、クエリ、フラグメントを含めることはできません",
   "API key is required": "API キーが必要です",
+  "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。",
 }
 
 export const HOST_ERRORS_JA = [

@@ -3121,5 +3121,7 @@ const HOST_ZH = {
   'Max output tokens must be a positive whole number': '最大输出 token 必须是正整数',
   'Base URL must not include credentials, query, or fragment': 'Base URL 不能包含凭据、查询参数或锚点',
   'API key is required': '需要填写 API 密钥',
+  'Using built-in catalog ({count} models)': '使用内置目录（{count} 个模型）',
+  'Settings changed elsewhere. Reload or discard your changes and try again.': '设置已在别处更改。请重新加载或放弃修改后重试。',
 }
 Object.assign(ZH, HOST_ZH)

@@ -3005,6 +3005,8 @@ export const ES = {
   "Max output tokens must be a positive whole number": "Los tokens de salida máximos deben ser un número entero positivo",
   "Base URL must not include credentials, query, or fragment": "La URL base no puede incluir credenciales, consulta ni fragmento",
   "API key is required": "Se requiere una clave API",
+  "Using built-in catalog ({count} models)": "Usando catálogo integrado ({count} modelos)",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Recarga o descarta tus cambios e inténtalo de nuevo.",
 }
 
 export const HOST_ERRORS_ES = [

@@ -2971,6 +2971,8 @@ export const FR = {
   "Max output tokens must be a positive whole number": "Le nombre maximal de jetons de sortie doit être un entier positif",
   "Base URL must not include credentials, query, or fragment": "L’URL de base ne doit pas contenir d’identifiants, de requête ni de fragment",
   "API key is required": "Une clé API est requise",
+  "Using built-in catalog ({count} models)": "Catalogue intégré utilisé ({count} modèles)",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Rechargez ou abandonnez vos modifications puis réessayez.",
 }
 
 export const HOST_ERRORS_FR = [

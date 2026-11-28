@@ -3172,7 +3172,9 @@ var init_zh = __esm({
       "Context window must be a positive whole number": "上下文窗口必须是正整数",
       "Max output tokens must be a positive whole number": "最大输出 token 必须是正整数",
       "Base URL must not include credentials, query, or fragment": "Base URL 不能包含凭据、查询参数或锚点",
-      "API key is required": "需要填写 API 密钥"
+      "API key is required": "需要填写 API 密钥",
+      "Using built-in catalog ({count} models)": "使用内置目录（{count} 个模型）",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "设置已在别处更改。请重新加载或放弃修改后重试。"
     };
     Object.assign(ZH, HOST_ZH);
   }
@@ -6259,7 +6261,9 @@ var init_ja = __esm({
       "Context window must be a positive whole number": "コンテキストウィンドウは正の整数である必要があります",
       "Max output tokens must be a positive whole number": "最大出力トークン数は正の整数である必要があります",
       "Base URL must not include credentials, query, or fragment": "Base URL に認証情報、クエリ、フラグメントを含めることはできません",
-      "API key is required": "API キーが必要です"
+      "API key is required": "API キーが必要です",
+      "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。"
     };
     HOST_ERRORS_JA = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -10018,7 +10022,9 @@ var init_ko = __esm({
       "Context window must be a positive whole number": "컨텍스트 창은 양의 정수여야 합니다",
       "Max output tokens must be a positive whole number": "최대 출력 토큰 수는 양의 정수여야 합니다",
       "Base URL must not include credentials, query, or fragment": "Base URL에는 자격 증명, 쿼리 또는 프래그먼트를 포함할 수 없습니다",
-      "API key is required": "API 키가 필요합니다"
+      "API key is required": "API 키가 필요합니다",
+      "Using built-in catalog ({count} models)": "내장 카탈로그 사용 중 ({count}개 모델)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 새로고침하거나 변경사항을 취소한 뒤 다시 시도하세요."
     };
     HOST_ERRORS_KO = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -13778,7 +13784,9 @@ var init_es = __esm({
       "Context window must be a positive whole number": "La ventana de contexto debe ser un número entero positivo",
       "Max output tokens must be a positive whole number": "Los tokens de salida máximos deben ser un número entero positivo",
       "Base URL must not include credentials, query, or fragment": "La URL base no puede incluir credenciales, consulta ni fragmento",
-      "API key is required": "Se requiere una clave API"
+      "API key is required": "Se requiere una clave API",
+      "Using built-in catalog ({count} models)": "Usando catálogo integrado ({count} modelos)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Recarga o descarta tus cambios e inténtalo de nuevo."
     };
     HOST_ERRORS_ES = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -17494,7 +17502,9 @@ var init_fr = __esm({
       "Context window must be a positive whole number": "La fenêtre de contexte doit être un entier positif",
       "Max output tokens must be a positive whole number": "Le nombre maximal de jetons de sortie doit être un entier positif",
       "Base URL must not include credentials, query, or fragment": "L’URL de base ne doit pas contenir d’identifiants, de requête ni de fragment",
-      "API key is required": "Une clé API est requise"
+      "API key is required": "Une clé API est requise",
+      "Using built-in catalog ({count} models)": "Catalogue intégré utilisé ({count} modèles)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Rechargez ou abandonnez vos modifications puis réessayez."
     };
     HOST_ERRORS_FR = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -21253,7 +21263,9 @@ var init_de = __esm({
       "Context window must be a positive whole number": "Das Kontextfenster muss eine positive ganze Zahl sein",
       "Max output tokens must be a positive whole number": "Die maximalen Ausgabetokens müssen eine positive ganze Zahl sein",
       "Base URL must not include credentials, query, or fragment": "Die Basis-URL darf keine Zugangsdaten, Abfrageparameter oder Fragmente enthalten",
-      "API key is required": "Ein API-Schlüssel ist erforderlich"
+      "API key is required": "Ein API-Schlüssel ist erforderlich",
+      "Using built-in catalog ({count} models)": "Integrierter Katalog aktiv ({count} Modelle)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Lade neu oder verwirf deine Änderungen und versuche es erneut."
     };
     HOST_ERRORS_DE = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -62453,6 +62465,8 @@ function ModelListEditor({
   models: models2,
   family,
   overridden,
+  inheritedCount = 0,
+  resetEpoch = 0,
   defaultContextWindow,
   defaultMaxTokens,
   defaultInput,
@@ -62464,6 +62478,12 @@ function ModelListEditor({
   extraActions = null
 }) {
   const rowState = useModelRows(models2, onChange, disabled);
+  const lastEpoch = (0, import_react70.useRef)(resetEpoch);
+  (0, import_react70.useEffect)(() => {
+    if (lastEpoch.current === resetEpoch) return;
+    lastEpoch.current = resetEpoch;
+    rowState.reset();
+  }, [resetEpoch]);
   const inputField = family === "deepseek" ? "inputModalities" : "input";
   const updateField = (index, field, value) => {
     const next = models2.map((model, at2) => {
@@ -62524,7 +62544,11 @@ function ModelListEditor({
         extraActions
       )
     ),
-    models2.length === 0 ? (0, import_react70.createElement)("div", { className: "bt-set-hint" }, t("No models configured.")) : (0, import_react70.createElement)(
+    models2.length === 0 ? (0, import_react70.createElement)(
+      "div",
+      { className: "bt-set-hint" },
+      overridden === false && family === "pi-ai" && inheritedCount > 0 ? t("Using built-in catalog ({count} models)", { count: inheritedCount }) : t("No models configured.")
+    ) : (0, import_react70.createElement)(
       "div",
       { className: "bt-model-list" },
       rowState.rows.map(({ model, key, expanded, order }, index) => (0, import_react70.createElement)(ModelRowItem, {
@@ -62575,7 +62599,9 @@ var ENDPOINT_HINTS = {
 };
 var SHOWN_MODELS = 8;
 var translated = (promise) => Promise.resolve(promise).catch((failure) => {
-  throw new Error(hostText(failure?.message ?? String(failure)));
+  const err = new Error(hostText(failure?.message ?? String(failure)));
+  if (failure?.code !== void 0) err.code = failure.code;
+  throw err;
 });
 function draftFrom(provider, discovered) {
   const existing = Array.isArray(provider.declaredModels) && provider.declaredModels.length > 0 ? provider.declaredModels : provider.models ?? [];
@@ -62738,7 +62764,7 @@ function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced
 }
 function keyState(key) {
   if (key === null) return null;
-  if (!key.configured) return ["missing", t("Needs an API key")];
+  if (!key.configured) return key.optional ? null : ["missing", t("Needs an API key")];
   return key.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
 }
 function ProviderConfigEditor({
@@ -62765,20 +62791,14 @@ function ProviderConfigEditor({
   const [models2, setModels] = (0, import_react71.useState)(initialModels);
   const [modelsEdited, setModelsEdited] = (0, import_react71.useState)(false);
   const [resetModels, setResetModels] = (0, import_react71.useState)(false);
+  const [draftRevision, setDraftRevision] = (0, import_react71.useState)(provider.revision);
+  const [conflicted, setConflicted] = (0, import_react71.useState)(false);
+  const [reloading, setReloading] = (0, import_react71.useState)(false);
+  const [resetEpoch, setResetEpoch] = (0, import_react71.useState)(0);
   const [saving, setSaving] = (0, import_react71.useState)(false);
   const [savedNotice, setSavedNotice] = (0, import_react71.useState)(false);
   const [saveError, setSaveError] = (0, import_react71.useState)("");
   const [confirmImpact, setConfirmImpact] = (0, import_react71.useState)(false);
-  (0, import_react71.useEffect)(() => {
-    setDisplayName(provider.displayName ?? "");
-    setBaseURL(provider.baseURL ?? "");
-    setApi(provider.api ?? "");
-    setModels(normalizeModelDrafts(provider.editableModels));
-    setModelsEdited(false);
-    setResetModels(false);
-    setSaveError("");
-    setConfirmImpact(false);
-  }, [provider.revision, provider.id]);
   const effectiveApi = ownsIdentity ? api || provider.api : provider.api;
   const allowReasoning = family === "pi-ai" && (provider.custom === true || models2.some((m) => m?.reasoningEfforts !== void 0));
   const reasoning = allowReasoning ? protocolReasoningLevels(effectiveApi, reasoningLevels) : { levels: [], levelsOnly: false };
@@ -62789,36 +62809,79 @@ function ProviderConfigEditor({
     reasoningLevelsOnly: reasoning.levelsOnly,
     requireNonEmpty: ownsIdentity
   }) : void 0;
-  const protocolKeyMissing = family === "pi-ai" && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv;
+  const protocolKeyMissing = family === "pi-ai" && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv && !provider.key?.configured;
   const displayNameChanged = ownsIdentity && displayName.trim() !== initialDisplayName.trim();
   const baseURLChanged = baseURL.trim() !== initialBaseURL.trim();
   const apiChanged = ownsIdentity && api !== initialApi && api !== "";
   const modelsChanged = resetModels || modelsEdited && JSON.stringify(models2) !== JSON.stringify(initialModels);
   const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged;
   const invalid = Boolean(baseUrlError || modelError || protocolKeyMissing);
-  const disabled = readOnly || saving;
-  const impact = modelsChanged ? modelEditorImpact(provider, models2, resetModels, roster) : { switching: [], failed: [], local: [] };
-  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0;
-  const discard = () => {
-    setDisplayName(initialDisplayName);
-    setBaseURL(initialBaseURL);
-    setApi(initialApi);
-    setModels(initialModels);
+  const disabled = readOnly || saving || reloading;
+  const syncFromProvider = (source = provider) => {
+    setDisplayName(source.displayName ?? "");
+    setBaseURL(source.baseURL ?? "");
+    setApi(source.api ?? "");
+    setModels(normalizeModelDrafts(source.editableModels));
     setModelsEdited(false);
     setResetModels(false);
+    setDraftRevision(source.revision);
+    setConflicted(false);
+    setSaveError("");
+    setConfirmImpact(false);
+    setResetEpoch((n) => n + 1);
+  };
+  const lastProviderId = (0, import_react71.useRef)(provider.id);
+  (0, import_react71.useEffect)(() => {
+    if (lastProviderId.current === provider.id) return;
+    lastProviderId.current = provider.id;
+    syncFromProvider();
+  }, [provider.id]);
+  (0, import_react71.useEffect)(() => {
+    if (saving || reloading || provider.revision === draftRevision) return;
+    if (!dirty && !conflicted) {
+      syncFromProvider();
+    } else {
+      setConflicted(true);
+    }
+  }, [provider.revision, saving, reloading]);
+  const impact = modelsChanged ? modelEditorImpact(provider, models2, resetModels, roster) : { switching: [], failed: [], local: [] };
+  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0;
+  const reload = () => {
+    if (reloading || typeof actions.providers !== "function") {
+      syncFromProvider();
+      setSavedNotice(false);
+      return;
+    }
+    setReloading(true);
     setSaveError("");
     setSavedNotice(false);
-    setConfirmImpact(false);
+    void translated(actions.providers()).then((next) => {
+      const fresh = next?.providers?.find((p) => p.id === provider.id);
+      if (fresh) syncFromProvider(fresh);
+      else syncFromProvider();
+      if (next?.providers) return apply2(Promise.resolve(next));
+      return true;
+    }).catch((error) => {
+      setSaveError(error?.message ?? String(error));
+    }).finally(() => setReloading(false));
+  };
+  const discard = () => {
+    const wasConflicted = conflicted;
+    syncFromProvider();
+    setSavedNotice(false);
+    if (wasConflicted && typeof actions.providers === "function") {
+      reload();
+    }
   };
   const save = () => {
-    if (disabled || !dirty || invalid || typeof actions.saveProviderConfig !== "function") return;
+    if (disabled || !dirty || invalid || conflicted || typeof actions.saveProviderConfig !== "function") return;
     if (hasImpact && !confirmImpact) {
       setConfirmImpact(true);
       return;
     }
     const payload = {
       provider: provider.id,
-      ...provider.revision !== void 0 ? { revision: provider.revision } : {}
+      ...draftRevision !== void 0 ? { revision: draftRevision } : {}
     };
     if (displayNameChanged) payload.displayName = displayName.trim() === "" ? null : displayName.trim();
     if (baseURLChanged) payload.baseURL = baseURL.trim() === "" ? null : baseURL.trim();
@@ -62829,16 +62892,22 @@ function ProviderConfigEditor({
     setSaveError("");
     setSavedNotice(false);
     void translated(actions.saveProviderConfig(payload)).then((next) => {
+      const fresh = next?.providers?.find((p) => p.id === provider.id);
+      if (fresh) syncFromProvider(fresh);
+      else {
+        setModelsEdited(false);
+        setResetModels(false);
+        setConflicted(false);
+        setConfirmImpact(false);
+      }
       if (next?.providers) return apply2(Promise.resolve(next));
       return true;
     }).then((ok) => {
       if (ok === false) return;
-      setModelsEdited(false);
-      setResetModels(false);
-      setConfirmImpact(false);
       setSavedNotice(true);
       void actions.refreshModels?.();
     }).catch((error) => {
+      if (error?.code === "bot/stale") setConflicted(true);
       setSaveError(error?.message ?? String(error));
     }).finally(() => setSaving(false));
   };
@@ -62918,9 +62987,12 @@ function ProviderConfigEditor({
     baseUrlError ? (0, import_react71.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, t(baseUrlError)) : null,
     protocolKeyMissing ? (0, import_react71.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, t("Google Gemini requires an API key")) : null,
     (0, import_react71.createElement)(ModelListEditor, {
+      key: resetEpoch,
+      resetEpoch,
       models: models2,
       family,
       overridden: effectiveOverridden,
+      inheritedCount: provider.models?.length ?? 0,
       defaultContextWindow: provider.defaultContextWindow,
       defaultMaxTokens: provider.defaultMaxTokens,
       defaultInput: provider.defaultInput,
@@ -62958,21 +63030,32 @@ function ProviderConfigEditor({
       { key: `fail-${bot.id}`, className: "bt-set-hint bt-provider-used", role: "status" },
       t("{name} has no model to fall back to; its next turn will fail.", { name: bot.name })
     )),
-    saveError ? (0, import_react71.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, saveError) : null,
+    conflicted ? (0, import_react71.createElement)(
+      "div",
+      { className: "bt-set-hint", "data-error": "", role: "alert" },
+      t("Settings changed elsewhere. Reload or discard your changes and try again.")
+    ) : null,
+    saveError && !conflicted ? (0, import_react71.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, saveError) : null,
     (0, import_react71.createElement)(
       "div",
       { className: "bt-secret-row-actions bt-provider-form-bar" },
-      savedNotice && !dirty ? (0, import_react71.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react71.createElement)(CheckIcon), t("Saved.")) : null,
+      savedNotice && !dirty && !conflicted ? (0, import_react71.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react71.createElement)(CheckIcon), t("Saved.")) : null,
+      conflicted ? (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-soft bt-soft-sm",
+        disabled: readOnly || reloading,
+        onClick: reload
+      }, t("Reload")) : null,
       (0, import_react71.createElement)("button", {
         type: "button",
         className: "bt-soft bt-soft-sm",
-        disabled: disabled || !dirty,
+        disabled: disabled || !dirty && !conflicted,
         onClick: discard
       }, t("Discard")),
       (0, import_react71.createElement)("button", {
         type: "button",
         className: "bt-send bt-soft-sm",
-        disabled: disabled || !dirty || invalid,
+        disabled: disabled || !dirty || invalid || conflicted,
         onClick: save
       }, saving ? t("Saving…") : confirmImpact && hasImpact ? t("Save anyway") : t("Save"))
     )

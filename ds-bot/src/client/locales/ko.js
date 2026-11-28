@@ -3005,6 +3005,8 @@ export const KO = {
   "Max output tokens must be a positive whole number": "최대 출력 토큰 수는 양의 정수여야 합니다",
   "Base URL must not include credentials, query, or fragment": "Base URL에는 자격 증명, 쿼리 또는 프래그먼트를 포함할 수 없습니다",
   "API key is required": "API 키가 필요합니다",
+  "Using built-in catalog ({count} models)": "내장 카탈로그 사용 중 ({count}개 모델)",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 새로고침하거나 변경사항을 취소한 뒤 다시 시도하세요.",
 }
 
 export const HOST_ERRORS_KO = [

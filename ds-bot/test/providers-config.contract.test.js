@@ -56,7 +56,7 @@ function createRealSchemaHost({
   const piAiEffective = () => {
     const merged = structuredClone(piBase.providers ?? {})
     for (const [id, profile] of Object.entries(piAiUser.providers ?? {})) {
-      merged[id] = { ...(merged[id] ?? {}), ...structuredClone(profile) }
+      merged[id] = { ...merged[id], ...structuredClone(profile) }
     }
     return { providers: merged }
   }
@@ -121,7 +121,7 @@ function createRealSchemaHost({
           const nextUser = applyOps(piAiUser, ops)
           const merged = structuredClone(piBase.providers ?? {})
           for (const [id, profile] of Object.entries(nextUser.providers ?? {})) {
-            merged[id] = { ...(merged[id] ?? {}), ...structuredClone(profile) }
+            merged[id] = { ...merged[id], ...structuredClone(profile) }
           }
           // Validate with real DSH pi-ai schema!
           PiAiConfig({ providers: merged })
@@ -372,4 +372,41 @@ test('provider-config-save is strictly computer-only (denied to phone, browser, 
   assert.equal(isComputerOnlyEndpoint('provider-config-save'), true)
   assert.equal(isTeamEndpoint('provider-config-save'), false)
   assert.equal(BROWSER_ALLOWED.has('provider-config-save'), false)
+})
+
+test('keyless editable providers still expose a writable key editor and attach apiKeyEnv when a key is saved later', async () => {
+  const { rt, store, piAiEffective } = createRealSchemaHost({
+    piUser: {
+      providers: {
+        moonshotai: {},
+        'local-custom': { api: 'openai-completions', baseURL: 'https://local.example/v1', models: [{ id: 'm1' }] },
+        'gemini-custom': { api: 'google-generative-ai', baseURL: 'https://generativelanguage.googleapis.com/v1beta', models: [{ id: 'gemini-2.5-pro' }] },
+      },
+    },
+    catalog: {
+      moonshotai: { models: ['kimi-k2.5'], defaultBaseURL: 'https://api.moonshot.ai/v1', nativeAuth: { env: ['MOONSHOT_API_KEY'], oauth: false } },
+      'oauth-only': { models: ['o1'], defaultBaseURL: 'https://oauth.example/v1', nativeAuth: { env: [], oauth: true } },
+    },
+  })
+  // Add oauth-only route to piUser too via addProvider
+  await rt.addProvider({ provider: 'oauth-only' })
+  const view = await rt.providersView()
+  const moonshot = view.providers.find(p => p.id === 'moonshotai')
+  const custom = view.providers.find(p => p.id === 'local-custom')
+  const gemini = view.providers.find(p => p.id === 'gemini-custom')
+  const oauthOnly = view.providers.find(p => p.id === 'oauth-only')
+
+  assert.equal(moonshot.key?.writable, true, 'keyless catalog provider exposes writable key')
+  assert.equal(moonshot.key?.optional, true)
+  assert.equal(custom.key?.writable, true, 'keyless custom provider exposes writable key')
+  assert.equal(oauthOnly.key, null, 'oauth-only nativeAuth provider keeps key: null')
+  assert.equal(gemini.refreshable, true, 'google-generative-ai route is listable/refreshable')
+
+  // Saving a key later onto the keyless catalog provider attaches apiKeyEnv and stores secret
+  await rt.setProviderKey('moonshotai', 'sk-moonshot-later')
+  assert.equal(store.MOONSHOTAI_API_KEY, 'sk-moonshot-later')
+  assert.equal(piAiEffective().providers.moonshotai.apiKeyEnv, 'MOONSHOTAI_API_KEY')
+  const after = await rt.providersView()
+  assert.equal(after.providers.find(p => p.id === 'moonshotai').key?.configured, true)
+  assert.equal(after.providers.find(p => p.id === 'moonshotai').key?.optional, undefined)
 })
