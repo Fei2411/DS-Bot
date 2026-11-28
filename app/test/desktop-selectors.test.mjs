@@ -7,13 +7,42 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { runInNewContext } from 'node:vm'
 import { checkDesktopSelectors, scanFile } from '../../scripts/check-desktop-selectors.mjs'
-import { SPRING_SLIDE } from '../../ds-bot/src/client/motion.js'
-import { SHELL_CSS } from '../../ds-bot/src/client/styles.js'
-import { teamActions } from '../../ds-bot/src/client/team-actions.js'
-import { createSource } from '../../ds-bot/src/client/sources.js'
 
 const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const APP_ROOT = join(REPO_ROOT, 'app')
+
+async function loadClientModules(exportsSource) {
+  const { outputFiles } = await build({
+    stdin: { contents: exportsSource, resolveDir: APP_ROOT },
+    bundle: true,
+    format: 'cjs',
+    platform: 'browser',
+    write: false,
+    logLevel: 'silent',
+    external: ['react'],
+  })
+  const mod = { exports: {} }
+  const reactStub = {
+    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    useEffect() {},
+    useLayoutEffect() {},
+    useRef: current => ({ current }),
+    useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
+  }
+  runInNewContext(outputFiles[0].text, {
+    module: mod,
+    exports: mod.exports,
+    require: name => (name === 'react' ? reactStub : {}),
+  })
+  return mod.exports
+}
+
+const { SPRING_SLIDE, SHELL_CSS, teamActions, createSource } = await loadClientModules([
+  "export { SPRING_SLIDE } from '../ds-bot/src/client/motion.js'",
+  "export { SHELL_CSS } from '../ds-bot/src/client/styles.js'",
+  "export { teamActions } from '../ds-bot/src/client/team-actions.js'",
+  "export { createSource } from '../ds-bot/src/client/sources.js'",
+].join('\n'))
 
 test('check-desktop-selectors passes on the real desktop import graph with 0 violations', () => {
   const result = checkDesktopSelectors({ rootDir: REPO_ROOT })
