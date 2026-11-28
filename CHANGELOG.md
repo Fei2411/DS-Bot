@@ -4,6 +4,30 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-28
+
+### Added
+
+- **macOS in-place auto-update**: macOS desktop builds can now download, SHA-256 verify, and atomically replace `DS Bot.app` in place without manually re-downloading the DMG. ([#2392](https://github.com/Fei-Craft/DS-Bot/pull/2392))
+- **Auto web-fetch with isolated browser fallback**: added an automatic web-fetch provider that falls back from direct HTTP fetch to an isolated, SSRF-guarded browser render for JS-heavy and anti-bot pages. ([#2421](https://github.com/Fei-Craft/DS-Bot/pull/2421))
+- **Visible pause guards for runaway loops and retries**: Bots now pause visibly with a clear resume option instead of burning tokens on stuck tool loops or repeated retries. ([#2424](https://github.com/Fei-Craft/DS-Bot/pull/2424))
+
+### Changed
+
+- **Smooth Bot sidebar collapse & expand motion**: switched the Bot sidebar collapse and expand animation to critically damped motion without layout jitter. ([#2431](https://github.com/Fei-Craft/DS-Bot/pull/2431))
+- **Browser plugin catalog cleanup**: removed Ego Lite from the built-in browser plugin catalog while preserving safe switch and uninstall paths for existing installations. ([#2398](https://github.com/Fei-Craft/DS-Bot/pull/2398))
+
+### Fixed
+
+- **ChatGPT subscription prompt cache hit rate**: kept system prompts inline as `developer` messages in the cached `input` prefix, forwarded session affinity headers (`session-id` / `x-client-request-id`), populated `prompt_cache_options`, and preserved `reasoning.encrypted_content` across multi-step tool calls. ([#2408](https://github.com/Fei-Craft/DS-Bot/pull/2408))
+- **ChatGPT subscription reasoning effort**: exposed and preserved selectable reasoning effort levels for ChatGPT-plan models in Bot settings and the model switcher. ([#2399](https://github.com/Fei-Craft/DS-Bot/pull/2399))
+- **Desktop scheduled tasks entry & one-click enablement**: fixed clicking Scheduled Tasks in the desktop app account menu failing to open and enabled one-click schedule setup on DSH 0.2.2. ([#2439](https://github.com/Fei-Craft/DS-Bot/pull/2439))
+- **Composer input locks & focus stealing**: fixed unexpected focus stealing and states that prevented typing in chat sessions. ([#2422](https://github.com/Fei-Craft/DS-Bot/pull/2422))
+- **Narrow settings & UI overflow fixes**: stacked narrow input and picker rows instead of squeezing labels, fixed narrow switch-row clipping, and resolved missing `border-box` width overflows across settings and detail panels. ([#2420](https://github.com/Fei-Craft/DS-Bot/pull/2420), [#2426](https://github.com/Fei-Craft/DS-Bot/pull/2426))
+- **Window dragging with modals open**: kept the top window drag strip responsive while modals and overlays are open. ([#2423](https://github.com/Fei-Craft/DS-Bot/pull/2423))
+- **External browser plugin sidebar status**: distinguished external browser plugins from the built-in sidebar browser panel so controls and indicators stay accurate. ([#2393](https://github.com/Fei-Craft/DS-Bot/pull/2393))
+- **DSH plugin startup & SQLite shutdown stability**: fixed an `uiSession.sessionStatus` inject crash in DSH plugin host mode and prevented chat-index and usage SQLite handles from reopening or leaking during shutdown while flushing active metered usage. ([#2403](https://github.com/Fei-Craft/DS-Bot/pull/2403), [#2411](https://github.com/Fei-Craft/DS-Bot/pull/2411))
+
 ## [0.4.1] - 2026-11-27
 
 ### Changed

@@ -6,7 +6,26 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-export const safeStorage = { isEncryptionAvailable: () => false }
+const countStartWindows = () => state.windows.filter(win => (win.options.webPreferences?.additionalArguments ?? []).some(arg => arg.startsWith('--ds-bot-start='))).length
+
+export const safeStorage = {
+  isEncryptionAvailable: () => {
+    state.safeStorageCalls.push({ method: 'isEncryptionAvailable', startWindows: countStartWindows() })
+    return state.encryptionAvailable === true
+  },
+  getSelectedStorageBackend: () => {
+    state.safeStorageCalls.push({ method: 'getSelectedStorageBackend', startWindows: countStartWindows() })
+    return state.storageBackend ?? 'basic_text'
+  },
+  decryptString: (buffer) => {
+    state.safeStorageCalls.push({ method: 'decryptString', startWindows: countStartWindows() })
+    return Buffer.from(buffer).toString('utf8')
+  },
+  encryptString: (text) => {
+    state.safeStorageCalls.push({ method: 'encryptString', startWindows: countStartWindows() })
+    return Buffer.from(String(text), 'utf8')
+  },
+}
 
 // The data of the app in this process: a folder of its own, so that a test never writes
 // into the data of the user.
@@ -42,6 +61,7 @@ export const state = {
   cookies: [],
   paths: {},
   switches: new Map(),
+  safeStorageCalls: [],
   dock: { setIcon: () => {} },
 }
 
@@ -151,7 +171,8 @@ class FakeWebContents extends EventEmitter {
     this.insertCSS = async () => {}
     this.toggleDevTools = () => {}
     this.loadURL = async url => { await this.win.loadURL(url) }
-    this.reload = () => {}
+    this.reloads = 0
+    this.reload = () => { this.reloads += 1 }
   }
 }
 

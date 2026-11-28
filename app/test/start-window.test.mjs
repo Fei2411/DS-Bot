@@ -554,6 +554,30 @@ test('the team view has 20 s to call ready(); a late ready() hands over without 
   assert.equal('failure' in s.state(), false)
 })
 
+test('teamViewFailed enters viewFailed immediately without waiting TEAM_VIEW_MS', (t) => {
+  const s = startWindow(t)
+  s.start.open('later')
+  s.start.done('data')
+  s.start.done('engine')
+  s.start.teamLoading()
+  s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED'))
+  assert.equal(s.state().view, 'viewFailed')
+  assert.deepEqual(s.state().failure, { reason: 'other', log: ['a log line'] })
+})
+
+test('teamViewFailed waits while a card is open and shows once the card clears', (t) => {
+  const c = startWindow(t)
+  c.start.open('first')
+  c.start.done('data')
+  c.start.done('engine')
+  c.start.teamLoading()
+  c.start.card({ kind: 'picked', path: '/tmp/x' })
+  c.start.teamViewFailed(new Error('ERR_FAILED'))
+  assert.equal(c.state().view, 'card')
+  c.start.card(undefined)
+  assert.equal(c.state().view, 'viewFailed')
+})
+
 for (const [kind, wait] of [['first', 2500], ['later', 800]]) {
   test(`without handoffShow the team window shows by itself after ${String(wait)} ms on a ${kind} start`, async (t) => {
     const s = startWindow(t)
@@ -980,4 +1004,45 @@ test('the 20 s check\'s verdict waits for a card\'s answer instead of being lost
   assert.equal(v.state().view, 'card')
   v.start.card(undefined)
   assert.equal(v.state().view, 'viewFailed')
+})
+
+test('teamViewFailed redacts launch tokens from console output', (t) => {
+  const s = startWindow(t)
+  const logged = []
+  const origLog = console.log
+  console.log = (...args) => { logged.push(args.join(' ')) }
+  try {
+    s.start.open('first')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.teamLoading()
+    s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED (-102) loading http://127.0.0.1:4123/?token=secret-launch-token'))
+  } finally {
+    console.log = origLog
+  }
+  assert.equal(s.state().view, 'viewFailed')
+  assert.ok(logged.some(line => line.includes('token=<hidden>')), 'redacted token should appear in log line')
+  assert.equal(logged.some(line => line.includes('secret-launch-token')), false, 'raw launch token must never print to console')
+})
+
+test('deferred teamViewFailed transitions to viewFailed after card closes without logging a 20 s timeout', (t) => {
+  const s = startWindow(t)
+  const logged = []
+  const origLog = console.log
+  console.log = (...args) => { logged.push(args.join(' ')) }
+  try {
+    s.start.open('first')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.teamLoading()
+    s.start.card({ kind: 'rejected', reason: 'onedrive', path: 'C:\\OneDrive' })
+    s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED (-102)'))
+    assert.equal(s.state().view, 'card')
+    s.start.card(undefined)
+  } finally {
+    console.log = origLog
+  }
+  assert.equal(s.state().view, 'viewFailed')
+  assert.ok(logged.some(line => line.includes('the team view failed to load')), 'load failure should be logged once')
+  assert.equal(logged.some(line => line.includes('did not call ready() within 20 s')), false, 'must not log misleading 20 s timeout after teamViewFailed')
 })
