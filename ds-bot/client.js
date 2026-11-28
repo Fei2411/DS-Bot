@@ -49,6 +49,10 @@ var ZH, HOST_ERRORS, HOST_ZH;
 var init_zh = __esm({
   "src/client/locales/zh.js"() {
     ZH = {
+      "Reconnecting…": "正在重新连接…",
+      "Reconnect": "重新连接",
+      "Waiting to confirm…": "等待确认…",
+      "Live updates paused: message too large": "实时推送已暂停：单条消息超过上限",
       "Auto review": "自动审批",
       "Session only": "仅本次会话",
       "Permission preset": "权限模式",
@@ -3229,6 +3233,10 @@ var JA, HOST_ERRORS_JA, DSH_JA;
 var init_ja = __esm({
   "src/client/locales/ja.js"() {
     JA = {
+      "Reconnecting…": "再接続中…",
+      "Reconnect": "再接続",
+      "Waiting to confirm…": "確認待ち…",
+      "Live updates paused: message too large": "ライブ更新が一時停止されました：メッセージが大きすぎます",
       "Auto review": "自動審査",
       "Session only": "このセッションのみ",
       "Permission preset": "権限プリセット",
@@ -6883,6 +6891,10 @@ var KO, HOST_ERRORS_KO, DSH_KO;
 var init_ko = __esm({
   "src/client/locales/ko.js"() {
     KO = {
+      "Reconnecting…": "다시 연결하는 중…",
+      "Reconnect": "다시 연결",
+      "Waiting to confirm…": "확인 대기 중…",
+      "Live updates paused: message too large": "실시간 업데이트 일시 중지됨: 메시지가 너무 큽니다",
       "Auto review": "자동 검토",
       "Session only": "이 세션만",
       "Permission preset": "권한 프리셋",
@@ -10582,6 +10594,10 @@ var ES, HOST_ERRORS_ES, DSH_ES;
 var init_es = __esm({
   "src/client/locales/es.js"() {
     ES = {
+      "Reconnecting…": "Reconectando…",
+      "Reconnect": "Reconectar",
+      "Waiting to confirm…": "Esperando confirmación…",
+      "Live updates paused: message too large": "Actualizaciones en vivo en pausa: mensaje demasiado grande",
       "Auto review": "Revisión automática",
       "Session only": "Solo esta sesión",
       "Permission preset": "Preajuste de permisos",
@@ -14281,6 +14297,10 @@ var FR, HOST_ERRORS_FR, DSH_FR;
 var init_fr = __esm({
   "src/client/locales/fr.js"() {
     FR = {
+      "Reconnecting…": "Reconnexion…",
+      "Reconnect": "Reconnecter",
+      "Waiting to confirm…": "En attente de confirmation…",
+      "Live updates paused: message too large": "Mises à jour en direct en pause : message trop volumineux",
       "Auto review": "Validation automatique",
       "Session only": "Cette session uniquement",
       "Permission preset": "Préréglage de permissions",
@@ -17935,6 +17955,10 @@ var DE, HOST_ERRORS_DE, DSH_DE;
 var init_de = __esm({
   "src/client/locales/de.js"() {
     DE = {
+      "Reconnecting…": "Verbindung wird wiederhergestellt…",
+      "Reconnect": "Neu verbinden",
+      "Waiting to confirm…": "Warte auf Bestätigung…",
+      "Live updates paused: message too large": "Live-Updates pausiert: Nachricht zu groß",
       "Auto review": "Automatische Prüfung",
       "Session only": "Nur diese Sitzung",
       "Permission preset": "Berechtigungsprofil",
@@ -65117,6 +65141,36 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
+  {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "items": [
+          "优化 ChatGPT 订阅 Prompt Cache 命中率与思考强度切换：保留系统提示词缓存前缀、透传会话亲和头、支持多步工具调用保留加密推理，并可选择和记住推理思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "增强网页读取：新增自动抓取模式，直连失败或遇到动态渲染页时自动回退到隔离浏览器渲染",
+          "修复会话偶发无法输入与焦点抢占问题，并新增失控循环/重复重试可见暂停护栏，避免异常卡死消耗额度",
+          "修复桌面端账号菜单无法打开定时任务的问题，支持一键开启定时任务",
+          "全面修复窄宽卡片与设置行字体挤压、开关裁切和宽度溢出，支持弹窗打开时拖动窗口，并优化 Bot 侧边栏收起/展开动效",
+          "修复外部浏览器插件侧边栏状态判断、从内置插件目录移除 Ego Lite，并修复 DSH 插件态启动报错与退出时 SQLite 句柄竞态"
+        ],
+        "intro": "重点提升 ChatGPT 订阅体验、macOS 原地自动更新与网页读取成功率，并修复输入框锁死、防死循环耗额度、定时任务入口与多处界面细节。"
+      },
+      "en": {
+        "items": [
+          "Improved ChatGPT subscription prompt cache hit rates and added selectable, persisted reasoning effort levels across Bot settings and the model switcher",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement so macOS users no longer need to manually re-download DMGs",
+          "Added automatic web-fetch mode with an isolated, SSRF-guarded browser fallback for JS-heavy and anti-bot pages",
+          "Fixed composer input locks and focus stealing, and added visible pause guards with resume controls to prevent runaway tool loops and retry storms from burning quota",
+          "Fixed desktop Scheduled Tasks failing to open from the account menu and added one-click schedule enablement",
+          "Fixed narrow settings/switch label squeezing and layout overflows, kept the top window drag strip active while modals are open, and smoothed Bot sidebar collapse/expand motion",
+          "Fixed external browser plugin sidebar status detection, removed Ego Lite from the built-in catalog, and fixed DSH plugin-host startup crashes and SQLite shutdown handle races"
+        ],
+        "intro": "Improves ChatGPT subscription caching and reasoning effort, adds macOS in-place auto-updates and resilient web fetching, and fixes input locks, runaway loop protection, scheduled tasks, and UI polish."
+      }
+    }
+  },
   {
     "version": "0.4.1",
     "date": "2026-11-27",

@@ -1,6 +1,10 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Reconnecting…': '다시 연결하는 중…',
+  'Reconnect': '다시 연결',
+  'Waiting to confirm…': '확인 대기 중…',
+  'Live updates paused: message too large': '실시간 업데이트 일시 중지됨: 메시지가 너무 큽니다',
   'Auto review': '자동 검토',
   'Session only': '이 세션만',
   'Permission preset': '권한 프리셋',

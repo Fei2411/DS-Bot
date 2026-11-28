@@ -5,6 +5,7 @@ import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
+import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
@@ -120,6 +121,26 @@ function ClassicTitleToggle({ hidden, onToggle }) {
     title: label,
     onClick: onToggle,
   }, h(SidebarIcon)), document.body)
+}
+
+function ConnectionBanner({ useConnection, onReconnect }) {
+  const conn = useConnection ? useConnection(state => state) : null
+  const active = conn && conn.status !== 'connected' ? conn : null
+  const [shown, leaving] = useLinger(active, 180)
+  if (!shown) return null
+  const isError = shown.status === 'error'
+  return h('div', {
+    className: 'dsb-conn-banner',
+    role: isError ? 'alert' : 'status',
+    'aria-live': isError ? 'assertive' : 'polite',
+    'data-tone': isError ? 'error' : 'warn',
+    'data-leaving': leaving ? '' : undefined,
+  },
+  h('span', { className: 'dsb-conn-dot', 'aria-hidden': true }),
+  h('span', { className: 'dsb-conn-text' }, isError ? t('Live updates paused: message too large') : t('Reconnecting…')),
+  isError && typeof onReconnect === 'function'
+    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm dsb-conn-btn', onClick: onReconnect }, t('Reconnect'))
+    : null)
 }
 
 export function App() {
@@ -608,6 +629,7 @@ export function App() {
   // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
   h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
+    h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
     isNarrow ? h('button', {
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t(drawerOpen ? 'Collapse sidebar' : 'Expand sidebar'), 'aria-expanded': drawerOpen,
       onClick: () => setDrawerOpen(open => !open),

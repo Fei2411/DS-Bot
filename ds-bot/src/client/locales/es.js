@@ -1,6 +1,10 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'Reconnecting…': 'Reconectando…',
+  'Reconnect': 'Reconectar',
+  'Waiting to confirm…': 'Esperando confirmación…',
+  'Live updates paused: message too large': 'Actualizaciones en vivo en pausa: mensaje demasiado grande',
   'Auto review': 'Revisión automática',
   'Session only': 'Solo esta sesión',
   'Permission preset': 'Preajuste de permisos',
