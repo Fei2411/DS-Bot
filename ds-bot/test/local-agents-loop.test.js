@@ -189,7 +189,7 @@ test('user image saved in LocalAttachmentStore reaches the local agent through t
 
 // An ordinary DSH Session (no Bot) on a custom local-agent route: install()
 // alone must serve the CLI's permission prompt, as it does for a Bot (#2466).
-async function bootWithoutBot(t, { approval, preset, spec } = {}) {
+async function bootWithoutBot(t, { approval, preset, spec, catalogDefault } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   t.after(() => ctx.fiber.dispose())
@@ -197,7 +197,10 @@ async function bootWithoutBot(t, { approval, preset, spec } = {}) {
   if (preset !== undefined) {
     ctx.provide('permissionPresets', {
       current: () => preset,
-      resolve: name => spec ?? { sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' },
+      resolve: name => {
+        if (spec instanceof Error) throw spec
+        return spec ?? { sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' }
+      },
       catalog: () => ({ options: [], defaultPreset: 'workspace-write' }),
     })
   }
@@ -208,6 +211,7 @@ async function bootWithoutBot(t, { approval, preset, spec } = {}) {
     config: {}, load: async () => {}, readOnly: () => undefined,
     pastOwners: new Map(), chatOwners: new Map(), groupOwners: new Map(), roomOwners: new Map(), taskOwners: new Map(),
     isBotSession: () => false, ownRequest: () => true,
+    ...(catalogDefault !== undefined ? { permissionCatalog: () => ({ defaultPreset: catalogDefault }) } : {}),
   }
   installLocalAgents(rt, { probeSignIn: async () => ({ signedIn: true }), probeVersion: async () => '1.0.0' })
   await mountAgentLoopTestHarness(ctx)
@@ -272,3 +276,21 @@ test('a local agent refuses to review its own pending action instead of stalling
   const stream = adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's-review', purpose: 'auto-review', messages: [] })
   await assert.rejects(stream.next(), /cannot review its own actions/)
 })
+
+for (const [name, options] of [
+  ['an unresolvable preset', { preset: 'custom', spec: new Error('custom knobs resolve to no preset') }],
+  ['no preset service', {}],
+]) {
+  test(`a Session with no Bot and ${name} asks instead of taking a full-access default (#2466)`, async (t) => {
+    const requests = []
+    const { ctx, agent } = await bootWithoutBot(t, {
+      ...options,
+      catalogDefault: 'danger-full-access',
+      approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
+    })
+    send(agent, 'ask-permission')
+    await waitForIdle(ctx, agent)
+    assert.equal(requests.length, 1)
+    assert.doesNotMatch(texts(agent), /allowed via allow-once/)
+  })
+}

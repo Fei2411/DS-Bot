@@ -68,7 +68,9 @@ export function presetOf(rt, sessionId) {
   // Approval review is DS Bot's own policy, not a sandbox preset: the Session
   // runs on workspace-write while the review policy does the asking.
   const permission = room?.permission ?? bot?.permission
-    ?? (bot === undefined && room === undefined ? ownPresetOf(rt, sessionId) : undefined)
+    // A Session with no Bot never falls to the profile default: that may be full
+    // access, which would answer its CLI's prompts without asking anyone.
+    ?? (bot === undefined && room === undefined ? ownPresetOf(rt, sessionId) ?? 'workspace-write' : undefined)
     ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
   return permission === 'review' ? 'workspace-write' : permission
 }
@@ -84,7 +86,7 @@ function ownPresetOf(rt, sessionId) {
   try {
     spec = service.resolve(service.current(session))
   } catch {
-    // A custom knob mix resolves to no preset: the catalog default applies.
+    // A custom knob mix resolves to no preset: presetOf asks through DSH's approval.
     return undefined
   }
   if (MODES[spec?.sandbox] === undefined) return undefined
