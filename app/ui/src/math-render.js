@@ -406,7 +406,8 @@ function findNextSingleDollar(text, start) {
   for (let i = start; i < text.length; i += 1) {
     const ch = text[i]
     if (ch === '\n' || ch === '`') return -1
-    if (ch === '\\') { i += 1; continue }
+    // remark-math treats backslashes inside an open inline span as literal.
+    if (ch === '\\' && text[i + 1] !== '$') { i += 1; continue }
     if (ch === '$') {
       if (text[i + 1] === '$') return -1
       return i
