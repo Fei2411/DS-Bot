@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
-import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
+import { currentPart, runStatsOf, usageOf } from './text.js'
+import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
 import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, useBotApprovals, useBotHandoff, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { browserPaneMode } from './browser-plugin-mode.js'
@@ -22,18 +22,6 @@ import { BotConnectors } from './connectors.js'
 import { ComputerView } from './computer.js'
 import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
-
-function transcriptOf(list, id, name, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
-  if (!Array.isArray(outline)) return ''
-  const lines = []
-  for (const entry of outline) {
-    if (hiddenTurns.includes(entry.turn)) continue
-    if (entry.prompt && !HEADER.test(entry.prompt)) lines.push(`**${t('You')}:** ${entry.prompt.trim()}`)
-    if (entry.response) lines.push(`**${name}:** ${stripHeader(entry.response).trim()}`)
-  }
-  return lines.join('\n\n')
-}
 
 const TAB_LABELS = { details: 'Details', tasks: 'Tasks', browser: 'Browser', computer: 'Computer' }
 
@@ -257,7 +245,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const cancellingRename = useRef(false)
   const cancelRename = () => { cancellingRename.current = true; setEditing(false) }
   useEscape(cancelRename, editing)
-  const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const bot = owner
   const chatTasks = bot || room ? tasksForChat({ bot, room, roster }) : []
@@ -296,21 +283,10 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     handoff,
     pending: botPendingOf(roster, bot),
   }) : 'idle'
-  const sessionsRef = useRef(null)
-  useSessions((list) => { sessionsRef.current = list; return null })
   const usage = useSessions(list => usageOf(list, [part, ...(bot?.parts ?? room?.parts ?? [])]))
   const run = promise => Promise.resolve(promise)
     .then(() => { setError(''); return true })
     .catch(failure => { setError(failure?.message ?? String(failure)); return false })
-  const share = () => {
-    const transcript = sessionsRef.current
-      ? transcriptOf(sessionsRef.current, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns[part])
-      : ''
-    void navigator.clipboard?.writeText(transcript).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    })
-  }
   const errorLine = error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null
   if ((bot || room) && view === 'settings') {
     return [
@@ -334,7 +310,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const top = h('div', { className: 'bt-drawer-top', 'data-move': side, 'data-window-drag': !hasStrip || undefined },
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': bot ? t('Edit Bot') : t('Group settings'), title: bot ? t('Edit Bot') : t('Group settings'), 'data-info-row': 'settings', onClick: () => setView('settings') }, h(GearIcon)) : null,
     more.length > 0 ? h('span', { 'data-info-row': 'more' }, h(PanelMenu, { items: more, className: 'bt-round', 'aria-label': t('New tab') })) : null,
-    bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': copied ? t('Copied conversation') : t('Share conversation'), title: copied ? t('Copied') : t('Copy conversation as Markdown'), onClick: share }, copied ? h('span', { key: 'copied', className: 'bt-pop-in' }, '✓') : h(ShareIcon)) : null,
     hasStrip ? null : h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Close details'), onClick: close }, h(CloseIcon)))
   if (!bot && !room) {
     return [h(Fragment, { key: 'top' }, top),

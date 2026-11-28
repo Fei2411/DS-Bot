@@ -248,7 +248,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       name: 'menu', active: !menuLeaving, notify: !menuLeaving,
       reset: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`,
       onDismiss: () => actions.closeMenu?.(), actions,
-    }, createPortal(h(ContextMenu, { key: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body)) : null,
+    }, createPortal(h(ContextMenu, { key: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, useSessions, leaving: menuLeaving }), document.body)) : null,
     settings ? h(OverlayBoundary, {
       name: 'settings', active: !settingsLeaving, notify: !settingsLeaving,
       reset: `${settings.page}:${settings.id ?? ''}`,

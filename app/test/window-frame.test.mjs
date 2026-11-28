@@ -97,3 +97,19 @@ test('modal cards, pickers and app-shell dialogs keep a top drag strip in framel
   assert.match(appCss, /\.dsb-lightbox>\.dsb-lightbox-close\{[^}]*z-index:2[^}]*-webkit-app-region:no-drag/)
   assert.match(appCss, /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.dsb-lightbox>\.dsb-lightbox-close\{top:calc\(var\(--bt-titlebar-h,var\(--dsb-band\)\) \+ 12px\)\}/)
 })
+
+test('side panels and panes do not double-offset Windows caption buttons horizontally below the caption band', () => {
+  const appCss = readFileSync(new URL('../ui/src/app.css', import.meta.url), 'utf8')
+  const stylesJs = readFileSync(new URL('../../ds-bot/src/client/styles.js', import.meta.url), 'utf8')
+  // styles.js already shifts .bt-panel and .bt-pane below the Windows caption bar via padding-top.
+  assert.match(stylesJs, /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) :is\(\.bt-pane,\.bt-panel\)\{[^}]*padding-top:var\(--bt-caption-band\)/)
+  // Therefore app.css must not also reserve horizontal titlebar button clearance on their top rows.
+  assert.doesNotMatch(appCss, /--dsb-buttons-w/)
+  assert.doesNotMatch(appCss, /\.bt-panel[^}]*\.bt-drawer-top\{[^}]*padding-right:/)
+  assert.doesNotMatch(appCss, /\.bt-panel \.bt-ptabs\{[^}]*padding-right:/)
+  assert.doesNotMatch(appCss, /\.bt-pane :is\(\.bt-to,\.bt-create-head\)\{[^}]*padding-right:/)
+  // Strip-less drawer top rows breathe cleanly below the caption band, aligned with the left sidebar,
+  // and Windows draws a hairline separating the OS caption band from the panel toolbar below.
+  assert.match(stylesJs, /:is\(\.bt-drawer-top,\.bt-subhead\)\[data-window-drag\]\{padding-top:16px\}/)
+  assert.match(stylesJs, /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) body\[data-bt-os=windows\] \.bt-panel::before\{border-bottom:\.5px solid var\(--bt-line\);box-sizing:border-box\}/)
+})

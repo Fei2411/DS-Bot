@@ -70,3 +70,42 @@ test('a Bot that is not waiting has no such item', () => {
     assert.equal(buttons.some(button => String(labelOf(button)).startsWith('Give up waiting for')), false)
   }
 })
+
+test('ContextMenu copies conversation transcript as Markdown without overwriting clipboard when empty', () => {
+  const copied = []
+  sandbox.navigator = { clipboard: { writeText: text => { copied.push(text); return Promise.resolve() } } }
+  const actions = { closeMenu() {}, reportError() {}, setFlags() {}, markUnread() {} }
+  const useWork = selector => selector({ waiting: {} })
+
+  const emptyTree = ContextMenu({
+    menu: { kind: 'bot', id: 'b', x: 10, y: 10 },
+    roster, actions, useWork,
+    useSessions: selector => selector({ byId: {}, projectionsBySession: {} }),
+  })
+  const emptyBtn = menuitems(emptyTree).find(btn => labelOf(btn) === 'Copy conversation as Markdown')
+  assert.ok(emptyBtn, 'Copy conversation as Markdown item exists')
+  emptyBtn.props.onClick()
+  assert.deepEqual(copied, [], 'empty transcript does not clobber clipboard')
+
+  const populatedTree = ContextMenu({
+    menu: { kind: 'bot', id: 'b', x: 10, y: 10 },
+    roster: { ...roster, exchangeTurns: { b: [2] } },
+    actions, useWork,
+    useSessions: selector => selector({
+      byId: {
+        b: {
+          projectionValues: {
+            turnOutline: [
+              { turn: 1, prompt: 'Hello', response: 'Hi there' },
+              { turn: 2, prompt: 'Hidden', response: 'Skipped' },
+            ],
+          },
+        },
+      },
+      projectionsBySession: {},
+    }),
+  })
+  const copyBtn = menuitems(populatedTree).find(btn => labelOf(btn) === 'Copy conversation as Markdown')
+  copyBtn.props.onClick()
+  assert.deepEqual(copied, ['**You:** Hello\n\n**Writer:** Hi there'])
+})
