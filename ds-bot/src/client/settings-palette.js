@@ -53,7 +53,7 @@ const DSH_KEYWORDS = {
 
 // Engine sub-pages hosted under merged DSH sections (`plugins` / `models`), indexed in ⌘K search.
 const ENGINE_PLUGIN_SEARCH_ENTRIES = [
-  { id: 'engine:plugins', label: 'Engine plugins', page: 'plugins', target: 'dsh', icon: 'plugins', keywords: 'engine plugins bundles extensions install 引擎插件 插件 扩展 安装' },
+  { id: 'engine:plugins', label: 'Engine plugins', page: 'plugins', target: 'dsh', icon: 'plugins', keywords: 'engine plugins bundles extensions install inventory global session 插件 扩展 安装 引擎插件 插件列表 全局插件 会话插件' },
   { id: 'engine:web-search', label: 'Web search', page: 'plugins', target: 'dsh:web-search', icon: 'browser', keywords: 'web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费' },
   { id: 'engine:shell', label: 'Shell', page: 'plugins', target: 'dsh:shell', icon: 'local-agents', keywords: 'shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时' },
   { id: 'engine:agent-loop', label: 'Agent loop', page: 'plugins', target: 'dsh:agent-loop', icon: 'models', keywords: 'agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用' },

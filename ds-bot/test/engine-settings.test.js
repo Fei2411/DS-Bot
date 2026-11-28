@@ -867,3 +867,66 @@ test('engine-credentials-* endpoints describe/set/unset via ctx.credentials with
   assert.equal(roUnset.ok, false)
   assert.equal(roUnset.error?.code, 'bot/read-only')
 })
+
+test('engine-plugins-inventory reads pluginInventory service or falls back to pluginManager + agentPresets and stays computer-only', async () => {
+  const { rt } = makeHarness({
+    services: {
+      pluginInventory: {
+        async list() {
+          return {
+            entries: [
+              { entryId: 'g1', moduleName: '@deepseek-ai/dsh-web', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Web' } } },
+              { entryId: 'g2', moduleName: '@deepseek-ai/dsh-broken', enabled: true, fiberPhase: 'failed', diagnostic: 'missing dep' },
+            ],
+            agentPresets: [
+              {
+                id: 'standard',
+                name: 'Standard',
+                isDefault: true,
+                rows: [{ entryId: 'p1', moduleName: '@deepseek-ai/dsh-shell', enabled: 'conditional', condition: 'os == mac', fiberPhase: 'loading' }],
+              },
+            ],
+          }
+        },
+      },
+    },
+  })
+
+  const snap = await rt.engineEndpoint('plugins-inventory', {})
+  assert.equal(snap.available, true)
+  assert.equal(snap.entries.length, 2)
+  assert.equal(snap.entries[1].diagnostic, 'missing dep')
+  assert.equal(snap.agentPresets[0].rows[0].enabled, 'conditional')
+  assert.equal(snap.agentPresets[0].rows[0].condition, 'os == mac')
+
+  // Fallback path when pluginInventory service is absent.
+  const { rt: fbRt } = makeHarness({
+    services: {
+      pluginManager: {
+        async listPlugins() {
+          return [{ entryId: 'fb1', moduleName: 'pkg-a', enabled: false, fiberPhase: null }]
+        },
+      },
+      agentPresets: {
+        async compositionInventory() {
+          return [{ id: 'minimal', isDefault: true, rows: [{ entryId: null, moduleName: 'pkg-a', enabled: true, fiberPhase: 'active' }] }]
+        },
+      },
+    },
+  })
+  const fbSnap = await fbRt.engineEndpoint('plugins-inventory', {})
+  assert.equal(fbSnap.available, true)
+  assert.equal(fbSnap.entries[0].entryId, 'fb1')
+  assert.equal(fbSnap.entries[0].enabled, false)
+  assert.equal(fbSnap.agentPresets[0].id, 'minimal')
+
+  // Read-only host allows engine-plugins-inventory (in READS), while remote/phone callers are refused.
+  const { rt: roRt } = makeHarness({
+    readOnly: 'Another dsh holds this team',
+    services: { pluginInventory: { async list() { return { entries: [], agentPresets: [] } } } },
+  })
+  const roRes = await roRt.channelCall('engine-plugins-inventory', {})
+  assert.equal(roRes.ok, true)
+  assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-plugins-inventory')?.code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-plugins-inventory')?.code, 'bot/refused')
+})

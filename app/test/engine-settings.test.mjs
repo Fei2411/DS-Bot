@@ -1950,3 +1950,92 @@ test('WebSearchDetailForm exposes all fields on auto provider, manages credentia
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.ok(mutated.some(m => m.ns === 'agent-default-model' && m.ops.some(op => op.op === 'set' && op.path[0] === 'reasoningEffort' && op.value === 'high')))
 })
+
+test('PluginInventorySection renders Session and Global plugins, supports search, cross-preset jump, failed-first sort, details, and Retry', async () => {
+  let failOnce = true
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-settings-list') return { available: true, writable: true, namespaces: [] }
+    if (endpoint === 'engine-plugins-inventory') {
+      if (failOnce) {
+        failOnce = false
+        throw new Error('inventory offline')
+      }
+      return {
+        available: true,
+        entries: [
+          { entryId: 'g-ok', moduleName: '@deepseek-ai/dsh-alpha', enabled: false, fiberPhase: null, meta: { title: { en: 'Alpha Helper' } } },
+          { entryId: 'g-bad', moduleName: '@deepseek-ai/dsh-zeta', enabled: true, fiberPhase: 'failed', diagnostic: 'crash on boot', meta: { title: { en: 'Zeta Broken' } } },
+        ],
+        agentPresets: [
+          {
+            id: 'standard',
+            name: 'Standard',
+            isDefault: true,
+            rows: [
+              { entryId: 'p-alpha', moduleName: '@deepseek-ai/dsh-alpha', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Alpha Helper' } } },
+              { entryId: 'p-cond', moduleName: '@deepseek-ai/dsh-cond', enabled: 'conditional', condition: 'platform == darwin', fiberPhase: 'loading', meta: { title: { en: 'Cond Tool' } } },
+            ],
+          },
+          {
+            id: 'ptc',
+            name: 'PTC',
+            isDefault: false,
+            broken: 'invalid yaml',
+            rows: [
+              { entryId: 'p-batch', moduleName: '@deepseek-ai/dsh-batch', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Batch Runner' } } },
+            ],
+          },
+        ],
+      }
+    }
+    return {}
+  })
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  harness.render({ readOnly: false })
+  await new Promise(resolve => setTimeout(resolve, 25))
+  let tree = harness.render({ readOnly: false })
+
+  // First load failed -> shows error alert with Retry button.
+  assert.match(textOf(tree), /inventory offline/)
+  const retryBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Retry')[0]
+  assert.ok(retryBtn, 'Retry button shown when plugin inventory fails')
+  retryBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render({ readOnly: false })
+  tree = harness.render({ readOnly: false })
+
+  // Global section auto-opened due to failed entry and sorted failed entry first; Alpha Helper gets Via presets tag.
+  const globalScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'global')[0]
+  assert.ok(globalScope, 'Global plugins scope rendered')
+  const globalEntries = findAll(globalScope, n => Boolean(n.props?.['data-inventory-entry']))
+  assert.equal(globalEntries.length, 2)
+  assert.equal(globalEntries[0].props['data-inventory-entry'], '@deepseek-ai/dsh-zeta', 'failed global plugin sorted first')
+  assert.match(textOf(globalEntries[0]), /crash on boot/)
+  assert.match(textOf(globalEntries[1]), /Via presets/)
+
+  // Expand a preset row to verify detail facts (Module, Configuration, Disabled when, Status).
+  const presetScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'preset')[0]
+  const condRowBtn = findAll(presetScope, n => n.type === 'button' && /Cond Tool/.test(textOf(n)))[0]
+  assert.ok(condRowBtn)
+  condRowBtn.props.onClick()
+  tree = harness.render({ readOnly: false })
+  assert.match(textOf(tree), /platform == darwin/)
+  assert.match(textOf(tree), /Loading/)
+
+  // Search for a plugin in another preset ("batch") -> shows cross-preset jump chip and switches preset on click.
+  const searchInput = findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Search plugins')[0]
+  assert.ok(searchInput)
+  searchInput.props.onChange({ target: { value: 'batch' } })
+  tree = harness.render({ readOnly: false })
+  const jumpBtn = findAll(tree, n => n.type === 'button' && n.props?.['data-jump-preset'] === 'ptc')[0]
+  assert.ok(jumpBtn, 'cross-preset match jump button shown for PTC')
+  jumpBtn.props.onClick()
+  tree = harness.render({ readOnly: false })
+  const ptcScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'preset')[0]
+  assert.match(textOf(ptcScope), /invalid yaml/, 'broken preset warning shown')
+  assert.match(textOf(ptcScope), /Batch Runner/, 'switched to PTC preset rows')
+})
