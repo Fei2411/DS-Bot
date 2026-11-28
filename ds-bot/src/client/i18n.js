@@ -2786,6 +2786,7 @@ const ZH = {
   "Sign in to view": "登录后查看",
   "Signed in to DeepSeek": "已登录 DeepSeek",
   "Confirm sign out": "确认退出登录",
+  "Could not sign in": "登录失败",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

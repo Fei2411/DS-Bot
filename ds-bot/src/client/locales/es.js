@@ -3021,6 +3021,7 @@ export const ES = {
   "Sign in to view": "Inicia sesión para ver",
   "Signed in to DeepSeek": "Sesión iniciada en DeepSeek",
   "Confirm sign out": "Confirmar cierre de sesión",
+  "Could not sign in": "No se pudo iniciar sesión",
 }
 
 export const HOST_ERRORS_ES = [

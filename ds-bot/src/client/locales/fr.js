@@ -2987,6 +2987,7 @@ export const FR = {
   "Sign in to view": "Connectez-vous pour voir",
   "Signed in to DeepSeek": "Connecté à DeepSeek",
   "Confirm sign out": "Confirmer la déconnexion",
+  "Could not sign in": "Impossible de se connecter",
 }
 
 export const HOST_ERRORS_FR = [

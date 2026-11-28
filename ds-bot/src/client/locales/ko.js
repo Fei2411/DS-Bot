@@ -3021,6 +3021,7 @@ export const KO = {
   "Sign in to view": "보려면 로그인",
   "Signed in to DeepSeek": "DeepSeek에 로그인됨",
   "Confirm sign out": "로그아웃 확인",
+  "Could not sign in": "로그인할 수 없습니다",
 }
 
 export const HOST_ERRORS_KO = [

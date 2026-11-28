@@ -2987,6 +2987,7 @@ export const JA = {
   "Sign in to view": "ログインして表示",
   "Signed in to DeepSeek": "DeepSeek にログイン済み",
   "Confirm sign out": "ログアウトを確認",
+  "Could not sign in": "ログインできませんでした",
 }
 
 export const HOST_ERRORS_JA = [

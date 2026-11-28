@@ -3116,7 +3116,8 @@ var JA = {
   "Something went wrong. Please check your network connection and try again.": "問題が発生しました。ネットワーク接続を確認して、もう一度お試しください。",
   "Sign in to view": "ログインして表示",
   "Signed in to DeepSeek": "DeepSeek にログイン済み",
-  "Confirm sign out": "ログアウトを確認"
+  "Confirm sign out": "ログアウトを確認",
+  "Could not sign in": "ログインできませんでした"
 };
 var HOST_ERRORS_JA = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -6880,7 +6881,8 @@ var KO = {
   "Something went wrong. Please check your network connection and try again.": "문제가 발생했습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
   "Sign in to view": "보려면 로그인",
   "Signed in to DeepSeek": "DeepSeek에 로그인됨",
-  "Confirm sign out": "로그아웃 확인"
+  "Confirm sign out": "로그아웃 확인",
+  "Could not sign in": "로그인할 수 없습니다"
 };
 var HOST_ERRORS_KO = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -10645,7 +10647,8 @@ var ES = {
   "Something went wrong. Please check your network connection and try again.": "Algo salió mal. Comprueba tu conexión de red e inténtalo de nuevo.",
   "Sign in to view": "Inicia sesión para ver",
   "Signed in to DeepSeek": "Sesión iniciada en DeepSeek",
-  "Confirm sign out": "Confirmar cierre de sesión"
+  "Confirm sign out": "Confirmar cierre de sesión",
+  "Could not sign in": "No se pudo iniciar sesión"
 };
 var HOST_ERRORS_ES = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -14366,7 +14369,8 @@ var FR = {
   "Something went wrong. Please check your network connection and try again.": "Un problème est survenu. Vérifiez votre connexion réseau et réessayez.",
   "Sign in to view": "Connectez-vous pour voir",
   "Signed in to DeepSeek": "Connecté à DeepSeek",
-  "Confirm sign out": "Confirmer la déconnexion"
+  "Confirm sign out": "Confirmer la déconnexion",
+  "Could not sign in": "Impossible de se connecter"
 };
 var HOST_ERRORS_FR = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -18130,7 +18134,8 @@ var DE = {
   "Something went wrong. Please check your network connection and try again.": "Etwas ist schiefgelaufen. Prüfe deine Netzwerkverbindung und versuche es erneut.",
   "Sign in to view": "Zum Anzeigen anmelden",
   "Signed in to DeepSeek": "Bei DeepSeek angemeldet",
-  "Confirm sign out": "Abmelden bestätigen"
+  "Confirm sign out": "Abmelden bestätigen",
+  "Could not sign in": "Anmeldung fehlgeschlagen"
 };
 var HOST_ERRORS_DE = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -21649,7 +21654,8 @@ var ZH = {
   "Something went wrong. Please check your network connection and try again.": "操作未完成，可能是网络异常，请检查网络后重试。",
   "Sign in to view": "登录后查看",
   "Signed in to DeepSeek": "已登录 DeepSeek",
-  "Confirm sign out": "确认退出登录"
+  "Confirm sign out": "确认退出登录",
+  "Could not sign in": "登录失败"
 };
 var HOST_ERRORS = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],

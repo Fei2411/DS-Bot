@@ -3021,6 +3021,7 @@ export const DE = {
   "Sign in to view": "Zum Anzeigen anmelden",
   "Signed in to DeepSeek": "Bei DeepSeek angemeldet",
   "Confirm sign out": "Abmelden bestätigen",
+  "Could not sign in": "Anmeldung fehlgeschlagen",
 }
 
 export const HOST_ERRORS_DE = [
