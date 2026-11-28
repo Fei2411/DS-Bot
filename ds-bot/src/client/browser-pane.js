@@ -78,7 +78,7 @@ const savedWidth = () => {
 // left column's footprint (frame-layout.js). The panel never takes the last
 // MIN_CHAT px of it; below that it covers the conversation instead.
 const widthRange = (view, room, floating = false) => (floating
-  ? [Math.min(PANEL_FLOOR(view), room), room]
+  ? [Math.min(PANEL_FLOOR(view), room), Math.min(SIDE_APPS[view]?.width.max ?? room, room)]
   : isFileApp(view)
     ? widthRangeOf(view, room)
     : view === 'browser' || view === 'workspace'
@@ -1271,7 +1271,7 @@ export const BROWSER_CSS = `
    keeps the docked panel's place and edge; a centered one rises in the middle of the window
    with a shadow, sized by what the window leaves it. Both are non-modal: no backdrop, the
    chat stays reachable around them. */
-.bt-panel[data-floating]{box-shadow:var(--bt-glass-shadow,0 12px 40px rgba(0,0,0,.28))}
+.bt-panel[data-floating]{box-shadow:var(--bt-glass-shadow)}
 .bt-panel[data-layout=drawer][data-floating]{max-width:100vw;border-left:.5px solid var(--bt-line-2)}
 .bt-panel[data-layout=centered][data-floating]{top:calc(var(--dsh-frame-chrome-top,0px) + 24px);bottom:24px;right:auto;left:50%;width:min(var(--bt-panel-w,640px),calc(100vw - 48px));max-height:calc(100vh - var(--dsh-frame-chrome-top,0px) - 48px);translate:-50% 0;border:.5px solid var(--bt-line-2);border-radius:16px;overflow:hidden;animation:bt-pane-center-in .22s cubic-bezier(.2,0,0,1)}
 .bt-panel[data-layout=centered][data-floating][data-leaving]{transform:none;translate:-50% 8px;opacity:0;transition:opacity .16s ease,translate .16s ease}

@@ -115,7 +115,9 @@ function ReadingBody({ tab, text, revision, scroller, headings, onHeadings, open
     if (quote === '') { if (!asking) setPick(null); return }
     const rect = range.getBoundingClientRect()
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - 320))
-    setPick({ quote, section: sectionOfRange(headings.current, range), left, top: rect.bottom + 8 })
+    const below = rect.bottom + 8
+    const top = below > window.innerHeight - 44 ? Math.max(8, rect.top - 36) : below
+    setPick({ quote, section: sectionOfRange(headings.current, range), left, top })
   }
   useEffect(() => {
     const hide = () => { if (!asking) setPick(null) }

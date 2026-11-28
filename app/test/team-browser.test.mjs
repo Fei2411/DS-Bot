@@ -882,3 +882,40 @@ test('sidebar toggles cleanly between shown and 0px hidden, persists width, and 
   assert.match(materialCss, /\.bt-leftcol:not\(\[data-left="drawer"\]\)/)
   assert.doesNotMatch(macosCss, /\.bt-title-toggle|\.bt-leftcol/)
 })
+
+test('createTeam carries side-app opens on an unchanged state answer and persists file tabs', async () => {
+  const { sandbox, exports, readHook, storageMap } = createHarness()
+  let stateCalls = 0
+  const open = { openId: 'open-1', v: 1, app: 'canvas', sessionId: 's1', workspaceTag: 'tag', displayPath: 'draft.html' }
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'state') {
+      stateCalls += 1
+      if (stateCalls === 1) {
+        return {
+          revision: 1, modelsKey: 'm1', browser: false, mainBotId: 'b1',
+          bots: [{ id: 'b1', name: 'Alpha', sessions: ['s1'] }], rooms: [], agents: [],
+        }
+      }
+      return { revision: 1, modelsKey: 'm1', unchanged: true, sideAppOpens: { s1: open } }
+    }
+    if (endpoint === 'update-check') return { available: false, phase: 'idle' }
+    return {}
+  }
+  const team = exports.createTeam()
+  const stop = team.start()
+  try {
+    await tick(); await tick()
+    assert.equal(readHook(team.hooks.useRoster).ready, true)
+    assert.deepEqual(plain(readHook(team.hooks.useUi).fileTabs), {})
+    await team.actions.refreshLocale()
+    await tick()
+    assert.deepEqual(plain(readHook(team.hooks.useRoster).sideAppOpens), { s1: open })
+    await team.actions.openSideApp('b1', { v: 1, app: 'reader', sessionId: 's1', workspaceTag: 'tag', displayPath: 'docs/a.md' })
+    const ui = readHook(team.hooks.useUi)
+    assert.equal(ui.view, 'reader')
+    assert.equal(ui.fileTab !== null, true)
+    assert.equal((storageMap.get('ds-bot:side-apps') ?? '').includes('docs/a.md'), true)
+  } finally {
+    stop()
+  }
+})

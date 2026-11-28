@@ -224,7 +224,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     // Text for a chat's composer: the Reader's "Add to chat". Like a quote, the composer
     // takes it once and clears it.
-    draftInsert: (sessionId, text) => ui.set(state => ({ ...state, draft: { sessionId, text, token: Date.now() } })),
+    draftInsert: (sessionId, text) => ui.set(state => ({ ...state, draft: { sessionId: partFor(sessionId), text, token: Date.now() } })),
     clearDraftInsert: token => ui.set(state => (state.draft?.token === token ? { ...state, draft: null } : state)),
     openTaskDeck: (targetId, taskId = null) => {
       if (!targetId) return

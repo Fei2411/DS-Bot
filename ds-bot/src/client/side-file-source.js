@@ -97,13 +97,6 @@ export function dropSession(tabKey, sessionId) {
     if (own(key)) { sessions.get(key)?.stop(); sessions.delete(key) }
   }
 }
-export const dropSessionsExcept = (keys) => {
-  for (const key of [...sessions.keys()]) {
-    const tabKey = key.slice(key.indexOf(KEY_SEP) + 1)
-    if (!keys.has(tabKey)) dropSession(tabKey, key.slice(0, key.indexOf(KEY_SEP)))
-  }
-}
-
 /**
  * Keep `tick` going while `active`: once at once, then after each `delay`; paused while
  * the window is hidden, with an immediate check when it returns. Returns the stop.
@@ -235,9 +228,6 @@ export function useArticleImage(tab, path, version, request, make = typeof URL =
 }
 
 // ---- the Canvas preview ----------------------------------------------------------
-
-// Renew a little before the ticket would end, while the Render tab is on screen.
-export const RENEW_BEFORE_MS = 60_000
 
 /**
  * The preview state after a host answer. The ticket's address and the content's revision

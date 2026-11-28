@@ -17,6 +17,7 @@ import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/cli
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
 import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
+import { persistAll, restoreAll } from '../../../ds-bot/src/client/side-apps.js'
 import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
@@ -58,6 +59,13 @@ function createBus() {
 
 const setChanged = (source, value) => { if (JSON.stringify(source.getSnapshot()) !== JSON.stringify(value)) source.set(value) }
 
+const readFileTabs = () => {
+  try { return restoreAll(JSON.parse(localStorage.getItem(STORAGE.sideApps) ?? 'null')) } catch { return {} }
+}
+const writeFileTabs = (all) => {
+  try { localStorage.setItem(STORAGE.sideApps, JSON.stringify(persistAll(all))) } catch { /* storage unavailable */ }
+}
+
 export function createTeam() {
   migrateStorage()
   const unreadStore = sharedMap(STORAGE.unread)
@@ -66,7 +74,16 @@ export function createTeam() {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, fileTabs: readFileTabs(), fileTab: null, draft: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  {
+    let last = ui.getSnapshot().fileTabs
+    ui.subscribe(() => {
+      const next = ui.getSnapshot().fileTabs
+      if (next === last) return
+      last = next
+      writeFileTabs(next)
+    })
+  }
   const activity = createSource({})
   const work = createSource(NO_WORK)
   const userQuestions = createSource([])
@@ -282,6 +299,7 @@ export function createTeam() {
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
+    if (value.sideAppOpens !== undefined && JSON.stringify(value.sideAppOpens) !== JSON.stringify(current.sideAppOpens ?? {})) changed.sideAppOpens = value.sideAppOpens
     if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
     if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
     if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia

@@ -197,6 +197,7 @@ export function readableMarkdown(text) {
       if (index % 2 === 1) return part
       return part
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => (alt.trim() ? `[${t('Image')}: ${alt.trim()}]` : `[${t('Image')}]`))
+        .replace(/!\[/g, '!\\[')
         .replace(/<(\/?[a-zA-Z][^>]*|!--[^>]*)>/g, (tag) => tag.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
     }).join('')
   }).join('\n')

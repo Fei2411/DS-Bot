@@ -244,3 +244,18 @@ test('pictures inside code fences stay text and the number of pictures is capped
   assert.equal(parts.filter(part => part.kind === 'image').length, apps.READER_IMAGES_MAX)
   assert.ok(parts.at(-1).kind === 'text' && parts.at(-1).text.includes('[Image: n]'))
 })
+test('no Markdown image form survives outside code, while code keeps it verbatim', () => {
+  const forms = [
+    '![a][r]\n\n[r]: https://evil.example/x.png',
+    '![r]',
+    '![a [b]](https://evil.example/x.png)',
+    '![split](\nhttps://evil.example/x.png)',
+  ]
+  for (const source of forms) {
+    const safe = apps.readableMarkdown(source)
+    assert.equal(safe.includes('!['), false, `image syntax survived: ${source}`)
+  }
+  assert.equal(apps.readableMarkdown('![x](https://evil.example/x.png)').includes('!['), false)
+  assert.ok(apps.readableMarkdown('`![x](y.png)`').includes('`![x](y.png)`'), 'inline code stays verbatim')
+  assert.ok(apps.readableMarkdown('```md\n![x](y.png)\n```').includes('\n![x](y.png)\n'), 'fenced code stays verbatim')
+})

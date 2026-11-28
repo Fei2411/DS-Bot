@@ -185,3 +185,14 @@ test('a live open and a reader link do not wait on the extra check', async () =>
   await actions.openSideApp('bot1', { ...card, displayPath: 'docs/b.md' })
   assert.deepEqual(sent, [])
 })
+test('draftInsert targets the current part through partFor', () => {
+  const ui = createSource({ draft: null })
+  const actions = teamActions({
+    call: async () => ({}), after: promise => promise,
+    partFor: id => (id === 'old-part' ? 'current-part' : id),
+    roster: createSource({}), ui,
+  })
+  actions.draftInsert('old-part', ' revise this ')
+  assert.equal(ui.getSnapshot().draft.sessionId, 'current-part')
+  assert.equal(ui.getSnapshot().draft.text, ' revise this ')
+})

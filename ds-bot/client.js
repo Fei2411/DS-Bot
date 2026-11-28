@@ -23427,7 +23427,7 @@ function readableMarkdown(text) {
     if (fence !== null) return line;
     return line.split(/(`+[^`]*`+)/).map((part, index) => {
       if (index % 2 === 1) return part;
-      return part.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => alt.trim() ? `[${t("Image")}: ${alt.trim()}]` : `[${t("Image")}]`).replace(/<(\/?[a-zA-Z][^>]*|!--[^>]*)>/g, (tag) => tag.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
+      return part.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => alt.trim() ? `[${t("Image")}: ${alt.trim()}]` : `[${t("Image")}]`).replace(/!\[/g, "!\\[").replace(/<(\/?[a-zA-Z][^>]*|!--[^>]*)>/g, (tag) => tag.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
     }).join("");
   }).join("\n");
 }
@@ -23600,12 +23600,6 @@ function dropSession(tabKey, sessionId) {
     }
   }
 }
-var dropSessionsExcept = (keys) => {
-  for (const key of [...sessions.keys()]) {
-    const tabKey = key.slice(key.indexOf(KEY_SEP) + 1);
-    if (!keys.has(tabKey)) dropSession(tabKey, key.slice(0, key.indexOf(KEY_SEP)));
-  }
-};
 function startPolling({ tick, delay, active, doc = typeof document === "undefined" ? void 0 : document, timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (id) => clearTimeout(id) } }) {
   let timer2 = null;
   let stopped = false;
@@ -23713,7 +23707,6 @@ function useArticleImage(tab, path2, version, request, make = typeof URL === "un
   }, [tab.key, path2]);
   return state;
 }
-var RENEW_BEFORE_MS = 6e4;
 function nextPreview(prev, answer) {
   const frameUrl = answer.frameUrl ?? prev.frameUrl;
   const previewRevision = answer.previewRevision ?? prev.previewRevision;
@@ -23995,7 +23988,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     },
     // Text for a chat's composer: the Reader's "Add to chat". Like a quote, the composer
     // takes it once and clears it.
-    draftInsert: (sessionId, text) => ui.set((state) => ({ ...state, draft: { sessionId, text, token: Date.now() } })),
+    draftInsert: (sessionId, text) => ui.set((state) => ({ ...state, draft: { sessionId: partFor(sessionId), text, token: Date.now() } })),
     clearDraftInsert: (token) => ui.set((state) => state.draft?.token === token ? { ...state, draft: null } : state),
     openTaskDeck: (targetId, taskId = null) => {
       if (!targetId) return;
@@ -72817,7 +72810,9 @@ function ReadingBody({ tab, text, revision, scroller, headings, onHeadings, open
     }
     const rect = range.getBoundingClientRect();
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - 320));
-    setPick({ quote, section: sectionOfRange(headings.current, range), left, top: rect.bottom + 8 });
+    const below = rect.bottom + 8;
+    const top = below > window.innerHeight - 44 ? Math.max(8, rect.top - 36) : below;
+    setPick({ quote, section: sectionOfRange(headings.current, range), left, top });
   };
   (0, import_react100.useEffect)(() => {
     const hide = () => {
@@ -73070,7 +73065,7 @@ var savedWidth = () => {
     return null;
   }
 };
-var widthRange = (view, room2, floating = false) => floating ? [Math.min(PANEL_FLOOR(view), room2), room2] : isFileApp(view) ? widthRangeOf(view, room2) : view === "browser" || view === "workspace" ? [MIN_WIDTH, room2 - MIN_CHAT] : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room2 - MIN_CHAT)];
+var widthRange = (view, room2, floating = false) => floating ? [Math.min(PANEL_FLOOR(view), room2), Math.min(SIDE_APPS[view]?.width.max ?? room2, room2)] : isFileApp(view) ? widthRangeOf(view, room2) : view === "browser" || view === "workspace" ? [MIN_WIDTH, room2 - MIN_CHAT] : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room2 - MIN_CHAT)];
 var PANEL_FLOOR = (view) => isFileApp(view) ? SIDE_APPS[view].width.min : view === "browser" || view === "workspace" ? MIN_WIDTH : DETAILS_WIDTH;
 var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)));
 var attrValue = (value) => String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -74443,7 +74438,7 @@ var BROWSER_CSS = `
    keeps the docked panel's place and edge; a centered one rises in the middle of the window
    with a shadow, sized by what the window leaves it. Both are non-modal: no backdrop, the
    chat stays reachable around them. */
-.bt-panel[data-floating]{box-shadow:var(--bt-glass-shadow,0 12px 40px rgba(0,0,0,.28))}
+.bt-panel[data-floating]{box-shadow:var(--bt-glass-shadow)}
 .bt-panel[data-layout=drawer][data-floating]{max-width:100vw;border-left:.5px solid var(--bt-line-2)}
 .bt-panel[data-layout=centered][data-floating]{top:calc(var(--dsh-frame-chrome-top,0px) + 24px);bottom:24px;right:auto;left:50%;width:min(var(--bt-panel-w,640px),calc(100vw - 48px));max-height:calc(100vh - var(--dsh-frame-chrome-top,0px) - 48px);translate:-50% 0;border:.5px solid var(--bt-line-2);border-radius:16px;overflow:hidden;animation:bt-pane-center-in .22s cubic-bezier(.2,0,0,1)}
 .bt-panel[data-layout=centered][data-floating][data-leaving]{transform:none;translate:-50% 8px;opacity:0;transition:opacity .16s ease,translate .16s ease}

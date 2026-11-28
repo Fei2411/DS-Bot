@@ -157,7 +157,8 @@ export function apply(ctx) {
       last = next
       writeFileTabs(next)
     })
-  }, 'ds-bot: file tabs')  // The left column's kept preference, and the frame geometry the layout rules
+  }, 'ds-bot: file tabs')
+  // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
   let sidebarSaved = readSidebar()
