@@ -38,6 +38,8 @@ export const DESKTOP_UNSUPPORTED_UI_BUNDLES = new Set([
   '@deepseek-ai/dsh-deepseek-chat-import',
 ])
 
+const OFFICIAL_SUBAGENT_BUNDLE_RE = /^@deepseek-ai\/dsh-(?:experimental-)?subagent(?:$|-)/i
+
 /**
  * Returns whether a DSH bundle package name should be hidden from the plugin list.
  * Pass `{ desktop: true, enabled }` in the standalone desktop app: disabled desktop-unsupported
@@ -48,7 +50,7 @@ export function isBlockedEngineBundle(name, { desktop = false, enabled = false }
   if (typeof name !== 'string') return false
   const clean = name.trim()
   if (clean === '') return false
-  if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || /subagent/i.test(clean)) {
+  if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || OFFICIAL_SUBAGENT_BUNDLE_RE.test(clean)) {
     return true
   }
   return desktop && !enabled && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean)

@@ -745,6 +745,16 @@ test('PluginsPage shares the unified engine blocklist, uses ownWindow prop, and 
         category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
         status: 'ready', packageName: '@deepseek-ai/dsh-experimental-auto-review',
       },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-subagent-lab', name: 'DSH Subagent Lab', description: 'Official subagent',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+        status: 'inactive', packageName: '@deepseek-ai/dsh-experimental-subagent-lab',
+      },
+      {
+        id: 'dsh:@acme/my-subagent-helper', name: 'Acme Subagent Helper', description: 'Third-party community plugin',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+        status: 'inactive', packageName: '@acme/my-subagent-helper',
+      },
     ],
   }
 
@@ -755,6 +765,8 @@ test('PluginsPage shares the unified engine blocklist, uses ownWindow prop, and 
   const pluginText = textOf(pluginRun.draw())
   assert.doesNotMatch(pluginText, /DSH Base/, 'unified blocklist hides @deepseek-ai/dsh-base')
   assert.doesNotMatch(pluginText, /DSH Web App/, 'unified blocklist hides @deepseek-ai/dsh-web-app')
+  assert.doesNotMatch(pluginText, /DSH Subagent Lab/, 'official @deepseek-ai/dsh-experimental-subagent-* is hidden')
+  assert.match(pluginText, /Acme Subagent Helper/, 'third-party package containing "subagent" is not hidden')
   assert.match(pluginText, /Developer tools/, 'plugin mode keeps disabled desktop-unsupported bundles visible')
   assert.match(pluginText, /Live share/, 'plugin mode keeps enabled bundles visible')
   assert.match(pluginText, /Auto review/, 'engine bundle stays visible')
@@ -766,6 +778,8 @@ test('PluginsPage shares the unified engine blocklist, uses ownWindow prop, and 
   await flush()
   const desktopText = textOf(desktopRun.draw())
   assert.doesNotMatch(desktopText, /DSH Base/, 'internal DSH base stays hidden even when enabled')
+  assert.doesNotMatch(desktopText, /DSH Subagent Lab/, 'official DSH subagent bundle stays hidden on desktop')
+  assert.match(desktopText, /Acme Subagent Helper/, 'third-party package containing "subagent" stays visible on desktop')
   assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides disabled desktop-unsupported bundles')
   assert.match(desktopText, /Live share/, 'desktop keeps already-enabled desktop-unsupported bundles visible so users can disable them')
   assert.match(desktopText, /Auto review/, 'desktop keeps host-backed engine bundles')

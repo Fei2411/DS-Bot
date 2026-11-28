@@ -292,7 +292,7 @@ export function install(rt) {
         if (!existsSync(target)) {
           await mkdir(dirname(target), { recursive: true })
           try {
-            await writeFile(target, '[]\n', { flag: 'wx' })
+            await writeFile(target, '[]\n', { flag: 'wx', mode: 0o600 })
           } catch (error) {
             if (error?.code !== 'EEXIST') throw error
           }

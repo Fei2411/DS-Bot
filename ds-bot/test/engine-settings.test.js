@@ -581,7 +581,7 @@ test('engine-web-providers and engine-model-catalog expose registered providers/
 })
 
 test('engine-settings-list exposes documentPath and engine-settings-open-file opens or initializes the config file locally only', async (t) => {
-  const { mkdtempSync, existsSync, readFileSync, rmSync } = await import('node:fs')
+  const { mkdtempSync, existsSync, readFileSync, rmSync, statSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-engine-cfg-'))
@@ -610,6 +610,9 @@ test('engine-settings-list exposes documentPath and engine-settings-open-file op
   assert.deepEqual(opened, [patchFile])
   assert.equal(existsSync(patchFile), true)
   assert.equal(readFileSync(patchFile, 'utf8'), '[]\n')
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(patchFile).mode & 0o777, 0o600, 'initialized config patch file uses 0o600 permissions like DSH configEditor')
+  }
 
   // Read-only window refuses opening config file for editing even when the file already exists.
   const roOpened = []

@@ -1337,3 +1337,81 @@ test('PrivacyPage displays Saved confirmation when session log upload succeeds a
   assert.equal(findAll(tree, n => n.props?.role === 'status' && textOf(n).includes('Saved')).length, 0, 'clears stale Saved status when next save fails')
   harness.unmount()
 })
+
+test('SettingsDialog passes dsh?.ownWindow to PluginsPage so plugin fallback without dsh keeps all DSH bundles visible while desktop hides disabled ones', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const prevApp = globalThis.dsBotApp
+    delete globalThis.dsBotApp
+    try {
+      const pluginsView = {
+        managerAvailable: true,
+        slots: { browser: { active: null, desired: null, status: 'idle', choices: [] } },
+        catalog: { offline: false, sources: [], errors: [] },
+        plugins: [
+          {
+            id: 'dsh:@deepseek-ai/dsh-experimental-inspector-profile',
+            name: 'Developer tools',
+            description: 'Web inspector',
+            category: 'dev',
+            slot: null,
+            kind: 'dsh',
+            installed: true,
+            enabled: false,
+            active: false,
+            status: 'inactive',
+            packageName: '@deepseek-ai/dsh-experimental-inspector-profile',
+          },
+          {
+            id: 'dsh:@deepseek-ai/dsh-experimental-liveshare',
+            name: 'Live share',
+            description: 'Active liveshare',
+            category: 'tools',
+            slot: null,
+            kind: 'dsh',
+            installed: true,
+            enabled: true,
+            active: true,
+            status: 'ready',
+            packageName: '@deepseek-ai/dsh-experimental-liveshare',
+          },
+        ],
+      }
+      const mountDialog = async (dsh) => {
+        const harness = makeStatefulReact()
+        const mod = { exports: {} }
+        new Function('module', 'exports', 'require', code)(mod, mod.exports, () => harness.React)
+        const { SettingsDialog } = mod.exports
+        const actions = {
+          openSettings: () => {},
+          closeSettings: () => {},
+          providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+          folders: () => Promise.resolve({ team: '/work' }),
+          pluginsList: () => Promise.resolve(pluginsView),
+        }
+        const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+          page: 'plugins', id: null, roster: baseRoster, actions, dsh, useUpdate: sel => sel({}),
+        }))
+        draw()
+        await new Promise(r => setTimeout(r, 0))
+        const tree = draw()
+        const out = textOf(tree)
+        harness.unmount()
+        return out
+      }
+
+      // Plugin fallback (dsh === undefined, no globalThis.dsBotApp): disabled DSH Web bundle stays visible.
+      const fallbackText = await mountDialog(undefined)
+      assert.match(fallbackText, /Developer tools/, 'plugin fallback with dsh=undefined must keep disabled DSH bundles visible')
+      assert.match(fallbackText, /Live share/)
+
+      // Desktop (dsh.ownWindow === true): disabled desktop-unsupported bundle is hidden, enabled one stays visible.
+      const desktopText = await mountDialog({ ownWindow: true, sections: [], renderSlot: () => null })
+      assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides disabled desktop-unsupported bundles')
+      assert.match(desktopText, /Live share/, 'desktop keeps already-enabled bundles visible')
+    } finally {
+      if (prevApp === undefined) delete globalThis.dsBotApp
+      else globalThis.dsBotApp = prevApp
+    }
+  })
+})

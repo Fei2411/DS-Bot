@@ -1509,6 +1509,46 @@ test('extractSchemaFields emits config-file fallback for root non-object schemas
   const condFields = mod.extractSchemaFields(conditionalIntersectSchema, { mode: 'http' }, [], 'transport')
   assert.deepEqual(Array.from(condFields, f => [f.key, f.kind]), [['mode', 'select'], ['__root__', 'config-file']])
 
+  // Depth-4 non-empty object collapses into one config-file row instead of expanding into per-child rows,
+  // while a depth-4 primitive stays inline.
+  const depth4Schema = {
+    type: 'object',
+    dict: {
+      l1: {
+        type: 'object',
+        dict: {
+          l2: {
+            type: 'object',
+            dict: {
+              l3: {
+                type: 'object',
+                dict: {
+                  flag: { type: 'boolean', meta: { default: false } },
+                  deepObj: {
+                    type: 'object',
+                    dict: {
+                      a: { type: 'string' },
+                      b: { type: 'number' },
+                      c: { type: 'boolean' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+  const depth4Fields = mod.extractSchemaFields(depth4Schema, {}, [], 'deep-plugin')
+  assert.deepEqual(
+    Array.from(depth4Fields, f => [Array.from(f.path).join('.'), f.kind]),
+    [
+      ['l1.l2.l3.flag', 'boolean'],
+      ['l1.l2.l3.deepObj', 'config-file'],
+    ],
+  )
+
   // Group containing ONLY config-file fields hides the Save/Discard bar, and read-only profile disables Edit in config file.
   const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'mcp-manager' })
   harness.render()

@@ -376,7 +376,7 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         for (const item of node.list) walk(item, path, nextSeen, depth)
         return
       }
-      if (node.type === 'object' && node.dict && typeof node.dict === 'object' && Object.keys(node.dict).length > 0) {
+      if (depth < 4 && node.type === 'object' && node.dict && typeof node.dict === 'object' && Object.keys(node.dict).length > 0) {
         for (const [key, childTarget] of Object.entries(node.dict)) {
           walk(childTarget, [...path, key], nextSeen, depth + 1)
         }
