@@ -39509,8 +39509,8 @@ var MODEL_CSS = `
 .bt-collapse[data-open]{grid-template-rows:1fr}
 .bt-collapse:not([data-open]){pointer-events:none}
 .bt-collapse-in{min-height:0;overflow:hidden}
-/* The collapse clips at its box: extra vertical/horizontal room keeps focus rings inside it while staying flush with the trigger above. */
-.bt-model-effort{padding:10px 2px 3px;margin:0 -2px}
+/* The collapse clips at its box: bottom padding matches the track's negative margin and an inset focus ring stays unclipped while keeping the slider flush with the trigger above. */
+.bt-model-effort{padding:10px 0 6px}
 .bt-model-effort .bt-effort-bar{padding:0}
 .bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:6px 8px 4px}
 .bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
@@ -39528,7 +39528,7 @@ var MODEL_CSS = `
 .bt-effort-bar button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-effort-track{position:relative;height:28px;margin:-6px 0;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
 .bt-effort-track::before{content:"";position:absolute;left:0;right:0;top:11px;height:6px;border-radius:999px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line)}
-.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:0}
+.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-effort-fill{position:absolute;left:0;top:11px;height:6px;width:calc(8px + (100% - 16px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);transition:${spring(SPRING_TAP, "width")}}
 .bt-effort-dot{position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:var(--bt-line-2);pointer-events:none;transition:background-color .12s ease}
 .bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 72%,transparent)}
