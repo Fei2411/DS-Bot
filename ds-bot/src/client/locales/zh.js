@@ -3161,6 +3161,9 @@ const HOST_ZH = {
   'Jitter ratio must be between 0 and 1': '抖动比例必须在 0 到 1 之间',
   'Value is out of range': '数值超出允许范围',
   'Use lowercase letters, digits, and dashes, starting with a letter': '仅使用小写字母、数字和连字符，且以字母开头',
+  'Saved but currently unavailable': '已保存但当前不可用',
+  'Currently unavailable': '当前不可用',
+  'Settings changed elsewhere. Discard your changes and try again.': '设置已在别处更改。请放弃当前修改后重试。',
   'Using built-in catalog ({count} models)': '使用内置目录（{count} 个模型）',
   'Settings changed elsewhere. Reload or discard your changes and try again.': '设置已在别处更改。请重新加载或放弃修改后重试。',
 }

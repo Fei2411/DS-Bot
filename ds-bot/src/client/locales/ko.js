@@ -3045,6 +3045,9 @@ export const KO = {
   "Jitter ratio must be between 0 and 1": "지터 비율은 0에서 1 사이여야 합니다",
   "Value is out of range": "값이 허용 범위를 벗어났습니다",
   "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요",
+  "Saved but currently unavailable": "저장되었으나 현재 사용 불가",
+  "Currently unavailable": "현재 사용 불가",
+  "Settings changed elsewhere. Discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 변경사항을 취소하고 다시 시도하세요.",
   "Using built-in catalog ({count} models)": "내장 카탈로그 사용 중 ({count}개 모델)",
   "Settings changed elsewhere. Reload or discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 새로고침하거나 변경사항을 취소한 뒤 다시 시도하세요.",
 }

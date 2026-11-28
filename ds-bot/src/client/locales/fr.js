@@ -3011,6 +3011,9 @@ export const FR = {
   "Jitter ratio must be between 0 and 1": "Le ratio de gigue doit être compris entre 0 et 1",
   "Value is out of range": "La valeur est hors plage",
   "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre",
+  "Saved but currently unavailable": "Enregistré mais actuellement indisponible",
+  "Currently unavailable": "Actuellement indisponible",
+  "Settings changed elsewhere. Discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez.",
   "Using built-in catalog ({count} models)": "Catalogue intégré utilisé ({count} modèles)",
   "Settings changed elsewhere. Reload or discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Rechargez ou abandonnez vos modifications puis réessayez.",
 }

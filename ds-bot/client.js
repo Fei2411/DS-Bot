@@ -3213,6 +3213,9 @@ var init_zh = __esm({
       "Jitter ratio must be between 0 and 1": "抖动比例必须在 0 到 1 之间",
       "Value is out of range": "数值超出允许范围",
       "Use lowercase letters, digits, and dashes, starting with a letter": "仅使用小写字母、数字和连字符，且以字母开头",
+      "Saved but currently unavailable": "已保存但当前不可用",
+      "Currently unavailable": "当前不可用",
+      "Settings changed elsewhere. Discard your changes and try again.": "设置已在别处更改。请放弃当前修改后重试。",
       "Using built-in catalog ({count} models)": "使用内置目录（{count} 个模型）",
       "Settings changed elsewhere. Reload or discard your changes and try again.": "设置已在别处更改。请重新加载或放弃修改后重试。"
     };
@@ -6342,6 +6345,9 @@ var init_ja = __esm({
       "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
       "Value is out of range": "値が許容範囲外です",
       "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
+      "Saved but currently unavailable": "保存済み（現在利用不可）",
+      "Currently unavailable": "現在利用不可",
+      "Settings changed elsewhere. Discard your changes and try again.": "別の場所で設定が変更されました。変更を破棄して再試行してください。",
       "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
       "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。"
     };
@@ -10143,6 +10149,9 @@ var init_ko = __esm({
       "Jitter ratio must be between 0 and 1": "지터 비율은 0에서 1 사이여야 합니다",
       "Value is out of range": "값이 허용 범위를 벗어났습니다",
       "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요",
+      "Saved but currently unavailable": "저장되었으나 현재 사용 불가",
+      "Currently unavailable": "현재 사용 불가",
+      "Settings changed elsewhere. Discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 변경사항을 취소하고 다시 시도하세요.",
       "Using built-in catalog ({count} models)": "내장 카탈로그 사용 중 ({count}개 모델)",
       "Settings changed elsewhere. Reload or discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 새로고침하거나 변경사항을 취소한 뒤 다시 시도하세요."
     };
@@ -13945,6 +13954,9 @@ var init_es = __esm({
       "Jitter ratio must be between 0 and 1": "La proporción de jitter debe estar entre 0 y 1",
       "Value is out of range": "El valor está fuera de rango",
       "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra",
+      "Saved but currently unavailable": "Guardados pero no disponibles actualmente",
+      "Currently unavailable": "No disponible actualmente",
+      "Settings changed elsewhere. Discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Descarta tus cambios e inténtalo de nuevo.",
       "Using built-in catalog ({count} models)": "Usando catálogo integrado ({count} modelos)",
       "Settings changed elsewhere. Reload or discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Recarga o descarta tus cambios e inténtalo de nuevo."
     };
@@ -17703,6 +17715,9 @@ var init_fr = __esm({
       "Jitter ratio must be between 0 and 1": "Le ratio de gigue doit être compris entre 0 et 1",
       "Value is out of range": "La valeur est hors plage",
       "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre",
+      "Saved but currently unavailable": "Enregistré mais actuellement indisponible",
+      "Currently unavailable": "Actuellement indisponible",
+      "Settings changed elsewhere. Discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez.",
       "Using built-in catalog ({count} models)": "Catalogue intégré utilisé ({count} modèles)",
       "Settings changed elsewhere. Reload or discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Rechargez ou abandonnez vos modifications puis réessayez."
     };
@@ -21504,6 +21519,9 @@ var init_de = __esm({
       "Jitter ratio must be between 0 and 1": "Der Jitter-Anteil muss zwischen 0 und 1 liegen",
       "Value is out of range": "Der Wert liegt außerhalb des zulässigen Bereichs",
       "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben",
+      "Saved but currently unavailable": "Gespeichert, aber derzeit nicht verfügbar",
+      "Currently unavailable": "Derzeit nicht verfügbar",
+      "Settings changed elsewhere. Discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Verwirf deine Änderungen und versuche es erneut.",
       "Using built-in catalog ({count} models)": "Integrierter Katalog aktiv ({count} Modelle)",
       "Settings changed elsewhere. Reload or discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Lade neu oder verwirf deine Änderungen und versuche es erneut."
     };

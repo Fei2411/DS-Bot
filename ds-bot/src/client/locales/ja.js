@@ -3011,6 +3011,9 @@ export const JA = {
   "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
   "Value is out of range": "値が許容範囲外です",
   "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
+  "Saved but currently unavailable": "保存済み（現在利用不可）",
+  "Currently unavailable": "現在利用不可",
+  "Settings changed elsewhere. Discard your changes and try again.": "別の場所で設定が変更されました。変更を破棄して再試行してください。",
   "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
   "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。",
 }
