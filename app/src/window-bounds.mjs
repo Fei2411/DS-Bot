@@ -200,3 +200,31 @@ export function watchWindowBounds(win, { file, debounceMs = 250, ready = () => t
 
   return { flush, dispose }
 }
+
+/**
+ * Restores a saved maximized state when a rebuilt window first shows.
+ * If the window is minimized at first show, defers both maximize and `onReady` until `restore`
+ * (matching the main startup hand-off), and unbinds all listeners on `closed`.
+ */
+export function deferMaximizeOnShow(win, onReady) {
+  let done = false
+  const cleanup = () => {
+    win.off?.('show', apply)
+    win.off?.('restore', apply)
+    win.off?.('closed', cleanup)
+  }
+  const apply = () => {
+    if (done || win.isDestroyed?.()) { cleanup(); return }
+    if (win.isMinimized?.()) {
+      win.once('restore', apply)
+      return
+    }
+    done = true
+    cleanup()
+    if (!win.isFullScreen?.()) win.maximize?.()
+    onReady?.()
+  }
+  win.once('show', apply)
+  win.once('closed', cleanup)
+  return cleanup
+}

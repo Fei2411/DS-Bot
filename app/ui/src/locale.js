@@ -3,6 +3,10 @@
 // persistence in `localStorage`. Kept free of React imports so non-React modules and
 // host-side tests (`ds-bot/test/frontend-audit-regressions.test.js`) can import it directly.
 
+import { pickPreferredLanguageTag, resolveLocale } from '../../src/locale-match.mjs'
+
+export { pickPreferredLanguageTag, resolveLocale }
+
 const fill = (text, params) => (params
   ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
   : text)
@@ -23,35 +27,6 @@ export const LANGUAGE_OPTIONS = [
 ]
 
 const VALID_PREFERENCES = new Set(LANGUAGE_OPTIONS.map(([id]) => id))
-const SUPPORTED = new Set(['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de'])
-
-function matchSupportedLocale(tag) {
-  const lower = String(tag ?? '').trim().toLowerCase()
-  if (lower === '') return null
-  if (lower === 'zh-tw' || lower === 'zh-hk' || lower === 'zh-mo' || lower.startsWith('zh-hant')) return 'zh-TW'
-  if (lower.startsWith('zh')) return 'zh'
-  const primary = lower.split('-')[0]
-  if (primary === 'en') return 'en'
-  return SUPPORTED.has(primary) ? primary : null
-}
-
-export function resolveLocale(tag) {
-  return matchSupportedLocale(tag) ?? 'en'
-}
-
-/** Picks the first OS preferred language tag that maps to a supported UI locale. */
-export function pickPreferredLanguageTag(tags, fallback = '') {
-  if (Array.isArray(tags)) {
-    for (const raw of tags) {
-      if (typeof raw !== 'string') continue
-      const clean = raw.trim()
-      if (clean !== '' && matchSupportedLocale(clean) !== null) return clean
-    }
-    const first = tags.find(raw => typeof raw === 'string' && raw.trim() !== '')
-    if (first !== undefined) return first.trim()
-  }
-  return typeof fallback === 'string' ? fallback.trim() : ''
-}
 
 function readStoredPreference(storage) {
   try {

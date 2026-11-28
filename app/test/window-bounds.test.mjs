@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
+  deferMaximizeOnShow,
   readWindowBounds,
   resolveRestoredBounds,
   watchWindowBounds,
@@ -382,4 +383,172 @@ test('focused maximized hand-off maximizes before reveal without intermediate cl
   assert.equal(behindRun.start.boundsReady, true)
   behindRun.startWin.destroy()
   behindRun.main.destroy()
+})
+
+test('behind maximized cross-fade handles focus during fade, isFocused fallback at fade end, no lingering focus surprise-maximize, and reset cleanup', async (t) => {
+  const { StartWindow } = await import('../src/start-window.mjs')
+  const display = { workArea: { x: 0, y: 0, width: 1920, height: 1040 } }
+
+  const makeScenario = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsb-fade-focus-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const file = join(dir, 'window-bounds.json')
+    const initial = { x: 120, y: 80, width: 1100, height: 720, maximized: true }
+    writeWindowBounds(file, initial)
+
+    let mainFocused = false
+    const flashCalls = []
+    const main = makeFakeWin({ x: 120, y: 80, width: 1100, height: 720 })
+    main.isFocused = () => mainFocused
+    main.setFocused = (v) => { mainFocused = v }
+    main.maximize = () => { main.setMaximized(true) }
+    main.minimize = () => { main.setMinimized(true) }
+    main.show = () => { main.setVisible(true) }
+    main.showInactive = () => { main.setVisible(true) }
+    main.hide = () => { main.setVisible(false) }
+    main.setBounds = (r) => { main.setRect(r) }
+    main.setOpacity = () => {}
+    main.setSkipTaskbar = () => {}
+    main.flashFrame = (flag) => { flashCalls.push(flag) }
+    main.focus = () => { mainFocused = true }
+    main.moveAbove = () => {}
+
+    const makeStartWin = () => {
+      const sw = makeFakeWin({ x: 200, y: 200, width: 720, height: 540 })
+      sw.isFocused = () => false
+      sw.setContentBounds = () => {}
+      sw.setOpacity = () => {}
+      sw.setSkipTaskbar = () => {}
+      sw.moveTop = () => {}
+      sw.getMediaSourceId = () => 'window:1:0'
+      sw.loadURL = async () => {}
+      sw.webContents = Object.assign(new EventEmitter(), {
+        send: () => {},
+        setWindowOpenHandler: () => {},
+        insertCSS: async () => {},
+        reload: () => {},
+        mainFrame: {},
+      })
+      return sw
+    }
+    const createdStartWins = []
+    const start = new StartWindow({
+      electron: {
+        BrowserWindow: class { constructor() { const sw = makeStartWin(); createdStartWins.push(sw); return sw } },
+        ipcMain: { handle: () => {} },
+        screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => display, getDisplayMatching: () => display, getPrimaryDisplay: () => display },
+        shell: {},
+        clipboard: { writeText: () => {} },
+        nativeTheme: Object.assign(new EventEmitter(), { shouldUseDarkColors: false }),
+        systemPreferences: {},
+      },
+      page: '/tmp/start.html',
+      preload: '/tmp/preload.cjs',
+      icon: '/tmp/icon.png',
+      devTools: false,
+      lang: () => 'en',
+      motion: 'normal',
+      effects: 'full',
+      version: '0.4.1',
+      program: [],
+      log: { dir: '/tmp', tail: () => [] },
+      mainWindow: () => main,
+      savedBounds: () => initial,
+      onRetry: () => {},
+      onReload: () => {},
+      onClose: () => {},
+    })
+
+    const watcher = watchWindowBounds(main, { file, debounceMs: 10, initial, ready: () => start.boundsReady })
+    t.after(() => watcher.dispose())
+    return { start, main, file, flashCalls, createdStartWins }
+  }
+
+  // Case 1: focus arrives mid-fade -> deferred maximize applies, boundsReady flips true,
+  // fade finish does not flash or leave a stale focus listener, and subsequent user resize + focus persists cleanly.
+  const midFade = makeScenario()
+  midFade.start.open('later')
+  midFade.start.done('data')
+  midFade.start.done('engine')
+  midFade.start.ready()
+  await midFade.start.teamShown
+  await new Promise(resolve => setTimeout(resolve, 35))
+  midFade.main.setFocused(true)
+  midFade.main.emit('focus')
+  assert.equal(midFade.main.isMaximized(), true, 'focus during cross-fade applies deferred maximize')
+  assert.equal(midFade.start.boundsReady, true, 'focus during cross-fade activates boundsReady')
+  await new Promise(resolve => setTimeout(resolve, 260))
+  assert.equal(midFade.flashCalls.includes(true), false, 'does not flash taskbar after already focused mid-fade')
+
+  // User unmaximizes, resizes, and later switches focus away and back -> must NOT surprise-maximize!
+  midFade.main.setMaximized(false)
+  midFade.main.setRect({ x: 240, y: 160, width: 1000, height: 650 })
+  midFade.main.emit('move')
+  midFade.main.emit('resize')
+  midFade.main.setFocused(false)
+  midFade.main.setFocused(true)
+  midFade.main.emit('focus')
+  assert.equal(midFade.main.isMaximized(), false, 'no lingering focus listener surprise-maximizes a user-resized window')
+  midFade.main.emit('hide')
+  assert.deepEqual(readWindowBounds(midFade.file), { x: 240, y: 160, width: 1000, height: 650, maximized: false })
+  midFade.main.destroy()
+
+  // Case 2: main becomes focused without emitting focus (isFocused() === true at fade end) -> fallback maximizes & cleans listener.
+  const silentFocus = makeScenario()
+  silentFocus.start.open('later')
+  silentFocus.start.done('data')
+  silentFocus.start.done('engine')
+  silentFocus.start.ready()
+  await silentFocus.start.teamShown
+  await new Promise(resolve => setTimeout(resolve, 35))
+  silentFocus.main.setFocused(true)
+  await new Promise(resolve => setTimeout(resolve, 260))
+  assert.equal(silentFocus.main.isMaximized(), true, 'isFocused() fallback maximizes at fade end')
+  assert.equal(silentFocus.start.boundsReady, true, 'isFocused() fallback activates boundsReady')
+  silentFocus.main.setMaximized(false)
+  silentFocus.main.emit('focus')
+  assert.equal(silentFocus.main.isMaximized(), false, 'fallback detached unused focus listener')
+  silentFocus.main.destroy()
+
+  // Case 3: resetting StartWindow (re-opening for moving) detaches pending focus listener.
+  const resetCase = makeScenario()
+  resetCase.start.open('later')
+  resetCase.start.done('data')
+  resetCase.start.done('engine')
+  resetCase.start.ready()
+  await resetCase.start.teamShown
+  await new Promise(resolve => setTimeout(resolve, 260))
+  assert.equal(resetCase.main.isMaximized(), false)
+  resetCase.start.open('moving')
+  resetCase.main.emit('focus')
+  assert.equal(resetCase.main.isMaximized(), false, 'reset detaches pending reveal focus listener')
+  for (const sw of resetCase.createdStartWins) sw.destroy()
+  resetCase.main.destroy()
+})
+
+test('deferMaximizeOnShow defers maximize and ready flag until restore if first show occurs while minimized', () => {
+  const win = makeFakeWin({ x: 100, y: 100, width: 1100, height: 740 })
+  let maxCalls = 0
+  let ready = false
+  win.maximize = () => { maxCalls += 1; win.setMaximized(true) }
+
+  deferMaximizeOnShow(win, () => { ready = true })
+
+  // First show while minimized -> skips maximize and keeps ready=false until restore.
+  win.setMinimized(true)
+  win.setVisible(true)
+  assert.equal(maxCalls, 0, 'does not maximize while minimized')
+  assert.equal(ready, false, 'does not flip ready while maximize is still deferred')
+
+  // Restoring applies maximize and flips ready=true once.
+  win.setMinimized(false)
+  win.emit('restore')
+  assert.equal(maxCalls, 1, 'applies deferred maximize on restore')
+  assert.equal(ready, true, 'flips ready once maximize ran')
+
+  // Subsequent unmaximize + restore does not re-maximize.
+  win.setMaximized(false)
+  win.emit('restore')
+  assert.equal(maxCalls, 1)
+  win.destroy()
 })

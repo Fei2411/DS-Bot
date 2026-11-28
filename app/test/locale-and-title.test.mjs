@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { test } from 'node:test'
 import { createLocale, pickPreferredLanguageTag } from '../ui/src/locale.js'
 import { conversationTitleOf, formatWindowTitle } from '../ui/src/window-title.js'
@@ -204,4 +207,59 @@ test('isAllowedWindowTitle accepts DS Bot titles and rejects blank, whitespace-o
   assert.equal(isAllowedWindowTitle('Chief\u0000 — DS Bot'), false)
   assert.equal(isAllowedWindowTitle('http://127.0.0.1:41234/'), false)
   assert.equal(isAllowedWindowTitle('Sign in — DeepSeek'), false)
+})
+
+test('main.mjs never imports unshipped renderer sources under ../ui/src/ and locale-match.mjs ships under app/src/', async () => {
+  const mainSrc = readFileSync(new URL('../src/main.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(mainSrc, /from\s+['"]\.\.\/ui\/src\//, 'main process must not import renderer source excluded by electron-builder.yml')
+  const shared = await import('../src/locale-match.mjs')
+  assert.equal(shared.pickPreferredLanguageTag(['pt-BR', 'zh-Hans-CN', 'en-US'], 'en-US'), 'zh-Hans-CN')
+  assert.equal(shared.resolveLocale('zh-Hant-TW'), 'zh-TW')
+})
+
+test('preload onSystemLanguage preserves sibling listeners and only unsubscribes its own handler', () => {
+  const preloadSrc = readFileSync(new URL('../src/preload.cjs', import.meta.url), 'utf8')
+  const ipc = new EventEmitter()
+  ipc.invoke = async () => 'en-US'
+  ipc.send = () => {}
+  let exposed
+  const fakeElectron = {
+    contextBridge: { exposeInMainWorld: (name, api) => { if (name === 'dsBotApp') exposed = api } },
+    ipcRenderer: ipc,
+  }
+  const realRequire = createRequire(import.meta.url)
+  const fakeRequire = (id) => (id === 'electron' ? fakeElectron : realRequire(id))
+  const prevArgv = process.argv
+  const prevLocation = globalThis.location
+  const prevDoc = globalThis.document
+  const prevWin = globalThis.window
+  process.argv = [...prevArgv, '--ds-bot-origin=http://127.0.0.1:41234']
+  globalThis.location = { origin: 'http://127.0.0.1:41234', href: 'http://127.0.0.1:41234/' }
+  globalThis.document = { readyState: 'loading', addEventListener: () => {} }
+  globalThis.window = { addEventListener: () => {} }
+  try {
+    new Function('require', 'process', preloadSrc)(fakeRequire, process)
+  } finally {
+    process.argv = prevArgv
+    globalThis.location = prevLocation
+    globalThis.document = prevDoc
+    globalThis.window = prevWin
+  }
+  assert.ok(exposed && typeof exposed.onSystemLanguage === 'function')
+
+  const seenA = []
+  const seenB = []
+  const offA = exposed.onSystemLanguage(tag => seenA.push(tag))
+  const offB = exposed.onSystemLanguage(tag => seenB.push(tag))
+  ipc.emit('ds-bot:system-language', {}, 'zh-CN')
+  assert.deepEqual(seenA, ['zh-CN'], 'first listener must not be removed by a second subscriber')
+  assert.deepEqual(seenB, ['zh-CN'])
+
+  offA()
+  ipc.emit('ds-bot:system-language', {}, 'ja-JP')
+  assert.deepEqual(seenA, ['zh-CN'])
+  assert.deepEqual(seenB, ['zh-CN', 'ja-JP'])
+
+  offB()
+  assert.equal(ipc.listenerCount('ds-bot:system-language'), 0)
 })

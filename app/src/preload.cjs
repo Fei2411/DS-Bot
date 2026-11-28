@@ -104,7 +104,6 @@ if (startPage !== undefined) {
     systemLanguage: () => ipcRenderer.invoke('ds-bot:system-language'),
     onSystemLanguage: (run) => {
       if (typeof run !== 'function') return () => {}
-      ipcRenderer.removeAllListeners('ds-bot:system-language')
       const handler = (_event, tag) => { if (typeof tag === 'string' && tag) run(tag) }
       ipcRenderer.on('ds-bot:system-language', handler)
       return () => { ipcRenderer.removeListener('ds-bot:system-language', handler) }

@@ -34,8 +34,8 @@ import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
-import { isAllowedWindowTitle, readWindowBounds, resolveRestoredBounds, watchWindowBounds, WINDOW_BOUNDS_FILE } from './window-bounds.mjs'
-import { pickPreferredLanguageTag } from '../ui/src/locale.js'
+import { deferMaximizeOnShow, isAllowedWindowTitle, readWindowBounds, resolveRestoredBounds, watchWindowBounds, WINDOW_BOUNDS_FILE } from './window-bounds.mjs'
+import { pickPreferredLanguageTag } from './locale-match.mjs'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
@@ -1670,10 +1670,7 @@ function createWindow() {
   const flushBounds = () => { boundsWatcher.flush() }
   app.on('before-quit', flushBounds)
   if (rebuilt && savedBounds?.maximized === true) {
-    win.once('show', () => {
-      if (!win.isDestroyed() && !win.isMinimized() && !win.isFullScreen()) win.maximize()
-      rebuiltReady = true
-    })
+    deferMaximizeOnShow(win, () => { rebuiltReady = true })
   }
   // No ready-to-show here: the first window shows at the hand-off (start-window.mjs), a window
   // built anew when the shell opens it.
