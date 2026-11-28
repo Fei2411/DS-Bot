@@ -707,7 +707,7 @@ export function install(rt) {
   async function listSkills(body, signal) {
     await rt.load()
     const sessionId = requireSessionId(body?.sessionId)
-    if (!isOwnedClassic(sessionId)) return { skills: [] }
+    if (!isOwnedSession(sessionId)) return { skills: [] }
     const catalog = serviceOf(ctx, 'sessionSkillCatalog')
     if (typeof catalog?.list !== 'function') return { skills: [] }
     try {
@@ -721,7 +721,7 @@ export function install(rt) {
   async function listFiles(body, signal) {
     await rt.load()
     const sessionId = requireSessionId(body?.sessionId)
-    if (!isOwnedClassic(sessionId)) return { files: [] }
+    if (!isOwnedSession(sessionId)) return { files: [] }
     const refs = serviceOf(ctx, 'fileReferences')
     if (typeof refs?.list !== 'function') return { files: [] }
     const liveAgent = serviceOf(ctx, 'agents')?.get?.(sessionId)

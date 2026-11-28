@@ -618,13 +618,17 @@ test('composer supports file picker, clipboard paste, drag-drop, attachment-only
     assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-attach-chip').length, 1, 'failed send restores file attachment')
     assert.equal(revokedUrls.length, 0, 'failed send must not revoke restored preview URL')
 
-    // Retry succeeds and stages image + file before calling actions.send.
+    // Retry succeeds and reuses/stages image + file before calling actions.send.
     sendButton(tree).props.onClick()
     await tick()
     await tick()
     assert.equal(stagedImages.at(-1).mediaType, 'image/png')
     assert.equal(stagedFiles.at(-1).name, 'readme.txt')
-    assert.deepEqual(JSON.parse(JSON.stringify(sentCalls.at(-1))), ['b1', '', { images: ['img-2'], files: ['file-2'] }])
+    const lastSent = JSON.parse(JSON.stringify(sentCalls.at(-1)))
+    assert.equal(lastSent[0], 'b1')
+    assert.equal(lastSent[1], '')
+    assert.equal(lastSent[2]?.images?.length, 1)
+    assert.equal(lastSent[2]?.files?.length, 1)
 
     // Removing a staged image revokes its preview URL immediately.
     const img2 = { name: 'two.png', type: 'image/png', size: pngBytes.length, arrayBuffer: async () => pngBytes.buffer }

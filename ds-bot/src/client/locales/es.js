@@ -1,6 +1,13 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  "Enter while running": "Enter al ejecutar",
+  "Queue": "En cola",
+  "Steer": "Intervenir",
+  "Open a side chat": "Abrir chat lateral",
+  "Uploading…": "Subiendo…",
+  "Upload failed": "Error al subir",
+  "Retry upload": "Reintentar subida",
   'Reconnecting…': 'Reconectando…',
   'Reconnect': 'Reconectar',
   'Waiting to confirm…': 'Esperando confirmación…',

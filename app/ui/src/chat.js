@@ -360,9 +360,10 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   }, [])
 
   // Shown at once: the message can arrive on the follow/feed before the request returns.
-  const send = useCallback(async (text, items = []) => {
+  const send = useCallback(async (text, items = [], options = {}) => {
     transcriptRef.current?.followBottom?.()
     const myGen = sendGen.current
+    const sendMode = options?.mode === 'steer' ? 'steer' : (options?.mode === 'queue' ? 'queue' : undefined)
     const pendingAttachments = items.map(item => (item.isImage
       ? { type: 'image', attachment: { name: item.name, previewUrl: item.previewUrl } }
       : { type: 'file', attachment: { name: item.name, bytes: item.size } }))
@@ -370,7 +371,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     const fileCount = items.length - imageCount
     const entry = {
       requestId: `pending-${++pendingSendSeq}`,
-      queued: runningRef.current && !isRoomRef.current,
+      queued: runningRef.current && !isRoomRef.current && sendMode !== 'steer',
       kind: 'user',
       text,
       attachments: pendingAttachments,
@@ -384,12 +385,33 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     }
     setPending(list => [...list, entry])
     const cancelSent = actions.noteSent(activeSessionId, { requestId: entry.requestId, text: entry.text, time: entry.time })
-    try {
-      const { images: imageIds, files: fileIds } = await stageAttachmentItems(items, actions)
-      if (imageIds.length > 0 || fileIds.length > 0) {
-        await actions.send(activeSessionId, text, { images: imageIds, files: fileIds })
+    const dispatchSend = async (forceReupload) => {
+      const { images: imageIds, files: fileIds } = await stageAttachmentItems(items, actions, {
+        forceReupload,
+        pendingUploads: options?.pendingUploads,
+        limits: options?.limits,
+      })
+      const sendOpts = {
+        ...(imageIds.length > 0 ? { images: imageIds } : {}),
+        ...(fileIds.length > 0 ? { files: fileIds } : {}),
+        ...(sendMode === 'steer' ? { mode: 'steer' } : {}),
+      }
+      if (Object.keys(sendOpts).length > 0) {
+        await actions.send(activeSessionId, text, sendOpts)
       } else {
         await actions.send(activeSessionId, text)
+      }
+    }
+    try {
+      try {
+        await dispatchSend(false)
+      } catch (firstError) {
+        const hadPreStaged = items.some(item => Boolean(item?.stagedId))
+        if (firstError?.code === 'bot/stale' && hadPreStaged) {
+          await dispatchSend(true)
+        } else {
+          throw firstError
+        }
       }
       // Ownership of previewUrls transfers here: if pending already cleared (e.g. fast SSE or
       // rollover before React committed a re-render), revoke immediately via `entry.removed`.

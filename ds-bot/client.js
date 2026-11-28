@@ -3148,7 +3148,14 @@ var init_zh = __esm({
       "Incompatible": "版本不兼容",
       "Local": "本地",
       "Open config file": "打开配置文件",
-      "Open folder": "打开文件夹"
+      "Open folder": "打开文件夹",
+      "Enter while running": "运行中按 Enter",
+      "Queue": "排队",
+      "Steer": "插话",
+      "Open a side chat": "打开侧边对话",
+      "Uploading…": "正在上传…",
+      "Upload failed": "上传失败",
+      "Retry upload": "重新上传"
     };
     Object.assign(ZH, HOST_ZH);
   }
@@ -3267,6 +3274,13 @@ var JA, HOST_ERRORS_JA, DSH_JA;
 var init_ja = __esm({
   "src/client/locales/ja.js"() {
     JA = {
+      "Enter while running": "実行中の Enter",
+      "Queue": "キュー",
+      "Steer": "割り込み",
+      "Open a side chat": "サイドチャットを開く",
+      "Uploading…": "アップロード中…",
+      "Upload failed": "アップロードに失敗しました",
+      "Retry upload": "再アップロード",
       "Reconnecting…": "再接続中…",
       "Reconnect": "再接続",
       "Waiting to confirm…": "確認待ち…",
@@ -6958,6 +6972,13 @@ var KO, HOST_ERRORS_KO, DSH_KO;
 var init_ko = __esm({
   "src/client/locales/ko.js"() {
     KO = {
+      "Enter while running": "실행 중 Enter",
+      "Queue": "대기열",
+      "Steer": "즉시 개입",
+      "Open a side chat": "사이드 채팅 열기",
+      "Uploading…": "업로드 중…",
+      "Upload failed": "업로드 실패",
+      "Retry upload": "다시 업로드",
       "Reconnecting…": "다시 연결하는 중…",
       "Reconnect": "다시 연결",
       "Waiting to confirm…": "확인 대기 중…",
@@ -10694,6 +10715,13 @@ var ES, HOST_ERRORS_ES, DSH_ES;
 var init_es = __esm({
   "src/client/locales/es.js"() {
     ES = {
+      "Enter while running": "Enter al ejecutar",
+      "Queue": "En cola",
+      "Steer": "Intervenir",
+      "Open a side chat": "Abrir chat lateral",
+      "Uploading…": "Subiendo…",
+      "Upload failed": "Error al subir",
+      "Retry upload": "Reintentar subida",
       "Reconnecting…": "Reconectando…",
       "Reconnect": "Reconectar",
       "Waiting to confirm…": "Esperando confirmación…",
@@ -14430,6 +14458,13 @@ var FR, HOST_ERRORS_FR, DSH_FR;
 var init_fr = __esm({
   "src/client/locales/fr.js"() {
     FR = {
+      "Enter while running": "Entrée en cours d’exécution",
+      "Queue": "File d’attente",
+      "Steer": "Intervenir",
+      "Open a side chat": "Ouvrir une discussion annexe",
+      "Uploading…": "Envoi…",
+      "Upload failed": "Échec de l’envoi",
+      "Retry upload": "Réessayer l’envoi",
       "Reconnecting…": "Reconnexion…",
       "Reconnect": "Reconnecter",
       "Waiting to confirm…": "En attente de confirmation…",
@@ -18121,6 +18156,13 @@ var DE, HOST_ERRORS_DE, DSH_DE;
 var init_de = __esm({
   "src/client/locales/de.js"() {
     DE = {
+      "Enter while running": "Enter während der Ausführung",
+      "Queue": "Warteschlange",
+      "Steer": "Eingreifen",
+      "Open a side chat": "Nebenchat öffnen",
+      "Uploading…": "Wird hochgeladen…",
+      "Upload failed": "Upload fehlgeschlagen",
+      "Retry upload": "Upload wiederholen",
       "Reconnecting…": "Verbindung wird wiederhergestellt…",
       "Reconnect": "Neu verbinden",
       "Waiting to confirm…": "Warte auf Bestätigung…",
@@ -23922,6 +23964,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     send: (sessionId, text, options = {}) => after(call2("send", {
       sessionId: partFor(sessionId),
       text,
+      ...options.mode === "steer" || options.mode === "queue" ? { mode: options.mode } : {},
       ...options.images?.length ? { images: options.images } : {},
       ...options.files?.length ? { files: options.files } : {}
     })),
@@ -35625,6 +35668,21 @@ var DEEP_VIEW_CSS = THEME_CSS + QUESTION_CSS + WIDGET_CSS;
 
 // src/client/enter-key.js
 var sendsOnEnter = (prefs) => prefs?.enterToSend !== false;
+var runningEnterMode = (prefs) => prefs?.runningEnter === "steer" ? "steer" : "queue";
+function submitModeForKey({ running, enterToSend, runningEnter = "queue", plainEnter, modEnter }) {
+  if (!plainEnter && !modEnter) return null;
+  if (!running) {
+    return (enterToSend ? plainEnter || modEnter : modEnter) ? "queue" : null;
+  }
+  const preferred = runningEnter === "steer" ? "steer" : "queue";
+  const opposite = preferred === "steer" ? "queue" : "steer";
+  if (enterToSend) {
+    if (plainEnter) return preferred;
+    if (modEnter) return opposite;
+    return null;
+  }
+  return modEnter ? preferred : null;
+}
 var isImeComposing = (event) => Boolean(
   event?.isComposing || event?.nativeEvent?.isComposing || event?.keyCode === 229 || event?.nativeEvent?.keyCode === 229
 );
@@ -65059,6 +65117,16 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
         { label: t("Enter sends message") },
         (0, import_react76.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       ),
+      (0, import_react76.createElement)(
+        SetRow,
+        { label: t("Enter while running") },
+        (0, import_react76.createElement)(Choice2, {
+          label: t("Enter while running"),
+          value: runningEnterMode(prefs),
+          options: [["queue", "Queue"], ["steer", "Steer"]],
+          pick: (runningEnter) => run2(actions.setPrefs({ runningEnter }))
+        })
+      ),
       basicDsh.includes("composer-enter") ? dshItem(dsh, "composer-enter") : null
     ),
     (0, import_react76.createElement)(
@@ -77318,7 +77386,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend, runningEnter: prefs.runningEnter }));
         } catch {
         }
       }

@@ -7,7 +7,7 @@ import { AppAccessDock, ComputerHandoffDock } from '../../../ds-bot/src/client/c
 import { ConnectorDock, MailDock } from '../../../ds-bot/src/client/connectors.js'
 import { chatOfSession, keepDraft, keepDraftText, takeDraft } from '../../../ds-bot/src/client/draft-keep.js'
 import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
-import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
+import { isImeComposing, runningEnterMode, sendsOnEnter, submitModeForKey } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PaperclipIcon, PlusIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
@@ -27,7 +27,8 @@ import { WorkPauseDock } from '../../../ds-bot/src/client/work-pause-card.js'
 import { ApprovalDock } from './approval-dock.js'
 import { ClassicControls } from './classic-controls.js'
 import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
-import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
+import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems, buildSlashCommands } from './composer-menus.js'
+import { ImageLightbox } from './image-lightbox.js'
 import {
   FailedSendBar,
   clearFailedSends,
@@ -43,10 +44,27 @@ import { DesktopQueueDock } from './queue-dock.js'
 import { SubagentReadOnlyBar } from './subagent-viewer.js'
 
 const STAGED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
-const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
-// Matches host STAGED_TOTAL_MAX (64 MB) using the same accounting (base64 length for images, raw bytes for files).
-const MAX_BATCH_STAGED_BYTES = 64 * 1024 * 1024
+const FALLBACK_MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
+// Fallback matching host STAGED_TOTAL_MAX (64 MB) when host limits are not yet hydrated.
+const FALLBACK_MAX_BATCH_BYTES = 64 * 1024 * 1024
 const stagedByteCost = (size, isImage) => (isImage ? Math.ceil(size / 3) * 4 : size)
+
+export function attachmentLimitsOf(roster) {
+  const raw = roster?.imageLimits
+  const maxImageBytes = Number.isFinite(raw?.maxImageBytes) && raw.maxImageBytes > 0
+    ? raw.maxImageBytes
+    : FALLBACK_MAX_ATTACHMENT_BYTES
+  const maxFileBytes = Number.isFinite(raw?.maxFileBytes) && raw.maxFileBytes > 0
+    ? raw.maxFileBytes
+    : FALLBACK_MAX_ATTACHMENT_BYTES
+  const maxBatchBytes = Number.isFinite(raw?.maxBatchBytes) && raw.maxBatchBytes > 0
+    ? raw.maxBatchBytes
+    : FALLBACK_MAX_BATCH_BYTES
+  const imageTypes = Array.isArray(raw?.mediaTypes) && raw.mediaTypes.length > 0
+    ? new Set(raw.mediaTypes)
+    : STAGED_IMAGE_TYPES
+  return { maxImageBytes, maxFileBytes, maxBatchBytes, imageTypes }
+}
 const EMPTY_OBJ = {}
 const EMPTY_LIST = Object.freeze([])
 const EMPTY_WORK = { bots: {}, approvals: [] }
@@ -114,27 +132,50 @@ export function withdrawQueuedText({ chatId, chatKey, sessionId, text }) {
   keepDraftText({ chatId, part: sessionId, text: merged })
 }
 
-export async function stageAttachmentItems(items, actions) {
+export async function stageSingleAttachment(item, actions, { onProgress } = {}) {
+  onProgress?.(20)
+  const base64 = await fileToBase64(item.file)
+  onProgress?.(65)
+  if (item.isImage) {
+    const staged = await (typeof actions?.stageImage === 'function'
+      ? actions.stageImage(item.mediaType, base64, item.name)
+      : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
+    onProgress?.(100)
+    return staged.id
+  }
+  const staged = await (typeof actions?.stageFile === 'function'
+    ? actions.stageFile(item.name, base64, item.mediaType)
+    : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
+  onProgress?.(100)
+  return staged.id
+}
+
+export async function stageAttachmentItems(items, actions, { forceReupload = false, pendingUploads = null, limits = null } = {}) {
   if (!Array.isArray(items) || items.length === 0) return { images: [], files: [] }
+  const maxBatch = limits?.maxBatchBytes ?? FALLBACK_MAX_BATCH_BYTES
   const batchCost = items.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
-  if (batchCost > MAX_BATCH_STAGED_BYTES) {
-    throw new Error(t('File too large (max {size})', { size: '64 MB' }))
+  if (batchCost > maxBatch) {
+    throw new Error(t('File too large (max {size})', { size: fileSizeText(maxBatch) }))
   }
   const images = []
   const files = []
   for (const item of items) {
-    const base64 = await fileToBase64(item.file)
-    if (item.isImage) {
-      const staged = await (typeof actions?.stageImage === 'function'
-        ? actions.stageImage(item.mediaType, base64, item.name)
-        : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
-      images.push(staged.id)
-    } else {
-      const staged = await (typeof actions?.stageFile === 'function'
-        ? actions.stageFile(item.name, base64, item.mediaType)
-        : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
-      files.push(staged.id)
+    let stagedId = !forceReupload && typeof item.stagedId === 'string' && item.stagedId !== '' ? item.stagedId : null
+    if (!stagedId && !forceReupload && pendingUploads?.has?.(item.id)) {
+      try {
+        stagedId = await pendingUploads.get(item.id)
+      } catch {
+        stagedId = null
+      }
     }
+    if (!stagedId) {
+      stagedId = await stageSingleAttachment(item, actions)
+    }
+    if (stagedId && typeof item === 'object' && item !== null) {
+      item.stagedId = stagedId
+    }
+    if (item.isImage) images.push(stagedId)
+    else files.push(stagedId)
   }
   return { images, files }
 }
@@ -216,7 +257,7 @@ function useInput(field, textRef, setText, setCaret, onEdit) {
   }), [field, textRef, setText, setCaret, onEdit])
 }
 
-function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
+function ComposerAttachments({ items, onRemove, onRetry, onZoom, onPutBackPaste }) {
   if (!items || items.length === 0) return null
   return h('div', { className: 'dsb-attach-rail' }, items.map((item) => {
     if (item.pastedText) {
@@ -227,23 +268,37 @@ function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
         onRemove: () => onRemove(item.id),
       })
     }
-    const meta = [fileExtension(item.name)?.toUpperCase().slice(0, 8), fileSizeText(item.size)].filter(Boolean).join(' · ')
+    const status = item.status ?? 'ready'
+    const progress = Number.isFinite(item.progress) ? Math.max(0, Math.min(100, item.progress)) : 0
+    const baseMeta = [fileExtension(item.name)?.toUpperCase().slice(0, 8), fileSizeText(item.size)].filter(Boolean).join(' · ')
+    const meta = status === 'uploading'
+      ? t('Uploading…')
+      : status === 'error'
+        ? (item.uploadError || t('Upload failed'))
+        : baseMeta
     if (item.isImage && item.previewUrl) {
-      return h('div', { key: item.id, className: 'dsb-attach-thumb', title: item.name },
-        h('img', { src: item.previewUrl, alt: item.name }),
-        h('button', {
-          type: 'button',
-          className: 'dsb-attach-x',
-          'aria-label': t('Remove {name}', { name: item.name }),
-          title: t('Remove'),
-          onClick: () => onRemove(item.id),
-        }, h(CloseIcon)))
-    }
-    return h('div', { key: item.id, className: 'dsb-attach-chip', title: item.name },
-      h('span', { className: 'dsb-attach-icon', 'aria-hidden': true }, h(FileIcon)),
-      h('span', { className: 'dsb-attach-text' },
-        h('span', { className: 'dsb-attach-name' }, item.name),
-        meta ? h('span', { className: 'dsb-attach-meta' }, meta) : null),
+      return h('div', {
+        key: item.id,
+        className: 'dsb-attach-thumb',
+        'data-status': status,
+        'aria-busy': status === 'uploading' || undefined,
+        title: item.uploadError || item.name,
+      },
+      h('button', {
+        type: 'button',
+        className: 'dsb-attach-thumb-btn',
+        'aria-label': item.name,
+        onClick: () => onZoom?.(item),
+      }, h('img', { src: item.previewUrl, alt: item.name })),
+      status === 'uploading' ? h('span', { className: 'dsb-attach-prog', role: 'progressbar', 'aria-valuenow': progress, 'aria-valuemin': 0, 'aria-valuemax': 100 },
+        h('span', { className: 'dsb-attach-prog-bar', style: { width: `${progress}%` } })) : null,
+      status === 'error' ? h('button', {
+        type: 'button',
+        className: 'dsb-attach-retry',
+        'aria-label': t('Retry upload'),
+        title: item.uploadError || t('Retry upload'),
+        onClick: () => onRetry?.(item.id),
+      }, t('Retry')) : null,
       h('button', {
         type: 'button',
         className: 'dsb-attach-x',
@@ -251,6 +306,33 @@ function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
         title: t('Remove'),
         onClick: () => onRemove(item.id),
       }, h(CloseIcon)))
+    }
+    return h('div', {
+      key: item.id,
+      className: 'dsb-attach-chip',
+      'data-status': status,
+      'aria-busy': status === 'uploading' || undefined,
+      title: item.uploadError || item.name,
+    },
+    h('span', { className: 'dsb-attach-icon', 'aria-hidden': true }, h(FileIcon)),
+    h('span', { className: 'dsb-attach-text' },
+      h('span', { className: 'dsb-attach-name' }, item.name),
+      meta ? h('span', { className: 'dsb-attach-meta' }, meta) : null),
+    status === 'error' ? h('button', {
+      type: 'button',
+      className: 'dsb-attach-retry-btn',
+      'aria-label': t('Retry upload'),
+      onClick: () => onRetry?.(item.id),
+    }, t('Retry')) : null,
+    h('button', {
+      type: 'button',
+      className: 'dsb-attach-x',
+      'aria-label': t('Remove {name}', { name: item.name }),
+      title: t('Remove'),
+      onClick: () => onRemove(item.id),
+    }, h(CloseIcon)),
+    status === 'uploading' ? h('span', { className: 'dsb-attach-prog', role: 'progressbar', 'aria-valuenow': progress, 'aria-valuemin': 0, 'aria-valuemax': 100 },
+      h('span', { className: 'dsb-attach-prog-bar', style: { width: `${progress}%` } })) : null)
   }))
 }
 
@@ -349,6 +431,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
   const [text, setText] = useState(() => readSavedDraftText(chatId))
   const [caret, setCaret] = useState(0)
   const [attachments, setAttachments] = useState([])
+  const [zoomedAttachment, setZoomedAttachment] = useState(null)
   const [failedSends, setFailedSends] = useState(() => pendingFailedByChat.get(chatKey) ?? [])
   const [retryingFailedId, setRetryingFailedId] = useState(null)
   const [classicControls, setClassicControls] = useState(null)
@@ -376,6 +459,8 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
   const fileQuerySeq = useRef(0)
   const draftEditSeqRef = useRef(0)
   const steeringRef = useRef(false)
+  const uploadPromisesRef = useRef(undefined)
+  if (uploadPromisesRef.current === undefined) uploadPromisesRef.current = new Map()
   const classicCommandsRef = useRef(EMPTY_LIST)
   const commandsLoadedForRef = useRef(null)
   const commandsPromiseRef = useRef(null)
@@ -414,12 +499,14 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     return () => { insertQuoteRef.current = undefined }
   }, [insertQuoteRef, inputActions])
   const enterToSend = sendsOnEnter(roster.prefs)
+  const runningEnter = runningEnterMode(roster.prefs)
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
 
   useEffect(() => {
     setFailedSends(pendingFailedByChat.get(chatKey) ?? [])
     setRetryingFailedId(null)
     setCommandNotice(null)
+    setZoomedAttachment(null)
   }, [chatKey])
 
   // Load classic session controls (model, effort, permissions, plan state).
@@ -458,7 +545,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
   }, [isAgentChat, sessionId, actions])
 
   const ensureClassicSkills = useCallback(async () => {
-    if (!isAgentChat || !sessionId || typeof actions?.sessionSkills !== 'function') return EMPTY_LIST
+    if (!sessionId || typeof actions?.sessionSkills !== 'function') return EMPTY_LIST
     if (skillsLoadedForRef.current === sessionId) return EMPTY_LIST
     if (skillsPromiseRef.current?.sessionId === sessionId) return skillsPromiseRef.current.promise
     const targetSession = sessionId
@@ -477,7 +564,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
       })
     skillsPromiseRef.current = { sessionId: targetSession, promise }
     return promise
-  }, [isAgentChat, sessionId, actions])
+  }, [sessionId, actions])
 
   const refreshClassicControlsRef = useRef(refreshClassicControls)
   refreshClassicControlsRef.current = refreshClassicControls
@@ -544,24 +631,85 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     }
   }, [])
 
+  const patchAttachment = useCallback((id, patch) => {
+    if (!mountedRef.current) return
+    setAttachments((current) => {
+      let changed = false
+      const next = current.map((item) => {
+        if (item.id !== id) return item
+        changed = true
+        return { ...item, ...patch }
+      })
+      if (changed) attachmentsRef.current = next
+      return changed ? next : current
+    })
+  }, [])
+
+  const startAttachmentUpload = useCallback((item) => {
+    if (!item || !item.file) return undefined
+    const targetChatKey = chatKeyRef.current
+    const canStage = item.isImage
+      ? (typeof actions?.stageImage === 'function' || typeof fetch === 'function')
+      : (typeof actions?.stageFile === 'function' || typeof fetch === 'function')
+    if (!canStage) return undefined
+    patchAttachment(item.id, { status: 'uploading', progress: 15, uploadError: null, stagedId: null })
+    const promise = stageSingleAttachment(item, actions, {
+      onProgress: (progress) => {
+        if (chatKeyRef.current !== targetChatKey) return
+        patchAttachment(item.id, { status: 'uploading', progress })
+      },
+    })
+      .then((stagedId) => {
+        if (chatKeyRef.current === targetChatKey) {
+          patchAttachment(item.id, { status: 'ready', progress: 100, stagedId, uploadError: null })
+        }
+        return stagedId
+      })
+      .catch((failure) => {
+        const msg = failure?.message || t('Upload failed')
+        if (chatKeyRef.current === targetChatKey) {
+          patchAttachment(item.id, { status: 'error', progress: 0, stagedId: null, uploadError: msg })
+        }
+        throw failure
+      })
+      .finally(() => {
+        if (uploadPromisesRef.current.get(item.id) === promise) {
+          uploadPromisesRef.current.delete(item.id)
+        }
+      })
+    uploadPromisesRef.current.set(item.id, promise)
+    // Swallow unhandled rejection from eager background staging; error state renders per-item Retry.
+    promise.catch(() => {})
+    return promise
+  }, [actions, patchAttachment])
+
+  const retryAttachment = useCallback((id) => {
+    const target = (attachmentsRef.current ?? []).find(item => item.id === id)
+    if (!target) return
+    setError(null)
+    startAttachmentUpload(target)
+  }, [startAttachmentUpload])
+
   const buildAttachmentEntries = useCallback((rawList, extraMeta = null) => {
+    const limits = attachmentLimitsOf(rosterRef.current)
     const next = []
     let usedCost = (attachmentsRef.current ?? []).reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
-    let oversized = false
-    let overBudget = false
+    let oversizedBytes = 0
+    let overBudgetBytes = 0
     for (const entry of rawList) {
       const file = entry?.file ?? entry
       if (!file) continue
       const size = Number.isFinite(file.size) ? file.size : 0
-      if (size > MAX_ATTACHMENT_BYTES) {
-        oversized = true
+      const mediaType = typeof file.type === 'string' ? file.type : ''
+      const isImage = limits.imageTypes.has(mediaType)
+      const itemMax = isImage ? limits.maxImageBytes : limits.maxFileBytes
+      if (size > itemMax) {
+        oversizedBytes = itemMax
         continue
       }
-      const mediaType = typeof file.type === 'string' ? file.type : ''
-      const isImage = STAGED_IMAGE_TYPES.has(mediaType)
       const cost = stagedByteCost(size, isImage)
-      if (usedCost + cost > MAX_BATCH_STAGED_BYTES) {
-        overBudget = true
+      if (usedCost + cost > limits.maxBatchBytes) {
+        overBudgetBytes = limits.maxBatchBytes
         continue
       }
       usedCost += cost
@@ -577,10 +725,14 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
         mediaType,
         isImage,
         previewUrl,
+        status: 'ready',
+        progress: 0,
+        stagedId: null,
+        uploadError: null,
         ...(pastedText ? { pastedText } : {}),
       })
     }
-    return { next, oversized, overBudget }
+    return { next, oversizedBytes, overBudgetBytes }
   }, [])
 
   // Restore saved draft text and in-memory files once per chat when the roster knows chatId.
@@ -689,20 +841,25 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     if (disabled) return
     const list = Array.from(fileList ?? []).filter(Boolean)
     if (list.length === 0) return
-    const { next, oversized, overBudget } = buildAttachmentEntries(list, extraMeta)
-    if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
-    else if (overBudget) setError(t('File too large (max {size})', { size: '64 MB' }))
+    const { next, oversizedBytes, overBudgetBytes } = buildAttachmentEntries(list, extraMeta)
+    if (oversizedBytes > 0) setError(t('File too large (max {size})', { size: fileSizeText(oversizedBytes) }))
+    else if (overBudgetBytes > 0) setError(t('File too large (max {size})', { size: fileSizeText(overBudgetBytes) }))
     else if (next.length > 0) setError(null)
     if (next.length > 0) {
       draftEditSeqRef.current += 1
-      setAttachments(current => [...current, ...next])
+      const merged = [...(attachmentsRef.current ?? []), ...next]
+      attachmentsRef.current = merged
+      setAttachments(merged)
+      for (const item of next) startAttachmentUpload(item)
     }
-  }, [disabled, buildAttachmentEntries])
+  }, [disabled, buildAttachmentEntries, startAttachmentUpload])
 
   if (addFilesRef) addFilesRef.current = addFiles
 
   const removeAttachment = useCallback((id) => {
     draftEditSeqRef.current += 1
+    uploadPromisesRef.current.delete(id)
+    setZoomedAttachment(cur => (cur?.id === id ? null : cur))
     const current = attachmentsRef.current ?? []
     const target = current.find(item => item.id === id)
     if (target?.previewUrl) {
@@ -838,10 +995,11 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     const currentItems = attachmentsRef.current ?? []
     const incomingItems = entry.items ?? []
     if (incomingItems.length > 0) {
+      const limits = attachmentLimitsOf(rosterRef.current)
       const usedCost = currentItems.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
       const addCost = incomingItems.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
-      if (usedCost + addCost > MAX_BATCH_STAGED_BYTES) {
-        setError(t('File too large (max {size})', { size: '64 MB' }))
+      if (usedCost + addCost > limits.maxBatchBytes) {
+        setError(t('File too large (max {size})', { size: fileSizeText(limits.maxBatchBytes) }))
         return
       }
     }
@@ -911,21 +1069,21 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     }
   }, [isAgentChat, disabled, actions, sessionId, chatKey])
 
-  // Composer trigger menus: "+ → Reference a chat", "@mention" / "@file", and "/command" (+ skills/files in Classic).
+  // Composer trigger menus: "+ → Reference a chat", "@mention" / "@file", and "/command" (+ skills/files).
   const rawTrigger = disabled ? null : (referenceTrigger
     ? { kind: 'reference', start: referenceTrigger.start, end: referenceTrigger.end, query: '' }
-    : activeComposerTrigger(text, caret, { fileMentions: isAgentChat }))
+    : activeComposerTrigger(text, caret, { fileMentions: true }))
   const triggerKey = rawTrigger ? `${rawTrigger.kind}:${rawTrigger.start}:${rawTrigger.query}` : null
   const trigger = rawTrigger && dismissedKey !== triggerKey ? rawTrigger : null
 
   useEffect(() => {
-    if (!isAgentChat || trigger?.kind !== 'command') return
-    void ensureClassicCommandsRef.current()
+    if (trigger?.kind !== 'command') return
+    if (isAgentChat) void ensureClassicCommandsRef.current()
     void ensureClassicSkillsRef.current()
   }, [isAgentChat, sessionId, trigger?.kind])
 
   useEffect(() => {
-    if (!isAgentChat || !trigger || (trigger.kind !== 'command' && trigger.kind !== 'mention')) return undefined
+    if (!trigger || (trigger.kind !== 'mention' && !(isAgentChat && trigger.kind === 'command'))) return undefined
     if (typeof actions?.sessionFiles !== 'function') return undefined
     const seq = ++fileQuerySeq.current
     void Promise.resolve(actions.sessionFiles(sessionId, trigger.query ?? ''))
@@ -939,12 +1097,12 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
   }, [isAgentChat, sessionId, trigger?.kind, trigger?.query, actions])
 
   const planActive = Boolean(classicControls?.plan && (classicControls.plan.pending ? !classicControls.plan.active : classicControls.plan.active))
-  const classicCatalog = useMemo(() => (isAgentChat ? {
-    commands: classicCommands,
+  const classicCatalog = useMemo(() => ({
+    commands: isAgentChat ? classicCommands : EMPTY_LIST,
     skills: classicSkills,
     files: classicFiles,
     planActive,
-  } : null), [isAgentChat, classicCommands, classicSkills, classicFiles, planActive])
+  }), [isAgentChat, classicCommands, classicSkills, classicFiles, planActive])
 
   const menuItems = useMemo(() => (trigger
     ? buildComposerMenuItems({
@@ -999,7 +1157,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     || composingRef.current
     || (compositionEndAtRef.current > 0 && Date.now() - compositionEndAtRef.current < 50)
   const canSend = !disabled && (text.trim() !== '' || attachments.length > 0)
-  const submit = async () => {
+  const submit = async (options = {}) => {
     const value = text.trim()
     const items = attachments.slice()
     if ((value === '' && items.length === 0) || disabled) return
@@ -1009,6 +1167,22 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     const originChatId = chatId
     const originChatKey = chatKey
     const originSessionId = sessionId
+    // In Bot & group chats, submitting a bare local slash command (e.g. `/goal`, `/side`,
+    // `/scheduled-task`, `/details`, `/shortcuts`) executes its action directly instead of
+    // sending the literal slash text to the Bot.
+    if (!isAgentChat && items.length === 0 && /^\/[a-z][a-z0-9_-]*$/i.test(value)) {
+      const bare = value.toLowerCase()
+      const matched = buildSlashCommands({ roster: rosterRef.current, sessionId: originSessionId, actions })
+        .find(cmd => cmd.kind !== 'insert' && cmd.name.toLowerCase() === bare && typeof cmd.run === 'function')
+      if (matched) {
+        textRef.current = ''
+        setText('')
+        setCaret(0)
+        if (originChatId) writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
+        matched.run()
+        return
+      }
+    }
     // In Classic mode, a leading `/cmd` matching a registered DSH host command executes
     // through `session-command-run` (forwarding any staged attachments) rather than sending
     // as an ordinary user message. Ensure commands are loaded even if the user submitted immediately.
@@ -1068,7 +1242,12 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     const clearedRev = originChatId ? writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] }) : null
     trackInFlightUrls(items, true)
     try {
-      await onSend(value, items)
+      const sendOptions = {
+        ...(options?.mode ? { mode: options.mode } : {}),
+        pendingUploads: uploadPromisesRef.current,
+        limits: attachmentLimitsOf(rosterRef.current),
+      }
+      await onSend(value, items, sendOptions)
       trackInFlightUrls(items, false)
       // Hand previewUrl cleanup to Chat's pending-message lifecycle on success.
       for (const item of items) {
@@ -1260,7 +1439,8 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
         if (event.key !== 'Escape') lastEscAt.current = 0
         const plainEnter = event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
         const modEnter = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
-        if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isComposing(event)) {
+        const submitMode = submitModeForKey({ running, enterToSend, runningEnter, plainEnter, modEnter })
+        if (submitMode !== null && !isComposing(event)) {
           // On an empty composer while running with queued user messages, Enter steers them now.
           if (text.trim() === '' && attachments.length === 0 && running && userQueuedIds.length > 0 && typeof actions?.steerSessionQueue === 'function') {
             event.preventDefault()
@@ -1272,7 +1452,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
             return
           }
           event.preventDefault()
-          void submit()
+          void submit({ mode: running ? submitMode : undefined })
         }
       },
     }))
@@ -1294,7 +1474,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
       disabled: !canSend,
       'aria-label': t('Send message'),
       title: t('Send message'),
-      onClick: () => { void submit() },
+      onClick: () => { void submit({ mode: running ? runningEnter : undefined }) },
     }, h(ArrowUpIcon)))
 
   return h('div', { className: 'dsb-composer-wrap' },
@@ -1334,7 +1514,20 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
       },
     },
     h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, disabled, tabIndex: -1, onChange: onFilePick }),
-    h(ComposerAttachments, { items: attachments, onRemove: removeAttachment, onPutBackPaste: putBackPaste }),
+    h(ComposerAttachments, {
+      items: attachments,
+      onRemove: removeAttachment,
+      onRetry: retryAttachment,
+      onZoom: item => { if (item?.isImage && item.previewUrl) setZoomedAttachment(item) },
+      onPutBackPaste: putBackPaste,
+    }),
+    zoomedAttachment?.previewUrl ? h(ImageLightbox, {
+      open: true,
+      src: zoomedAttachment.previewUrl,
+      alt: zoomedAttachment.name,
+      caption: `${zoomedAttachment.name} · ${fileSizeText(zoomedAttachment.size)}`,
+      onClose: () => setZoomedAttachment(null),
+    }) : null,
     isAgentChat
       ? h(Fragment, null,
         inputField,

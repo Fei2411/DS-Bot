@@ -351,6 +351,22 @@ export function install(rt) {
     permissions: rt.permissionCatalog?.() ?? null,
     modelsKey: modelsKey(),
     prefs: state.prefs,
+    imageLimits: (() => {
+      const hostLimits = ctx.get?.('attachments')?.imageLimits
+      const hostImageMax = hostLimits?.maxImageBytes
+      const maxImageBytes = Number.isFinite(hostImageMax) && hostImageMax > 0
+        ? Math.min(hostImageMax, STAGED_FILE_MAX)
+        : STAGED_FILE_MAX
+      const mediaTypes = Array.isArray(hostLimits?.mediaTypes)
+        ? hostLimits.mediaTypes.filter(type => STAGED_TYPES.has(type))
+        : undefined
+      return {
+        maxImageBytes,
+        maxFileBytes: STAGED_FILE_MAX,
+        maxBatchBytes: STAGED_TOTAL_MAX,
+        ...(mediaTypes && mediaTypes.length > 0 ? { mediaTypes } : {}),
+      }
+    })(),
     approvalReviews: rt.approvalReviewsView?.() ?? [],
     // Whether a Desktop window should serve Bot browser reads (see browser.js).
     browser: rt.browserEnabled,
@@ -548,6 +564,10 @@ export function install(rt) {
     if (body.enterToSend !== undefined) {
       if (body.enterToSend === false) state.prefs.enterToSend = false
       else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend
+    }
+    if (body.runningEnter !== undefined) {
+      if (body.runningEnter === 'steer') state.prefs.runningEnter = 'steer'
+      else if (body.runningEnter === 'queue' || body.runningEnter === null) delete state.prefs.runningEnter
     }
     if (body.backgroundAfterSec !== undefined) {
       const seconds = body.backgroundAfterSec
@@ -1177,7 +1197,12 @@ export function install(rt) {
             ? Math.min(hostImageMax, STAGED_FILE_MAX)
             : STAGED_FILE_MAX
           const decoded = decodeCanonicalBase64(data, maxBytes, { allowEmpty: false })
-          if (decoded.tooLarge) return fail('This file is too large to send (max 16 MB)', 'bot/refused')
+          if (decoded.tooLarge) {
+            const label = maxBytes >= 1024 * 1024
+              ? `${Math.round((maxBytes / (1024 * 1024)) * 10) / 10} MB`
+              : `${Math.max(1, Math.round(maxBytes / 1024))} KB`
+            return fail(`This file is too large to send (max ${label})`, 'bot/refused')
+          }
           if (decoded.invalid) return fail('This is not a photo DS Bot can send', 'bot/invalid')
           const name = body.name === undefined ? '' : sanitizeFileName(body.name)
           const now = Date.now()
