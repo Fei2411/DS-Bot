@@ -865,6 +865,54 @@ test('a linked phone owner can type an answer on a waiting API run', async t => 
   assert.equal(stopped.output.text, '')
 })
 
+test('dismissing a question carried to a new chat part stops its API run', async t => {
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, rt, emitSessionEvent, nextSeq }) {
+      rt.state.questions[sessionId] = { id: 'q-rollover', callId: 'call-rollover', question: 'Proceed?' }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Caller', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const response = await fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+    method: 'POST', headers, body: JSON.stringify({ text: 'Ask a question', wait: 5 }),
+  })
+  assert.equal(response.status, 202)
+  const run = await response.json()
+  assert.equal(run.status, 'waiting_human')
+
+  const oldId = run.pendingAction.sessionId
+  const freshId = 'b1-fresh'
+  const old = h.agents.get(oldId)
+  old.inbox = { nextStep: [], nextTurn: [] }
+  old.whenIdle = async () => {}
+  old.runMaintenance = async job => job(AbortSignal.timeout(5000))
+  h.rt.teamFolder = () => old.session.header.cwd
+  h.rt.createSession = async () => {
+    h.ensureSession(freshId)
+    const fresh = h.agents.get(freshId)
+    fresh.inbox = { nextStep: [], nextTurn: [] }
+    fresh.followup = message => fresh.inbox.nextTurn.push(message)
+    return freshId
+  }
+  h.ctx.workspaceRegistry.archiveSession = async () => {}
+  h.rt.botOf('b1').failures = { [oldId]: { code: 'CONTEXT_WINDOW_EXCEEDED' } }
+  assert.deepEqual(await h.rt.recoverOverflowPart('b1', oldId), { sessionId: freshId })
+  assert.equal(h.rt.state.questions[oldId], undefined)
+  assert.equal(h.rt.state.questions[freshId].id, run.pendingAction.actionId)
+  assert.equal(h.rt.state.questions[freshId].callSessionId, oldId)
+  assert.equal((await h.rt.channelCall('dismiss-question', { sessionId: freshId })).ok, true)
+  assert.equal(h.rt.state.questions[freshId], undefined)
+
+  const stopped = await fetch(`${view.baseUrl}/v1/runs/${run.runId}`, { headers }).then(response => response.json())
+  assert.equal(stopped.status, 'stopped')
+  assert.equal(stopped.pendingAction, null)
+  assert.equal(stopped.error.code, 'api/cancelled')
+})
+
 test('group chat multi-member batch settlement collects ordered replies', async (t) => {
   const h = createHarness(undefined, {
     async onPrompt({ sessionId, rt, emitSessionEvent, nextSeq }) {

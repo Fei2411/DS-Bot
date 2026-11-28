@@ -1018,15 +1018,18 @@ export function createRunCoordinator(rt, auth) {
 
   function onApiCardClosed(sessionId, card, { session, source, ownerComposer } = {}) {
     const turn = session === undefined ? undefined : sessionTurns.get(session)
-    for (const tracker of activeSessionTrackers(sessionId)) {
+    for (const tracker of active.values()) {
+      if (isTerminal(tracker.run.status)) continue
       const action = tracker.run.pendingAction
-      if ((action?.kind !== 'question' && action?.kind !== 'view') || action.sessionId !== sessionId
-        || action.actionId !== card.id || tracker.waitingReply?.callId !== (card.callId ?? card.id)) continue
+      if ((action?.kind !== 'question' && action?.kind !== 'view') || action.actionId !== card.id
+        || tracker.waitingReply?.callId === undefined) continue
       if (turn !== undefined && !turn.hasPrompt && isComposerAnswer(source, ownerComposer)) {
         bindChatTurn(tracker, sessionId, turn)
         tracker.composerAnswer = source
-      } else if (turn === undefined || source?.kind !== REPLY_KIND || source.callId !== tracker.waitingReply.callId
-        || source.rpcId?.startsWith('im:')) {
+      } else if (turn !== undefined && source?.kind === REPLY_KIND && source.callId === tracker.waitingReply.callId
+        && !source.rpcId?.startsWith('im:')) {
+        bindChatTurn(tracker, sessionId, turn)
+      } else {
         stopForClosedCard(tracker)
       }
     }
