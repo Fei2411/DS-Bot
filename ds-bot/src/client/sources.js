@@ -1,5 +1,6 @@
 // -------------------------------------------------------------------------
-// Small observable sources for the inject `hooks` compartment.
+// Small observable sources and roster indexing primitives (kept dependency-free
+// so mobile/ and lightweight consumers can import directly without browser helpers).
 
 export function createSource(initial) {
   let value = initial
@@ -26,7 +27,7 @@ export const sectionCollapsed = (section, sectionFolds) => sectionFolds?.[sectio
 // (running, unread, turns) is read from the current part, team state from the Bot id.
 export function indexRoster(value) {
   const byId = {}
-  for (const bot of value.bots) {
+  for (const bot of value.bots ?? []) {
     // Background tasks map back to their Bot so when a busy foreground moves to
     // background, the main view automatically follows the Bot's new foreground sessionId.
     const tasks = (bot.tasks ?? []).flatMap(task => [task.sessionId, ...(task.parts ?? [])])
@@ -35,7 +36,7 @@ export function indexRoster(value) {
   const roomsById = {}
   // A group's own Session is a chain of parts like a Bot's chat: `room.id` is its
   // first part's id and `sessionId` its current one; every part id finds the room.
-  for (const room of value.rooms) {
+  for (const room of value.rooms ?? []) {
     for (const id of [room.id, room.sessionId, ...(room.ownParts ?? [])]) roomsById[id] = room
   }
   // The DSH Agent is not a Bot: it indexes by its own id and by each Session it owns.
@@ -45,7 +46,7 @@ export function indexRoster(value) {
     agentsById[agent.id] = agent
     for (const sessionId of agent.sessions ?? []) agentOf[sessionId] = agent.id
   }
-  return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true }
+  return { ...value, bots: value.bots ?? [], rooms: value.rooms ?? [], agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true }
 }
 
 // Whether a main-view Session id belongs to the team's DSH Agent: the conversation

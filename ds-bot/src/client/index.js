@@ -1,7 +1,7 @@
 import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
-import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
+import { createSource, createTeamPull, createTeamStore, isAgentSession, ownerOfSession as resolveSessionOwner } from './team-core/index.js'
 import { sectionFoldWrites, teamActions } from './team-actions.js'
 import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
@@ -14,7 +14,7 @@ import { installDshAdapter } from './adapter-dsh.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
-import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
+import { frameLayout, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
 import { watchAgentTerminals } from './agent-terminals.js'
@@ -56,11 +56,10 @@ import { SCHEDULE_CSS } from './schedules.js'
 import { APPEARANCE_PAGE_CSS } from './appearance-page.js'
 import { SHORTCUTS_PAGE_CSS } from './shortcuts-page.js'
 import { registerPluginShortcuts } from './plugin-shortcuts.js'
-import { STORAGE, migrateStorage } from './storage.js'
-import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
-import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
+import { STORAGE } from './storage.js'
+import { freePriority, groupsFor, surfaceGroups, writeMode } from './surface.js'
 import './locales/all.js'
-import { installLocale, language, t } from './i18n.js'
+import { installLocale, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { steerQueued } from './enter-steer.js'
 import { installCommandActions } from './command-actions.js'
@@ -80,7 +79,6 @@ import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS } from './paste-card.js'
 import { DSH_PASTE_CSS, PasteDock, PasteGuard } from './paste-card-dsh.js'
 import { pruneDrafts } from './draft-keep.js'
-import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
@@ -90,7 +88,6 @@ import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
-import { createAvatarRefCache } from './avatar-refs.js'
 import { watchBotCompletions } from './bot-completions.js'
 import { callServiceMethod, createSessionStatusSource, hasContextProperty, readServiceMember } from './host-service.js'
 
@@ -124,32 +121,31 @@ export function apply(ctx) {
   }, 'ds-bot: interface copy lifecycle')
   const sessionStatus = createSessionStatusSource(ctx)
   ctx.effect(() => () => sessionStatus.dispose(), 'ds-bot: session status')
-  migrateStorage()
-  // The window's cached prefs stand in until the first pull answers: a saved
-  // `enterToSend: false` then already holds, instead of Enter sending meanwhile.
   const PREFS_KEY = STORAGE.prefs
-  let savedPrefs = {}
-  try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
-  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
-  const unreadStore = sharedMap(STORAGE.unread)
-  const botCompletions = createSource({})
-  const reactionStore = sharedMap(STORAGE.reactions)
-  // When each conversation was last left; a visit compares new turns against it.
-  const seenStore = sharedMap(STORAGE.seen)
-  let seenAt = seenStore.read()
-  // `details` is the panel's subject (a Session id); `view` picks details or the
-  // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null, inbox: false })
-  // The left column's kept preference, and the frame geometry the layout rules
-  // in frame-layout.js read: the window and the shell's collapsed track come from
-  // installFrameWatch, the open column's width is the user's own.
-  let sidebarSaved = readSidebar()
-  const sidebarPref = createSource(sidebarSaved.pref)
-  const frame = createSource({ viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false })
   // Bot mode paints the whole team surface; Agent mode withdraws every slot and
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
-  const surface = createSource({ mode: readMode(), plain: false })
+  const store = createTeamStore({ surfaceExtra: { plain: false } })
+  const {
+    savedPrefs,
+    roster,
+    ui,
+    activity,
+    work,
+    computer,
+    memoryNews,
+    live,
+    cards,
+    heldCards,
+    turnClock,
+    botCompletions,
+    update,
+    surface,
+    sidebarPref,
+    frame,
+    questionDrafts,
+    partFor,
+  } = store
   // Whether DS Bot holds the settings seat; Overlays draws the Settings dialog while it does not.
   const settingsShellHeld = createSource(false)
   let settingsShell = null
@@ -175,166 +171,39 @@ export function apply(ctx) {
   // A DSH Agent Session shows the plain conversation: the Bot details and browser
   // panels would follow it and report it is not on the team, so they close.
   const dropPanels = () => ui.set(state => (state.details || state.renaming ? { ...state, details: null, view: 'details', renaming: false, tab: null } : state))
-  // A Bot's chat spans several parts, so when it was last left is kept per Bot.
-  const seenKey = id => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id
-  const leaveVisits = (ids) => {
-    seenAt = seenStore.update(seen => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt)
-  }
-  ctx.effect(() => {
-    const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
-    window.addEventListener('pagehide', onPageHide)
-    return () => window.removeEventListener('pagehide', onPageHide)
-  }, 'ds-bot: remember visits on page hide')
-  // Unread marks, reactions and visits are shared by every window; one saved elsewhere
-  // shows here at once. A `null` key is a cleared storage.
-  ctx.effect(() => {
-    const onStorage = (event) => {
-      if (event.storageArea !== localStorage) return
-      if (event.key === null || event.key === unreadStore.key) ui.set(state => ({ ...state, unread: unreadStore.read(state.unread) }))
-      if (event.key === null || event.key === reactionStore.key) ui.set(state => ({ ...state, reactions: reactionStore.read(state.reactions) }))
-      if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt)
-      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage()
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, 'ds-bot: follow other windows')
-  const activity = createSource({})
-  // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
-  const work = createSource({ bots: {}, approvals: [] })
-  let workKey = ''
-  // The version of the live fields this window last got; while it still names the
-  // host's answer, the poll leaves those fields out.
-  let liveKey
-  // Per Session, what its transcript has in flight (running tools, a streaming reply).
-  const live = createSource({})
-  // Computer use: leases, per-Bot control, pending app cards and holds.
-  const computer = createSource({})
-  let computerKey = '{}'
-  // Per Session, the ask_user and request_secret calls its transcript draws; the
-  // docks carry the cards of the other calls.
-  const cards = createSource({})
-  // Edited dock cards keep their component when history arrives. This source
-  // holds only request identities and counts, never drafts or secret values.
-  const heldCards = createSource({})
-  // Unsubmitted custom answers on open question cards; rescued into the main
-  // composer draft if a question is externally cancelled, replaced, or timed out.
-  const questionDrafts = createQuestionDrafts()
-  // Per Session, the first visible time and the end time of each turn the transcript
-  // has rendered; time separators compare one turn's end with the next turn's start.
-  const turnClock = createSource({})
-  let activityKey = '{}'
-  // Per Bot, its latest memory change, and `seen`: when this window first saw it, or 0
-  // for a change made before the window opened, which is no news.
-  const memoryNews = createSource({})
-  let memoryNewsKey
-  const noteMemoryNews = (next) => {
-    const key = JSON.stringify(next)
-    if (key === memoryNewsKey) return
-    const opening = memoryNewsKey === undefined
-    memoryNewsKey = key
-    memoryNews.set(state => Object.fromEntries(Object.entries(next).map(([id, entry]) => [id,
-      state[id]?.at === entry.at ? state[id] : { ...entry, seen: opening ? 0 : Date.now() }])))
-  }
-  const writeUnread = (id, value) => {
-    const unread = unreadStore.update(marks => setUnread(marks, id, value), ui.getSnapshot().unread)
-    ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
-  }
+  // Unread marks, reactions, visits and rescued drafts stay synced across windows and pagehide.
+  ctx.effect(() => store.attachWindowListeners(window), 'ds-bot: follow other windows and visits')
   const refreshed = new Set()
-  const avatarRefs = createAvatarRefCache(call)
-  // Pulls can overlap (the poll and a navigation); an older answer never wins.
-  let pulls = 0
-  let applied = 0
   const foldWrites = sectionFoldWrites()
-  let avatarIncomplete = false
-  const pull = async () => {
-    const order = ++pulls
-    const known = roster.getSnapshot()
-    const since = avatarIncomplete ? -1 : known.revision
-    const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
-    if (order < applied) return false
-    applied = order
-    const prevLiveKey = liveKey
-    if (value.liveKey !== undefined) liveKey = value.liveKey
-    if (value.activity !== undefined) {
-      const nextActivity = JSON.stringify(value.activity)
-      if (nextActivity !== activityKey) { activityKey = nextActivity; activity.set(value.activity) }
-    }
-    if (value.work !== undefined) {
-      const nextWork = JSON.stringify(value.work)
-      if (nextWork !== workKey) { workKey = nextWork; work.set(value.work) }
-    }
-    if (value.computerLive !== undefined) {
-      const nextComputer = JSON.stringify(value.computerLive)
-      if (nextComputer !== computerKey) { computerKey = nextComputer; computer.set(value.computerLive) }
-    }
-    if (value.memoryNews !== undefined) noteMemoryNews(value.memoryNews)
-    const current = roster.getSnapshot()
-    // Connector, capability, phone and MCP states change without a new revision.
-    const live = {}
-    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) live.secretStore = value.secretStore
-    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) live.secrets = value.secrets
-    if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
-    if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
-    if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live.phone = value.phone
-    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) live.api = value.api
-    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live.learning = value.learning
-    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live.learningSettled = value.learningSettled
-    if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
-    if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
-    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
-    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
-    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
-    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
-    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) live.inbox = value.inbox
-    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) live.telemetryPrompt = Boolean(value.telemetryPrompt)
-    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) live.releaseNotes = value.releaseNotes
-    // The read-only notice goes once this host takes the team over from a dsh that
-    // closed, without a reload: the window holds the answer's live fields until then.
-    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
-    if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
-      if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
-    }
-    const { state: hydrated, incomplete } = await avatarRefs.hydrate(value)
-    if (order < applied) return false
-    avatarIncomplete = incomplete
-    const latest = roster.getSnapshot()
-    const sameState = hydrated.revision === latest.revision && hydrated.modelsKey === latest.modelsKey && latest.ready
-    const avatarsChanged = sameState && (
-      (hydrated.bots ?? []).some(bot => bot?.avatar?.image !== latest.byId?.[bot.id]?.avatar?.image)
-      || (hydrated.rooms ?? []).some(room => room?.avatar?.image !== latest.roomsById?.[room.id]?.avatar?.image)
-    )
-    if (sameState && !avatarsChanged) {
-      if (Object.keys(live).length > 0) roster.set({ ...latest, ...live })
-      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
-    }
-    // On a browser with no visit record yet, everything already there counts as seen.
-    if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map(entry => entry.id))
-    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) }))
-    try {
-      const ids = (hydrated.agents ?? []).flatMap(agent => agent.sessions ?? [])
-      localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
-      agentSessionCache = new Set(ids)
-    } catch { /* storage unavailable */ }
-    // Adopted ids are known by the roster now; ones gone from the list were archived.
-    const listed = ctx.sessions.list.getSnapshot().byId ?? {}
-    for (const id of pendingAdopt.keys()) {
-      if (roster.getSnapshot().agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
-    }
-    for (const [agentId, sessionId] of pendingAgentSession) {
-      if (listed[sessionId] !== undefined || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId)
-    }
-    const activeIds = new Set([...hydrated.bots.map(currentPart), ...hydrated.rooms.map(room => room.sessionId ?? room.id)])
-    for (const id of refreshed) {
-      if (!activeIds.has(id)) refreshed.delete(id)
-    }
-    for (const id of activeIds) {
-      if (refreshed.has(id)) continue
-      refreshed.add(id)
-      void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
-    }
-    return true
-  }
+  const { pull, reset: resetPull } = createTeamPull({
+    call,
+    store,
+    foldWrites,
+    onHydrated: (indexed) => {
+      try {
+        const ids = (indexed.agents ?? []).flatMap(agent => agent.sessions ?? [])
+        localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
+        agentSessionCache = new Set(ids)
+      } catch { /* storage unavailable */ }
+      // Adopted ids are known by the roster now; ones gone from the list were archived.
+      const listed = ctx.sessions.list.getSnapshot().byId ?? {}
+      for (const id of pendingAdopt.keys()) {
+        if (indexed.agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
+      }
+      for (const [agentId, sessionId] of pendingAgentSession) {
+        if (listed[sessionId] !== undefined || indexed.agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId)
+      }
+      const activeIds = new Set([...indexed.bots.map(currentPart), ...indexed.rooms.map(room => room.sessionId ?? room.id)])
+      for (const id of refreshed) {
+        if (!activeIds.has(id)) refreshed.delete(id)
+      }
+      for (const id of activeIds) {
+        if (refreshed.has(id)) continue
+        refreshed.add(id)
+        void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
+      }
+    },
+  })
 
   ctx.effect(() => {
     let stopped = false
@@ -376,7 +245,6 @@ export function apply(ctx) {
 
   // Plugin updates: every window that opens asks the host once (the host keeps its
   // answer for a while), again each hour, and every two seconds while installing.
-  const update = createSource({ available: false, phase: 'idle' })
   let wakeUpdate = () => {}
   ctx.effect(() => {
     let stopped = false
@@ -445,7 +313,7 @@ export function apply(ctx) {
     }, 'ds-bot: Bot browsers')
   }
 
-  ctx.effect(() => () => { markupCache.clear(); avatarRefs.clear(); avatarIncomplete = false }, 'ds-bot: character markup')
+  ctx.effect(() => () => { markupCache.clear(); resetPull() }, 'ds-bot: character markup')
   ctx.effect(() => installMotionRest(), 'ds-bot: motion rest')
 
   // Mentions wear each Bot's color and character silhouette (or its photo). User text
@@ -660,14 +528,6 @@ export function apply(ctx) {
   }
 
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
-  // A Bot id or a group chat id, or any part of either's chat, opens the current part.
-  const partFor = (id) => {
-    const snapshot = roster.getSnapshot()
-    const bot = snapshot.byId[id]
-    if (bot !== undefined) return currentPart(bot)
-    const room = snapshot.roomsById[id]
-    return room === undefined ? id : (room.sessionId ?? room.id)
-  }
   // Sessions owned by an Agent, including ones adopted before the roster caught up.
   const agentSessions = (agentId) => {
     const ids = [...(roster.getSnapshot().agentsById[agentId]?.sessions ?? [])]
@@ -683,13 +543,7 @@ export function apply(ctx) {
   // Bot stays over that chat until its Session is the one on screen, or the user opens
   // something else. A long wait changes the note and asks for the list again; it does
   // not uncover the previous conversation.
-  const ownerOfSession = (sessionId) => {
-    const snapshot = roster.getSnapshot()
-    if (snapshot.byId[sessionId] !== undefined) return snapshot.byId[sessionId]
-    if (snapshot.roomsById[sessionId] !== undefined) return snapshot.roomsById[sessionId]
-    return Object.values(snapshot.byId).find(bot => currentPart(bot) === sessionId)
-      ?? Object.values(snapshot.roomsById).find(room => (room.sessionId ?? room.id) === sessionId)
-  }
+  const ownerOfSession = sessionId => resolveSessionOwner(roster.getSnapshot(), sessionId)
   // Monotonic counter so a slower async `landOn` pull never overrides a newer navigation.
   let navSeq = 0
   const openingWait = bindOpeningWait(ui, {
@@ -908,23 +762,11 @@ export function apply(ctx) {
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
     // The left column's own preference: 'open', 'rail' or 'hidden'. The switch
     // remembers the shown one it hid; a drag sets the open column's width.
-    setSidebarPref: (pref) => {
-      const next = pref === 'rail' || pref === 'hidden' ? pref : 'open'
-      sidebarSaved = { ...sidebarSaved, pref: next, ...(next === 'hidden' ? {} : { shown: next }) }
-      writeSidebar(sidebarSaved)
-      sidebarPref.set(next)
-    },
-    toggleLeftHidden: () => {
-      ui.set(state => (state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state))
-      actions.setSidebarPref(toggledPref(sidebarPref.getSnapshot(), sidebarSaved.shown))
-    },
-    setSidebarWidth: (width) => {
-      sidebarSaved = { ...sidebarSaved, width }
-      writeSidebar(sidebarSaved)
-      frame.set(state => (state.sidebarWidth === width ? state : { ...state, sidebarWidth: width }))
-    },
-    setLeftDrawer: (on) => ui.set(state => (state.leftDrawer === on ? state : { ...state, leftDrawer: on })),
-    setPanelYield: (on) => ui.set(state => (state.panelYield === on ? state : { ...state, panelYield: on })),
+    setSidebarPref: pref => store.setSidebarPref(pref),
+    toggleLeftHidden: () => store.toggleLeftHidden({ clearPanelYield: true }),
+    setSidebarWidth: width => store.setSidebarWidth(width),
+    setLeftDrawer: on => store.setLeftDrawer(on),
+    setPanelYield: on => store.setPanelYield(on),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
     surfaceMode: () => surface.getSnapshot().mode,
@@ -947,27 +789,11 @@ export function apply(ctx) {
       if (mode !== 'bot') return
       ensureBotHome()
     },
-    markUnread: id => writeUnread(id, true),
-    beginVisit: (id) => {
-      // A conversation a Bot started, never opened here, is unread from its start.
-      const made = roster.getSnapshot().byId[id] ?? roster.getSnapshot().roomsById[id]
-      const seen = seenAt[seenKey(id)] ?? (made?.createdBy && Number.isFinite(made.createdAt) ? made.createdAt : null)
-      ui.set(state => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }))
-    },
-    endVisit: (id) => {
-      leaveVisits([id])
-      ui.set((state) => {
-        if (!(id in (state.visits ?? {}))) return state
-        const visits = { ...state.visits }
-        delete visits[id]
-        return { ...state, visits }
-      })
-    },
-    toggleReaction: (key, index, emoji) => {
-      const reactions = reactionStore.update(saved => toggleReaction(saved, key, index, emoji), ui.getSnapshot().reactions)
-      ui.set(state => ({ ...state, reactions }))
-    },
-    clearUnread: id => writeUnread(id, false),
+    markUnread: id => store.writeUnread(id, true),
+    beginVisit: id => store.beginVisit(id),
+    endVisit: id => store.endVisit(id),
+    toggleReaction: (key, index, emoji) => store.toggleReaction(key, index, emoji),
+    clearUnread: id => store.writeUnread(id, false),
   }
   // Without the Desktop bridge these stay undefined, and no browser control renders.
   if (browsers) {
