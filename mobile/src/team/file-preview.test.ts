@@ -38,6 +38,24 @@ test('HTML preview keeps readable content but removes document styling, actions 
   assert.doesNotMatch(result.content, /Hidden|example\.com|style|onclick|bad\(\)|SVG/)
 })
 
+test('text previews honor UTF-16 LE and BE byte order marks', async () => {
+  const le = Uint8Array.from([0xff, 0xfe, 0x2d, 0x4e, 0x3d, 0xd8, 0x00, 0xde])
+  const be = Uint8Array.from([0xfe, 0xff, 0x4e, 0x2d, 0xd8, 0x3d, 0xde, 0x00])
+  for (const bytes of [le, be]) {
+    assert.deepEqual(await preview({ name: 'Notes.txt', seq: 1 }, bytes), { kind: 'text', content: '中😀' })
+  }
+})
+
+test('HTML previews decode declared Windows-1252 and Latin-1 but prefer a UTF-8 BOM', async () => {
+  for (const charset of ['windows-1252', 'ISO-8859-1']) {
+    const html = `<meta charset="${charset}"><p>\x93Caf\xe9\x94 \x80</p>`
+    const bytes = Uint8Array.from(html, char => char.charCodeAt(0))
+    assert.deepEqual(await preview({ name: 'Notes.html', seq: 1 }, bytes), { kind: 'html', content: '<p>“Café” €</p>' })
+  }
+  const html = '\uFEFF<meta charset="windows-1252"><p>Café</p>'
+  assert.deepEqual(await preview({ name: 'Notes.html', seq: 1 }, html), { kind: 'html', content: '<p>Café</p>' })
+})
+
 test('DOCX reads body headings, line breaks and tables without loading relationships', async () => {
   const doc = `<?xml version="1.0" encoding="UTF-8"?><x:document xmlns:x="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><x:body>
     <x:p><x:pPr><x:pStyle x:val="Heading1"/></x:pPr><x:r><x:t>Field &amp; office notes</x:t></x:r></x:p>

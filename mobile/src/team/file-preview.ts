@@ -35,6 +35,27 @@ type Node = ReturnType<typeof parseDocument>['children'][number]
 const escapeText = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const KEEP = new Set('address article aside b blockquote br caption code dd del details div dl dt em figcaption figure footer h1 h2 h3 h4 h5 h6 header hr i kbd li main mark ol p pre s samp section small strong sub summary sup table tbody td th thead tfoot tr u ul'.split(' '))
 const SKIP = new Set('head script style template iframe object embed svg math noscript'.split(' '))
+const WINDOWS_1252 = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ'
+
+function decodeText(bytes: Uint8Array, html: boolean) {
+  const littleEndian = bytes[0] === 0xff && bytes[1] === 0xfe
+  if (littleEndian || (bytes[0] === 0xfe && bytes[1] === 0xff)) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    let text = ''
+    for (let i = 2; i + 1 < bytes.length; i += 2) text += String.fromCharCode(view.getUint16(i, littleEndian))
+    return bytes.length % 2 === 0 ? text : text + '\uFFFD'
+  }
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return strFromU8(bytes.subarray(3))
+  if (html) {
+    const prefix = strFromU8(bytes.subarray(0, 1024), true)
+    const meta = DomUtils.findOne(tag => tag.name === 'meta' && 'charset' in tag.attribs, parseDocument(prefix).children)
+    const charset = meta?.attribs.charset.trim().toLowerCase()
+    if (charset && /^(?:windows-1252|cp1252|iso-8859-1|latin-?1)$/.test(charset)) {
+      return strFromU8(bytes, true).replace(/[\u0080-\u009f]/g, char => WINDOWS_1252[char.charCodeAt(0) - 0x80])
+    }
+  }
+  return strFromU8(bytes)
+}
 
 function staticHtml(source: string) {
   function render(node: Node, depth: number): string {
@@ -71,7 +92,7 @@ function docxBody(archive: Uint8Array) {
       size += data.length
       if (size > MAX_TEXT) throw new Error(TOO_LARGE)
       chunks.push(data)
-      if (final) xml = strFromU8(joinBytes(chunks, size))
+      if (final) xml = decodeText(joinBytes(chunks, size), false)
     }
     file.start()
   })
@@ -136,7 +157,7 @@ export async function readFilePreview(call: (endpoint: string, payload: object) 
   }
   const bytes = joinBytes(chunks, size)
   if (format === 'docx') return { kind: 'html', content: docxBody(bytes) }
-  const text = strFromU8(bytes).replace(/^\uFEFF/, '')
+  const text = decodeText(bytes, format === 'html')
   if (format === 'text') return { kind: 'text', content: text }
   return { kind: 'html', content: staticHtml(format === 'markdown' ? marked.parse(text, { async: false }) : text) }
 }
