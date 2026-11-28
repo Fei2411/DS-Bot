@@ -33,7 +33,7 @@ const entryCode = `
   export { flushSync } from 'react-dom'
   export { computeImageCacheBudgetBytes, createImageCache, buildImageUrl } from './ui/src/image-cache.js'
   export { ImageLightbox } from './ui/src/image-lightbox.js'
-  export { useNarrowViewport } from './ui/src/app.js'
+  export { useMentions, useNarrowViewport } from './ui/src/app.js'
   export { mergeIncrementalItems, mergeLatestPage, adaptRoomItems } from './ui/src/chat.js'
   export { ChatRows } from '../ds-bot/src/client/cells.js'
   export { installLocale } from '../ds-bot/src/client/i18n.js'
@@ -77,6 +77,7 @@ const {
   createImageCache,
   buildImageUrl,
   ImageLightbox,
+  useMentions,
   useNarrowViewport,
   mergeIncrementalItems,
   mergeLatestPage,
@@ -97,6 +98,25 @@ function mount(element) {
     unmount() { act(() => root.unmount()); host.remove() },
   }
 }
+
+test('the desktop mention stylesheet follows avatar changes for an existing reply link', () => {
+  const bot = { id: 'writer', name: 'Writer' }
+  const MentionStyles = ({ bots }) => { useMentions(bots, 0); return null }
+  const view = mount(h(MentionStyles, { bots: [bot] }))
+  const sheets = () => document.head.querySelectorAll('style').filter(style => style.dataset.dshBot === 'mentions')
+  const anchor = '.bt-bubble a[href="https://bots.local/writer"]::before'
+  const image = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>'
+  try {
+    const [style] = sheets()
+    assert.ok(style.textContent.includes(`${anchor}{background:`))
+    assert.match(style.textContent, /mask-image:/)
+    view.update(h(MentionStyles, { bots: [{ ...bot, avatar: { image } }] }))
+    assert.deepEqual([...sheets()], [style])
+    assert.ok(style.textContent.includes(`${anchor}{background:center/cover url(${JSON.stringify(image)});-webkit-mask:none;mask:none`))
+  } finally {
+    view.unmount()
+  }
+})
 
 test('Step 5: app.css sets content-visibility: auto with intrinsic block heights on desktop message rows and cards', () => {
   const css = readFileSync(join(appDir, 'ui', 'src', 'app.css'), 'utf8')

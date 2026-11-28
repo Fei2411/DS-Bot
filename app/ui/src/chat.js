@@ -14,7 +14,6 @@ import {
   withdrawQueuedText,
 } from './composer-area.js'
 import { revokeUrl } from './failed-send-bar.js'
-import { mentionStyles } from './mention-styles.js'
 import { queueRowText } from './queue-dock.js'
 
 const EMPTY_OBJ = {}
@@ -230,7 +229,6 @@ const TextSelectionOverlay = memo(function TextSelectionOverlay({ sessionId, con
 export function Chat({ sessionId, team, registry, classic = false }) {
   const { actions, hooks, chat: feed } = team
   const roster = hooks.useRoster(value => value)
-  const mentionCss = useMemo(() => mentionStyles(roster.bots ?? EMPTY_LIST), [roster.bots])
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
   const isRoom = room !== undefined
@@ -509,7 +507,6 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     onDragLeave,
     onDrop,
   },
-  mentionCss ? h('style', null, mentionCss) : null,
   dragging ? h('div', { className: 'dsb-dropzone', 'aria-hidden': true },
     h('div', { className: 'dsb-dropzone-card' }, t('Drop files to attach'))) : null,
   h(Transcript, {

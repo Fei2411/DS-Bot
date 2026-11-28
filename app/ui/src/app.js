@@ -142,10 +142,10 @@ function useTheme(prefs, chat, actions, registryVersion) {
   useEffect(() => paintMode(mode), [mode])
 }
 
-// Bot mentions in rendered replies (`.bt-bubble a[href="https://bot.mention.invalid/<id>"]`)
+// Bot mentions in rendered replies, including Bot-authored group messages,
 // wear each Bot's accent color and silhouette/avatar mark, matching plugin mode without DSH selectors.
 // Reuses one `<style>` element and skips DOM writes when no Bot look changed.
-function useMentions(bots, registryVersion) {
+export function useMentions(bots, registryVersion) {
   const styleRef = useRef(null)
   const lastSigRef = useRef(null)
   const lastCssRef = useRef('')
@@ -173,10 +173,10 @@ function useMentions(bots, registryVersion) {
     lastSigRef.current = sig
     const css = list.map((bot) => {
       if (!bot?.id) return ''
-      const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
+      const anchor = `.bt-bubble a[href=${JSON.stringify(MENTION_ORIGIN + bot.id)}]`
       const look = lookOf(bot)
       const mark = look.image
-        ? `${anchor}::before{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}`
+        ? `${anchor}::before{background:center/cover url(${JSON.stringify(look.image)});-webkit-mask:none;mask:none;border-radius:50%}`
         : `${anchor}::before{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`
       return `${anchor}{color:${inkText(look.color)}}${mark}`
     }).filter(Boolean).join('\n')
