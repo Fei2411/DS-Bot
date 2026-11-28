@@ -371,6 +371,7 @@ test('reloadWindowSafely reloads immediately without attachments and confirms be
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
+  let mounted = true
   try {
     forgetKeptFiles()
     await React.act(async () => {
@@ -401,7 +402,17 @@ test('reloadWindowSafely reloads immediately without attachments and confirms be
     // Cancel keeps attachments intact and does not reload.
     const buttons = [...dialog.querySelectorAll('button')]
     const cancelBtn = buttons.find(b => b.textContent === 'Cancel')
+    const reloadBtn = buttons.find(b => b.textContent === 'Reload window')
     assert.ok(cancelBtn, 'confirmation dialog must offer Cancel button')
+    assert.ok(reloadBtn, 'confirmation dialog must offer Reload window button')
+
+    // Focus starts on Cancel and Tab / Shift+Tab wrap within the dialog (useModalFocusTrap).
+    assert.equal(document.activeElement, cancelBtn, 'initial focus must land on Cancel')
+    document.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: true, preventDefault() {}, stopPropagation() {} })
+    assert.equal(document.activeElement, reloadBtn, 'Shift+Tab from Cancel must wrap to Reload window')
+    document.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: false, preventDefault() {}, stopPropagation() {} })
+    assert.equal(document.activeElement, cancelBtn, 'Tab from Reload window must wrap back to Cancel')
+
     await React.act(async () => {
       clickEl(cancelBtn)
       await new Promise(r => setTimeout(r, 200))
@@ -420,8 +431,19 @@ test('reloadWindowSafely reloads immediately without attachments and confirms be
     assert.equal(reloaded, 2, 'confirming dialog must reload window')
 
     await React.act(async () => { root.unmount() })
+    mounted = false
     container.remove()
+
+    // 3. No host mounted AND no globalThis.confirm -> non-silent onBlocked feedback, no reload, attachments kept.
+    let blockedReason = null
+    const outcome = reloadWindowSafely({ onBlocked: (reason) => { blockedReason = reason } })
+    assert.equal(outcome, 'blocked', 'must return blocked when neither confirmation host nor confirm() is available')
+    assert.equal(reloaded, 2, 'must not reload when confirmation cannot be shown')
+    assert.equal(hasKeptDraftFiles(), true, 'must keep attachments when reload is blocked')
+    assert.match(String(blockedReason), /Unsent attachments will be removed/, 'must report visible warning via onBlocked')
   } finally {
+    if (mounted) await React.act(async () => { root.unmount() })
+    container.remove()
     forgetKeptFiles()
   }
 })

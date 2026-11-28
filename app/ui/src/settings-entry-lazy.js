@@ -11,7 +11,7 @@ const LazySettingsDialog = createRetryableLazy(
 )
 
 class SettingsEntryBoundary extends Component {
-  state = { failed: false, retryCount: 0 }
+  state = { failed: false, retryCount: 0, reloadNotice: null }
 
   static getDerivedStateFromError() {
     return { failed: true }
@@ -52,7 +52,7 @@ class SettingsEntryBoundary extends Component {
   }
 
   retry() {
-    this.setState(prev => ({ failed: false, retryCount: prev.retryCount + 1 }))
+    this.setState(prev => ({ failed: false, retryCount: prev.retryCount + 1, reloadNotice: null }))
   }
 
   reload() {
@@ -60,7 +60,9 @@ class SettingsEntryBoundary extends Component {
       this.props.onReload()
       return
     }
-    reloadWindowSafely()
+    reloadWindowSafely({
+      onBlocked: (reason) => { this.setState({ reloadNotice: reason }) },
+    })
   }
 
   render() {
@@ -71,7 +73,7 @@ class SettingsEntryBoundary extends Component {
       h('div', { className: 'bt-scrim', onMouseDown: close }),
       h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings') },
         h('div', { className: 'dsb-slot-error', role: 'alert', style: { margin: 'auto' } },
-          h('span', null, t('This view could not be shown.')),
+          h('span', null, this.state.reloadNotice ?? t('This view could not be shown.')),
           needsReload
             ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.reload() }, t('Reload window'))
             : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.retry() }, t('Retry')),

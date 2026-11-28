@@ -15,7 +15,7 @@ import { ModelMenu } from './model-menu.js'
 import { SelectMenu } from './select-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
-import { requestWindowReload } from './reload-recovery.js'
+import { requestWindowReload } from './reload-action.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 import { isShortcutRecording } from './shortcuts-model.js'
@@ -678,7 +678,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           type: 'button',
           className: 'bt-soft bt-soft-sm',
           style: { marginLeft: 8 },
-          onClick: () => { requestWindowReload() },
+          onClick: () => { requestWindowReload({ onBlocked: (reason) => { setError(reason) } }) },
         }, t('Reload window'))
         : null)
     : null

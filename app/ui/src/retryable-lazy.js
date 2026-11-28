@@ -2,7 +2,7 @@
 // inside React's lazy payload. Reused by engine-settings-bridge, right-panel terminal,
 // settings-entry-lazy, and settings-pages-lazy.
 import { createElement as h, lazy } from 'react'
-import { requestWindowReload } from '../../../ds-bot/src/client/reload-recovery.js'
+import { requestWindowReload } from '../../../ds-bot/src/client/reload-action.js'
 import { bustImportUrl } from './plugin-runtime.js'
 
 /**
