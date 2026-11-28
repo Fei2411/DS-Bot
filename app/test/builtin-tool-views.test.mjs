@@ -12,6 +12,7 @@ const { outputFiles } = await build({
       export * from './app/ui/src/builtin-tool-views.js'
       export { ToolCallCard } from './app/ui/src/tool-card.js'
       export { createSlotRegistry, TOOL_VIEW_SLOT } from './app/ui/src/slots.js'
+      export { ensureLanguage } from './app/ui/src/code-highlight.js'
       export { PartialArguments } from '@deepseek-ai/dsh-util-values'
     `,
     resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
@@ -88,9 +89,11 @@ const {
   registerBuiltinToolViews,
   parseExitStatus,
   shortPath,
+  langFromPath,
   readMetaFromMeta,
   diffMetaFromMeta,
   computeLineDiff,
+  buildDiffHunks,
   searchMetaFromMeta,
   webSearchMetaFromMeta,
   webFetchMetaFromMeta,
@@ -98,6 +101,7 @@ const {
   ToolCallCard,
   createSlotRegistry,
   TOOL_VIEW_SLOT,
+  ensureLanguage,
   PartialArguments,
 } = mod.exports
 
@@ -485,6 +489,173 @@ test('Round 2 DSH contract edge cases: create empty diffs, failed edit error + p
       block: makeBlock('run_code', { description: 'Summarize metrics', code: 'const x = 1\nreturn x' }),
     })
     assert.match(textOf(ptcView.render()), /Summarize metrics/)
+  } finally {
+    dispose()
+  }
+})
+
+test('W6 PR B: Myers diff handles >200x200 accurately without silent drops, folds by hunks, highlights code, renders ANSI, and opens files at line', async () => {
+  // 1. Myers diff on 500x500 with two localized edits finds exact +2/-2 instead of degrading to +500/-500.
+  const base500 = Array.from({ length: 500 }, (_, i) => `const line_${i} = ${i}`)
+  const next500 = [...base500]
+  next500[10] = 'const line_10 = 1000'
+  next500[400] = 'const line_400 = 4000'
+  const diff500 = computeLineDiff(`${base500.join('\n')}\n`, `${next500.join('\n')}\n`)
+  assert.equal(diff500.added, 2)
+  assert.equal(diff500.removed, 2)
+  assert.equal(diff500.rows.length, 502)
+
+  // Hunk folding groups the two edits into 2 hunks with expandable unchanged gaps in between and around.
+  const blocks = buildDiffHunks(diff500.rows, { context: 3 })
+  const hunks = blocks.filter(b => b.type === 'hunk')
+  const gaps = blocks.filter(b => b.type === 'gap')
+  assert.equal(hunks.length, 2)
+  assert.equal(gaps.length, 3)
+  assert.equal(
+    blocks.reduce((sum, blk) => sum + (blk.end - blk.start), 0),
+    diff500.rows.length,
+    'hunks + gaps must partition every row with zero silent drops',
+  )
+
+  // Large completely different inputs (2000x2000) complete quickly and preserve every line.
+  const hugeA = Array.from({ length: 2000 }, (_, i) => `old-only-${i}`).join('\n')
+  const hugeB = Array.from({ length: 2000 }, (_, i) => `new-only-${i}`).join('\n')
+  const hugeDiff = computeLineDiff(hugeA, hugeB)
+  assert.equal(hugeDiff.removed, 2000)
+  assert.equal(hugeDiff.added, 2000)
+
+  // Language detection from path.
+  assert.equal(langFromPath('/repo/src/index.tsx'), 'typescript')
+  assert.equal(langFromPath('/repo/Dockerfile'), 'dockerfile')
+  assert.equal(langFromPath('/repo/Makefile'), 'makefile')
+
+  // Load JS grammar once so syntax highlight renders synchronously during assertions.
+  assert.equal(await ensureLanguage('javascript'), true)
+
+  const registry = createSlotRegistry()
+  const dispose = registerBuiltinToolViews(registry)
+  try {
+    const opened = []
+    const openFile = target => opened.push(target)
+
+    // 2. ReadToolView: syntax highlight + clickable path and line number.
+    const readView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      sessionId: 'sess-1',
+      openFile,
+      block: makeBlock('read', { file_path: '/repo/src/app.js' }, {
+        meta: {
+          path: '/repo/src/app.js',
+          offset: 20,
+          totalLines: 50,
+          lines: [
+            { number: 20, text: 'export function greet(name) {' },
+            { number: 21, text: '  return `hi ${name}`' },
+          ],
+        },
+      }),
+    })
+    all(readView.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    let tree = readView.render()
+    const hlSpans = all(tree, n => n.type === 'span' && String(n.props?.className ?? '').includes('hljs-'))
+    assert.ok(hlSpans.length > 0, 'ReadToolView should render lazy highlight.js tokens')
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-code-path-btn'))[0].props.onClick()
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-code-num-btn'))[1].props.onClick()
+    assert.deepEqual(plain(opened), [
+      { path: '/repo/src/app.js', line: 20, sessionId: 'sess-1' },
+      { path: '/repo/src/app.js', line: 21, sessionId: 'sess-1' },
+    ])
+
+    // 3. DiffToolView: hunk folding + expand gap + syntax highlight + clickable path & line number.
+    opened.length = 0
+    const diffView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      sessionId: 'sess-1',
+      openFile,
+      block: makeBlock('edit', { file_path: '/repo/src/big.js' }, {
+        meta: {
+          operation: 'update',
+          diffs: [{ path: '/repo/src/big.js', oldText: `${base500.join('\n')}\n`, newText: `${next500.join('\n')}\n` }],
+        },
+      }),
+    })
+    all(diffView.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    tree = diffView.render()
+    assert.ok(all(tree, n => n.props?.className === 'dsb-diff-gap').length >= 2, 'unchanged lines between distant hunks should fold into expandable gaps')
+    assert.ok(all(tree, n => n.type === 'span' && String(n.props?.className ?? '').includes('hljs-')).length > 0, 'DiffFileView should render syntax-highlighted tokens')
+    // Clicking the file path jumps to the first changed line (line 11).
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-code-path-btn'))[0].props.onClick()
+    assert.deepEqual(plain(opened[0]), { path: '/repo/src/big.js', line: 11, sessionId: 'sess-1' })
+    // Expanding the first gap reveals hidden unchanged lines.
+    const rowsBefore = all(tree, n => n.props?.className === 'dsb-diff-row').length
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-diff-gap-btn')[0].props.onClick()
+    const rowsAfter = all(diffView.render(), n => n.props?.className === 'dsb-diff-row').length
+    assert.ok(rowsAfter > rowsBefore, 'clicking gap expand button must reveal hidden unchanged lines')
+
+    // 4. SearchToolView: clickable matches and paths.
+    opened.length = 0
+    const grepView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      sessionId: 'sess-1',
+      openFile,
+      block: makeBlock('grep', { pattern: 'greet' }, {
+        meta: { shape: 'matches', total: 1, truncated: false, files: [{ path: '/repo/src/app.js', matches: [{ lineNumber: 20, line: 'export function greet(name) {' }] }] },
+      }),
+    })
+    all(grepView.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    tree = grepView.render()
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-search-btn'))[0].props.onClick()
+    assert.deepEqual(plain(opened), [{ path: '/repo/src/app.js', line: 20, sessionId: 'sess-1' }])
+
+    opened.length = 0
+    const globView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      sessionId: 'sess-1',
+      openFile,
+      block: makeBlock('glob', { pattern: '**/*.js' }, {
+        meta: { shape: 'paths', total: 1, truncated: false, paths: ['/repo/src/app.js'] },
+      }),
+    })
+    all(globView.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    tree = globView.render()
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-search-btn'))[0].props.onClick()
+    assert.deepEqual(plain(opened), [{ path: '/repo/src/app.js', sessionId: 'sess-1' }])
+
+    // 5. PresentToolView: clickable delivered file.
+    opened.length = 0
+    const presentView = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      sessionId: 'sess-1',
+      openFile,
+      block: makeBlock('present', { files: [{ path: '/repo/out/report.md', description: 'Summary' }] }),
+    })
+    tree = presentView.render()
+    all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-present-btn'))[0].props.onClick()
+    assert.deepEqual(plain(opened), [{ path: '/repo/out/report.md', sessionId: 'sess-1' }])
+
+    // 6. ShellToolView: ANSI escape sequences render styled spans and copy plain text cleanly.
+    const ansiBash = renderTree(ToolCallCard, {
+      registry,
+      cwd: '/repo',
+      block: makeBlock('bash', { command: 'npm test' }, {
+        content: [{ type: 'text', text: '\x1b[32m✔ passed\x1b[0m\n\x1b[1;31m✖ failed\x1b[0m\n[exit code: 1]' }],
+      }),
+    })
+    all(ansiBash.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    tree = ansiBash.render()
+    const ansiSpans = all(tree, n => n.type === 'span' && n.props?.className === 'dsb-ansi')
+    assert.ok(ansiSpans.some(s => s.props['data-fg'] === 'green' && textOf(s).includes('passed')))
+    assert.ok(ansiSpans.some(s => s.props['data-fg'] === 'red' && s.props['data-bold'] === true && textOf(s).includes('failed')))
+    assert.equal(textOf(tree).includes('\x1b['), false, 'raw ANSI escapes must not leak into rendered text')
+    sandbox.__copied.length = 0
+    const copyBtns = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-tool-copy'))
+    copyBtns[copyBtns.length - 1].props.onClick()
+    assert.equal(sandbox.__copied[0], '✔ passed\n✖ failed')
   } finally {
     dispose()
   }

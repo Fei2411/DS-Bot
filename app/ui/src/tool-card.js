@@ -7,6 +7,7 @@ import { writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { CheckIcon, ChevronRightIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { elapsedLabel } from '../../../ds-bot/src/client/text.js'
+import { clipAnsiSpans, hasAnsiSequence, parseAnsiSpans, renderAnsiSpans } from './ansi.js'
 import { SlotOutlet, TOOL_VIEW_SLOT, slots as defaultSlots } from './slots.js'
 
 const SUMMARY_KEYS = ['description', 'file_path', 'path', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'bot', 'group', 'name', 'title']
@@ -14,8 +15,10 @@ const SUMMARY_MAX = 96
 const FOLD_LINES = 12
 const FOLD_CHARS = 1200
 
-const NOOP_OPEN_FILE = () => {}
+const NOOP_OPEN_FILE = Object.assign(() => {}, { noop: true })
 const NOOP_LOAD_IMAGE = () => Promise.resolve(undefined)
+
+export const isInteractiveOpenFile = fn => typeof fn === 'function' && fn.noop !== true
 
 function compactLine(value) {
   const flat = String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -76,13 +79,22 @@ export function clipLongText(text) {
   return { shown: `${head}\n…`, folded: true, lines: split.length }
 }
 
-export function CodeSection({ label, text, error = false }) {
+export function CodeSection({ label, text, error = false, ansi = false }) {
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
-  const clipped = useMemo(() => clipLongText(text), [text])
-  const visible = expanded || !clipped.folded ? text : clipped.shown
+  const ansiData = useMemo(() => {
+    if (!ansi || !hasAnsiSequence(text)) return null
+    const parsed = parseAnsiSpans(text)
+    const clipped = clipAnsiSpans(parsed, FOLD_LINES, FOLD_CHARS)
+    return { parsed, clipped }
+  }, [ansi, text])
+  const clipped = useMemo(() => (ansiData ? ansiData.clipped : clipLongText(text)), [ansiData, text])
+  const copyText = ansiData ? ansiData.clipped.plain : text
+  const content = ansiData
+    ? renderAnsiSpans(expanded || !ansiData.clipped.folded ? ansiData.parsed : ansiData.clipped.shown)
+    : (expanded || !clipped.folded ? text : clipped.shown)
   const copy = () => {
-    void writeClipboard(text).then((ok) => {
+    void writeClipboard(copyText).then((ok) => {
       if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1000)
@@ -98,7 +110,7 @@ export function CodeSection({ label, text, error = false }) {
         title: copied ? t('Copied') : t('Copy'),
         onClick: copy,
       }, copied ? h(CheckIcon) : h(CopyIcon))),
-    h('pre', { className: 'dsb-tool-pre' }, h('code', null, visible)),
+    h('pre', { className: 'dsb-tool-pre' }, h('code', null, content)),
     clipped.folded ? h('button', {
       type: 'button',
       className: 'dsb-tool-fold',
