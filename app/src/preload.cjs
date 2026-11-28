@@ -101,6 +101,13 @@ if (startPage !== undefined) {
       ipcRenderer.on('ds-bot:shortcut', handler)
       return () => { ipcRenderer.removeListener('ds-bot:shortcut', handler) }
     },
+    systemLanguage: () => ipcRenderer.invoke('ds-bot:system-language'),
+    onSystemLanguage: (run) => {
+      if (typeof run !== 'function') return () => {}
+      const handler = (_event, tag) => { if (typeof tag === 'string' && tag) run(tag) }
+      ipcRenderer.on('ds-bot:system-language', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:system-language', handler) }
+    },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
   const placeOf = (value) => {
@@ -723,10 +730,9 @@ function updatesBridge() {
 function frameless(height, material) {
   const root = document.documentElement
   root.dataset.windowsTitlebar = ''
-  root.style.setProperty('--dsh-windows-titlebar-height', `${height}px`)
-  // DSH keeps the dialog mask off the caption band, which then stays bright above a dimmed
-  // page; here the band is part of the page, so the mask covers it too.
-  root.style.setProperty('--dsh-frame-chrome-top', '0px')
+  root.style.setProperty('--bt-titlebar-h', `${height}px`)
+  // The band is part of the page, so dialog masks cover it too.
+  root.style.setProperty('--bt-chrome-top', '0px')
   // The traffic lights take their colors from the system.
   if (process.platform === 'win32') captionColors(material === 'mica')
 }

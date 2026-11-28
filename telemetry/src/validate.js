@@ -9,7 +9,7 @@ export const BOT_BUCKETS = new Set(['0', '1', '2-3', '4-7', '8+'])
 export const GROUP_BUCKETS = new Set(['0', '1-2', '3+'])
 export const TURN_BUCKETS = new Set(['0', '1-5', '6-20', '21-50', '51+'])
 export const CONNECTOR_BUCKETS = new Set(['0', '1-2', '3+'])
-export const THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'celadon', 'custom'])
+export const THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'fei', 'celadon', 'custom'])
 export const LAYOUTS = new Set(['bubble', 'flat'])
 export const PROVIDERS = new Set([
   'deepseek-official', 'deepseek-account', 'openai', 'anthropic', 'google',

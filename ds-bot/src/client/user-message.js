@@ -1,16 +1,19 @@
-import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import * as ui from './dsh-primitives.js'
 import { fileChunks } from '../shared/file-chunks.js'
 import { presentedFileName } from '../shared/group-replies.js'
 import { imPlatform } from '../shared/im-platforms.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { detectSecrets, maskSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
 import { call } from './api.js'
 import { BotMark } from './mark.js'
-import { CheckIcon, CopyIcon, FileIcon } from './icons.js'
+import { CheckIcon, CopyIcon, EyeIcon, FileIcon, HideIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
 import { noHover } from './motion.js'
 import { clockLabel, messageClock } from './text.js'
 import { useFold } from './fold.js'
+
+const EMPTY_REVEALED_SECRETS = new Set()
 
 // -------------------------------------------------------------------------
 // The user's own messages. DS Bot owns the row (fold, time, IM tag, copy, steering
@@ -108,11 +111,49 @@ export function userTextParts(text, bots, referenceLabels = []) {
   return parts
 }
 
-function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
+function renderProjectedSegment(text, keyPrefix, bots, referenceLabels, skillNames, references, actions) {
   return userTextParts(text, bots, referenceLabels).map((part, index) => (part.bot
-    ? h('button', { key: index, type: 'button', className: 'bt-umention', title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
+    ? h('button', { key: `${keyPrefix}:${index}`, type: 'button', className: 'bt-umention', title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
       h(BotMark, { bot: part.bot, size: 16 }), part.label)
-    : h(Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, 'skill', references))))
+    : h(Fragment, { key: `${keyPrefix}:${index}` }, ui.projectUserText(part.text, referenceLabels, skillNames, 'skill', references))))
+}
+
+function UserText({ text, fullText, fullSecrets, revealedSecrets, onToggleSecret, bots, referenceLabels, skillNames, references, actions }) {
+  const secretSpans = fullSecrets && fullSecrets.length > 0
+    ? projectSecretsToSlice(fullText ?? text, text, fullSecrets)
+    : []
+  if (secretSpans.length === 0) {
+    return renderProjectedSegment(text, 'p', bots, referenceLabels, skillNames, references, actions)
+  }
+  const nodes = []
+  let cursor = 0
+  for (let i = 0; i < secretSpans.length; i += 1) {
+    const span = secretSpans[i]
+    if (span.start > cursor) {
+      nodes.push(...renderProjectedSegment(text.slice(cursor, span.start), `t${i}`, bots, referenceLabels, skillNames, references, actions))
+    }
+    const isOpen = Boolean(revealedSecrets?.has(span.key))
+    const label = isOpen ? t('Hide secret') : t('Reveal secret')
+    nodes.push(h('span', {
+      key: `s:${span.key}:${i}`,
+      className: `dsb-secret${isOpen ? ' is-revealed' : ''}`,
+      'data-secret-masked': isOpen ? undefined : '',
+    },
+    h('span', { className: 'dsb-secret-val' }, isOpen ? span.raw : span.masked),
+    h('button', {
+      type: 'button',
+      className: 'dsb-secret-toggle',
+      'aria-pressed': isOpen,
+      'aria-label': label,
+      title: label,
+      onClick: (event) => { event?.stopPropagation?.(); onToggleSecret?.(span.key) },
+    }, isOpen ? h(HideIcon) : h(EyeIcon))))
+    cursor = span.end
+  }
+  if (cursor < text.length) {
+    nodes.push(...renderProjectedSegment(text.slice(cursor), 'end', bots, referenceLabels, skillNames, references, actions))
+  }
+  return nodes
 }
 
 // A Bot mention in a bubble DSH draws itself (DSH 0.2.2-rc.1 and later draw user text by
@@ -195,7 +236,7 @@ export function PresentedFiles({ files, openFile, actions }) {
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
-    void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) })
+    void navigator.clipboard?.writeText(text)?.then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) })
   }
   return h('button', { type: 'button', className: 'bt-tool', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
 }
@@ -223,11 +264,22 @@ export const ViaTag = ({ via }) => {
 }
 
 // Before DSH 0.2.1-alpha.3: DS Bot draws the attachments, the text and the other blocks.
-function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
+function ProjectedContent({ data, text, shown, folded, control, fullSecrets, revealedSecrets, onToggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
   const { attachments, rest } = contentParts(data.content)
   const referenceLabels = data.referenceLabels ?? []
   const references = openFile && openSkill ? { openFile, openSkill } : undefined
-  const body = h(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions })
+  const body = h(UserText, {
+    text: shown,
+    fullText: text,
+    fullSecrets,
+    revealedSecrets,
+    onToggleSecret,
+    bots: mentionableBots(roster, sessionId),
+    referenceLabels,
+    skillNames: data.skillNames ?? [],
+    references,
+    actions,
+  })
   return h(Fragment, null,
     attachments.length > 0 ? h(Attachments, { attachments, renderMessageImages }) : null,
     text !== '' || rest.length > 0 ? h('div', { className: 'bt-ubody', title: clock(data.time), 'data-folded': folded || undefined, 'data-text-interaction-source': text !== '' ? '' : undefined, onClick },
@@ -283,6 +335,23 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
     ? ((apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq])
     : picked
   const { shown, folded, control } = useFold(text, { markdown: false })
+  const fullSecrets = useMemo(() => detectSecrets(text), [text])
+  const [revealedSecrets, setRevealedSecrets] = useState(EMPTY_REVEALED_SECRETS)
+  useEffect(() => {
+    setRevealedSecrets(prev => (prev.size === 0 ? prev : EMPTY_REVEALED_SECRETS))
+  }, [text])
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const copyText = useMemo(
+    () => (fullSecrets.length > 0 ? maskSecrets(text, revealedSecrets) : text),
+    [text, fullSecrets, revealedSecrets],
+  )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -301,22 +370,21 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined },
     h('div', { className: 'bt-ustack' },
       prepared === undefined
-        ? h(ProjectedContent, { ...fold, roster, sessionId, actions, renderMessageImages, openFile, openSkill })
+        ? h(ProjectedContent, { ...fold, fullSecrets, revealedSecrets, onToggleSecret: toggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill })
         : h(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
       (sentAt || via) ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, ...(via ? [h(ViaTag, { key: 'via', via })] : []), sentAt) : null),
-    text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text })))
+    text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text: copyText })))
 }
 
 export const USER_MESSAGE_CSS = `
 .bt-umsg{display:flex;flex-direction:row-reverse;align-items:center;justify-content:flex-start;gap:4px}
 .bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
+.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--bt-content-fs,14px);line-height:calc(var(--bt-content-fs,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
 .bt-ubody a{color:inherit}
 /* The host's content stack sits in DS Bot's: the width follows --bt-msg-w (the user's
    message width) through .bt-ustack, not the host's own cap. The fold control goes
    under the stack, at its right edge. */
 .bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
-.bt-uhost [class*="_userStack"]{max-width:100%}
 .bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
@@ -342,4 +410,12 @@ body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 .bt-umsg:hover .bt-utools,.bt-umsg:focus-within .bt-utools{opacity:1;visibility:visible}
+.dsb-secret{display:inline;border-radius:4px;padding:1px 4px;background:color-mix(in srgb,currentColor 10%,transparent);box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.dsb-secret.is-revealed{background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.dsb-secret-val{font-family:var(--bt-mono,ui-monospace,"SF Mono",Menlo,Consolas,monospace);font-size:.92em;overflow-wrap:anywhere;word-break:break-word}
+.dsb-secret-toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:20px;height:20px;margin-left:3px;padding:0;border:0;border-radius:6px;background:none;color:inherit;opacity:.78;cursor:pointer}
+.dsb-secret-toggle::after{content:"";position:absolute;inset:-4px}
+.dsb-secret-toggle:hover{background:color-mix(in srgb,currentColor 14%,transparent);opacity:1}
+.dsb-secret-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px;opacity:1}
+.dsb-secret-toggle svg{width:13px;height:13px}
 `

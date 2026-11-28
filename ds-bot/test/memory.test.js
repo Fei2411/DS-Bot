@@ -2782,9 +2782,12 @@ test('what is said after a member leaves is still reviewed, for the group', asyn
   const { ctx, call, read, requests, stop } = start({ home, replies: [JSON.stringify({ changes: [{ op: 'add', text: 'The launch moved to Friday' }] })], config: { memoryReviewDelayMs: 200 } })
   t.after(() => stop())
   await call('state', {})
+  // Another member is still active, so the ending turn does not start the group review yet.
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'running' })
   ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'idle' })
   assert.equal((await call('update-room', { id: 'r1', remove: ['b2'] })).ok, true)
   await postToGroup(ctx, ['The launch moved to Friday'])
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
   const text = requests[0].messages[0].content[0].text

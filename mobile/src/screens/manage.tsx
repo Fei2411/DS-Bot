@@ -3,7 +3,7 @@
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
 import { Children, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import { openChat } from '../nav/open-chat.ts'
@@ -15,7 +15,8 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
 import { avatarPhoto } from '../team/avatar-photo.ts'
-import { botMarkState } from '../team/mark-state.ts'
+import { botMarkState, isTopBlockInView } from '../team/mark-state.ts'
+import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
 import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
@@ -214,9 +215,21 @@ export function BotDetails({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const shown = useContext(MarksShown)
+  const avatarBottom = useRef(0)
+  const scrollY = useRef(0)
+  const [avatarInView, setAvatarInView] = useState(true)
+  const syncAvatarInView = () => setAvatarInView(isTopBlockInView(scrollY.current, avatarBottom.current))
+  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = event.nativeEvent.contentOffset.y
+    syncAvatarInView()
+  }
   const bot = botOf(team, route.params?.botId ?? '')
+  useEffect(() => {
+    scrollY.current = 0
+    setAvatarInView(true)
+  }, [bot?.id])
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
-  const main = isMain(team, bot.id)
   const permissions = (team as { permissions?: { options?: { value: string; name: string }[]; defaultPreset?: string } } | null)?.permissions
   // The desktop's details pane (details-drawer.js): who it is, then model,
   // permission, folder, instructions, memory, usage and scheduled tasks. Its gear
@@ -228,9 +241,13 @@ export function BotDetails({ route, navigation }: any) {
         <View style={{ flex: 1 }} />
         <RoundButton label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
-        <View style={{ alignItems: 'center', paddingTop: 4 }}>
-          <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} state={botMarkState(team, bot)} live pokeable />
+      <ScrollView key={bot.id} contentContainerStyle={{ paddingTop: 4, paddingBottom: 40, paddingHorizontal: 18 }} onScroll={onScroll} scrollEventThrottle={100}>
+        <View style={{ alignItems: 'center' }} onLayout={event => { avatarBottom.current = event.nativeEvent.layout.y + event.nativeEvent.layout.height; syncAvatarInView() }}>
+          <MarksShown.Provider value={shown && avatarInView}>
+            <Avatar bot={bot} dark={dark} size={64} ring={p.main} state={botMarkState(team, bot)} badge={false} live pokeable />
+          </MarksShown.Provider>
+        </View>
+        <View style={{ alignItems: 'center' }}>
           <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18 }]}>{bot.name}</Text>
           {bot.role ? <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{bot.role}</Text> : null}
         </View>

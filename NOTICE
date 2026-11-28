@@ -65,6 +65,10 @@ MIT License, Copyright (c) 2026 DeepSeek
     in DeepSeek Harness (.agents/skills/record-browser-gif/): SKILL.md is
     adapted and translated for this repository; scripts/encode_gif.py and
     scripts/test_encode_gif.py are copied unchanged.
+  - ds-bot/src/host/workspace-panel.js windowsExplorerFileUri follows
+    explorerTarget in @deepseek-ai/dsh-native-command (src/path-opener.ts):
+    Windows file-URI encoding for Explorer (decoding percent-encoded non-ASCII
+    and escaping `,` and `=`).
 
   Full license text:
 
@@ -225,9 +229,11 @@ it uses, listed below. The desktop app
 in app/ installs the pinned @deepseek-ai/* packages, Electron and pnpm from
 npm; they keep their own licenses. The build of its window (app/ui) bundles,
 from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and
-affiliates), react-markdown and remark-gfm with the packages they use
+affiliates), react-markdown, remark-gfm, and remark-math with the packages they use
 (MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
-Copyright (c) Andrea Giammarchi), @xterm/xterm and @xterm/addon-fit (MIT,
+Copyright (c) Andrea Giammarchi), highlight.js (BSD-3-Clause, Copyright (c) 2006
+Ivan Sagalaev and highlight.js contributors), KaTeX (MIT, Copyright (c) 2013-2020
+Khan Academy and other contributors), @xterm/xterm and @xterm/addon-fit (MIT,
 Copyright (c) The xterm.js authors), qrcode-generator (MIT, Copyright (c) 2009
 Kazuhiko Arase), and deep-view (Apache-2.0). Vite is a build tool only. The mobile app in
 mobile/ bundles, from npm, Expo and React Native (MIT, Copyright (c) 650
@@ -281,8 +287,8 @@ Devin, OpenAI and Antigravity marks from the vendors' application icons.
 Plugin logos (ds-bot/src/client/plugin-marks.js)
 The browser plugin marks identify their respective projects. Each is a trademark
 of its owner: Playwright (Microsoft, official SVG mark from playwright.dev,
-Apache-2.0), Ego (CitroLabs, official geometric mark from citrolabs/ego-lite),
-and Chrome (Google). DS Bot is not affiliated with or endorsed by these owners.
+Apache-2.0) and Chrome (Google). DS Bot is not affiliated with or endorsed by
+these owners.
 
 Browser logos (ds-bot/src/client/browser-marks.js)
 The browser marks identify browsers installed on the user's machine for cookie

@@ -41,7 +41,7 @@
 - 应用标识 `io.github.fei2411.dsbot`，安装包与 `ds-bot` 同版本。
 - **Windows（x64）**：仅当前用户安装的 NSIS 向导（默认 `%LOCALAPPDATA%\Programs\DS Bot`），内置 `electron-updater` 后台下载校验 sha512 并提示重启安装（启动失败页也可更新）。
 - **Linux（x64）**：同轮产出 AppImage（支持自动更新）与 deb（解决 Ubuntu 24.04+ 沙箱问题，提示手动下载）。
-- **macOS（arm64 / x64）**：按架构分别打包 ad-hoc 签名的 zip（不用未签名 dmg），检测到新版本时提示跳转发布页下载。
+- **macOS（arm64 / x64）**：按架构分别打包 ad-hoc 签名的 zip（不用未签名 dmg）。运行在可写 `.app` 包内（非 App Translocation 只读路径）时，应用内直接下载 zip 并对照 `SHA256SUMS.txt` 校验、用系统 `ditto --noqtn` 解压、校验 `Info.plist` 与 `codesign --verify --deep --strict`，退出后由独立子进程原子替换 `.app` 并重启（无写权限或只读挂载时自动回退为跳转发布页手动下载）。
 - 桌面应用内的 `ds-bot` 与 DSH 随应用整体更新，插件自身不再单独推送更新。
 
 ## 不做什么
@@ -51,10 +51,11 @@
 
 ## 已知限制
 
-- Windows / macOS 未购置商业签名证书，首次打开会触发 SmartScreen 或 Gatekeeper 提示。
+- Windows / macOS 未购置商业签名证书，首次打开会触发 SmartScreen 或 Gatekeeper 提示；macOS 因采用 ad-hoc 签名，跨版本自动更新后签名哈希会变化，系统隐私权限（辅助功能、屏幕录制等）和钥匙串授权可能需要重新允许一次。
 - Linux 部分桌面环境（GNOME / KDE）需要托盘扩展才能显示托盘图标（仍可通过再次启动应用唤回主窗口）。
 - 换工作文件夹与导入后会触发换段（旧段保持完整可读可搜）。
 
 ## 变更
 
 - 2026-11-22：移除已作废的独立 UI 插件组合旧方案与冗长开发流水账，收口为 `v0.3.10` 现行桌面应用架构说明。
+- 2026-11-27：新增 macOS 原地自动更新（`app/src/mac-updater.mjs`）：HTTPS 下载 zip、SHA-256 校验、`ditto --noqtn` 解压、`Info.plist` 与 `codesign --verify --deep --strict` 校验、退出后原子替换与失败回滚；只读或 App Translocation 环境自动回退为发布页下载。

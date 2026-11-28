@@ -1,10 +1,17 @@
-// A Bot avatar wears one badge at a time, as on the desktop (mark.js BotAvatar):
-// waiting for you, then working, then the Main Bot star. They sit in the same corner,
-// so two would cover each other.
+import { avatarBadge } from '../../../ds-bot/src/client/mark-states.js'
+
+// A Bot avatar wears one badge at a time, derived from the same state rule as the desktop
+// (mark-states.js avatarBadge): waiting for you > working > Main Bot star.
 export type Badge = 'alert' | 'working' | 'main' | null
 
-export function badgeOf({ waiting = false, working = false, main = false }: { waiting?: boolean; working?: boolean; main?: boolean }): Badge {
-  if (waiting) return 'alert'
-  if (working) return 'working'
-  return main ? 'main' : null
+export function badgeOf({ state, waiting = false, working = false, main = false, badge = true }: {
+  state?: string
+  waiting?: boolean
+  working?: boolean
+  main?: boolean
+  badge?: boolean
+}): Badge {
+  const effective = state ?? (waiting ? 'alert' : working ? 'working' : 'idle')
+  const kind = avatarBadge(effective, { main, badge })
+  return kind === 'admin' ? null : (kind as Badge)
 }

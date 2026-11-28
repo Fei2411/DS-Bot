@@ -19,12 +19,14 @@ import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon, FishLogo } from '../ui/icons.tsx'
 import { roomTitle, workPhrase } from '../ui/phrases.ts'
-import { ActionRow, Dock } from './chat/dock.tsx'
+import { ActionRow, Dock, ViewJumpStrip } from './chat/dock.tsx'
+import { splitChatViews, viewFocusKey, viewReminderLabel } from './chat/inline-views.ts'
 import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
-import { workMarkState } from '../team/mark-state.ts'
+import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
+import { ownWorkOf, workMarkState } from '../team/mark-state.ts'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -289,7 +291,10 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? (agent !== undefined ? agent.sessions.at(-1) ?? '' : id)
   const questions = questionsForChat(team, { room, sessionId })
-  const shownViews = viewsForChat(team, { room, sessionId })
+  const shownViews = useMemo(
+    () => viewsForChat(team, { room, sessionId }),
+    [team?.views, team?.inbox?.items, room?.id, sessionId],
+  )
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => (
     entry.sessionId === sessionId
     || (entry.roomId !== undefined && entry.roomId === room?.id)
@@ -315,7 +320,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     }
     return []
   }, [bot, room, team?.bots])
-  const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
+  const doing = bot !== undefined ? ownWorkOf(team, bot.id) : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const mailRequests = (team?.mailRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
@@ -490,6 +495,72 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     // Inverted list: index 0 sits at the bottom, so the newest row comes first.
     return all.map((item, index) => ({ item, key: keys[index], stamp: room !== undefined || item.local !== undefined ? undefined : stampOf(all, index) })).reverse()
   }, [items, pending, room !== undefined])
+  const { inline: inlineViews, dock: dockViews, inlineByKey } = useMemo(
+    () => splitChatViews(rows, shownViews),
+    [rows, shownViews],
+  )
+  // If a pending view arrived on team state before the chat page fetched its tool call,
+  // refresh once per view id so it can render inline at its call site.
+  const fetchedViewIds = useRef(new Set<string>())
+  useEffect(() => { fetchedViewIds.current.clear() }, [chatKey])
+  useEffect(() => {
+    if (page === null || dockViews.length === 0) return
+    const missing = dockViews.filter(entry => {
+      const vid = `${entry.sessionId}:${entry.view.id ?? entry.view.callId ?? ''}`
+      if (fetchedViewIds.current.has(vid)) return false
+      fetchedViewIds.current.add(vid)
+      return true
+    })
+    if (missing.length > 0) void refresh(generation.current)
+  }, [page, dockViews, refresh])
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+  const scrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRetryCountRef = useRef(0)
+  const scrollRetryRowKeyRef = useRef<string | null>(null)
+  const clearScrollRetry = useCallback(() => {
+    if (scrollRetryTimerRef.current !== null) {
+      clearTimeout(scrollRetryTimerRef.current)
+      scrollRetryTimerRef.current = null
+    }
+    scrollRetryCountRef.current = 0
+    scrollRetryRowKeyRef.current = null
+  }, [])
+  useEffect(() => clearScrollRetry, [chatKey, clearScrollRetry])
+  const jumpToRowKey = useCallback((rowKey: string): boolean => {
+    const index = rowsRef.current.findIndex(row => row.key === rowKey)
+    if (index < 0) return false
+    clearScrollRetry()
+    scrollRetryRowKeyRef.current = rowKey
+    restoredForRef.current = chatKey
+    list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
+    return true
+  }, [chatKey, clearScrollRetry])
+  const handleViewSettled = useCallback(() => {
+    refreshTeam?.()
+    void refresh(generation.current)
+  }, [refreshTeam, refresh])
+  // Opening a chat from Needs you for an inline view scrolls straight to that card.
+  // Compare focusToken by object reference (ShellB passes params object, not a primitive)
+  // and mark handled only once the timer actually runs so a mid-wait refresh reschedules.
+  const jumpedFocusRef = useRef<{ chatKey: string; focus: string; token: unknown } | null>(null)
+  useEffect(() => {
+    if (focus === undefined) return
+    const prev = jumpedFocusRef.current
+    if (prev !== null && prev.chatKey === chatKey && prev.focus === focus && prev.token === focusToken) return
+    const match = inlineViews.find(entry => viewFocusKey(entry) === focus)
+    if (match === undefined) return
+    const targetRowKey = match.rowKey
+    restoredForRef.current = chatKey
+    const timer = setTimeout(() => {
+      if (jumpToRowKey(targetRowKey)) {
+        jumpedFocusRef.current = { chatKey, focus, token: focusToken }
+      }
+    }, 80)
+    return () => clearTimeout(timer)
+  }, [chatKey, focus, focusToken, inlineViews, jumpToRowKey])
+  const inlineViewSig = inlineViews.map(entry => `${entry.rowKey}:${entry.view.id ?? ''}`).join('|')
+  const listExtraData = useMemo(() => ({ openSteps, inlineViewSig }), [openSteps, inlineViewSig])
   // Group rows show each member's name, color and mark; a team refresh that changes
   // none of these keeps the same map, so the rows are not drawn again.
   const memberKey = JSON.stringify((team?.bots ?? []).map(entry => [entry.id, entry.name, entry.color, entry.avatar?.shape, entry.avatar?.imageRef ?? entry.avatar?.image?.length]))
@@ -505,10 +576,11 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
       <ErrorBoundary inline>
         <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
           item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
+          pendingView={inlineByKey.get(row.key)} onViewSettled={handleViewSettled}
           onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
       </ErrorBoundary>
     )
-  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
+  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, inlineByKey, handleViewSettled, openFile, saveFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
   return (
@@ -534,7 +606,24 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
                 data={rows}
                 keyExtractor={row => row.key}
                 renderItem={renderRow}
-                extraData={openSteps}
+                extraData={listExtraData}
+                onScrollToIndexFailed={info => {
+                  list.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: true })
+                  if (scrollRetryCountRef.current >= 3) return
+                  scrollRetryCountRef.current += 1
+                  if (scrollRetryTimerRef.current !== null) clearTimeout(scrollRetryTimerRef.current)
+                  const targetKey = scrollRetryRowKeyRef.current
+                  const fallbackIndex = info.index
+                  scrollRetryTimerRef.current = setTimeout(() => {
+                    scrollRetryTimerRef.current = null
+                    const targetIndex = targetKey !== null
+                      ? rowsRef.current.findIndex(row => row.key === targetKey)
+                      : fallbackIndex
+                    if (targetIndex >= 0 && targetIndex < rowsRef.current.length) {
+                      list.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.5 })
+                    }
+                  }, 120)
+                }}
                 contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
@@ -576,7 +665,15 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined || room !== undefined ? <ComputerCards bot={bot} room={room} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} state={workMarkState(doing ?? roomWork[0])} p={p} dark={dark} /> : null}
-      <Dock questions={questions} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} mailRequests={mailRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} views={shownViews} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      <ViewJumpStrip
+        items={inlineViews.map(entry => ({
+          key: viewFocusKey(entry),
+          label: viewReminderLabel(bot?.name, entry.view.title, t),
+          onJump: () => { jumpToRowKey(entry.rowKey) },
+        }))}
+        p={p}
+      />
+      <Dock questions={questions} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} mailRequests={mailRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} views={dockViews} onViewSettled={handleViewSettled} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} sends={sends} onSend={send} onStop={stop} p={p} />
@@ -718,7 +815,7 @@ function ComputerCards({ bot, room, p }: { bot?: Bot; room?: Room; p: ReturnType
   } | null)?.computerLive
   const asks = computerAsksForChat(team, { bot, room })
   const rawHold = bot !== undefined ? live?.holds?.[bot.id] : undefined
-  const hold = rawHold !== undefined && (rawHold.by === 'bot' || rawHold.fromBot === true || rawHold.callId !== undefined) ? rawHold : undefined
+  const hold = isComputerHandoff(rawHold) ? rawHold : undefined
   const control = bot !== undefined ? live?.bots?.[bot.id] : undefined
   const acting = control !== undefined && control.state !== undefined && control.state !== 'idle'
   const act = (endpoint: string, body: Record<string, unknown>) => { call(endpoint, body).then(() => setError(null), (failure: Error) => setError(failure?.message ?? String(failure))) }

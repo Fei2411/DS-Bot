@@ -11,10 +11,15 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { generateReleaseNotesModule, RELEASE_NOTES_OUTPUT } from './build-release-notes.mjs'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const OUTPUT = join(PLUGIN, 'client.js')
 const PLATFORM_MODULES = ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives']
+
+export function bundleReleaseNotes() {
+  return generateReleaseNotesModule()
+}
 
 export async function bundleClient() {
   const result = await build({
@@ -71,19 +76,31 @@ export async function bundleOffice() {
   return result.outputFiles[0].text
 }
 
+function writeIfChanged(path, content) {
+  try {
+    if (readFileSync(path, 'utf8') === content) return
+  } catch { /* missing file will be created */ }
+  writeFileSync(path, content)
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const next = await bundleClient()
-  const office = await bundleOffice()
+  const releaseNotes = bundleReleaseNotes()
   if (process.argv.includes('--check')) {
-    let current = null, currentOffice = null
+    let currentNotes = null, current = null, currentOffice = null
+    try { currentNotes = readFileSync(RELEASE_NOTES_OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
+    const next = await bundleClient()
+    const office = await bundleOffice()
     try { current = readFileSync(OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
     try { currentOffice = readFileSync(OFFICE_OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
-    if (current !== next || currentOffice !== office) {
-      console.error('client.js or office.js is stale: run `npm run build` in ds-bot and commit the result')
+    if (currentNotes !== releaseNotes || current !== next || currentOffice !== office) {
+      console.error('release-notes-generated.js, client.js or office.js is stale: run `npm run build` in ds-bot and commit the result')
       process.exit(1)
     }
   } else {
-    writeFileSync(OUTPUT, next)
-    writeFileSync(OFFICE_OUTPUT, office)
+    writeIfChanged(RELEASE_NOTES_OUTPUT, releaseNotes)
+    const next = await bundleClient()
+    const office = await bundleOffice()
+    writeIfChanged(OUTPUT, next)
+    writeIfChanged(OFFICE_OUTPUT, office)
   }
 }

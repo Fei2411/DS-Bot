@@ -203,6 +203,8 @@ export function parseAnsiSpans(raw) {
 
 const trimTail = text => (text.length > MAX_CLIENT_BUFFER ? text.slice(text.length - MAX_CLIENT_BUFFER) : text)
 
+const trimmedOutputMarker = () => `\r\n\x1b[2m[${t('Earlier output was trimmed')}]\x1b[0m\r\n`
+
 const isMacPlatform = () => (typeof navigator !== 'undefined'
   && /mac|iphone|ipad|ipod/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? ''))
 
@@ -402,9 +404,30 @@ export function createLocalLineEditor(term, onLine, onEof) {
   }
 }
 
+function canStealFocusForTerminal(hostEl) {
+  if (typeof document === 'undefined') return true
+  if (document.querySelector?.('[aria-modal="true"]')) return false
+  const activeEl = document.activeElement
+  if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true
+  if (hostEl && typeof hostEl.contains === 'function' && hostEl.contains(activeEl)) return true
+  if (typeof activeEl.closest === 'function'
+    && activeEl.closest('[data-bt-composer-input], [data-bt-composer], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+    return false
+  }
+  return true
+}
+
+function matchesFocusTarget(request, termId) {
+  return Boolean(request && request.nonce > 0 && (request.targetId === null || request.targetId === termId))
+}
+
 function TerminalPane({
   term,
   active,
+  paneVisible = true,
+  focusRequest = null,
+  consumedFocusNonceRef,
+  onFocusConsumed = null,
   readOnly,
   writersRef,
   pendingOutputRef,
@@ -415,6 +438,14 @@ function TerminalPane({
   const hostRef = useRef(null)
   const activeRef = useRef(active)
   activeRef.current = active
+  const paneVisibleRef = useRef(paneVisible)
+  paneVisibleRef.current = paneVisible
+  const focusRequestRef = useRef(focusRequest)
+  focusRequestRef.current = focusRequest
+  const onFocusConsumedRef = useRef(onFocusConsumed)
+  onFocusConsumedRef.current = onFocusConsumed
+  const prevActiveRef = useRef(active)
+  const prevVisibleRef = useRef(paneVisible)
   const exitedRef = useRef(term.exited)
   exitedRef.current = term.exited
   const readOnlyRef = useRef(readOnly)
@@ -469,7 +500,7 @@ function TerminalPane({
 
     const runFit = () => {
       fitRaf = 0
-      if (disposed || !activeRef.current) return
+      if (disposed || !activeRef.current || !paneVisibleRef.current) return
       const box = paneRef.current ?? hostEl
       if ((box.offsetWidth ?? 0) <= 0 || (box.offsetHeight ?? 0) <= 0) return
       try {
@@ -542,9 +573,17 @@ function TerminalPane({
       window.addEventListener('resize', onWinResize)
     }
 
-    if (activeRef.current) {
+    if (activeRef.current && paneVisibleRef.current) {
       scheduleFit()
-      xterm.focus()
+      const req = focusRequestRef.current
+      const pendingExplicit = matchesFocusTarget(req, term.id) && req.nonce > (consumedFocusNonceRef?.current ?? 0)
+      if (pendingExplicit) {
+        if (consumedFocusNonceRef) consumedFocusNonceRef.current = req.nonce
+        onFocusConsumedRef.current?.(req.nonce)
+        xterm.focus()
+      } else if (canStealFocusForTerminal(paneRef.current)) {
+        xterm.focus()
+      }
     }
 
     return () => {
@@ -558,12 +597,23 @@ function TerminalPane({
   }, [term.id, writersRef, pendingOutputRef])
 
   useEffect(() => {
-    if (!active) return
+    const wasActive = prevActiveRef.current
+    const wasVisible = prevVisibleRef.current
+    prevActiveRef.current = active
+    prevVisibleRef.current = paneVisible
+    if (!active || !paneVisible) return
     const api = writersRef.current.get(term.id)
     if (!api) return
     api.fit()
-    api.focus()
-  }, [active, term.id, writersRef])
+    const pendingExplicit = matchesFocusTarget(focusRequest, term.id) && focusRequest.nonce > (consumedFocusNonceRef?.current ?? 0)
+    if (pendingExplicit) {
+      if (consumedFocusNonceRef) consumedFocusNonceRef.current = focusRequest.nonce
+      onFocusConsumedRef.current?.(focusRequest.nonce)
+      api.focus()
+    } else if ((!wasActive || !wasVisible) && canStealFocusForTerminal(paneRef.current)) {
+      api.focus()
+    }
+  }, [active, paneVisible, focusRequest, consumedFocusNonceRef, term.id, writersRef])
 
   return h('div', {
     ref: paneRef,
@@ -581,10 +631,29 @@ function TerminalPane({
 /**
  * Interactive local terminal tabs bound to the active Bot/room workspace folder.
  */
-export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenNonce = 0 }) {
+export function WorkspaceTerminal({
+  sessionId,
+  feed,
+  readOnly = false,
+  autoOpenNonce = 0,
+  onConsumeAutoOpenNonce = null,
+  active: paneVisible = true,
+  focusNonce: externalFocusNonce = 0,
+  onConsumeFocusNonce = null,
+}) {
   const [state, setState] = useState({ terms: [], activeId: null })
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState('')
+  const [focusRequest, setFocusRequest] = useState({ nonce: 0, targetId: null })
+  const consumedFocusNonceRef = useRef(0)
+  const lastExternalFocusRef = useRef(0)
+  const pendingExternalFocusRef = useRef(0)
+  const paneVisibleRef = useRef(paneVisible)
+  paneVisibleRef.current = paneVisible
+  const onConsumeFocusNonceRef = useRef(onConsumeFocusNonce)
+  onConsumeFocusNonceRef.current = onConsumeFocusNonce
+  const onConsumeAutoOpenNonceRef = useRef(onConsumeAutoOpenNonce)
+  onConsumeAutoOpenNonceRef.current = onConsumeAutoOpenNonce
   const tabsRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
@@ -598,6 +667,12 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   const pendingExitRef = useRef(new Map())
   const knownIdsRef = useRef(new Set())
   const closedIdsRef = useRef(new Set())
+  const positionsRef = useRef(new Map())
+  const syncRunningRef = useRef(false)
+  const syncAgainRef = useRef(false)
+  const syncFailedRef = useRef(false)
+  const syncPromiseRef = useRef(null)
+  const syncRef = useRef(null)
   const { terms, activeId } = state
 
   useEffect(() => {
@@ -654,7 +729,141 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     return () => box.removeEventListener('wheel', onWheel)
   }, [])
 
-  const openNew = useCallback(async () => {
+  const writeOutput = useCallback((id, chunk) => {
+    if (!chunk || closedIdsRef.current.has(id)) return
+    const writer = writersRef.current.get(id)
+    if (writer) writer.write(chunk)
+    else {
+      const map = pendingOutputRef.current
+      if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
+        const oldest = map.keys().next().value
+        if (oldest !== undefined) map.delete(oldest)
+      }
+      map.set(id, trimTail((map.get(id) ?? '') + chunk))
+    }
+  }, [])
+
+  const requestSync = useCallback(() => {
+    if (syncRunningRef.current) syncAgainRef.current = true
+    else void syncRef.current?.()
+  }, [])
+
+  // Write only the parts after the position this window holds. A part that does not
+  // follow on means the feed dropped something; the catch-up read owns the repair.
+  const noteParts = useCallback((id, parts, truncated = false) => {
+    if (!Array.isArray(parts)) return
+    let marker = truncated
+    for (const part of parts) {
+      if (!Number.isSafeInteger(part?.seq) || typeof part.text !== 'string') continue
+      const held = positionsRef.current.get(id) ?? 0
+      if (part.seq <= held) continue
+      if (part.seq !== held + 1) {
+        if (truncated) marker = true
+        else {
+          requestSync()
+          break
+        }
+      }
+      if (marker) {
+        writeOutput(id, trimmedOutputMarker())
+        marker = false
+      }
+      writeOutput(id, part.text)
+      positionsRef.current.set(id, part.seq)
+    }
+  }, [requestSync, writeOutput])
+
+  const applySyncList = useCallback((list) => {
+    const items = Array.isArray(list) ? list.filter(item => item && item.id && !closedIdsRef.current.has(item.id)) : []
+    const exitStates = new Map()
+    for (const item of items) {
+      if (Array.isArray(item.parts)) noteParts(item.id, item.parts, item.truncated === true)
+      else if (typeof item.snapshot === 'string' && (positionsRef.current.get(item.id) ?? 0) === 0) {
+        if ((item.start ?? 1) > 1) writeOutput(item.id, trimmedOutputMarker())
+        writeOutput(item.id, trimTail(item.snapshot))
+      }
+      if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end && !Array.isArray(item.parts)) {
+        positionsRef.current.set(item.id, item.end)
+      }
+      const pendingExit = pendingExitRef.current.get(item.id)
+      pendingExitRef.current.delete(item.id)
+      knownIdsRef.current.add(item.id)
+      exitStates.set(item.id, {
+        exited: item.exited === true || pendingExit?.exited === true,
+        exitCode: item.exitCode ?? pendingExit?.exitCode ?? null,
+      })
+    }
+    setState((current) => {
+      const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
+      const byId = new Map(liveCurrent.map(item => [item.id, item]))
+      const fresh = []
+      for (const item of items) {
+        const exitState = exitStates.get(item.id) ?? { exited: false, exitCode: null }
+        const next = {
+          id: item.id,
+          cwd: item.cwd,
+          title: item.title,
+          pty: item.pty !== false,
+          exited: exitState.exited,
+          exitCode: exitState.exitCode,
+          initialSnapshot: '',
+        }
+        if (byId.has(item.id)) byId.set(item.id, { ...byId.get(item.id), ...next, initialSnapshot: byId.get(item.id).initialSnapshot ?? '' })
+        else fresh.push(next)
+      }
+      const kept = liveCurrent.map(item => byId.get(item.id) ?? item)
+      const nextTerms = [...kept, ...fresh]
+      const keepActive = current.activeId && !closedIdsRef.current.has(current.activeId) && nextTerms.some(item => item.id === current.activeId)
+      return { terms: nextTerms, activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null) }
+    })
+    return items.length
+  }, [noteParts, writeOutput])
+
+  const syncTerminals = useCallback(async () => {
+    if (readOnly) return null
+    if (syncPromiseRef.current) {
+      syncAgainRef.current = true
+      return syncPromiseRef.current
+    }
+    const run = (async () => {
+      syncRunningRef.current = true
+      let count = 0
+      let ok = false
+      try {
+        do {
+          syncAgainRef.current = false
+          const positions = Object.fromEntries(positionsRef.current)
+          const list = await call('terminal-list', { positions })
+          if (!mountedRef.current) return count
+          count = Math.max(count, applySyncList(list))
+          ok = true
+          syncFailedRef.current = false
+        } while (syncAgainRef.current)
+      } catch {
+        syncFailedRef.current = true
+        // The next feed hello tries again; terminal output itself never replaces what is held.
+      } finally {
+        syncRunningRef.current = false
+      }
+      return ok ? count : null
+    })()
+    syncPromiseRef.current = run
+    try {
+      return await run
+    } finally {
+      if (syncPromiseRef.current === run) syncPromiseRef.current = null
+    }
+  }, [readOnly, applySyncList])
+  syncRef.current = syncTerminals
+
+  const handleFocusConsumed = useCallback(() => {
+    const pending = pendingExternalFocusRef.current
+    if (!pending) return
+    pendingExternalFocusRef.current = 0
+    onConsumeFocusNonceRef.current?.(pending)
+  }, [])
+
+  const openNew = useCallback(async ({ focus = false } = {}) => {
     if (readOnly) return
     openedOnceRef.current = true
     setOpening(true)
@@ -668,6 +877,10 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
       const pendingExit = pendingExitRef.current.get(created.id)
       pendingExitRef.current.delete(created.id)
       knownIdsRef.current.add(created.id)
+      if ((pendingExit?.end ?? 0) > (positionsRef.current.get(created.id) ?? 0)) requestSync()
+      if (focus && paneVisibleRef.current) {
+        setFocusRequest(prev => ({ nonce: prev.nonce + 1, targetId: created.id }))
+      }
       setState((current) => {
         if (current.terms.some(item => item.id === created.id)) {
           return { ...current, activeId: created.id }
@@ -693,93 +906,71 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   }, [sessionId, readOnly])
   openNewRef.current = openNew
 
-  // Load existing live terminals once on mount, skipping any synchronously closed ids and
-  // merging cleanly so a concurrent `terminal-open` is never overwritten.
+  // Load existing live terminals once on mount. The same positional sync repairs every
+  // later feed reconnect; output already collected for not-yet-mounted xterms is stashed.
   useEffect(() => {
     if (readOnly) return undefined
     let alive = true
-    void call('terminal-list', {})
-      .then((list) => {
-        if (!alive || !Array.isArray(list)) return
-        const mapped = list
-          .filter(item => item && item.id && !closedIdsRef.current.has(item.id))
-          .map((item) => {
-            const pendingExit = pendingExitRef.current.get(item.id)
-            pendingExitRef.current.delete(item.id)
-            knownIdsRef.current.add(item.id)
-            return {
-              id: item.id,
-              cwd: item.cwd,
-              title: item.title,
-              pty: item.pty !== false,
-              exited: item.exited === true || pendingExit?.exited === true,
-              exitCode: item.exitCode ?? pendingExit?.exitCode ?? null,
-              initialSnapshot: trimTail(String(item.snapshot ?? '')),
-            }
-          })
-        setState((current) => {
-          const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
-          const existing = new Set(liveCurrent.map(item => item.id))
-          const missing = mapped.filter(item => !existing.has(item.id))
-          const nextTerms = liveCurrent.length === 0
-            ? mapped
-            : (missing.length === 0 ? liveCurrent : [...missing, ...liveCurrent])
-          const keepActive = current.activeId
-            && !closedIdsRef.current.has(current.activeId)
-            && nextTerms.some(item => item.id === current.activeId)
-          return {
-            terms: nextTerms,
-            activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null),
-          }
-        })
-        if (mapped.length > 0) {
-          openedOnceRef.current = true
-        } else if (!openedOnceRef.current && !autoOpenNonceRef.current) {
-          void openNewRef.current?.()
-        }
-      })
-      .catch(() => {})
+    void syncRef.current?.().then((count) => {
+      if (!alive || count === null) return
+      if (count > 0) openedOnceRef.current = true
+      else if (!openedOnceRef.current && !autoOpenNonceRef.current) void openNewRef.current?.()
+    })
     return () => { alive = false }
   }, [readOnly])
 
   // Triggered explicitly when the user selects "Terminal" from a menu.
   useEffect(() => {
-    if (!autoOpenNonce || autoOpenNonce === lastAutoNonceRef.current || readOnly) return
+    if (!autoOpenNonce) {
+      lastAutoNonceRef.current = 0
+      return
+    }
+    if (autoOpenNonce === lastAutoNonceRef.current || readOnly) return
     lastAutoNonceRef.current = autoOpenNonce
     openedOnceRef.current = true
-    void openNew()
+    onConsumeAutoOpenNonceRef.current?.(autoOpenNonce)
+    void openNew({ focus: true })
   }, [autoOpenNonce, readOnly, openNew])
+
+  // Triggered explicitly by keyboard shortcut (e.g. Ctrl+`) to focus the active terminal without spawning a new PTY.
+  useEffect(() => {
+    if (!externalFocusNonce) {
+      lastExternalFocusRef.current = 0
+      pendingExternalFocusRef.current = 0
+      return
+    }
+    if (externalFocusNonce === lastExternalFocusRef.current || readOnly) return
+    lastExternalFocusRef.current = externalFocusNonce
+    pendingExternalFocusRef.current = externalFocusNonce
+    setFocusRequest(prev => ({ nonce: prev.nonce + 1, targetId: null }))
+  }, [externalFocusNonce, readOnly])
 
   // Subscribe to live terminal output and exit events on the shared local SSE feed.
   useEffect(() => {
     if (!feed) return undefined
-    const stashOutput = (id, chunk) => {
-      const map = pendingOutputRef.current
-      if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
-        const oldest = map.keys().next().value
-        if (oldest !== undefined) map.delete(oldest)
-      }
-      map.set(id, trimTail((map.get(id) ?? '') + chunk))
-    }
-    const stashExit = (id, code) => {
+    const stashExit = (id, code, end) => {
       const map = pendingExitRef.current
       if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
         const oldest = map.keys().next().value
         if (oldest !== undefined) map.delete(oldest)
       }
-      map.set(id, { exited: true, exitCode: code ?? null })
+      map.set(id, { exited: true, exitCode: code ?? null, end: Number.isSafeInteger(end) ? end : 0 })
     }
     return feed.on((event, data) => {
+      if (event === 'hello') {
+        if (data?.resumed !== true || syncFailedRef.current) void syncRef.current?.()
+        return
+      }
       if (!data?.id || closedIdsRef.current.has(data.id)) return
       if (event === 'terminal' && typeof data.chunk === 'string') {
-        const writer = writersRef.current.get(data.id)
-        if (writer) writer.write(data.chunk)
-        else stashOutput(data.id, data.chunk)
+        if (Array.isArray(data.parts)) noteParts(data.id, data.parts)
+        else writeOutput(data.id, data.chunk)
       } else if (event === 'terminal-exit') {
         if (!knownIdsRef.current.has(data.id)) {
-          stashExit(data.id, data.code)
+          stashExit(data.id, data.code, data.end)
           return
         }
+        if (Number.isSafeInteger(data.end) && data.end > (positionsRef.current.get(data.id) ?? 0)) requestSync()
         setState(current => ({
           ...current,
           terms: current.terms.map(item => (item.id === data.id
@@ -788,7 +979,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
         }))
       }
     })
-  }, [feed])
+  }, [feed, noteParts, requestSync, writeOutput])
 
   const sendInput = useCallback(async (id, data) => {
     if (readOnly || closedIdsRef.current.has(id)) return
@@ -815,6 +1006,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     knownIdsRef.current.delete(id)
     pendingOutputRef.current.delete(id)
     pendingExitRef.current.delete(id)
+    positionsRef.current.delete(id)
     const writer = writersRef.current.get(id)
     writersRef.current.delete(id)
     writer?.dispose?.()
@@ -833,6 +1025,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   }, [])
 
   const selectTerm = useCallback((id) => {
+    setFocusRequest(prev => ({ nonce: prev.nonce + 1, targetId: id }))
     setState(current => (current.activeId === id ? current : { ...current, activeId: id }))
   }, [])
 
@@ -846,7 +1039,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     api?.focus()
   }
 
-  return h('div', { className: 'dsb-term' },
+  return h('div', { className: 'dsb-term', 'data-session-id': sessionId || undefined },
     h('div', { className: 'dsb-term-bar' },
       h('div', { ref: tabsRef, className: 'dsb-term-tabs', role: 'tablist' },
         terms.map((term, idx) => h('div', {
@@ -884,7 +1077,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
           disabled: opening || readOnly,
           'aria-label': t('New terminal'),
           title: t('New terminal'),
-          onClick: () => { void openNew() },
+          onClick: () => { void openNew({ focus: true }) },
         }, h(PlusIcon)))),
     error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error)) : null,
     readOnly
@@ -892,7 +1085,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
       : terms.length === 0
         ? h('div', { className: 'dsb-rp-empty' },
           h('p', null, t('No open terminals')),
-          h('button', { type: 'button', className: 'bt-soft', disabled: opening, onClick: () => { void openNew() } },
+          h('button', { type: 'button', className: 'bt-soft', disabled: opening, onClick: () => { void openNew({ focus: true }) } },
             h(TerminalIcon), t('New terminal')))
         : h('div', { className: 'dsb-term-stage' },
           active ? h('div', { className: 'dsb-term-cwd-bar' },
@@ -902,6 +1095,10 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
             key: term.id,
             term,
             active: term.id === active?.id,
+            paneVisible,
+            focusRequest,
+            consumedFocusNonceRef,
+            onFocusConsumed: handleFocusConsumed,
             readOnly,
             writersRef,
             pendingOutputRef,

@@ -112,7 +112,7 @@ export function flushDrafts(storage = globalThis.localStorage) {
 
 /**
  * The chat a Session belongs to, with the part its composer is current on.
- * @param {{ byId?: object, roomsById?: object }} roster
+ * @param {{ byId?: object, roomsById?: object, agentOf?: object, agents?: readonly { sessions?: readonly string[] }[] }} roster
  * @param {string} sessionId
  * @returns {{ id: string, part: string } | undefined}
  */
@@ -124,6 +124,9 @@ export function chatOfSession(roster, sessionId) {
   if (bot !== undefined) return { id: bot.id, part: currentPart(bot) }
   const room = roster?.roomsById?.[sessionId] ?? rooms.find(item => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId))
   if (room !== undefined) return { id: room.id, part: room.sessionId ?? room.id }
+  if (roster?.agentOf?.[sessionId] !== undefined || roster?.agents?.some?.(agent => agent?.sessions?.includes?.(sessionId))) {
+    return { id: sessionId, part: sessionId }
+  }
   return undefined
 }
 
@@ -135,6 +138,33 @@ export function chatOfSession(roster, sessionId) {
 export function keepDraftFiles({ chatId, part, files }) {
   if (files.length === 0) keptFiles.delete(chatId)
   else keptFiles.set(chatId, { part, files: [...files] })
+}
+
+/**
+ * Update only the stored text draft for a chat while keeping any in-memory files
+ * already held for that chat intact (e.g. a queued-message withdrawal that finishes
+ * after the user switched to another chat).
+ * @param {{ chatId: string, part: string, text: string }} draft
+ * @param {Storage} [storage]
+ */
+export function keepDraftText({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true })
+  const texts = entry.texts
+  const before = texts[chatId]
+  let changed = false
+  if (text === '') {
+    if (before !== undefined) {
+      delete texts[chatId]
+      changed = true
+    }
+  } else if (before?.part !== part || before?.text !== text) {
+    texts[chatId] = { part, text }
+    changed = true
+  }
+  if (changed) {
+    entry.dirtyKeys.add(chatId)
+    writeEntry(storage, entry)
+  }
 }
 
 /**

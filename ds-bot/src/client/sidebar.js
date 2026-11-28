@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
-import { isMainOf } from './sources.js'
+import { isMainOf, sectionCollapsed } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
@@ -13,14 +13,14 @@ import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_TAP, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
+import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_SLIDE, SPRING_TAP, liveSprings, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
-import { chatRoom, dshCollapsed } from './frame-watch.js'
-import { useEscape } from './overlay-hooks.js'
+import { chatRoom, dshCollapsed } from './chat-room.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { InboxEntry, waitLineOf, waitsOf } from './inbox.js'
 
 // Maximum retries to collapse DSH's own sidebar before stopping, so a shell that
@@ -538,8 +538,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-entering': entering || undefined, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
+function LeftColumn({ columnRef, mode, width, onGrip, leaving, children }) {
+  return createPortal(h('div', { ref: columnRef, className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -589,6 +589,7 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const sectionFolds = useUi(value => value.sectionFolds)
   const inboxOpen = useUi(value => value.inbox === true)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
@@ -602,11 +603,12 @@ export function TeamSidebar(props) {
   // hide takes precedence so toggling the sidebar mid-drag aborts the drag.
   const [drag, setDrag] = useState(null)
   const mode = layout.left === 'hidden' ? 'hidden' : (drag?.left ?? layout.left)
-  // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
-  const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
-  const shown = held ?? mode
-  const firstColumn = useRef(true)
-  useLayoutEffect(() => { if (shown === 'hidden') firstColumn.current = false }, [shown])
+  // A hidden column stays mounted until the slide spring reaches rest; `shown` is
+  // the last visible mode it slides out from.
+  const leftColRef = useRef(null)
+  const [heldMode, setHeldMode] = useState(mode === 'hidden' ? null : mode)
+  const shown = mode !== 'hidden' ? mode : (heldMode ?? 'hidden')
+  const leaving = mode === 'hidden' && heldMode !== null
   const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
@@ -623,7 +625,13 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const sections = roster.sections ?? []
+  const sections = useMemo(() => {
+    const sections = roster.sections ?? []
+    return sectionFolds ? sections.map(section => {
+      const collapsed = sectionCollapsed(section, sectionFolds)
+      return collapsed === section.collapsed ? section : { ...section, collapsed }
+    }) : sections
+  }, [roster.sections, sectionFolds])
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
@@ -667,25 +675,196 @@ export function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
   const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
+  const collapsedWidth = frameSnap.collapsedWidth ?? 0
+  const targetMargin = Math.max(0, pushed - collapsedWidth)
+  const targetSlide = mode === 'hidden' ? 0 : (mode === 'rail' ? RAIL_WIDTH : openWidth)
   const settleTimer = useRef(0)
   const springTimer = useRef(0)
   const activeDrag = useRef(null)
   const dragRef = useRef(drag)
   dragRef.current = drag
-  const collapsedWidthRef = useRef(frameSnap.collapsedWidth ?? 0)
-  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0
+  const collapsedWidthRef = useRef(collapsedWidth)
+  collapsedWidthRef.current = collapsedWidth
   const modeRef = useRef(mode)
   modeRef.current = mode
+  // One critically damped spring drives .bt-leftcol's transform, _centerCol's
+  // left margin, and any open .bt-pane in the exact same animation frame commit.
+  // Keeping all three on the same frame prevents the compositor thread from
+  // running ahead of main-thread layout (which previously detached the scrollbar
+  // and painted the transparent macOS sidebar over the chat) and lets mid-flight
+  // reversals turn smoothly with preserved velocity.
+  const slideRef = useRef(null)
+  if (slideRef.current === null) {
+    const snapPx = (value) => {
+      const dpr = (typeof window !== 'undefined' && Number(window.devicePixelRatio) > 0) ? window.devicePixelRatio : 1
+      return Math.round(value * dpr) / dpr
+    }
+    const state = {
+      initialized: false,
+      prevHidden: false,
+      prevViewport: 0,
+      docked: shown !== 'drawer',
+      collapsedWidth,
+      width: ourWidth,
+      finalMargin: targetMargin,
+      finalPushed: pushed,
+      activeCols: [],
+      activePanes: [],
+      snapPx,
+      clearInline(restorePanes) {
+        for (const col of state.activeCols) col.style.removeProperty('margin-left')
+        state.activeCols = []
+        for (const pane of state.activePanes) {
+          if (restorePanes && pane.isConnected) pane.style.left = `${state.finalPushed}px`
+        }
+        state.activePanes = []
+      },
+      settle() {
+        state.springs.stop()
+        if (typeof document !== 'undefined') chatRoom.setLeft(state.finalMargin)
+        state.clearInline(true)
+        const col = leftColRef.current
+        if (col) {
+          delete col.dataset.sliding
+          col.style.transform = modeRef.current === 'hidden' ? `translate3d(${-state.width}px,0,0)` : ''
+        }
+        state.springs.seed({
+          slide: modeRef.current === 'hidden' ? 0 : state.width,
+          margin: state.finalMargin,
+          pane: state.finalPushed,
+        })
+      },
+      stop(clearDom) {
+        state.springs.stop()
+        if (!clearDom) return
+        state.clearInline(false)
+        const col = leftColRef.current
+        if (col) {
+          delete col.dataset.sliding
+          col.style.transform = ''
+        }
+      },
+      springs: null,
+    }
+    state.springs = liveSprings((values, moving) => {
+      const col = leftColRef.current
+      const width = state.width
+      if (moving) {
+        const slide = Math.max(0, Math.min(width, snapPx(values.slide)))
+        // When docked, derive margin directly from slide so a host with a non-zero
+        // collapsed track (e.g. 56px) stays flush with the column's right edge.
+        const margin = state.docked
+          ? Math.max(0, snapPx(slide - state.collapsedWidth))
+          : Math.max(0, snapPx(values.margin))
+        const paneLeft = state.docked ? slide : Math.max(0, snapPx(values.pane))
+        if (col) {
+          col.dataset.sliding = ''
+          col.style.transform = `translate3d(${Math.min(0, slide - width)}px,0,0)`
+        }
+        if (state.activeCols.length > 0) {
+          for (const center of state.activeCols) center.style.setProperty('margin-left', `${margin}px`, 'important')
+        } else if (typeof document !== 'undefined') {
+          chatRoom.setLeft(margin)
+        }
+        for (const pane of state.activePanes) pane.style.left = `${paneLeft}px`
+        return
+      }
+      if (typeof document !== 'undefined') chatRoom.setLeft(state.finalMargin)
+      state.clearInline(true)
+      if (col) {
+        delete col.dataset.sliding
+        // Keep the column parked off-screen until React unmounts it on hide.
+        col.style.transform = modeRef.current === 'hidden' ? `translate3d(${-width}px,0,0)` : ''
+      }
+      if (modeRef.current === 'hidden') setHeldMode(null)
+    })
+    slideRef.current = state
+  }
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
+    const state = slideRef.current
     const current = activeDrag.current
+    let abortedDrag = false
     if (current !== null && (mode === 'hidden' || (current.settling && (mode !== current.landedMode || pushed !== current.landedPushed)))) {
       current.cancel(false)
+      abortedDrag = true
     }
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [mode, pushed, frameSnap.collapsedWidth])
+    if (mode !== 'hidden') setHeldMode(mode)
+    const docked = shown !== 'drawer'
+    if (activeDrag.current !== null) {
+      state.springs.seed({ slide: targetSlide, margin: targetMargin, pane: pushed })
+      state.docked = docked
+      state.collapsedWidth = collapsedWidth
+      state.width = ourWidth
+      state.finalMargin = targetMargin
+      state.finalPushed = pushed
+      state.prevHidden = mode === 'hidden'
+      state.prevViewport = frameSnap.viewport
+      chatRoom.setLeft(targetMargin)
+      return
+    }
+    const isHidden = mode === 'hidden'
+    const col = leftColRef.current
+    const curves = { slide: SPRING_SLIDE, margin: SPRING_SLIDE, pane: SPRING_SLIDE }
+    if (!state.initialized) {
+      state.initialized = true
+      state.prevHidden = isHidden
+      state.prevViewport = frameSnap.viewport
+      state.docked = docked
+      state.collapsedWidth = collapsedWidth
+      state.width = ourWidth
+      state.finalMargin = targetMargin
+      state.finalPushed = pushed
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true)
+      return
+    }
+    const hiddenChanged = isHidden !== state.prevHidden
+    const viewportChanged = frameSnap.viewport !== state.prevViewport
+    state.prevHidden = isHidden
+    state.prevViewport = frameSnap.viewport
+    state.docked = docked
+    state.collapsedWidth = collapsedWidth
+    state.width = ourWidth
+    state.finalMargin = targetMargin
+    state.finalPushed = pushed
+    const inFlight = state.springs.isRunning()
+    const canAnimate = typeof requestAnimationFrame === 'function' && !reducedMotion() && !viewportChanged
+    if (abortedDrag && col) {
+      // Reconcile any direct DOM width written by startDrag before the slide starts.
+      col.style.width = `${ourWidth}px`
+    }
+    if (!canAnimate || (!hiddenChanged && !inFlight)) {
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true)
+      return
+    }
+    // If an active or settling drag was aborted by hiding, seed from the reconciled
+    // column width so .bt-leftcol width, state.width, and _centerCol margin match 1:1.
+    if (abortedDrag) {
+      const startPushed = docked ? ourWidth : RAIL_WIDTH
+      const startMargin = Math.max(0, startPushed - collapsedWidth)
+      state.springs.seed({ slide: ourWidth, margin: startMargin, pane: startPushed })
+      chatRoom.setLeft(startMargin)
+    }
+    state.activeCols = chatRoom.columns()
+    state.activePanes = [...document.querySelectorAll('.bt-pane')]
+    // Keep open panes pinned at the spring's current edge before first paint, since
+    // Overlays already updated their React `left` prop to the final target in this commit.
+    const liveNow = state.springs.current()
+    if (liveNow !== null && state.activePanes.length > 0) {
+      const paneNow = docked
+        ? Math.max(0, Math.min(ourWidth, state.snapPx(liveNow.slide)))
+        : Math.max(0, state.snapPx(liveNow.pane))
+      for (const pane of state.activePanes) pane.style.left = `${paneNow}px`
+    }
+    if (!isHidden && !inFlight && col) {
+      col.dataset.sliding = ''
+      col.style.transform = `translate3d(${-ourWidth}px,0,0)`
+    }
+    state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, false)
+  }, [mode, shown, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport])
   useEffect(() => () => {
     activeDrag.current?.cancel(false)
+    slideRef.current?.stop(true)
     if (typeof document !== 'undefined') chatRoom.setLeft(null)
   }, [])
 
@@ -699,6 +878,7 @@ export function TeamSidebar(props) {
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
+    slideRef.current?.settle()
     activeDrag.current?.cancel(false)
     const grip = event.currentTarget
     const column = grip.parentElement
@@ -734,10 +914,10 @@ export function TeamSidebar(props) {
     }
     const springOn = () => {
       column.dataset.folding = ''
-      for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, 'important')
-      springUntil = performance.now() + SPRING_SHAPE.duration
+      for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}`, 'important')
+      springUntil = performance.now() + SPRING_SLIDE.duration
       if (springTimer.current) clearTimeout(springTimer.current)
-      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
+      springTimer.current = setTimeout(springOff, SPRING_SLIDE.duration)
     }
     const track = (x) => {
       const prev = last
@@ -845,7 +1025,7 @@ export function TeamSidebar(props) {
       retryScope.current = { wide, collapsed: frameSnap.collapsed }
       collapseRetries.current = 0
     }
-    const collapsed = dshCollapsed() ?? !wide
+    const collapsed = dshCollapsed() ?? (props.useFrame ? frameSnap.collapsed : !wide)
     const prev = dsh.current
     const viewport = window.innerWidth
     dsh.current = { collapsed, viewport }
@@ -986,9 +1166,10 @@ export function TeamSidebar(props) {
         onDropSec,
       }))),
     foot)
+  const hideTitleToggle = props.hideTitleToggle === true
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
-    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
+    hideTitleToggle ? null : h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
+    shown === 'hidden' ? null : h(LeftColumn, { columnRef: leftColRef, mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -1003,16 +1184,15 @@ function UpdateButton({ useUpdate, actions }) {
   const [error, setError] = useState('')
   const [dshError, setDshError] = useState('')
   const button = useRef(null)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && (event.target.closest('.bt-update-pop') || button.current?.contains(event.target))) return
       setOpen(false)
     }
-    const onKey = (event) => { if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() } }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [open])
   const phase = update?.phase ?? 'idle'
   const dsh = update?.dsh
@@ -1126,6 +1306,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
   const button = useRef(null)
   const menuRef = useRef(null)
   useEffect(() => { if (settingsOpen) setOpen(false) }, [settingsOpen])
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
@@ -1133,8 +1314,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setOpen(false)
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() }
+      stepMenuFocus(menuRef.current, event, button.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -1195,7 +1375,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
-      [t('Scheduled tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      [t('Scheduled tasks'), ClockIcon, () => (typeof actions.selectPanel === 'function' ? actions.selectPanel('schedules') : actions.openSettings('schedules'))],
       [t('Settings'), GearIcon, () => actions.openSettings('overview')],
     ].filter(Boolean),
     typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
@@ -1216,7 +1396,14 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
           index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
           group.map(([label, Icon, run, hint, stay]) => h('button', {
             key: label, type: 'button', role: 'menuitem',
-            onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
+            onClick: () => {
+              if (stay !== true) setOpen(false)
+              try {
+                void Promise.resolve(run()).catch(error => actions.reportError?.(error, 'menu'))
+              } catch (error) {
+                actions.reportError?.(error, 'menu')
+              }
+            },
           }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
 }
 
@@ -1266,7 +1453,7 @@ function mainAvatarPlace(roster) {
 }
 
 // The avatar's box where the team column comes to rest. The column slides in when expanded
-// (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
+// (from off the left edge), and measured mid-slide the avatar would be
 // outside the page and the whale would have nowhere to land; offsetLeft and offsetTop leave the
 // slide's transform out.
 function restingBox(mark) {
@@ -1459,10 +1646,6 @@ export const SIDEBAR_CSS = `
 .bt-rail .bt-row{position:relative}
 .bt-rail .bt-pin{position:absolute;top:1px;left:calc(50% + 14px)}
 .bt-side .bt-read-only{margin:4px 8px 6px;padding:8px 10px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:1.45;text-align:left}
-[class*="_footArea"]:has(.bt-foot-account){grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px}
-[class*="_footArea"]>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;order:1;display:inline-flex}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"]{grid-column:3}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"] button[class*="_trigger"] [class*="_label"]{display:none!important}
 
 /* The update cloud springs in when a newer DS Bot shows up; its arrow drops in a
    loop while the install runs. */
@@ -1497,7 +1680,7 @@ export const SIDEBAR_CSS = `
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-agent-sub[data-open]{grid-template-rows:1fr}
 .bt-agent-sub-in{overflow:hidden;min-height:0;margin-left:44px}
-.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
 /* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
@@ -1507,7 +1690,7 @@ export const SIDEBAR_CSS = `
 .bt-agent-new{color:var(--bt-ink-3)}
 .bt-agent-new svg{width:14px;height:14px;flex:none}
 .bt-agent-edit{padding:3px 10px 3px 4px}
-.bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
+.bt-agent-edit input{width:100%;box-sizing:border-box;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
 @keyframes bt-agent-row-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
@@ -1551,7 +1734,7 @@ export const SIDEBAR_CSS = `
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-sec-act svg{width:13px;height:13px}
 .bt-sec-edit{display:flex;align-items:center;height:30px;padding:0 4px}
-.bt-sec-edit input{width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-sec-edit input{width:100%;box-sizing:border-box;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-sec-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-sec[data-collapsed=true] .bt-sec-body{grid-template-rows:0fr}
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}

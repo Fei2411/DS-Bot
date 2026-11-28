@@ -303,15 +303,22 @@ export function install(rt) {
 
   let ledger
   let opening
+  let disposed = false
+  let scanAbort
   // Metered calls that finish before the ledger opens.
   const early = []
+  // Active metered streams that already observed a usage chunk before finalizing.
+  const activeMeters = new Set()
   function openLedger() {
+    if (disposed) return Promise.resolve(memoryLedger())
     if (ledger !== undefined) return Promise.resolve(ledger)
     const job = opening ??= (async () => {
       let DatabaseSync
       try {
         ({ DatabaseSync } = await import('node:sqlite'))
+        if (disposed) return memoryLedger()
         await mkdir(home, { recursive: true })
+        if (disposed) return memoryLedger()
       } catch (error) {
         rt.warn('ds-bot: usage is kept in memory only: %s', error)
         return memoryLedger()
@@ -321,8 +328,12 @@ export function install(rt) {
       // ledger would be deleted under it.
       const damaged = error => /malformed|not a database|corrupt/i.test(String(error?.message ?? error))
       for (const fresh of [false, true]) {
+        if (disposed) return memoryLedger()
         try {
-          if (fresh) await unlink(path).catch(() => {})
+          if (fresh) {
+            await unlink(path).catch(() => {})
+            if (disposed) return memoryLedger()
+          }
           return sqliteLedger(DatabaseSync, path)
         } catch (error) {
           if (fresh || !damaged(error)) {
@@ -334,7 +345,7 @@ export function install(rt) {
       return memoryLedger()
     })().then((opened) => {
       // The plugin may have been disposed while the file opened.
-      if (opening !== job) {
+      if (disposed || opening !== job) {
         opened.close()
         return memoryLedger()
       }
@@ -344,12 +355,26 @@ export function install(rt) {
     return job
   }
   ctx.effect(() => () => {
+    // Persist any usage already observed by active metered streams before closing the DB.
+    if (ledger !== undefined) {
+      for (const meter of activeMeters) meter.flush(ledger)
+    }
+    activeMeters.clear()
+    disposed = true
+    scanAbort?.abort()
+    scanAbort = undefined
+    const pending = opening
+    opening = undefined
     ledger?.close()
     ledger = undefined
-    opening = undefined
+    early.length = 0
     listed = []
     journaled.clear()
     unreadable.clear()
+    return pending?.then(() => {
+      ledger?.close()
+      ledger = undefined
+    }, () => {})
   }, 'ds-bot: usage ledger')
 
   // Who each Session's calls belong to, from the team as it is now. Sessions forked or
@@ -416,33 +441,37 @@ export function install(rt) {
     unreadable.add(sessionId)
   }
 
-  async function scanSession(ledger, address, asOfSeq, seal, signal) {
+  async function scanSession(book, address, asOfSeq, seal, signal) {
+    if (disposed || book !== ledger) return
     const sessionId = address.kind === 'session' ? address.sessionId : address.childSessionId
-    const mark = ledger.mark(sessionId)
+    const mark = book.mark(sessionId)
     // A seal stands only while the listing shows the watermark it was sealed at, so a
     // cold Session whose log grew since is read again.
     if (mark?.sealed && seal !== undefined && mark.listed === seal.listed) return
     let through = asOfSeq
     if (through === undefined) {
       const projections = await ctx.sessionController.projections({ sessionId }, signal)
+      if (disposed || book !== ledger) return
       if (projections === null || projections === undefined) return
       through = projections.asOfSeq
     }
     const from = mark?.through ?? -1
     if (!Number.isSafeInteger(through) || through <= from) {
       // Nothing new to read: a warm Session's seal is cleared, and a cold one is sealed again at its watermark.
-      if (mark !== undefined && (seal !== undefined || mark.sealed)) ledger.commit(sessionId, { rows: [], reset: false, mark: { ...mark, ...sealFields(seal) } })
+      if (mark !== undefined && (seal !== undefined || mark.sealed)) book.commit(sessionId, { rows: [], reset: false, mark: { ...mark, ...sealFields(seal) } })
       return
     }
     const events = []
     let beforeSeq
     for (let reached = false; !reached;) {
+      if (disposed || book !== ledger) return
       const page = await ctx.sessionController.page({
         address,
         throughSeq: through,
         ...(beforeSeq === undefined ? {} : { beforeSeq }),
         maxMessages: PAGE_MESSAGES,
       }, AbortSignal.any([signal, AbortSignal.timeout(PAGE_TIMEOUT_MS)]))
+      if (disposed || book !== ledger) return
       const got = page.records.map(record => record.event)
       for (let index = got.length - 1; index >= 0; index -= 1) {
         if (got[index].seq <= from) {
@@ -454,10 +483,11 @@ export function install(rt) {
       if (!page.hasMore || got.length === 0) break
       beforeSeq = got[0].seq
     }
+    if (disposed || book !== ledger) return
     events.reverse()
     if (events.length > 0 && events[0].seq !== from + 1) throw new Error(`the history of ${sessionId} came back with a gap`)
     const fold = foldCalls(events, mark?.fold)
-    ledger.commit(sessionId, {
+    book.commit(sessionId, {
       rows: fold.rows.map(row => ({ ...row, key: `${sessionId}#${row.key}`, session: sessionId, kind: 'turn' })),
       reset: fold.reset,
       mark: { through, fold: fold.state, ...sealFields(seal) },
@@ -467,32 +497,40 @@ export function install(rt) {
   // Catches every known Session up to its log. A part that ended a while ago is
   // complete, so it is sealed and never read again.
   function scan() {
+    if (disposed) return Promise.resolve()
     if (scanning !== undefined) return scanning
     if (Date.now() - scannedAt < RESCAN_AFTER_MS) return Promise.resolve()
+    const abort = new AbortController()
+    scanAbort = abort
     const job = (async () => {
-      const ledger = await openLedger()
+      const book = await openLedger()
+      if (disposed || book !== ledger) return
       await rt.load()
-      const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS)
+      if (disposed || book !== ledger) return
+      const signal = AbortSignal.any([AbortSignal.timeout(SCAN_TIMEOUT_MS), abort.signal])
       let items = []
       try {
         items = (await ctx.sessionController.list({}, signal)).items ?? []
+        if (disposed || book !== ledger) return
         listed = items
           .filter(item => item?.parentSessionId)
           .map(item => ({ sessionId: item.sessionId, parentSessionId: item.parentSessionId }))
         listedVersion += 1
       } catch (error) {
+        if (disposed || abort.signal.aborted) return
         rt.warn('ds-bot: usage could not list the Sessions: %s', error)
       }
-      const stored = ledger.owners()
+      if (disposed || book !== ledger) return
+      const stored = book.owners()
       const owners = liveOwners(listed, stored)
       for (const [sessionId, owner] of owners) {
         const before = stored.get(sessionId)
-        if (owner.name !== '' && (before?.owner !== owner.owner || before?.name !== owner.name)) ledger.setOwner(sessionId, owner)
+        if (owner.name !== '' && (before?.owner !== owner.owner || before?.name !== owner.name)) book.setOwner(sessionId, owner)
       }
       // Group membership vanishes with the room, but a call that happened in a
       // group chat must stay one, so the kind is remembered like the owner is.
-      const storedKinds = ledger.kinds()
-      for (const sessionId of inGroup()) if (storedKinds.get(sessionId) !== 'group') ledger.setKind(sessionId, 'group')
+      const storedKinds = book.kinds()
+      for (const sessionId of inGroup()) if (storedKinds.get(sessionId) !== 'group') book.setKind(sessionId, 'group')
       const ended = new Set()
       const longAgo = Date.now() - SEAL_AFTER_MS
       for (const bot of Object.values(state.bots)) for (const segment of bot.segments ?? []) if (segment.endedAt < longAgo && rt.isRetiring?.(segment.sessionId) !== true) ended.add(segment.sessionId)
@@ -520,6 +558,7 @@ export function install(rt) {
       let cut = 0
       const failed = []
       await eachLimited([...targets], SCAN_PARALLEL, async ([sessionId, asOfSeq]) => {
+        if (disposed || book !== ledger) return
         if (signal.aborted) {
           cut += 1
           return
@@ -527,9 +566,11 @@ export function install(rt) {
         const address = addresses.has(sessionId) ? addresses.get(sessionId) : { kind: 'session', sessionId }
         if (address === undefined) return
         try {
-          await scanSession(ledger, address, asOfSeq, sealOf(sessionId), signal)
+          await scanSession(book, address, asOfSeq, sealOf(sessionId), signal)
+          if (disposed || book !== ledger) return
           unreadable.delete(sessionId)
         } catch (error) {
+          if (disposed || book !== ledger) return
           // The scan timeout cancels the reads still open. Those Sessions are not broken,
           // so they are counted with the ones it never reached, not remembered as unreadable.
           if (signal.aborted) {
@@ -542,6 +583,7 @@ export function install(rt) {
           failed.push([sessionId, error])
         }
       })
+      if (disposed || book !== ledger) return
       // One line for the whole scan, not one per Session it could not read.
       const missed = failed.length + cut
       if (missed > 0) {
@@ -550,7 +592,8 @@ export function install(rt) {
           failed.length > 0 ? `: ${failed.map(([sessionId]) => sessionId).join(', ')} (first error: ${failed[0][1]})` : '')
       }
     })().finally(() => {
-      scannedAt = Date.now()
+      if (!disposed) scannedAt = Date.now()
+      if (scanAbort === abort) scanAbort = undefined
       scanning = undefined
     })
     scanning = job
@@ -559,12 +602,15 @@ export function install(rt) {
 
   // Tokens per hour, owner, model, and use, for the browser to sum by day, week, or month.
   async function usageView({ timeZone } = {}) {
-    const job = scan().catch(error => rt.warn('ds-bot: usage scan failed: %s', error))
-    let timer
-    await Promise.race([job, new Promise((resolve) => { timer = setTimeout(resolve, VIEW_WAIT_MS) })])
-    clearTimeout(timer)
-    const ledger = await openLedger()
-    const stored = ledger.owners()
+    if (!disposed) {
+      const job = scan().catch(error => rt.warn('ds-bot: usage scan failed: %s', error))
+      let timer
+      await Promise.race([job, new Promise((resolve) => { timer = setTimeout(resolve, VIEW_WAIT_MS) })])
+      clearTimeout(timer)
+    }
+    const opened = disposed ? memoryLedger() : await openLedger()
+    const book = (disposed || opened !== ledger) ? memoryLedger() : opened
+    const stored = book.owners()
     const live = liveOwners(listed, stored)
     const hourOf = hourKeys(typeof timeZone === 'string' ? timeZone : undefined)
     // A deleted Bot or group keeps the name it had when its calls were last read.
@@ -617,8 +663,8 @@ export function install(rt) {
     }
     const groupSessions = inGroup()
     const buckets = new Map()
-    const storedKinds = ledger.kinds()
-    for (const group of ledger.groups()) {
+    const storedKinds = book.kinds()
+    for (const group of book.groups()) {
       const kind = group.kind === 'turn' ? (groupSessions.has(group.session) || storedKinds.get(group.session) === 'group' ? 'group' : 'chat') : group.kind
       const row = [hourOf(group.slot * SLOT_MS), ownerOf(group.session), modelOf(group.provider, group.model), kindOf(kind)]
       const id = row.join('\n')
@@ -690,17 +736,19 @@ export function install(rt) {
   // here. The journal needs the team state and the ledger; both load behind
   // the request, and `journaled` keeps the repeat calls from writing again.
   const noteSession = (sessionId) => {
-    if (typeof sessionId !== 'string' || sessionId === '') return
+    if (disposed || typeof sessionId !== 'string' || sessionId === '') return
     const cached = journaled.get(sessionId)
     if (ledger !== undefined && rt.hasLoaded?.() !== false && cached !== undefined && cached.rev === (state.revision ?? 0) && cached.listedVersion === listedVersion) return
     void (async () => {
       await rt.load()
+      if (disposed) return
       const book = ledger ?? await openLedger().catch(() => undefined)
-      if (book === undefined) return
+      if (disposed || book === undefined) return
       try { journal(book, sessionId) } catch (error) { rt.warn('ds-bot: usage could not journal %s: %s', sessionId, error) }
     })()
   }
   function record({ sessionId, kind, provider, model, usage }) {
+    if (disposed) return
     noteSession(sessionId)
     const row = { key: `live:${randomUUID()}`, session: sessionId ?? '', time: Date.now(), provider: provider ?? '', model: model ?? '', kind, ...tokensOf(usage) }
     if (ledger !== undefined) {
@@ -723,6 +771,24 @@ export function install(rt) {
     }
     return (async function* meter() {
       let usage
+      let flushed = false
+      const entry = {
+        flush(target) {
+          if (flushed || usage === undefined) return
+          flushed = true
+          const row = {
+            key: `live:${randomUUID()}`,
+            session: tag?.sessionId ?? options.sessionId ?? '',
+            time: Date.now(),
+            provider: options.provider ?? '',
+            model: options.model ?? '',
+            kind: tag?.kind ?? options.purpose ?? 'other',
+            ...tokensOf(usage),
+          }
+          try { target.add(row) } catch (error) { rt.warn('ds-bot: usage could not record a call: %s', error) }
+        },
+      }
+      activeMeters.add(entry)
       try {
         for await (const chunk of next()) {
           if (chunk?.type === 'usage' && chunk.usage && typeof chunk === 'object' && !counted.has(chunk)) {
@@ -732,7 +798,11 @@ export function install(rt) {
           yield chunk
         }
       } finally {
-        if (usage !== undefined) record({ sessionId: tag?.sessionId ?? options.sessionId, kind: tag?.kind ?? options.purpose ?? 'other', provider: options.provider, model: options.model, usage })
+        activeMeters.delete(entry)
+        if (!flushed && usage !== undefined) {
+          flushed = true
+          record({ sessionId: tag?.sessionId ?? options.sessionId, kind: tag?.kind ?? options.purpose ?? 'other', provider: options.provider, model: options.model, usage })
+        }
       }
     })()
   })

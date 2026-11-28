@@ -1,0 +1,794 @@
+{
+  "dsh": "0.2.2-rc.5",
+  "recordedFrom": "desktop app from source with mock LLM",
+  "tools": [
+    "read_image",
+    "bash",
+    "read_browser",
+    "job_list",
+    "job_output",
+    "subagent"
+  ],
+  "events": [
+    {
+      "type": "turn/start",
+      "seq": 6,
+      "time": 1795696538775,
+      "data": {
+        "turn": 1
+      }
+    },
+    {
+      "type": "assistant/message",
+      "seq": 17,
+      "time": 1795696539020,
+      "data": {
+        "turn": 1,
+        "step": 1,
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Ready (tools: 54)."
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-flash"
+              },
+              "blocks": [
+                {
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "id": "809ccaa5-01ee-4cff-a0cd-d6a988872d32"
+        },
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 48,
+          "totalTokens": 168
+        }
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "turn/end",
+      "seq": 19,
+      "time": 1795696539030,
+      "data": {
+        "turn": 1,
+        "reason": {
+          "kind": "completed"
+        }
+      }
+    },
+    {
+      "type": "turn/start",
+      "seq": 21,
+      "time": 1795696539432,
+      "data": {
+        "turn": 2
+      }
+    },
+    {
+      "type": "user/message",
+      "seq": 24,
+      "time": 1795696539445,
+      "data": {
+        "content": [
+          {
+            "type": "text",
+            "text": "show-tool-cards"
+          }
+        ],
+        "source": {
+          "kind": "user",
+          "rpcId": "6264464e-5c34-405f-af83-496994dc0f13"
+        },
+        "role": "user",
+        "id": "70d9dc7f-56c2-418c-9044-a2cbd0d5e2ce"
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "assistant/message",
+      "seq": 25,
+      "time": 1795696539455,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "call-2-0",
+              "name": "read_image",
+              "arguments": "{\"file_path\":\"/workspace/architecture.png\"}"
+            },
+            {
+              "type": "tool-call",
+              "id": "call-2-1",
+              "name": "bash",
+              "arguments": "{\"command\":\"node \\\"/workspace/scripts/office.js\\\" docx read \\\"/workspace/quarterly-report.docx\\\" --json\",\"description\":\"Inspect quarterly report docx\"}"
+            },
+            {
+              "type": "tool-call",
+              "id": "call-2-2",
+              "name": "bash",
+              "arguments": "{\"command\":\"printf \\\"Watching build output...\\\\nCompiled 42 modules in 310ms\\\\n\\\" && sleep 120\",\"description\":\"Dev build watcher\",\"run_in_background\":true}"
+            },
+            {
+              "type": "tool-call",
+              "id": "call-2-3",
+              "name": "read_browser",
+              "arguments": "{}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-flash"
+              },
+              "blocks": [
+                {
+                  "type": "tool-call"
+                },
+                {
+                  "type": "tool-call"
+                },
+                {
+                  "type": "tool-call"
+                },
+                {
+                  "type": "tool-call"
+                }
+              ]
+            }
+          },
+          "id": "308b1201-09b1-4c34-92a5-bd0a5a0b5a31"
+        },
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 48,
+          "totalTokens": 168
+        }
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "tool/call",
+      "seq": 26,
+      "time": 1795696539456,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "callId": "call-2-0",
+        "name": "read_image",
+        "arguments": "{\"file_path\":\"/workspace/architecture.png\"}"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 27,
+      "time": 1795696539508,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "call-2-0"
+          },
+          "toolCallId": "call-2-0",
+          "content": [
+            {
+              "type": "text",
+              "text": "<path>/workspace/architecture.png</path>\n<type>image</type>\n<content>\nimage/png image, 480x280 px, 18861 bytes\n</content>"
+            },
+            {
+              "type": "image",
+              "attachment": {
+                "attachmentId": "sha256:8f5435a47fc88bb348ec91823f41469f5ab5ae0eff1b30a0ce80d931c7180d75",
+                "mediaType": "image/png",
+                "bytes": 18861,
+                "width": 480,
+                "height": 280,
+                "name": "architecture.png"
+              }
+            }
+          ],
+          "isError": false,
+          "id": "ebadc363-8003-42dc-869c-47941ae6d46b"
+        },
+        "meta": {
+          "path": "/workspace/architecture.png"
+        }
+      },
+      "sourceEventSeqs": [
+        26
+      ],
+      "surfaceOp": "append"
+    },
+    {
+      "type": "tool/call",
+      "seq": 28,
+      "time": 1795696539509,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "callId": "call-2-1",
+        "name": "bash",
+        "arguments": "{\"command\":\"node \\\"/workspace/scripts/office.js\\\" docx read \\\"/workspace/quarterly-report.docx\\\" --json\",\"description\":\"Inspect quarterly report docx\"}"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 31,
+      "time": 1795696539574,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "call-2-1"
+          },
+          "toolCallId": "call-2-1",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":true,\"data\":{\"blocks\":[{\"id\":\"p1\",\"type\":\"paragraph\",\"style\":\"Title\",\"text\":\"Quarterly report\"},{\"id\":\"p2\",\"type\":\"paragraph\",\"text\":\"Revenue grew  fast in the north region. moved\"},{\"id\":\"t1\",\"type\":\"table\",\"rows\":[[{\"text\":\"Region totals\",\"gridSpan\":2}],[{\"text\":\"North\"},{\"text\":\"42\"}]]},{\"id\":\"p3\",\"type\":\"paragraph\",\"text\":\"Second paragraph with a field:\",\"comments\":[{\"commentId\":\"0\"}]},{\"id\":\"p4\",\"type\":\"paragraph\",\"text\":\"\"},{\"id\":\"p5\",\"type\":\"paragraph\",\"text\":\"Final closing paragraph.\",\"deletedParagraphMark\":true},{\"id\":\"p6\",\"type\":\"paragraph\",\"text\":\" PAGE 1\"}],\"sections\":[{\"kind\":\"header\",\"type\":\"default\",\"part\":\"word/header1.xml\",\"text\":\"Report header\"},{\"kind\":\"footer\",\"type\":\"default\",\"part\":\"word/footer1.xml\",\"text\":\"Confidential footer\"}],\"notes\":[],\"comments\":[{\"id\":\"0\",\"author\":\"Ana\",\"initials\":\"A\",\"date\":\"2026-10-01T00:00:00Z\",\"text\":\"Check this field.\",\"anchorsTo\":\"p3\"}]}}\n"
+            }
+          ],
+          "isError": false,
+          "id": "994977cf-7e24-46fc-9497-2989dc32ced3"
+        },
+        "meta": {
+          "cwd": "/workspace"
+        }
+      },
+      "sourceEventSeqs": [
+        28
+      ],
+      "surfaceOp": "append"
+    },
+    {
+      "type": "tool/call",
+      "seq": 32,
+      "time": 1795696539575,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "callId": "call-2-2",
+        "name": "bash",
+        "arguments": "{\"command\":\"printf \\\"Watching build output...\\\\nCompiled 42 modules in 310ms\\\\n\\\" && sleep 120\",\"description\":\"Dev build watcher\",\"run_in_background\":true}"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 34,
+      "time": 1795696539580,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "call-2-2"
+          },
+          "toolCallId": "call-2-2",
+          "content": [
+            {
+              "type": "text",
+              "text": "started background job bash-a6b7541d21a24184"
+            }
+          ],
+          "isError": false,
+          "id": "3b8b4702-8c7d-48b4-afa1-f839700b836e"
+        },
+        "meta": {
+          "cwd": "/workspace"
+        }
+      },
+      "sourceEventSeqs": [
+        32
+      ],
+      "surfaceOp": "append"
+    },
+    {
+      "type": "tool/call",
+      "seq": 35,
+      "time": 1795696539581,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "callId": "call-2-3",
+        "name": "read_browser",
+        "arguments": "{}"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 36,
+      "time": 1795696539586,
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "call-2-3"
+          },
+          "toolCallId": "call-2-3",
+          "content": [
+            {
+              "type": "text",
+              "text": "Your browser panel is not open. It exists only in the desktop apps (DSH Desktop and DS Bot): ask the user to click your name at the top of your chat, open the browser from there, and load the page."
+            }
+          ],
+          "isError": false,
+          "id": "2ee9dd9e-96e7-400c-aa15-50e3827e615e"
+        }
+      },
+      "sourceEventSeqs": [
+        35
+      ],
+      "surfaceOp": "append"
+    },
+    {
+      "type": "assistant/message",
+      "seq": 39,
+      "time": 1795696539606,
+      "data": {
+        "turn": 2,
+        "step": 2,
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "call-3-0",
+              "name": "job_list",
+              "arguments": "{}"
+            },
+            {
+              "type": "tool-call",
+              "id": "call-3-1",
+              "name": "job_output",
+              "arguments": "{\"job_id\":\"bash-a6b7541d21a24184\"}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-flash"
+              },
+              "blocks": [
+                {
+                  "type": "tool-call"
+                },
+                {
+                  "type": "tool-call"
+                }
+              ]
+            }
+          },
+          "id": "021ff7fc-9130-497d-ad78-4fcd4a9686b0"
+        },
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 48,
+          "totalTokens": 168
+        }
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "tool/call",
+      "seq": 40,
+      "time": 1795696539606,
+      "data": {
+        "turn": 2,
+        "step": 2,
+        "callId": "call-3-0",
+        "name": "job_list",
+        "arguments": "{}"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 41,
+      "time": 1795696539613,
+      "data": {
+        "turn": 2,
+        "step": 2,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "call-3-0"
+          },
+          "toolCallId": "call-3-0",
+          "content": [
+            {
+              "type": "text",
+              "text": "bash-a6b7541d21a24184 [bash] running — printf \"Watching build output...\\nCompiled 42 modules in 310ms\\n\" && sleep 120"
+            }
+          ],
+          "isError": false,
+          "id": "10cae1dd-0b8f-480d-aa9a-511e7673dbad"
+        }
+      },
+      "sourceEventSeqs": [
+        40
+      ],
+      "surfaceOp": "append"
+    },
+    {
+      "type": "tool/call",
+      "seq": 42,
+      "time": 1795696539613,
+      "data": {
+        "turn": 2,
+        "step": 2,
+        "callId": "call-3-1",
+        "name": "job_output",
+        "arguments": "{\"job_id\":\"bash-a6b7541d21a24184\"}"
+      }
+    },
+    {
+      "type": "tool/result",
+      "seq": 43,
+      "time": 1795696539619,
+      "data": {
+        "turn": 2,
+        "step": 2,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "call-3-1"
+          },
+          "toolCallId": "call-3-1",
+          "content": [
+            {
+              "type": "text",
+              "text": "(no new output)\n[status: running]"
+            }
+          ],
+          "isError": false,
+          "id": "fc8e2ea9-ebef-43a5-9017-b8553d3b8ce2"
+        }
+      },
+      "sourceEventSeqs": [
+        42
+      ],
+      "surfaceOp": "append"
+    },
+    {
+      "type": "assistant/message",
+      "seq": 46,
+      "time": 1795696539639,
+      "data": {
+        "turn": 2,
+        "step": 3,
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "All tool calls completed cleanly. You can preview the document, inspect the image, or manage the background task above."
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek-official",
+            "model": "deepseek-flash",
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-flash"
+              },
+              "blocks": [
+                {
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "id": "15225fb8-1633-4285-b036-7bf5b5b37623"
+        },
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 48,
+          "totalTokens": 168
+        }
+      },
+      "surfaceOp": "append"
+    },
+    {
+      "type": "turn/end",
+      "seq": 48,
+      "time": 1795696539640,
+      "data": {
+        "turn": 2,
+        "reason": {
+          "kind": "completed"
+        }
+      }
+    }
+  ],
+  "subagentSession": {
+    "events": [
+      {
+        "type": "turn/start",
+        "seq": 4,
+        "time": 1795696562830,
+        "data": {
+          "turn": 1
+        }
+      },
+      {
+        "type": "user/message",
+        "seq": 8,
+        "time": 1795696562856,
+        "data": {
+          "content": [
+            {
+              "type": "text",
+              "text": "show-subagent"
+            }
+          ],
+          "source": {
+            "kind": "user",
+            "rpcId": "8461409a-0f02-4a62-907a-5f88ed298065"
+          },
+          "role": "user",
+          "id": "126f0377-f95f-4a9b-a363-d9a73b0ef1e2"
+        },
+        "surfaceOp": "append"
+      },
+      {
+        "type": "assistant/message",
+        "seq": 16,
+        "time": 1795696562876,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call",
+                "id": "call-18-0",
+                "name": "subagent",
+                "arguments": "{\"description\":\"Inspect architecture diagram\",\"prompt\":\"Inspect architecture.png and summarize its layout.\"}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "421a395d-982d-42ed-9a1d-07321a2008a9"
+          },
+          "usage": {
+            "inputTokens": 120,
+            "outputTokens": 48,
+            "totalTokens": 168
+          }
+        },
+        "surfaceOp": "append"
+      },
+      {
+        "type": "tool/call",
+        "seq": 17,
+        "time": 1795696562876,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "call-18-0",
+          "name": "subagent",
+          "arguments": "{\"description\":\"Inspect architecture diagram\",\"prompt\":\"Inspect architecture.png and summarize its layout.\"}"
+        }
+      },
+      {
+        "type": "subagent/catalog",
+        "seq": 19,
+        "time": 1795696562894,
+        "data": {
+          "version": 3,
+          "childId": "dbeffec9-de81-4088-8265-2c5ad4768310",
+          "childCreatedAt": 1795696562888,
+          "mode": "continuable",
+          "label": "Inspect architecture diagram",
+          "name": "agent-1"
+        }
+      },
+      {
+        "type": "tool/result",
+        "seq": 20,
+        "time": 1795696562897,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call-18-0"
+            },
+            "toolCallId": "call-18-0",
+            "content": [
+              {
+                "type": "text",
+                "text": "started subagent agent-1"
+              }
+            ],
+            "isError": false,
+            "id": "c24bbc18-5d14-4101-88c3-57cb5ca56a83"
+          },
+          "meta": {
+            "kind": "activation",
+            "name": "agent-1"
+          }
+        },
+        "sourceEventSeqs": [
+          17
+        ],
+        "surfaceOp": "append"
+      },
+      {
+        "type": "assistant/message",
+        "seq": 23,
+        "time": 1795696562914,
+        "data": {
+          "turn": 1,
+          "step": 2,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "All tool calls completed cleanly. You can preview the document, inspect the image, or manage the background task above."
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "text"
+                  }
+                ]
+              }
+            },
+            "id": "470015b7-5891-4e30-b379-1d9e872cfb89"
+          },
+          "usage": {
+            "inputTokens": 120,
+            "outputTokens": 48,
+            "totalTokens": 168
+          }
+        },
+        "surfaceOp": "append"
+      },
+      {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1795696562915,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      {
+        "type": "turn/start",
+        "seq": 27,
+        "time": 1795696562963,
+        "data": {
+          "turn": 2
+        }
+      },
+      {
+        "type": "assistant/message",
+        "seq": 31,
+        "time": 1795696562985,
+        "data": {
+          "turn": 2,
+          "step": 1,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Ready (tools: 29)."
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "text"
+                  }
+                ]
+              }
+            },
+            "id": "e357fb3a-562d-4060-86cb-4383c0ff5f3f"
+          },
+          "usage": {
+            "inputTokens": 120,
+            "outputTokens": 48,
+            "totalTokens": 168
+          }
+        },
+        "surfaceOp": "append"
+      },
+      {
+        "type": "turn/end",
+        "seq": 33,
+        "time": 1795696562985,
+        "data": {
+          "turn": 2,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      }
+    ]
+  }
+}

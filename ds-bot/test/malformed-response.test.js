@@ -131,16 +131,12 @@ test('a Bot recovers when the provider repeats malformed parallel calls unless a
   ])
 })
 
-for (const [finishReason, messages] of [
-  ['MALFORMED_FUNCTION_CALL', ['Provider stopped with: MALFORMED_FUNCTION_CALL']],
-  ['UNEXPECTED_TOOL_CALL', ['Provider stopped with: UNEXPECTED_TOOL_CALL']],
-  ['MALFORMED_RESPONSE', ['Provider stopped with: MALFORMED_RESPONSE', 'Unhandled stop reason: MALFORMED_RESPONSE']],
-]) {
+for (const finishReason of ['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL', 'MALFORMED_RESPONSE']) {
   test(`a Bot retries a Gemini ${finishReason} stop and completes on the next response`, async t => {
     const unrecovered = await boot(t, false, gemini(finishReason))
     assert.equal(unrecovered.failures.length, 1)
     assert.equal(unrecovered.failures[0].code, 'PI_AI_ERROR')
-    assert.ok(messages.includes(unrecovered.failures[0].message), `unexpected failure message: ${unrecovered.failures[0].message}`)
+    assert.ok(unrecovered.failures[0].message.includes(finishReason), unrecovered.failures[0].message)
     const result = await boot(t, true, gemini(finishReason))
     assert.equal(result.attempts, 2)
     assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')
@@ -216,12 +212,21 @@ test('only Gemini malformed stops among PI_AI_ERROR failures consume malformed r
   assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
 })
 
-test('Gemini malformed stops leave the retry to a policy that already retries PI_AI_ERROR', async () => {
+test('Gemini malformed stops leave the retry to a normal policy that already retries PI_AI_ERROR, and use the 2-retry malformed cap under mode=always', async () => {
   const failure = { code: 'PI_AI_ERROR', message: 'Provider stopped with: UNEXPECTED_TOOL_CALL' }
-  for (const retryPolicy of [{ mode: 'normal', maxRetries: 1, retryableCodes: ['PI_AI_ERROR'] }, { mode: 'always' }]) {
+  const normalPolicy = { mode: 'normal', maxRetries: 1, retryableCodes: ['PI_AI_ERROR'] }
+  {
     const { run, warnings } = handler()
-    assert.equal(await run({ ...payload(), failure, retryPolicy }, next), undefined)
+    assert.equal(await run({ ...payload(), failure, retryPolicy: normalPolicy }, next), undefined)
     assert.equal(warnings.length, 0)
+  }
+  {
+    const { run, warnings } = handler()
+    const p = { ...payload(), failure, retryPolicy: { mode: 'always' } }
+    assert.deepEqual(await run(p, next), { kind: 'retry' })
+    assert.deepEqual(await run(p, next), { kind: 'retry' })
+    assert.equal(await run(p, next), undefined)
+    assert.equal(warnings.length, 2)
   }
   const { run } = handler()
   assert.deepEqual(await run({ ...payload(), failure, retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TIMEOUT'] } }, next), { kind: 'retry' })

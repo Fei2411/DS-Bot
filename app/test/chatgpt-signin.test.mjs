@@ -277,6 +277,59 @@ test('lists only visible models in server order and handles an empty list', asyn
   const f = await fixture(t)
   await f.login()
   assert.deepEqual(await f.client.listModels(), [{ id: 'z-model', name: 'Z' }, { id: 'a-model', name: 'A' }])
+  f.behavior.models = [
+    {
+      slug: 'gpt-default-none', display_name: 'GPT Default None', visibility: 'list',
+      context_window: 272000, input_modalities: ['text', 'image', 'audio', 'image'],
+      default_reasoning_level: 'none',
+      supported_reasoning_levels: [
+        { effort: 'none', description: 'No reasoning' },
+        { effort: 'low', description: 'Fast' },
+        { effort: 'medium' },
+        { effort: 'high' },
+        { effort: 'xhigh' },
+        { effort: 'max' },
+        { effort: 'ultra' },
+      ],
+    },
+    {
+      slug: 'gpt-default-medium', display_name: 'GPT Default Medium', visibility: 'list',
+      default_reasoning_level: 'medium',
+      supported_reasoning_levels: [
+        { effort: 'none' },
+        { effort: 'low' },
+        { effort: 'medium' },
+        { effort: 'high' },
+      ],
+    },
+    {
+      slug: 'gpt-always-reason', display_name: 'GPT Always Reason', visibility: 'list',
+      supported_reasoning_levels: ['none', 'low', 'high'],
+    },
+    {
+      slug: 'gpt-non-reasoning', display_name: 'GPT Chat', visibility: 'list',
+      supported_reasoning_levels: [],
+    },
+    {
+      slug: 'gpt-none-only', display_name: 'GPT None Only', visibility: 'list',
+      supported_reasoning_levels: [{ effort: 'none' }],
+    },
+    {
+      slug: 'gpt-unrecognized-levels', display_name: 'GPT Future', visibility: 'list',
+      supported_reasoning_levels: [{ effort: 'ultra' }],
+    },
+  ]
+  assert.deepEqual(await f.client.listModels(), [
+    {
+      id: 'gpt-default-none', name: 'GPT Default None', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    },
+    { id: 'gpt-default-medium', name: 'GPT Default Medium', reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' } },
+    { id: 'gpt-always-reason', name: 'GPT Always Reason', reasoningEfforts: { low: 'low', high: 'high' } },
+    { id: 'gpt-non-reasoning', name: 'GPT Chat', reasoningEfforts: false },
+    { id: 'gpt-none-only', name: 'GPT None Only', reasoningEfforts: false },
+    { id: 'gpt-unrecognized-levels', name: 'GPT Future' },
+  ])
   f.behavior.models = []
   assert.deepEqual(await f.client.listModels(), [])
   f.behavior.redirect = '/models'
@@ -422,4 +475,92 @@ test('macOS mock keychain fails closed so ChatGPT credentials are never written 
   const recovered = await createChatGPTSignIn(f.clientOptions)
   assert.equal(recovered.status().state, 'connected')
   assert.equal(await recovered.getAccessToken(), 'synthetic-access')
+})
+
+test('isReasoningModel tracks /v1/models reasoning capability and clears on sign-out', async t => {
+  const f = await fixture(t, {
+    models: [
+      { slug: 'gpt-6.2-sol', display_name: 'GPT-6.2 Sol', visibility: 'list', supported_reasoning_levels: ['low', 'medium', 'high'] },
+      { slug: 'gpt-4o', display_name: 'GPT-4o', visibility: 'list', supported_reasoning_levels: [] },
+      { slug: 'hidden-reasoner', display_name: 'Hidden', visibility: 'hidden', supported_reasoning_levels: ['high'] },
+      { slug: 'gpt-unknown', display_name: 'Unknown', visibility: 'list' },
+    ],
+  })
+  await f.login()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), undefined)
+  await f.client.listModels()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), true)
+  assert.equal(f.client.isReasoningModel('GPT-6.2-SOL'), true)
+  assert.equal(f.client.isReasoningModel('gpt-4o'), false)
+  assert.equal(f.client.isReasoningModel('hidden-reasoner'), true)
+  assert.equal(f.client.isReasoningModel('gpt-unknown'), undefined)
+
+  // Refresh replaces stale entries; sign-out clears the cache.
+  f.behavior.models = [{ slug: 'gpt-4o', display_name: 'GPT-4o', visibility: 'list', supported_reasoning_levels: [] }]
+  await f.client.listModels()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), undefined)
+  assert.equal(f.client.isReasoningModel('gpt-4o'), false)
+
+  await f.client.signOut()
+  assert.equal(f.client.isReasoningModel('gpt-4o'), undefined)
+})
+
+test('macOS without chatgpt-signin.enc never touches safeStorage on init or status, while sign-in and existing credentials still work', async t => {
+  const userData = await fs.mkdtemp(join(tmpdir(), 'ds-bot-chatgpt-lazy-'))
+  t.after(() => fs.rm(userData, { recursive: true, force: true }))
+  const calls = []
+  let available = true
+  const trackedSafeStorage = {
+    isEncryptionAvailable: () => { calls.push('isEncryptionAvailable'); return available },
+    encryptString: (text) => { calls.push('encryptString'); return safeStorage.encryptString(text) },
+    decryptString: (buf) => { calls.push('decryptString'); return safeStorage.decryptString(buf) },
+  }
+
+  // No chatgpt-signin.enc on macOS: init and status() must not probe the keychain.
+  const emptyClient = await createChatGPTSignIn({ userData, safeStorage: trackedSafeStorage, platform: 'darwin', mockKeychain: false })
+  assert.deepEqual(emptyClient.status(), { state: 'signed-out' })
+  assert.deepEqual(calls, [], 'no safeStorage calls when chatgpt-signin.enc does not exist')
+
+  // Explicitly attempting sign-in when keychain is unavailable probes once and fails closed.
+  available = false
+  await assert.rejects(emptyClient.signIn({ openExternal: () => assert.fail('browser must not open') }), typed('unsupported', 'secure-storage-unavailable'))
+  assert.equal(emptyClient.status().state, 'unsupported')
+  assert.ok(calls.includes('isEncryptionAvailable'))
+
+  // With an existing encrypted file, init decrypts it normally and preserves signed-in state.
+  available = true
+  calls.length = 0
+  const f = await fixture(t)
+  await f.login()
+  const signedIn = await createChatGPTSignIn({ ...f.clientOptions, safeStorage: trackedSafeStorage, platform: 'darwin', mockKeychain: false })
+  assert.equal(signedIn.status().state, 'connected')
+  assert.equal(await signedIn.getAccessToken(), 'synthetic-access')
+  assert.ok(calls.includes('isEncryptionAvailable'))
+  assert.ok(calls.includes('decryptString'))
+})
+
+test('macOS with existing chatgpt-signin.enc fails closed as temporarily-unavailable when keychain is unavailable without re-probing on status() polling', async t => {
+  const f = await fixture(t)
+  await f.login()
+  const file = join(f.userData, 'chatgpt-signin.enc')
+  const savedBytes = await fs.readFile(file)
+
+  let availabilityChecks = 0
+  const lockedSafeStorage = {
+    isEncryptionAvailable: () => { availabilityChecks += 1; return false },
+    encryptString: () => assert.fail('must not encrypt when keychain is unavailable'),
+    decryptString: () => assert.fail('must not decrypt when keychain is unavailable'),
+  }
+
+  const locked = await createChatGPTSignIn({ ...f.clientOptions, safeStorage: lockedSafeStorage, platform: 'darwin', mockKeychain: false })
+  assert.deepEqual(locked.status(), { state: 'temporarily-unavailable' })
+  const checksAfterInit = availabilityChecks
+  assert.equal(checksAfterInit, 1, 'init probes safeStorage once while attempting to read existing .enc')
+
+  // Repeated status() polling (e.g., ChatGPTSettings 1.5 s timer) must not trigger repeated Keychain probes.
+  for (let i = 0; i < 5; i += 1) {
+    assert.deepEqual(locked.status(), { state: 'temporarily-unavailable' })
+  }
+  assert.equal(availabilityChecks, checksAfterInit, 'status() polling must not re-invoke safeStorage.isEncryptionAvailable()')
+  assert.deepEqual(await fs.readFile(file), savedBytes, 'existing encrypted credential file must remain untouched')
 })

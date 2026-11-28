@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import fs from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir, hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -129,17 +131,25 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
     await until(() => agentOf(state().bots[botId].sessionId).session.header.cwd === dir)
     await settle()
   }
+  const links = new Set()
+  const linkDirectory = (target, path) => {
+    symlinkSync(target, path, 'junction')
+    links.add(path)
+  }
   const stop = async () => {
     // The writes still running finish before their folder goes.
     await ctx.dispose()
     await fsHost.fiber.dispose()
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
+    for (const path of links) {
+      if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(path)
+    }
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
   // Loading once fills the Session-owner indexes.
   await tool('list_bots', {}, 'a')
-  return { ctx, root, dsh, home, team, project, created, archived, agentOf, call, tool, preStep, state, workingIn, stop }
+  return { ctx, root, dsh, home, team, project, created, archived, agentOf, call, tool, preStep, state, workingIn, linkDirectory, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -819,15 +829,28 @@ test('a switch that starts mid-turn still rejects its step, the only way DSH end
 })
 
 test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'s own default', async (t) => {
-  const { root, dsh, home, team, state, call, stop } = await start()
+  const { root, dsh, home, team, state, call, linkDirectory, stop } = await start()
   t.after(stop)
+  const remove = fs.rmSync
+  // Model Windows rejecting recursive removal of a junction back into its own parent.
+  const patch = t.mock.method(fs, 'rmSync', (path, options) => {
+    if (path === team && options?.recursive && lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw Object.assign(new Error('Cannot recursively remove a directory junction'), { code: 'UNKNOWN' })
+    }
+    return remove(path, options)
+  })
+  syncBuiltinESMExports()
+  t.after(() => {
+    patch.mock.restore()
+    syncBuiltinESMExports()
+  })
   const error = async path => (await call('team-workspace', { path })).error?.message
   assert.match(await error(join(dsh, 'inside')), /holds DeepSeek Harness data/)
   assert.match(await error(root), /holds DeepSeek Harness data/)
   assert.match(await error('relative'), /full path/)
   assert.equal(existsSync(join(dsh, 'inside')), false)
   // A folder to be made under a link into the data is refused before anything is made.
-  symlinkSync(dsh, join(root, 'dsh-link'), process.platform === 'win32' ? 'junction' : 'dir')
+  linkDirectory(dsh, join(root, 'dsh-link'))
   assert.match(await error(join(root, 'dsh-link', 'new')), /holds DeepSeek Harness data/)
   assert.equal(existsSync(join(dsh, 'new')), false)
   assert.equal(state().workspaceId, 'w1')
@@ -837,11 +860,11 @@ test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'
   // The default replaced by a link into the data, to all of it or a part, is refused.
   await call('team-workspace', { path: join(root, 'moved') })
   rmSync(team, { recursive: true, force: true })
-  symlinkSync(home, team, process.platform === 'win32' ? 'junction' : 'dir')
+  linkDirectory(home, team)
   assert.match(await error(team), /holds DeepSeek Harness data/)
-  rmSync(team, { recursive: true, force: true })
+  unlinkSync(team)
   mkdirSync(join(dsh, 'profiles'))
-  symlinkSync(join(dsh, 'profiles'), team, process.platform === 'win32' ? 'junction' : 'dir')
+  linkDirectory(join(dsh, 'profiles'), team)
   assert.match(await error(team), /holds DeepSeek Harness data/)
   assert.equal(state().workspaceId, 'w-new')
 })
@@ -1096,10 +1119,10 @@ test('the folder is checked as DSH gets it, spaces and all', { skip: process.pla
 test('a Bot changes back to the team workspace when the team workspace is known by a link', async (t) => {
   const { service } = folderService()
   const { requests, services } = approvalServices('rejected')
-  const { ctx, call, agentOf, root, team, project, state, stop } = await start({ services: { ...services, workingDirectory: service } })
+  const { ctx, call, agentOf, root, team, project, state, linkDirectory, stop } = await start({ services: { ...services, workingDirectory: service } })
   t.after(stop)
   const link = join(root, 'team-link')
-  symlinkSync(team, link, 'junction')
+  linkDirectory(team, link)
   ctx.workspaceRegistry.get('w1').path = link
   mkdirSync(join(team, 'site'))
   // The team workspace widens nothing, so nobody is asked, also for a folder inside it.

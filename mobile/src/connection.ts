@@ -30,6 +30,8 @@ export interface Bot {
   permission?: string
   // A credential or balance failure that stops the Bot until the user fixes it (turns.js).
   blocked?: { code: string; status?: number; provider?: string; at?: number }
+  // The newest turn failure per part, cleared once a later turn succeeds (turns.js).
+  failures?: Record<string, { turn?: number; code?: string; message?: string; provider?: string; at?: number }>
   color?: string
   avatar?: { shape?: string; image?: string; imageRef?: string }
   model?: string
@@ -49,6 +51,8 @@ export interface Bot {
   hidden?: boolean
   createdAt?: number
   lastAt?: number
+  lastBotAt?: number
+  latestTurn?: number
   preview?: string
 }
 
@@ -172,6 +176,10 @@ export interface TeamState {
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
+  computerLive?: {
+    asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }>
+    holds?: Record<string, { by?: string; fromBot?: boolean; reason?: string; note?: string; callId?: string }>
+  }
   inbox?: { count: number; counts: Record<'decide' | 'fix' | 'suggest', number>; items: InboxItem[] } | null
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>
   sideChats?: Record<string, { chatId: string; entries?: { id: string; question?: string; answer?: string; status?: string; failure?: string }[] }[]>
@@ -180,20 +188,23 @@ export interface TeamState {
   dataPath?: string
   version?: string
   work?: {
-    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean; roomId?: string }>
     agents?: Record<string, { tool?: string; said?: string; note?: string; target?: string }>
     rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
     waiting?: Record<string, { bots?: string[]; rooms?: string[] }>
     turns?: Record<string, number>
   }
-  activity?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean }>
+  // One word per Bot from turns.js activityView (thinking, searching, working, sending, orbit, waiting, alert).
+  activity?: Record<string, string>
+  // Per-Bot own-chat tail updates carried on live() for unchanged-revision polls.
+  botTails?: Record<string, { lastAt?: number; lastBotAt?: number; latestTurn?: number; preview?: string }>
   exchangeTurns?: Record<string, number[]>
   prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean; motion?: string; effects?: string }
 }
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
-export interface ShownView { id?: string; title?: string; view?: unknown }
+export interface ShownView { id?: string; callId?: string; callSessionId?: string; title?: string; view?: unknown }
 
 /** A pending outgoing email request awaiting the user's confirmation. */
 export interface MailRequest {

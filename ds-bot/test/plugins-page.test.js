@@ -21,7 +21,7 @@ async function loadBundle(contents) {
 
 const bundleCode = await loadBundle("export { PluginsPage } from './src/client/plugins-page.js'")
 
-function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions: extraActions = {}, initialFilter = null } = {}) {
+function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions: extraActions = {}, initialFilter = null, ownWindow } = {}) {
   const states = new Map()
   const effects = new Map()
   const memos = new Map()
@@ -132,7 +132,7 @@ function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions
   const Section = ({ title, children }) => React.createElement('section', null, React.createElement('h3', null, title), ...(children ?? []))
   const Row = ({ label, hint, children }) => React.createElement('div', null, React.createElement('span', null, label), hint ? React.createElement('span', null, hint) : null, ...(children ?? []))
 
-  const draw = () => render(React.createElement(PluginsPage, { roster, actions, Section, Row, initialFilter }))
+  const draw = () => render(React.createElement(PluginsPage, { roster, actions, Section, Row, initialFilter, ...(ownWindow === undefined ? {} : { ownWindow }) }))
   return { draw, calls, copied }
 }
 
@@ -665,4 +665,122 @@ test('PluginsPage shows the execution tier row and the floating-version note in 
   assert.match(textOf(tree), /Execution tier/)
   assert.match(textOf(tree), /trusted-worker/)
   assert.match(textOf(tree), /approval does not pin exact bytes/)
+})
+
+test('PluginsPage labels external browser plugins as External window and shows Browser window row in details', async () => {
+  const { draw } = mountPluginsPage()
+  draw()
+  await flush()
+  let tree = draw()
+
+  const egoTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Ego Lite Browser'))[0]
+  assert.ok(egoTile)
+  assert.ok(findAll(egoTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length === 1)
+
+  const refsTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Playwright (Refs)'))[0]
+  assert.ok(refsTile)
+  assert.equal(findAll(refsTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length, 0)
+
+  // Open Ego Lite details -> Browser window: External window
+  findAll(egoTile, n => n.type === 'button' && n.props?.className === 'bt-plg-main')[0].props.onClick()
+  tree = draw()
+  assert.match(textOf(tree), /Browser window/)
+  assert.match(textOf(tree), /External window/)
+
+  // Navigate back and open Playwright (Refs) details -> Browser window: Sidebar browser
+  findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Back')[0].props.onClick()
+  tree = draw()
+  const refsMain = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Playwright (Refs)'))[0]
+  refsMain.props.onClick()
+  tree = draw()
+  assert.match(textOf(tree), /Browser window/)
+  assert.match(textOf(tree), /Sidebar browser/)
+
+  // A non-builtin plugin (even a known external ID) that declares runtime windowMode: 'pane' is treated as Sidebar browser.
+  const upgradedView = {
+    ...SAMPLE_VIEW,
+    slots: { browser: { ...SAMPLE_VIEW.slots.browser, active: 'dsh:dsh-ego-browser', controlsPane: true, windowMode: 'pane' } },
+    plugins: SAMPLE_VIEW.plugins.map(p => (p.id === 'dsh:dsh-ego-browser'
+      ? { ...p, installed: true, enabled: true, active: true, status: 'ready', windowMode: 'pane' }
+      : { ...p, active: false, enabled: false })),
+  }
+  const upgraded = mountPluginsPage({ view: upgradedView })
+  upgraded.draw()
+  await flush()
+  const upgradedTree = upgraded.draw()
+  const stage = findAll(upgradedTree, n => n.props?.className === 'bt-plg-stage')[0]
+  assert.match(textOf(stage), /Sidebar browser/)
+  assert.doesNotMatch(textOf(stage), /External window/)
+  const upgradedTile = findAll(upgradedTree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Ego Lite Browser'))[0]
+  assert.equal(findAll(upgradedTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length, 0)
+})
+
+test('PluginsPage shares the unified engine blocklist, uses ownWindow prop, and keeps already-enabled desktop-unsupported bundles visible to disable', async () => {
+  const mixedView = {
+    ...SAMPLE_VIEW,
+    plugins: [
+      ...SAMPLE_VIEW.plugins,
+      {
+        id: 'dsh:@deepseek-ai/dsh-base', name: 'DSH Base', description: 'Internal profile',
+        category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-base',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-web-app', name: 'DSH Web App', description: 'Internal web profile',
+        category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-web-app',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-inspector-profile', name: 'Developer tools', description: 'Web inspector',
+        category: 'dev', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+        status: 'inactive', packageName: '@deepseek-ai/dsh-experimental-inspector-profile',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-liveshare', name: 'Live share', description: 'Pre-enabled liveshare bundle',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-experimental-liveshare',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-auto-review', name: 'Auto review', description: 'Host review',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-experimental-auto-review',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-subagent-lab', name: 'DSH Subagent Lab', description: 'Official subagent',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+        status: 'inactive', packageName: '@deepseek-ai/dsh-experimental-subagent-lab',
+      },
+      {
+        id: 'dsh:@acme/my-subagent-helper', name: 'Acme Subagent Helper', description: 'Third-party community plugin',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+        status: 'inactive', packageName: '@acme/my-subagent-helper',
+      },
+    ],
+  }
+
+  // Plugin mode (ownWindow: false): internal base/web-app hidden, DSH desktop-unsupported bundles stay visible.
+  const pluginRun = mountPluginsPage({ view: mixedView, ownWindow: false })
+  pluginRun.draw()
+  await flush()
+  const pluginText = textOf(pluginRun.draw())
+  assert.doesNotMatch(pluginText, /DSH Base/, 'unified blocklist hides @deepseek-ai/dsh-base')
+  assert.doesNotMatch(pluginText, /DSH Web App/, 'unified blocklist hides @deepseek-ai/dsh-web-app')
+  assert.doesNotMatch(pluginText, /DSH Subagent Lab/, 'official @deepseek-ai/dsh-experimental-subagent-* is hidden')
+  assert.match(pluginText, /Acme Subagent Helper/, 'third-party package containing "subagent" is not hidden')
+  assert.match(pluginText, /Developer tools/, 'plugin mode keeps disabled desktop-unsupported bundles visible')
+  assert.match(pluginText, /Live share/, 'plugin mode keeps enabled bundles visible')
+  assert.match(pluginText, /Auto review/, 'engine bundle stays visible')
+
+  // Standalone desktop mode (ownWindow: true): disabled desktop-unsupported bundle is hidden,
+  // while an already-enabled one stays visible so the user can turn it off or remove it.
+  const desktopRun = mountPluginsPage({ view: mixedView, ownWindow: true })
+  desktopRun.draw()
+  await flush()
+  const desktopText = textOf(desktopRun.draw())
+  assert.doesNotMatch(desktopText, /DSH Base/, 'internal DSH base stays hidden even when enabled')
+  assert.doesNotMatch(desktopText, /DSH Subagent Lab/, 'official DSH subagent bundle stays hidden on desktop')
+  assert.match(desktopText, /Acme Subagent Helper/, 'third-party package containing "subagent" stays visible on desktop')
+  assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides disabled desktop-unsupported bundles')
+  assert.match(desktopText, /Live share/, 'desktop keeps already-enabled desktop-unsupported bundles visible so users can disable them')
+  assert.match(desktopText, /Auto review/, 'desktop keeps host-backed engine bundles')
 })

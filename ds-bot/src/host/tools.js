@@ -278,6 +278,21 @@ export function install(rt) {
     return `${plain} ${kept}${whole} If you end your turn without writing any text, ${cut ? 'that part' : 'it'} goes up to ${to}; any text you write for this work from now on goes up instead.`
   }
 
+  // Tracks works currently mid-dispatch or rolling back so startup orphan reconciliation
+  // never closes a work during its openTaskPart/deliver/rollback await window.
+  const dispatchingWorks = new Map()
+  const beginDispatchWork = (id) => {
+    if (typeof id !== 'string' || id === '') return
+    dispatchingWorks.set(id, (dispatchingWorks.get(id) ?? 0) + 1)
+  }
+  const endDispatchWork = (id) => {
+    if (typeof id !== 'string' || id === '') return
+    const left = (dispatchingWorks.get(id) ?? 0) - 1
+    if (left <= 0) dispatchingWorks.delete(id)
+    else dispatchingWorks.set(id, left)
+  }
+  const isDispatchingWork = id => typeof id === 'string' && ((dispatchingWorks.get(id) ?? 0) > 0 || resumingWorks.has(id))
+
   // Each admission is a distinct assignment even when the target already has unread work;
   // only an explicit request_id retry or resumption reuses an existing assignment.
   async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, follows, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
@@ -290,105 +305,110 @@ export function install(rt) {
     if (long === undefined) { if (request !== undefined) request.unsent = true; return tooLong(text) }
     const working = rt.live.get(chat)?.turn !== undefined || agent.status === 'running'
     const exchangeId = existingWork?.id ?? randomUUID()
-    const spawnInBackground = working && !toUser && when !== 'queue'
-      && rt.shouldMoveForeground?.(target, chat, { forPeer: true }) === true
-      && typeof rt.spawnBotHandoffTask === 'function'
-    if (spawnInBackground) {
+    beginDispatchWork(exchangeId)
+    try {
+      const spawnInBackground = working && !toUser && when !== 'queue'
+        && rt.shouldMoveForeground?.(target, chat, { forPeer: true }) === true
+        && typeof rt.spawnBotHandoffTask === 'function'
+      if (spawnInBackground) {
+        const prevState = existingWork?.work?.state
+        const prevPaused = existingWork?.work?.paused
+        if (existingWork !== undefined) {
+          existingWork.work.state = 'open'
+          delete existingWork.work.paused
+          void rt.save().catch(() => {})
+        }
+        try {
+          await rt.spawnBotHandoffTask(target, chat, {
+            fromBot: sender,
+            follows,
+            fromPart,
+            parentWork,
+            ...(imOrigin ? { imOrigin } : {}),
+            text: long.text,
+            files: long.files,
+            length: long.length,
+            exchangeId,
+            ...(existingWork !== undefined ? { reuseWork: true } : {}),
+          })
+        } catch (error) {
+          if (existingWork !== undefined && error?.delivered !== true) {
+            existingWork.work.state = prevState
+            if (prevPaused !== undefined) existingWork.work.paused = prevPaused
+            void rt.save().catch(() => {})
+          }
+          throw error
+        }
+        const ref = rt.workRefOf?.(exchangeId)
+        const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
+        const notes = [
+          `Delegated${ref ? ` work #${ref}` : ''} to ${target.name} in a background task while its foreground chat is busy. Its result will return automatically when done; do not poll or message back to acknowledge.`,
+          asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
+        ].filter(Boolean)
+        return notes.join(' ')
+      }
+      let workRef = existingWork?.work?.ref
       const prevState = existingWork?.work?.state
       const prevPaused = existingWork?.work?.paused
-      if (existingWork !== undefined) {
+      if (existingWork !== undefined && !toUser) {
         existingWork.work.state = 'open'
         delete existingWork.work.paused
         void rt.save().catch(() => {})
+      } else if (!toUser) {
+        const opened = rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), goal: text })
+        workRef = opened?.ref
       }
       try {
-        await rt.spawnBotHandoffTask(target, chat, {
-          fromBot: sender,
-          follows,
-          fromPart,
-          parentWork,
-          ...(imOrigin ? { imOrigin } : {}),
+        await rt.deliver({
+          fromId: sender.id,
+          toId: target.id,
+          ...(fromPart ? { fromPart } : {}),
           text: long.text,
           files: long.files,
           length: long.length,
+          role: 'request',
+          ...(follows ? { follows } : {}),
+          steer: !working && when !== 'queue' && !toUser,
           exchangeId,
-          ...(existingWork !== undefined ? { reuseWork: true } : {}),
+          ...(workRef ? { workRef } : {}),
+          ...(toUser ? { audience: 'user' } : {}),
         })
       } catch (error) {
-        if (existingWork !== undefined && error?.delivered !== true) {
-          existingWork.work.state = prevState
-          if (prevPaused !== undefined) existingWork.work.paused = prevPaused
-          void rt.save().catch(() => {})
+        if (error?.delivered === false) rt.forgetDelivery?.(exchangeId)
+        if (existingWork !== undefined && !toUser) {
+          if (error?.delivered !== true) {
+            existingWork.work.state = prevState
+            if (prevPaused !== undefined) existingWork.work.paused = prevPaused
+            void rt.save().catch(() => {})
+          }
+        } else if (existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
+          rt.dropWork(exchangeId)
         }
         throw error
       }
-      const ref = rt.workRefOf?.(exchangeId)
+      if (toUser) {
+        if (existingWork !== undefined) rt.dropWork?.(exchangeId)
+        rt.noteWorkCompleted?.(sender.id, target.id, { worked: callerWorked, id: exchangeId, text })
+      }
+      const label = workRef ? ` work #${workRef}` : ''
+      const sent = toUser
+        ? `Delegated to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
+        : working
+          ? `Queued${label} for ${target.name}: it starts after its current work and returns the result once done. Do not wait or poll.`
+          : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
       const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
       const notes = [
-        `Delegated${ref ? ` work #${ref}` : ''} to ${target.name} in a background task while its foreground chat is busy. Its result will return automatically when done; do not poll or message back to acknowledge.`,
+        status === 'idle' ? '' : `${target.name} now: ${status}.`,
         asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
       ].filter(Boolean)
-      return notes.join(' ')
+      const out = [sent, ...notes].join(' ')
+      const elsewhere = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
+      if (elsewhere.length === 0) return out
+      const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
+      return `${out} This request does not reach its work in ${elsewhere.map(whereOf).join(' and ')}.${stop}`
+    } finally {
+      endDispatchWork(exchangeId)
     }
-    let workRef = existingWork?.work?.ref
-    const prevState = existingWork?.work?.state
-    const prevPaused = existingWork?.work?.paused
-    if (existingWork !== undefined && !toUser) {
-      existingWork.work.state = 'open'
-      delete existingWork.work.paused
-      void rt.save().catch(() => {})
-    } else if (!toUser) {
-      const opened = rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), goal: text })
-      workRef = opened?.ref
-    }
-    try {
-      await rt.deliver({
-        fromId: sender.id,
-        toId: target.id,
-        ...(fromPart ? { fromPart } : {}),
-        text: long.text,
-        files: long.files,
-        length: long.length,
-        role: 'request',
-        ...(follows ? { follows } : {}),
-        steer: !working && when !== 'queue' && !toUser,
-        exchangeId,
-        ...(workRef ? { workRef } : {}),
-        ...(toUser ? { audience: 'user' } : {}),
-      })
-    } catch (error) {
-      if (error?.delivered === false) rt.forgetDelivery?.(exchangeId)
-      if (existingWork !== undefined && !toUser) {
-        if (error?.delivered !== true) {
-          existingWork.work.state = prevState
-          if (prevPaused !== undefined) existingWork.work.paused = prevPaused
-          void rt.save().catch(() => {})
-        }
-      } else if (existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
-        rt.dropWork(exchangeId)
-      }
-      throw error
-    }
-    if (toUser) {
-      if (existingWork !== undefined) rt.dropWork?.(exchangeId)
-      rt.noteWorkCompleted?.(sender.id, target.id, { worked: callerWorked, id: exchangeId, text })
-    }
-    const label = workRef ? ` work #${workRef}` : ''
-    const sent = toUser
-      ? `Delegated to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
-      : working
-        ? `Queued${label} for ${target.name}: it starts after its current work and returns the result once done. Do not wait or poll.`
-        : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
-    const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
-    const notes = [
-      status === 'idle' ? '' : `${target.name} now: ${status}.`,
-      asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
-    ].filter(Boolean)
-    const out = [sent, ...notes].join(' ')
-    const elsewhere = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
-    if (elsewhere.length === 0) return out
-    const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
-    return `${out} This request does not reach its work in ${elsewhere.map(whereOf).join(' and ')}.${stop}`
   }
 
   // Stops any in-flight turn, queued inbox item, or background handoff task for a
@@ -844,42 +864,47 @@ export function install(rt) {
       const prevState = resolved.work.state
       const prevQuestion = resolved.work.question
       const prevWorked = resolved.work.worked
-      const outcome = rt.answerWork?.(resolved.id)
-      if (outcome?.error !== undefined) refuse(`Could not answer work #${resolved.work.ref ?? resolved.id}: ${outcome.error}.`)
-      const ref = resolved.work.ref ? `#${resolved.work.ref}` : resolved.id
-      // If the work runs inside a bot-handoff background task, route the answer back to
-      // that task's active segment rather than the worker's foreground chat.
-      const taskTarget = resolved.work.toSession ? threadCurrentOfPart(worker, resolved.work.toSession) : undefined
-      const answerExchangeId = randomUUID()
+      beginDispatchWork(resolved.id)
       try {
-        await rt.deliver({
-          fromId: sender.id,
-          toId: worker.id,
-          ...(taskTarget ? { sessionId: taskTarget } : {}),
-          text: long.text,
-          files: long.files,
-          ...(long.length !== undefined ? { length: long.length } : {}),
-          role: 'answer',
-          address: resolved.work.toTaskId ? { taskId: resolved.work.toTaskId } : returnAddress(worker, resolved.work.toSession),
-          work: resolved.id,
-          ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
-          steer: false,
-          exchangeId: answerExchangeId,
-        })
-      } catch (error) {
-        if (error?.delivered !== true) {
-          if (error?.delivered === false) rt.forgetDelivery?.(answerExchangeId)
-          if (state.works?.[resolved.id] === resolved.work) {
-            resolved.work.state = prevState
-            if (prevQuestion === undefined) delete resolved.work.question
-            else resolved.work.question = prevQuestion
-            resolved.work.worked = prevWorked
-            void rt.save().catch(() => {})
+        const outcome = rt.answerWork?.(resolved.id)
+        if (outcome?.error !== undefined) refuse(`Could not answer work #${resolved.work.ref ?? resolved.id}: ${outcome.error}.`)
+        const ref = resolved.work.ref ? `#${resolved.work.ref}` : resolved.id
+        // If the work runs inside a bot-handoff background task, route the answer back to
+        // that task's active segment rather than the worker's foreground chat.
+        const taskTarget = resolved.work.toSession ? threadCurrentOfPart(worker, resolved.work.toSession) : undefined
+        const answerExchangeId = randomUUID()
+        try {
+          await rt.deliver({
+            fromId: sender.id,
+            toId: worker.id,
+            ...(taskTarget ? { sessionId: taskTarget } : {}),
+            text: long.text,
+            files: long.files,
+            ...(long.length !== undefined ? { length: long.length } : {}),
+            role: 'answer',
+            address: resolved.work.toTaskId ? { taskId: resolved.work.toTaskId } : returnAddress(worker, resolved.work.toSession),
+            work: resolved.id,
+            ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
+            steer: false,
+            exchangeId: answerExchangeId,
+          })
+        } catch (error) {
+          if (error?.delivered !== true) {
+            if (error?.delivered === false) rt.forgetDelivery?.(answerExchangeId)
+            if (state.works?.[resolved.id] === resolved.work) {
+              resolved.work.state = prevState
+              if (prevQuestion === undefined) delete resolved.work.question
+              else resolved.work.question = prevQuestion
+              resolved.work.worked = prevWorked
+              void rt.save().catch(() => {})
+            }
           }
+          throw error
         }
-        throw error
+        return `Answered ${worker.name} on work ${ref}; it will resume and return the result when done. Reply [PASS] if nothing needs to be told to the user.`
+      } finally {
+        endDispatchWork(resolved.id)
       }
-      return `Answered ${worker.name} on work ${ref}; it will resume and return the result when done. Reply [PASS] if nothing needs to be told to the user.`
     },
   }))
 
@@ -1650,9 +1675,11 @@ export function install(rt) {
       if (prevView !== undefined && ((prevView.callSessionId ?? id) !== id || prevView.callId !== exec.callId)) {
         rt.closeCard(id, prevView, 'dismissed')
       }
+      const callSeq = exec.callId ? rt.callSeq?.(id, exec.callId) : undefined
       state.views[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
+        ...(typeof callSeq === 'number' && Number.isInteger(callSeq) ? { callSeq } : {}),
         title,
         view,
         ...(issueDraft === undefined ? {} : { issueDraft }),
@@ -1845,6 +1872,8 @@ export function install(rt) {
     // join that scope. Register what it is missing, so the next request is whole.
     const botId = owns ? rt.selfOf(id) : undefined
     const scopedDenied = botId ? (rt.pluginDeniedRules?.(botId)?.scopedDenied ?? new Set()) : new Set()
+    const connectorOffPrefixes = botId ? (rt.connectorOffFor?.(botId) ?? []) : []
+    const connectorDenied = name => connectorOffPrefixes.some(prefix => prefix && name.startsWith(prefix))
     const hiddenScoped = relayOnly ? null : hiddenTeamToolsFor(id)
     const scopeKey = relayOnly ? 'relay' : scopeKeyOf(id)
     if (held?.tools === true) {
@@ -1857,10 +1886,11 @@ export function install(rt) {
       for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
         if (relayOnly && def.name !== 'group_relay') continue
         if (!relayOnly && hiddenScoped.has(def.name)) continue
-        if (!relayOnly && scopedDenied.has(def.name)) {
-          ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
-          continue
-        }
+        const deniedByPlugin = !relayOnly && scopedDenied.has(def.name)
+        const deniedByConnector = !relayOnly && connectorDenied(def.name)
+        if (deniedByPlugin) (held.pluginHiddenScoped ??= new Set()).add(def.name)
+        if (deniedByConnector) (held.connectorHiddenScoped ??= new Set()).add(def.name)
+        if (deniedByPlugin || deniedByConnector) continue
         if (held.added?.has(def.name) === true) continue
         try {
           const dispose = agent.ctx.tools.register(def)
@@ -1882,7 +1912,7 @@ export function install(rt) {
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }
-      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && (relayOnly || !hiddenScoped.has(def.name)) && !scopedDenied.has(def.name) && !held.added?.has(def.name))) {
+      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && (relayOnly || !hiddenScoped.has(def.name)) && !scopedDenied.has(def.name) && (relayOnly || !connectorDenied(def.name)) && !held.added?.has(def.name))) {
         retryBotTools(agent, held)
       } else {
         clearTimeout(held.retryTimer)
@@ -1904,10 +1934,11 @@ export function install(rt) {
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
       if (!relayOnly && hiddenScoped.has(def.name)) continue
-      if (!relayOnly && scopedDenied.has(def.name)) {
-        ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
-        continue
-      }
+      const deniedByPlugin = !relayOnly && scopedDenied.has(def.name)
+      const deniedByConnector = !relayOnly && connectorDenied(def.name)
+      if (deniedByPlugin) (held.pluginHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByConnector) (held.connectorHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByPlugin || deniedByConnector) continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1941,6 +1972,12 @@ export function install(rt) {
     }
   }
 
+  const isConnectorDeniedTool = (botId, name) => {
+    if (!botId) return false
+    const prefixes = rt.connectorOffFor?.(botId) ?? []
+    return prefixes.some(prefix => prefix && name.startsWith(prefix))
+  }
+
   // Tools joined after the first scoping (mail tools appear when the first
   // account is added) register into every held Agent and are offered once.
   const addTeamTool = (def) => {
@@ -1950,10 +1987,11 @@ export function install(rt) {
       if (held.relay || held.tools !== true || held.added?.has(def.name) || typeof held.agent?.ctx?.tools?.register !== 'function') continue
       if (hiddenTeamToolsFor(id).has(def.name)) continue
       const botId = rt.selfOf(id)
-      if (botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name)) {
-        ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
-        continue
-      }
+      const deniedByPlugin = Boolean(botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name))
+      const deniedByConnector = Boolean(botId && isConnectorDeniedTool(botId, def.name))
+      if (deniedByPlugin) (held.pluginHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByConnector) (held.connectorHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByPlugin || deniedByConnector) continue
       try {
         const dispose = held.agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1985,50 +2023,101 @@ export function install(rt) {
       held.toolLifts?.delete(name)
       held.added?.delete(name)
       held.unlisted.delete(name)
+      held.connectorHiddenScoped?.delete(name)
+      held.pluginHiddenScoped?.delete(name)
     }
   }
 
-  // Per-Bot connector switches (state.connectors[id].offFor): deny the served
-  // tools matching each off connector's prefix. Re-applied on tools/change.
+  // Per-Bot connector switches (state.connectors[id].offFor): unmount matching
+  // Agent-scoped team tools (e.g. `mail_*`, since DSH's `restrict()` masks
+  // inherited global tools only) and deny inherited global connector tools.
+  // Re-applied on tools/change with re-entrancy protection.
+  const maskingConnectors = new WeakSet()
   const maskConnectorTools = (agent, held) => {
-    if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
-    const botId = rt.selfOf(agent.session?.id)
-    const prefixes = rt.connectorOffFor?.(botId) ?? []
-    // Taking the served schemas is the expensive part: every schema is walked when the
-    // tool scope is taken, and most Bots have no connector off.
-    if (prefixes.length === 0 && (held.connectorLifts?.length ?? 0) === 0 && (held.connectorDenied?.size ?? 0) === 0) return
-    // schemas(agent) omits tools our current mask already hid. Keep those names
-    // while computing the next mask, or the next tools/change would lift it.
-    const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.connectorDenied ?? [])])
-    // One restrict() per connector: one per tool would take the scope once for each.
-    // A tool two prefixes match is denied once, by the first prefix that names it.
-    const deny = new Set()
-    const groups = []
-    for (const prefix of prefixes) {
-      const names = [...served].filter(name => !deny.has(name) && name.startsWith(prefix))
-      if (names.length === 0) continue
-      groups.push(names)
-      for (const name of names) deny.add(name)
-    }
-    const before = held.connectorDenied ?? new Set()
-    if (deny.size === before.size && [...deny].every(name => before.has(name))) return
-    for (const lift of held.connectorLifts ?? []) { try { lift() } catch { /* already lifted */ } }
-    held.connectorLifts = []
-    held.connectorDenied = deny
-    for (const names of groups) {
-      try {
-        const lift = agent.ctx.tools.restrict({ deny: names })
-        if (typeof lift === 'function') held.connectorLifts.push(lift)
-      } catch {
-        // A name in the Agent's own scope fails the whole list (restrict() masks
-        // inherited tools only), so mask the rest one at a time.
-        for (const name of names) {
-          try {
-            const lift = agent.ctx.tools.restrict({ deny: [name] })
-            if (typeof lift === 'function') held.connectorLifts.push(lift)
-          } catch { /* a scoped name cannot be restricted; connectors are global */ }
+    if (maskingConnectors.has(agent)) return
+    maskingConnectors.add(agent)
+    try {
+      const botId = rt.selfOf(agent.session?.id)
+      const prefixes = rt.connectorOffFor?.(botId) ?? []
+
+      // 1. Sync Agent-scoped team tools matching off connector prefixes (e.g. mail_*).
+      if ((prefixes.length > 0 || (held.connectorHiddenScoped?.size ?? 0) > 0)
+        && held.tools === true && !held.relay && typeof agent.ctx?.tools?.register === 'function') {
+        const hiddenScoped = (held.connectorHiddenScoped ??= new Set())
+        const hiddenTeam = hiddenTeamToolsFor(agent.session?.id)
+        const pluginScopedDenied = botId ? (rt.pluginDeniedRules?.(botId)?.scopedDenied ?? new Set()) : new Set()
+        for (const def of rt.teamTools) {
+          const shouldHide = prefixes.some(prefix => prefix && def.name.startsWith(prefix))
+          if (shouldHide) {
+            hiddenScoped.add(def.name)
+            if (held.toolLifts?.has(def.name) === true || held.added?.has(def.name) === true) {
+              disposeScopedTool(held, def.name)
+            }
+          } else if (hiddenScoped.has(def.name)) {
+            hiddenScoped.delete(def.name)
+            if (!hiddenTeam.has(def.name) && !pluginScopedDenied.has(def.name) && !held.added?.has(def.name)) {
+              try {
+                const dispose = agent.ctx.tools.register(def)
+                if (typeof dispose === 'function') {
+                  held.disposers.push(dispose)
+                  ;(held.toolLifts ??= new Map()).set(def.name, dispose)
+                }
+                ;(held.added ??= new Set()).add(def.name)
+                held.unlisted?.add(def.name)
+              } catch { /* ignore if unavailable */ }
+            }
+          }
         }
       }
+
+      // 2. Mask inherited global connector tools via `agent.ctx.tools.restrict()`.
+      if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
+      // Taking the served schemas is the expensive part: every schema is walked when the
+      // tool scope is taken, and most Bots have no connector off.
+      if (prefixes.length === 0 && (held.connectorLifts?.length ?? 0) === 0 && (held.connectorDenied?.size ?? 0) === 0) return
+      // schemas(agent) omits tools our current mask already hid. Keep those names
+      // while computing the next mask, or the next tools/change would lift it.
+      const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.connectorDenied ?? [])])
+      // One restrict() per connector: one per tool would take the scope once for each.
+      // A tool two prefixes match is denied once, by the first prefix that names it.
+      const deny = new Set()
+      const groups = []
+      for (const prefix of prefixes) {
+        if (!prefix) continue
+        const names = [...served].filter(name => !deny.has(name) && !held.added?.has(name) && name.startsWith(prefix))
+        if (names.length === 0) continue
+        groups.push(names)
+        for (const name of names) deny.add(name)
+      }
+      const before = held.connectorDenied ?? new Set()
+      if (deny.size === before.size && [...deny].every(name => before.has(name))) return
+      // Clear state BEFORE invoking old lifts so synchronous `tools/change` cannot lose new lifts.
+      const prevLifts = held.connectorLifts ?? []
+      held.connectorLifts = []
+      held.connectorDenied = new Set()
+      for (const lift of prevLifts) { try { lift() } catch { /* already lifted */ } }
+      if (deny.size === 0) return
+      const applied = new Set()
+      for (const names of groups) {
+        try {
+          const lift = agent.ctx.tools.restrict({ deny: names })
+          if (typeof lift === 'function') held.connectorLifts.push(lift)
+          for (const name of names) applied.add(name)
+        } catch {
+          // A name in the Agent's own scope fails the whole list (restrict() masks
+          // inherited tools only), so mask the rest one at a time.
+          for (const name of names) {
+            try {
+              const lift = agent.ctx.tools.restrict({ deny: [name] })
+              if (typeof lift === 'function') held.connectorLifts.push(lift)
+              applied.add(name)
+            } catch { /* a scoped name cannot be restricted via inherited deny */ }
+          }
+        }
+      }
+      held.connectorDenied = applied
+    } finally {
+      maskingConnectors.delete(agent)
     }
   }
   // Plugin masks:
@@ -2066,7 +2155,9 @@ export function install(rt) {
             }
           } else if (hiddenScoped.has(def.name)) {
             hiddenScoped.delete(def.name)
-            if (!hiddenTeam.has(def.name) && !held.added?.has(def.name)) {
+            if (isConnectorDeniedTool(botId, def.name)) {
+              ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
+            } else if (!hiddenTeam.has(def.name) && !held.added?.has(def.name)) {
               try {
                 const dispose = agent.ctx.tools.register(def)
                 if (typeof dispose === 'function') {
@@ -2169,13 +2260,24 @@ export function install(rt) {
       maskingTaskGlobals.delete(agent)
     }
   }
+  let reapplyDepth = 0
+  let toolsChangedDuringReapply = false
   const reapplyToolMasks = () => {
-    for (const held of scoped.values()) {
-      if (held.agent === undefined) continue
-      try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
-      try { maskTaskGlobalTools(held.agent, held) } catch (error) { rt.warn('ds-bot: task tool mask failed: %s', error) }
-      try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
-      try { maskPluginTools(held.agent, held) } catch (error) { rt.warn('ds-bot: plugin mask failed: %s', error) }
+    reapplyDepth += 1
+    try {
+      for (const held of scoped.values()) {
+        if (held.agent === undefined) continue
+        try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
+        try { maskTaskGlobalTools(held.agent, held) } catch (error) { rt.warn('ds-bot: task tool mask failed: %s', error) }
+        try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+        try { maskPluginTools(held.agent, held) } catch (error) { rt.warn('ds-bot: plugin mask failed: %s', error) }
+      }
+    } finally {
+      reapplyDepth -= 1
+      if (reapplyDepth === 0 && toolsChangedDuringReapply) {
+        toolsChangedDuringReapply = false
+        rt.notifyLocalAgentToolsChanged?.()
+      }
     }
   }
 
@@ -2240,6 +2342,10 @@ export function install(rt) {
     maskPluginTools(agent, held)
   }
   ctx.on('tools/change', () => {
+    if (reapplyDepth > 0) {
+      toolsChangedDuringReapply = true
+      return
+    }
     reapplyToolMasks()
     rt.notifyLocalAgentToolsChanged?.()
   })
@@ -2551,5 +2657,5 @@ export function install(rt) {
   }
 
   const hiddenToolsFor = id => new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, hiddenToolsFor, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, hiddenToolsFor, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, isDispatchingWork, cancelWorkByUser, abortWorkExecution })
 }

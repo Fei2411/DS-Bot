@@ -69,14 +69,19 @@ test('the host serves each reply font on the route the client asks for', async (
   assert.equal(routes.size, Object.keys(FONT_FILES).length)
 })
 
-test('Celadon sets the serif on Bot replies only, and a text font from Settings still wins', () => {
-  const css = themeCss(allThemes().celadon)
+test('Fei sets the serif on Bot replies only, and a text font from Settings still wins', async () => {
+  const { dshThemeCss } = await import('../src/client/styles-dsh.js')
+  const css = themeCss(allThemes().fei)
   for (const file of Object.values(FONT_FILES)) assert.ok(css.includes(`url(${FONT_ROUTE}/${file})`), `@font-face for ${file}`)
   const rule = css.split('\n').find(line => line.startsWith('.bt-look-bot,'))
   assert.ok(rule, 'reply rule')
   // The user's text font comes first and the serif is its fallback; test/browser/reply-font.test.js
   // checks the computed fonts against DSH's own style sheets.
-  assert.ok(rule.includes(`font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}"`), rule)
+  assert.ok(rule.includes(`font-family:var(--bt-reply-font,"${REPLY_FAMILY}"`), rule)
+  // Plugin supplement targets DSH's hashed _markdown class and reads --dsh-font-family-text.
+  const dshCss = dshThemeCss(allThemes().fei)
+  assert.ok(dshCss.includes(`font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}"`), dshCss)
+  assert.ok(dshCss.includes('.bt-bubble [class*="_markdown"]'), dshCss)
   // Rebinding DSH's font variables would reach code-block chrome but not the Markdown tokens.
   assert.doesNotMatch(css, /--dsw-font-family:|--ds-font-family-code/)
   // Only the Markdown inside the bubble: the bubble also holds interface parts (the fold note and button).
@@ -87,9 +92,12 @@ test('Celadon sets the serif on Bot replies only, and a text font from Settings 
   // the faces and the rule for the Appearance preview and the model picker survive it.
   const own = botOwnCss(css)
   assert.equal(own.match(/@font-face\{/g)?.length, REPLY_FACES.length)
-  assert.ok(own.includes('.bt-look-bot,.bt-model-dock .bt-bubble{font-family:var(--dsh-font-family-text,'))
+  assert.ok(own.includes('.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble .bt-md,.bt-bubble .bt-md :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--bt-reply-font,'))
   // The other built-in themes keep the interface font.
-  for (const id of ['deepseek', 'mono', 'paper', 'moonlight']) assert.doesNotMatch(themeCss(allThemes()[id]), /@font-face/)
+  for (const id of ['deepseek', 'mono', 'paper', 'moonlight']) {
+    assert.doesNotMatch(themeCss(allThemes()[id]), /@font-face/)
+    assert.equal(dshThemeCss(allThemes()[id]), '')
+  }
 })
 
 test('the skin test colors match every built-in theme', () => {

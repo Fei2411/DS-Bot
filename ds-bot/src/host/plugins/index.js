@@ -106,6 +106,22 @@ function bundleMatchesCatalog(bundleName, catalogEntry) {
   return Array.isArray(catalogEntry.install?.aliases) && catalogEntry.install.aliases.includes(bundleName)
 }
 
+function formatBundleError(error) {
+  if (!error || typeof error !== 'object') return null
+  if (typeof error.diagnostic === 'string' && error.diagnostic.trim() !== '') return error.diagnostic.trim()
+  if (error.code === 'incompatible-version' && Array.isArray(error.incompatible) && error.incompatible.length > 0) {
+    const item = error.incompatible[0]
+    const reqs = Object.entries(item?.requirements ?? {}).map(([k, v]) => `${k} ${v}`).join(', ')
+    if (item?.name && item?.version && item?.runtimeVersion) {
+      return reqs
+        ? `Incompatible with DSH ${item.runtimeVersion}: ${item.name}@${item.version} requires ${reqs}`
+        : `Incompatible with DSH ${item.runtimeVersion}: ${item.name}@${item.version}`
+    }
+    return 'Incompatible with the running DSH version.'
+  }
+  return typeof error.code === 'string' && error.code.trim() !== '' ? error.code.trim() : null
+}
+
 function isBundleAvailable(bundle) {
   return Boolean(bundle && (bundle.availability === 'installation' || bundle.availability === 'profile')
     && (bundle.installed || bundle.enabled))
@@ -1732,7 +1748,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     }
 
     // Tools registered by currently active, non-disabled plugins (e.g. built-in `browser_open`
-    // when an installed DSH browser plugin like Ego Lite is inactive) must never be blocked by
+    // when an installed external DSH browser plugin is inactive) must never be blocked by
     // an inactive bundle's overlapping tool prefix.
     const activeOwnedTools = new Set()
     for (const [mountKey, mount] of activeMounts.entries()) {
@@ -1755,6 +1771,47 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     if (rules.scopedDenied.has(toolName) || rules.exact.includes(toolName)) return true
     if (rules.protectedTools.has(toolName) || rules.activeOwnedTools.has(toolName)) return false
     return rules.prefixes.some(prefix => prefix && toolName.startsWith(prefix))
+  }
+
+  function browserSurfaceFor(id, controlsPane) {
+    if (id === 'builtin:readonly') return { controlsPane: false, windowMode: 'readonly' }
+    if (controlsPane === true) return { controlsPane: true, windowMode: 'pane' }
+    return { controlsPane: false, windowMode: 'external' }
+  }
+
+  function resolveActiveBrowserMeta(activeId, catalogEntries = catalogManager.peek().entries) {
+    const id = activeId ?? 'builtin:readonly'
+    const mount = activeMounts.get('slot:browser')
+    const mountedDesc = mount?.slotTargetId === id ? mount.descriptor : null
+    const builtinDesc = builtinPlugins.get(id)
+    const nativeDesc = mountedDesc
+      ?? nativePlugins.get(id)
+      ?? (id.startsWith('provider:') ? nativePlugins.get(id.slice('provider:'.length)) : null)
+    const desc = builtinDesc ?? nativeDesc
+    const surface = browserSurfaceFor(id, Boolean(desc?.controlsPane))
+    const store = pluginStore()
+    const customEntry = own(store.custom, id)
+    const catalogEntry = (catalogEntries ?? []).find(e => e?.id === id)
+    const snapshotEntry = own(store.snapshots, id)
+    const entry = customEntry ?? catalogEntry ?? snapshotEntry
+    const pkg = id.startsWith('dsh:') ? id.slice('dsh:'.length) : (entry?.install?.packageName ?? entry?.packageName ?? null)
+    const bundle = entry ? resolveDshBundleForEntry(entry) : (pkg ? cachedBundles.get(pkg) : null)
+    const hasCustomName = typeof customEntry?.name === 'string' && customEntry.name.trim() !== ''
+    const activeName = hasCustomName
+      ? customEntry.name.trim()
+      : (desc?.name
+        ?? entry?.name
+        ?? (bundle ? resolveLocalizedText(bundle.meta?.title, bundle.name) : null)
+        ?? id.replace(/^(builtin|dsh|mcp|provider):/, ''))
+    const activeLocales = hasCustomName
+      ? null
+      : (desc?.locales ?? entry?.locales ?? extractMetaLocales(bundle?.meta) ?? null)
+    return {
+      ...surface,
+      activeName,
+      ...(hasCustomName ? { customName: true } : {}),
+      ...(activeLocales ? { activeLocales } : {}),
+    }
   }
 
   // Build the unified list of all plugins (built-ins + catalog + custom + installed DSH bundles + standalone native providers).
@@ -1856,6 +1913,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         updatable: false,
         supportsPerBot: desc.supportsPerBot,
         supportsGrants: desc.supportsGrants,
+        ...(slot === 'browser' ? browserSurfaceFor(desc.id, desc.controlsPane) : {}),
         offFor: [],
         toolPrefixes: desc.toolPrefixes,
         packageName: null,
@@ -1930,6 +1988,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           updatable: false,
           supportsPerBot: slot === null,
           supportsGrants: false,
+          ...(slot === 'browser' ? browserSurfaceFor(entry.id, false) : {}),
           offFor: slot === null ? [...(own(store.offFor, entry.id) ?? [])] : [],
           toolPrefixes: defaultPrefixesForMcp(entry.id, entry.toolPrefixes),
           packageName: null,
@@ -1990,6 +2049,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         updatable: Boolean(bundle?.updatable),
         supportsPerBot: slot === null && cleanPrefixes(entry.toolPrefixes).length > 0,
         supportsGrants: Boolean(nativeBacking?.supportsGrants),
+        ...(slot === 'browser' ? browserSurfaceFor(entry.id, Boolean(nativeBacking?.controlsPane)) : {}),
         offFor: slot === null ? [...(own(store.offFor, entry.id) ?? [])] : [],
         toolPrefixes: cleanPrefixes(entry.toolPrefixes),
         packageName: pkgName,
@@ -2045,6 +2105,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         ...securityViewFields(stat),
         supportsPerBot: desc.supportsPerBot,
         supportsGrants: desc.supportsGrants,
+        ...(slot === 'browser' ? browserSurfaceFor(desc.id, desc.controlsPane) : {}),
         offFor: [...(own(store.offFor, desc.id) ?? [])],
         toolPrefixes: desc.toolPrefixes,
         packageName: desc.packageName ?? null,
@@ -2069,8 +2130,10 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       seenIds.add(id)
       const installed = isBundleAvailable(bundle)
       const pending = pendingRestartPackages.get(bundle.name)
-      // A bare `dsh:` bundle can still occupy a slot: blocked slot states belong to it too.
-      const slotStatD = [...new Set([...slotDefaults.keys(), ...Object.keys(store.slots)])]
+      // A bare `dsh:` bundle can still occupy a slot: preserve its slot and blocked states.
+      const knownSlots = [...new Set([...slotDefaults.keys(), ...Object.keys(store.slots)])]
+      const occupiedSlot = knownSlots.find(s => activeSlotTarget(s) === id || slotDesired(s) === id) ?? null
+      const slotStatD = knownSlots
         .map(slot => runtimeStatus.get(`slot:${slot}`))
         .find(s => s?.desiredId === id) ?? null
       const statD = runtimeStatus.get(`plugin:${id}`) ?? slotStatD
@@ -2080,15 +2143,15 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         description: resolveLocalizedText(bundle.meta?.description, bundle.description ?? ''),
         author: null,
         version: bundle.version ?? null,
-        category: 'other',
-        slot: null,
+        category: occupiedSlot === 'browser' ? 'browser' : 'other',
+        slot: occupiedSlot,
         kind: 'dsh',
         installed,
-        enabled: Boolean(installed && bundle.enabled),
-        active: Boolean(installed && bundle.enabled),
-        desired: Boolean(bundle.enabled),
+        enabled: occupiedSlot ? activeSlotTarget(occupiedSlot) === id : Boolean(installed && bundle.enabled),
+        active: occupiedSlot ? activeSlotTarget(occupiedSlot) === id : Boolean(installed && bundle.enabled),
+        desired: occupiedSlot ? slotDesired(occupiedSlot) === id : Boolean(bundle.enabled),
         status: pending ? 'restart-required' : (installed && bundle.enabled ? 'ready' : 'inactive'),
-        error: bundle.error?.diagnostic ?? null,
+        error: formatBundleError(bundle.error),
         restartReason: pending?.reason ?? null,
         builtin: false,
         custom: false,
@@ -2099,6 +2162,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         updatable: Boolean(bundle.updatable),
         supportsPerBot: false,
         supportsGrants: false,
+        ...(occupiedSlot === 'browser' ? browserSurfaceFor(id, false) : {}),
         offFor: [...(own(store.offFor, id) ?? [])],
         toolPrefixes: [],
         packageName: bundle.name,
@@ -2131,6 +2195,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           status: slotStat('browser')?.status ?? 'ready',
           error: slotStat('browser')?.error ?? null,
           restartReason: slotStat('browser')?.restartReason ?? null,
+          ...resolveActiveBrowserMeta(activeSlotTarget('browser') ?? 'builtin:readonly', catalogSnapshot.entries),
         },
       },
       plugins: items,
@@ -2162,6 +2227,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           status: browserStat?.status ?? 'ready',
           error: browserStat?.error ?? null,
           restartReason: browserStat?.restartReason ?? null,
+          ...resolveActiveBrowserMeta(activeBrowser),
         },
       },
     }

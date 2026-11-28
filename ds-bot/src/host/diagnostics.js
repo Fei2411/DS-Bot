@@ -10,6 +10,7 @@ import { arch, homedir, platform, release } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'node:util'
+import { redactSecretsForLog } from '../shared/secret-mask.js'
 
 export const KEEP = 200
 const LOG_MAX_BYTES = 1 << 20
@@ -38,7 +39,7 @@ const CREDENTIALS = [
 ]
 
 export function cleanText(text, { redact = value => value, home = homedir(), maxLength = TEXT_MAX } = {}) {
-  let out = redact(String(text ?? ''))
+  let out = redactSecretsForLog(redact(String(text ?? '')))
   for (const [pattern, replacement] of CREDENTIALS) out = out.replace(pattern, replacement)
   if (home && home.length > 1) {
     out = out.replace(new RegExp(quote(home), 'g'), '~')
@@ -158,7 +159,7 @@ export function install(rt) {
   }
 
   // `fields`: source ('host', 'turn', 'api'), level, code, status, bot, where, sessionId, stack.
-  const note = ({ level = 'error', source = 'host', text, stack, ...fields }) => {
+  const note = ({ level = 'error', source = 'host', text, stack, errorName, ...fields }) => {
     const entry = { time: Date.now(), level, source, text: clean(text) }
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined && value !== null && value !== '') entry[key] = typeof value === 'string' ? clean(value) : value
@@ -170,7 +171,7 @@ export function install(rt) {
     if (fresh.length > KEEP) fresh = fresh.slice(-KEEP)
     append(entry)
     if (level === 'error' || (level === 'warn' && typeof stack === 'string' && stack !== '')) {
-      const errName = /^([A-Za-z][A-Za-z0-9_]*Error)\b/.exec(String(text ?? ''))?.[1]
+      const errName = errorName ?? /^([A-Za-z][A-Za-z0-9_]*Error)\b/.exec(String(text ?? ''))?.[1]
       void rt.telemetry?.noteError({
         source: source === 'api' ? 'host' : source,
         errorName: errName ?? 'Error',
@@ -195,6 +196,7 @@ export function install(rt) {
       level: 'warn',
       source: 'host',
       text: line.replace(/^ds-bot: /, ''),
+      errorName: typeof error?.name === 'string' && error.name !== '' ? error.name : undefined,
       code: typeof error?.code === 'string' ? error.code : undefined,
       stack: error?.stack,
     })

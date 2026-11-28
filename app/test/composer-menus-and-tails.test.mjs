@@ -6,6 +6,7 @@ import { build } from 'esbuild'
 
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 
 const stubs = {
   'cells.js': `
@@ -13,6 +14,8 @@ const stubs = {
     export const ThinkingRow = ({ text }) => ({ type: 'thinking', props: { text, children: [text] } })
     export const EarlierParts = () => null
     export const PartLine = () => null
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = () => null
     export const Elapsed = () => null
@@ -66,6 +69,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'chunk2-stub' }
@@ -648,7 +652,7 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
   const first = mount(Chat, { sessionId: 'b1', team })
   try {
     let tree = first.render()
-    const ta = all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] !== undefined)[0]
+    const ta = all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] !== undefined)[0]
     ta.props.onChange({ target: { value: 'draft text', selectionStart: 10 } })
     const longText = 'x'.repeat(PASTE_LIMIT + 50)
     let prevented = false

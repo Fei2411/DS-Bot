@@ -95,7 +95,7 @@ npm ci
 # 手机链接的依赖：构建时打进 link.js，有一条单元测试也会构建它。
 npm ci --prefix ../link
 
-# 单元测试和 lint 要加载的 DSH 包，从 npm 装进 dev/harness/。
+# 单元测试和 lint 要加载的 DSH 包，按 dev/harness/package-lock.json 可复现安装。
 npm run harness
 ```
 
@@ -109,6 +109,8 @@ git -C deepseek-harness checkout dsh-v0.2.2-rc.5
 ```
 
 如果 DeepSeek Harness 源码放在别处，把 `DSH_HARNESS` 设为它的路径。`DSH_HARNESS` 也会代替 `dev/harness/`，供单元测试和 lint 使用。
+
+要测试另一个 DSH 版本，在 `ds-bot/` 里运行 `node scripts/update-harness-lock.mjs <dsh-version>`。它会更新 `dev/harness/package.json` 并解析 `dev/harness/package-lock.json`；两边都有的包在桌面端 lock 只有一个明确版本时使用同一版本，让测试跑在桌面端实际发布的依赖上。
 
 `@deepseek-ai/*` 包是 peer 依赖：真实安装时由 DSH 的 profile 提供。`ds-bot/.npmrc` 阻止 npm 把它们装进插件目录。
 
@@ -138,7 +140,7 @@ node scripts/build-client.mjs --check  # client.js 与 src/client 一致
 npm run lint                           # oxlint
 ```
 
-对改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request（以及 `dev`/`main` 分支），CI 会在 Linux 和 Windows 上跑 `npm test`（含生成文件一致性校验），在 Linux 上跑 `npm run lint`。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
+对合向 `dev` 且改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request，CI 会在 Linux 上分片运行 `npm test`（含生成文件一致性校验）和 `npm run lint`（改动 Docker 配置的 PR 也会直接验证 Docker）。Windows 跨平台测试、Node 22、Docker 与桌面/移动端原生打包则统一在每日 `dev` Nightly CI、合向 `main` 的发版/热修 PR 以及手动触发工作流中执行（PR 加上 `ci/full-package` 标签也可按需触发 `Package & Native`）。CI 还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree
