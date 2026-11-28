@@ -103,6 +103,30 @@ test('a pruned task Session stays archived when the DSH Workspace registry reope
   assert.deepEqual([...registry.archivedSessionIds], ['task-session-0'])
 })
 
+test('settled fg-handoff Sessions are archived on startup and stay archived when the DSH Workspace registry reopens (#2374)', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-fg-handoff-archived-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const team = structuredClone(TEAM)
+  team.bots.w1.tasks = [
+    { id: 'k_fg_1', sessionId: 'fg-old-1', from: 'w2', origin: 'fg-handoff', status: 'completed' },
+    { id: 'k_fg_2', sessionId: 'fg-old-2', from: 'w2', origin: 'fg-handoff', status: 'failed' },
+  ]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const dsh = join(home, 'dsh')
+  await t.test('archive settled fg-handoff tasks without pruning them', async (phase) => {
+    const ctx = fakeContext({})
+    ctx.workspaceRegistry = await dshRegistry(phase, dsh, ['w2', 'fg-old-1', 'fg-old-2'], ctx)
+    const rt = createRuntime(ctx, { home })
+    phase.after(() => ctx.dispose())
+    await rt.load()
+    await rt.reconcileTasksAfterRestart()
+    assert.deepEqual([...ctx.workspaceRegistry.archivedSessionIds].sort(), ['fg-old-1', 'fg-old-2'])
+    assert.equal(rt.botOf('w1').tasks.length, 2, 'settled fg-handoff tasks remain in bot.tasks[] for Bot mode')
+  })
+  const registry = await dshRegistry(t, dsh, [], fakeContext({}))
+  assert.deepEqual([...registry.archivedSessionIds].sort(), ['fg-old-1', 'fg-old-2'])
+})
+
 test('current team Sessions held archived in DSH are taken back out; earlier parts stay', async (t) => {
   const { registry, call } = await team(t, ['w1', 'w2', 'g1', 'gw', 'outside'])
   await call('state')
