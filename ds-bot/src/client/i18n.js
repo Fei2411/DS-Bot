@@ -3073,8 +3073,20 @@ const HOST_ZH = {
   'Showing first {shown} of {total} sheets': '仅显示前 {shown} / {total} 个工作表',
   'Some model providers could not be loaded.': '部分模型提供方未能加载。',
   'Toggle browser': '打开/关闭浏览器',
+  'UI': '界面',
   'Waiting': '等待中',
   'Window plugins': '窗口界面插件',
+  'Allow for this version': '在此版本启用',
+  'Confirm allow': '确认启用',
+  'Custom profile plugins': '自定义引擎插件',
+  'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.': '用对话定制引擎：编写后端插件、工具或自定义模式；桌面端主题与界面请使用外观设置或 ui-plugins。',
+  'DSH Web UI only': '仅支持 DSH 网页前端',
+  'Desktop UI': '桌面端界面',
+  'Host tools still run; DSH Web UI and skins are not loaded in Desktop.': '引擎工具仍可运行；DSH 网页界面与皮肤不会在桌面端加载。',
+  'Incompatible': '版本不兼容',
+  'Local': '本地',
+  'Open config file': '打开配置文件',
+  'Open folder': '打开文件夹',
 }
 Object.assign(ZH, HOST_ZH)
 

@@ -50,10 +50,10 @@ const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
 function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false
-  if (plugin.sourceId === 'installed' && !plugin.installed) return true
+  if (plugin.sourceId === 'installed' && !plugin.installed && !plugin.error && !plugin.enabled) return true
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? '').startsWith('dsh:') ? String(plugin.id).slice(4) : '')).trim()
   if (!pkg) return false
-  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) })
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active || plugin.error) })
 }
 
 function safeExternalUrl(raw) {

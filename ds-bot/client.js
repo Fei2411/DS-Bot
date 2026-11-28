@@ -3011,6 +3011,18 @@ var JA = {
   "Toggle browser": "ブラウザーを開閉",
   "Waiting": "待機中",
   "Window plugins": "ウィンドウプラグイン",
+  "Allow for this version": "このバージョンで許可",
+  "Confirm allow": "許可を確定",
+  "Custom profile plugins": "カスタムプロファイルプラグイン",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "会話でエンジンをカスタマイズします。ホストプラグインやツール、カスタムモードを作成できます。デスクトップのテーマや UI には外観設定または ui-plugins を使ってください。",
+  "DSH Web UI only": "DSH Web UI 専用",
+  "Desktop UI": "デスクトップ UI",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "ホストツールは引き続き動作しますが、DSH Web UI とスキンはデスクトップでは読み込まれません。",
+  "Incompatible": "非互換",
+  "Local": "ローカル",
+  "Open config file": "設定ファイルを開く",
+  "Open folder": "フォルダーを開く",
+  "UI": "UI",
   // The inbox.
   "Inbox": "受信トレイ",
   "Inbox, {count} waiting for you": "受信トレイ、対応待ち {count} 件",
@@ -6703,6 +6715,18 @@ var KO = {
   "Toggle browser": "브라우저 열기/닫기",
   "Waiting": "대기 중",
   "Window plugins": "창 플러그인",
+  "Allow for this version": "이 버전에서 허용",
+  "Confirm allow": "허용 확인",
+  "Custom profile plugins": "사용자 지정 프로필 플러그인",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "대화로 엔진을 맞춤 설정합니다. 호스트 플러그인, 도구 또는 사용자 지정 모드를 작성할 수 있으며 데스크톱 테마와 UI는 모양 설정 또는 ui-plugins를 사용하세요.",
+  "DSH Web UI only": "DSH 웹 UI 전용",
+  "Desktop UI": "데스크톱 UI",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "호스트 도구는 계속 실행되지만 DSH 웹 UI와 스킨은 데스크톱에서 로드되지 않습니다.",
+  "Incompatible": "호환되지 않음",
+  "Local": "로컬",
+  "Open config file": "설정 파일 열기",
+  "Open folder": "폴더 열기",
+  "UI": "UI",
   // The inbox.
   "Inbox": "받은편지함",
   "Inbox, {count} waiting for you": "받은편지함, 확인 대기 {count}건",
@@ -10396,6 +10420,18 @@ var ES = {
   "Toggle browser": "Mostrar/ocultar navegador",
   "Waiting": "En espera",
   "Window plugins": "Complementos de ventana",
+  "Allow for this version": "Permitir para esta versión",
+  "Confirm allow": "Confirmar permiso",
+  "Custom profile plugins": "Complementos personalizados del perfil",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "Personaliza el motor mediante conversación. Escribe complementos de host, herramientas o modos propios; usa Apariencia o ui-plugins para temas e interfaz de escritorio.",
+  "DSH Web UI only": "Solo DSH Web UI",
+  "Desktop UI": "Interfaz de escritorio",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "Las herramientas del host siguen funcionando; la interfaz web de DSH y los temas de DSH no se cargan en el escritorio.",
+  "Incompatible": "Incompatible",
+  "Local": "Local",
+  "Open config file": "Abrir archivo de configuración",
+  "Open folder": "Abrir carpeta",
+  "UI": "UI",
   // The inbox.
   "Inbox": "Bandeja de entrada",
   "Inbox, {count} waiting for you": "Bandeja de entrada, {count} esperándote",
@@ -14045,6 +14081,18 @@ var FR = {
   "Toggle browser": "Afficher/masquer le navigateur",
   "Waiting": "En attente",
   "Window plugins": "Extensions de fenêtre",
+  "Allow for this version": "Autoriser pour cette version",
+  "Confirm allow": "Confirmer l’autorisation",
+  "Custom profile plugins": "Extensions personnalisées du profil",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "Personnalisez le moteur par la conversation. Créez des extensions hôte, des outils ou des modes personnalisés ; utilisez Apparence ou ui-plugins pour les thèmes et l’interface de bureau.",
+  "DSH Web UI only": "DSH Web UI uniquement",
+  "Desktop UI": "Interface de bureau",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "Les outils hôte continuent de fonctionner ; l’interface web DSH et les thèmes DSH ne sont pas chargés dans l’application de bureau.",
+  "Incompatible": "Incompatible",
+  "Local": "Local",
+  "Open config file": "Ouvrir le fichier de configuration",
+  "Open folder": "Ouvrir le dossier",
+  "UI": "UI",
   // The inbox.
   "Inbox": "Boîte de réception",
   "Inbox, {count} waiting for you": "Boîte de réception, {count} en attente de vous",
@@ -17737,6 +17785,18 @@ var DE = {
   "Toggle browser": "Browser ein-/ausblenden",
   "Waiting": "Wartend",
   "Window plugins": "Fenster-Plugins",
+  "Allow for this version": "Für diese Version zulassen",
+  "Confirm allow": "Zulassen bestätigen",
+  "Custom profile plugins": "Benutzerdefinierte Profil-Plugins",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "Passe die Engine im Gespräch an. Schreibe Host-Plugins, Werkzeuge oder eigene Modi; nutze Darstellung oder ui-plugins für Desktop-Themes und UI.",
+  "DSH Web UI only": "Nur DSH Web UI",
+  "Desktop UI": "Desktop-UI",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "Host-Werkzeuge laufen weiter; DSH Web UI und DSH-Themes werden in der Desktop-App nicht geladen.",
+  "Incompatible": "Inkompatibel",
+  "Local": "Lokal",
+  "Open config file": "Konfigurationsdatei öffnen",
+  "Open folder": "Ordner öffnen",
+  "UI": "UI",
   // The inbox.
   "Inbox": "Posteingang",
   "Inbox, {count} waiting for you": "Posteingang, {count} warten auf dich",
@@ -21574,8 +21634,20 @@ var HOST_ZH = {
   "Showing first {shown} of {total} sheets": "仅显示前 {shown} / {total} 个工作表",
   "Some model providers could not be loaded.": "部分模型提供方未能加载。",
   "Toggle browser": "打开/关闭浏览器",
+  "UI": "界面",
   "Waiting": "等待中",
-  "Window plugins": "窗口界面插件"
+  "Window plugins": "窗口界面插件",
+  "Allow for this version": "在此版本启用",
+  "Confirm allow": "确认启用",
+  "Custom profile plugins": "自定义引擎插件",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "用对话定制引擎：编写后端插件、工具或自定义模式；桌面端主题与界面请使用外观设置或 ui-plugins。",
+  "DSH Web UI only": "仅支持 DSH 网页前端",
+  "Desktop UI": "桌面端界面",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "引擎工具仍可运行；DSH 网页界面与皮肤不会在桌面端加载。",
+  "Incompatible": "版本不兼容",
+  "Local": "本地",
+  "Open config file": "打开配置文件",
+  "Open folder": "打开文件夹"
 };
 Object.assign(ZH, HOST_ZH);
 var ZH_TW = convertDict(ZH);
@@ -58655,10 +58727,10 @@ var SLOT_CHOICES = [
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
 function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false;
-  if (plugin.sourceId === "installed" && !plugin.installed) return true;
+  if (plugin.sourceId === "installed" && !plugin.installed && !plugin.error && !plugin.enabled) return true;
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? "").startsWith("dsh:") ? String(plugin.id).slice(4) : "")).trim();
   if (!pkg) return false;
-  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) });
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active || plugin.error) });
 }
 function safeExternalUrl(raw) {
   if (typeof raw !== "string") return null;
