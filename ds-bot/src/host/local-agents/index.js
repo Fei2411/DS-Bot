@@ -75,6 +75,13 @@ export function presetOf(rt, sessionId) {
   return permission === 'review' ? 'workspace-write' : permission
 }
 
+// That read-only fallback holds only if the CLI takes it, so its turn needs the mode.
+function presetUnreadable(rt, sessionId) {
+  const bot = rt.botOf(rt.selfOf(sessionId))
+  const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
+  return bot === undefined && room === undefined && ownPresetOf(rt, sessionId) === undefined
+}
+
 // A Session with no Bot keeps the preset the user picked on it in DSH, read as
 // the sandbox it writes through. Full access that still asks (Auto review)
 // runs on the workspace sandbox, so the CLI's prompts reach DSH's approval.
@@ -317,6 +324,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       if (record !== undefined) Object.assign(record, patch)
     },
     presetFor: sessionId => presetOf(rt, sessionId),
+    requireModeFor: sessionId => presetUnreadable(rt, sessionId),
     freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
     onCompaction: (sessionId, info) => {
       rt.contextRuntime?.bumpEpoch(sessionId, info?.reason ?? 'cli-compaction')

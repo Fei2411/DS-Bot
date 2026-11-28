@@ -2,7 +2,7 @@
 // dispatch and its steering deliver to the fake ACP CLI, not stubs.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -189,7 +189,7 @@ test('user image saved in LocalAttachmentStore reaches the local agent through t
 
 // An ordinary DSH Session (no Bot) on a custom local-agent route: install()
 // alone must serve the CLI's permission prompt, as it does for a Bot (#2466).
-async function bootWithoutBot(t, { approval, preset, spec, catalogDefault } = {}) {
+async function bootWithoutBot(t, { approval, preset, spec, catalogDefault, args = [] } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   t.after(() => ctx.fiber.dispose())
@@ -205,7 +205,7 @@ async function bootWithoutBot(t, { approval, preset, spec, catalogDefault } = {}
     })
   }
   const rt = {
-    ctx, state: { bots: {}, localAgents: { custom: [{ id: 'fake', name: 'Fake ACP', command: process.execPath, args: [FIXTURE] }], profiles: [], sessions: {} } },
+    ctx, state: { bots: {}, localAgents: { custom: [{ id: 'fake', name: 'Fake ACP', command: process.execPath, args: [FIXTURE, ...args] }], profiles: [], sessions: {} } },
     teamTools: [], warn() {}, save: async () => {},
     selfOf: () => undefined, botOf: () => undefined, roomOf: () => undefined,
     config: {}, load: async () => {}, readOnly: () => undefined,
@@ -295,3 +295,15 @@ for (const [name, options] of [
     assert.doesNotMatch(texts(agent), /allowed via allow-once/)
   })
 }
+
+test('a Session with no Bot does not start its turn when the CLI refuses the read-only fallback (#2466)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-refuse-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const recordPath = join(dir, 'calls.jsonl')
+  const { ctx, agent } = await bootWithoutBot(t, { args: ['--refuse-modes', '--record', recordPath] })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  const end = agent.session.snapshotEvents().find(event => event.type === 'turn/end')
+  assert.equal(end?.data.reason.error?.code, 'LOCAL_AGENT_MODE')
+  assert.doesNotMatch(existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : '', /session\/prompt/)
+})

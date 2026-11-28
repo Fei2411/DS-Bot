@@ -120,7 +120,7 @@ const RESUME_RETRIED = Symbol('resume retried')
 
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
-  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
+  //        saveRecord, dropRecord, presetFor(sessionId), requireModeFor(sessionId), toolsFor(options), signInHint(route),
   //        usedModels(route)}
   constructor(deps) {
     super()
@@ -964,6 +964,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         resumeOnly: switchOnResumeLost && priorCliId !== undefined && !isForkOpen,
         mode,
         preset,
+        requireMode: this.deps.requireModeFor?.(sessionId) === true,
         review: this.deps.reviewFor?.(sessionId) === true,
         model: options.model,
         defaultEffort: live.defaultEffort,
@@ -1625,6 +1626,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       resumeOnly: priorCliId !== undefined,
       mode: cliMode(live.spec.kind, live.preset),
       preset: live.preset,
+      requireMode: this.deps.requireModeFor?.(sessionId) === true,
       review: this.deps.reviewFor?.(sessionId) === true,
       model: live.model,
       defaultEffort: live.record === undefined || live.record.model === live.model ? live.defaultEffort : undefined,
