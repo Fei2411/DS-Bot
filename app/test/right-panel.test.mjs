@@ -62,10 +62,10 @@ const stubs = {
 }
 
 const entryCode = `
-  export { parseDelimitedTable, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
+  export { parseDelimitedTable, computeCodeWindow, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
   export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
-  export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
+  export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs, buildWorkspacePluginMenuItems } from './ui/src/right-panel.js'
   export { createPluginRuntime } from './ui/src/plugin-runtime.js'
   export { createSlotRegistry, RIGHT_PANE_TAB_SLOT } from './ui/src/slots.js'
   export { createTeam } from './ui/src/team.js'
@@ -174,6 +174,7 @@ const sandbox = {
   },
   Blob,
   Event,
+  AbortController,
   atob: str => Buffer.from(str, 'base64').toString('binary'),
   URL: {
     createObjectURL: () => { const url = `blob:test/${createdUrls.length + 1}`; createdUrls.push(url); return url },
@@ -218,6 +219,7 @@ runInNewContext(outputFiles[0].text, sandbox)
 
 const {
   parseDelimitedTable,
+  computeCodeWindow,
   FilePreview,
   HtmlPreviewFrame,
   HtmlPreviewNotice,
@@ -230,6 +232,7 @@ const {
   RightPanel,
   WorkspacePaneBody,
   buildWorkspaceTabs,
+  buildWorkspacePluginMenuItems,
   createPluginRuntime,
   createSlotRegistry,
   RIGHT_PANE_TAB_SLOT,
@@ -580,22 +583,24 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
     assert.deepEqual(plain(snap.rightPanel.tabs), ['files'], 'switching to Side chat preserves open workspace tabs')
 
     team.actions.openFile('src/app.js')
+    const appPreviewId = probe.render().props.rightPanel.tab
+    assert.ok(appPreviewId.startsWith('preview:'), 'openFile assigns a unique per-file preview tab id')
     team.actions.newTerminal()
     await team.actions.openChanges({ sessionId: 'b1', seq: 7, turn: 1 })
     snap = probe.render().props
     assert.equal(snap.view, 'workspace')
     assert.equal(snap.side, 'sc1', 'opening workspace tabs keeps active side chat reference intact')
-    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview', 'terminal', 'changes'])
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', appPreviewId, 'terminal', 'changes'])
     assert.equal(snap.rightPanel.tab, 'changes')
 
     // Switching back to Details preserves all workspace tabs.
     team.actions.showDetails('b1')
     snap = probe.render().props
     assert.equal(snap.view, 'details')
-    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview', 'terminal', 'changes'])
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', appPreviewId, 'terminal', 'changes'])
 
     // Switching sessions drops stale preview & changes while preserving Files & Terminal.
-    team.actions.setRightPanelTab('preview')
+    team.actions.setRightPanelTab(appPreviewId)
     team.actions.openSession('b2')
     snap = probe.render().props
     assert.equal(snap.view, 'workspace')
@@ -653,7 +658,7 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
     snap = probe.render().props
     assert.equal(snap.details, 'as1')
     assert.equal(snap.view, 'workspace')
-    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview'])
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', appPreviewId])
 
     team.actions.openAgentSession('as2')
     snap = probe.render().props
@@ -683,7 +688,8 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
     probe.unmount()
   }
 
-  // `buildWorkspaceTabs` builds ordered descriptors + registered `sidebar.right.pane.tab` plugins.
+  // `buildWorkspaceTabs` builds ordered descriptors: unopened plugin tabs stay out of the strip
+  // (surfaced in `+` menu), while opened plugin tabs are closable.
   const reg = createSlotRegistry()
   function BrokenTab() { throw new Error('plugin crash') }
   reg.register({ name: RIGHT_PANE_TAB_SLOT, id: 'broken', meta: { label: 'Broken' } }, BrokenTab)
@@ -700,9 +706,21 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
       { id: 'preview', label: 'app.js', closable: true },
       { id: 'changes', label: 'Changes', closable: true },
       { id: 'terminal', label: 'Terminal', closable: true },
-      { id: 'plugin:broken', label: 'Broken', closable: false },
     ],
   )
+  const withPlugin = buildWorkspaceTabs(
+    { tabs: ['files', 'plugin:broken'], tab: 'plugin:broken' },
+    reg.list(RIGHT_PANE_TAB_SLOT),
+  )
+  assert.deepEqual(
+    plain(withPlugin.map(tab => ({ id: tab.id, label: tab.label, closable: tab.closable }))),
+    [
+      { id: 'files', label: 'Files', closable: true },
+      { id: 'plugin:broken', label: 'Broken', closable: true },
+    ],
+  )
+  const menuItems = buildWorkspacePluginMenuItems(reg.list(RIGHT_PANE_TAB_SLOT), () => {})
+  assert.deepEqual(plain(menuItems.map(item => ({ key: item.key, label: item.label }))), [{ key: 'plugin:broken', label: 'Broken' }])
 
   // `WorkspacePaneBody` keeps FileTree & Terminal mounted with `hidden` toggle when `visible` flips,
   // dispatches resize when Terminal becomes visible, and isolates crashing plugin tabs.
@@ -1816,5 +1834,328 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     sandbox.document.activeElement = prevActive5
     remountAuto.unmount()
     uiProbe5.unmount()
+  }
+})
+
+test('FileTree runs full-workspace batched search, supports cancellation, and surfaces incomplete notices', async () => {
+  const calls = []
+  let batch = 0
+  let resolveSecondBatch
+  sandbox.__testCall = (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'workspace-watch') return Promise.resolve({ watchId: 'w-search', root: '/repo', recursive: true })
+    if (endpoint === 'workspace-unwatch') return Promise.resolve({ ok: true })
+    if (endpoint === 'workspace-list') {
+      return Promise.resolve({
+        root: '/repo',
+        rootName: 'repo',
+        path: '',
+        truncated: false,
+        entries: [{ name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' }],
+      })
+    }
+    if (endpoint === 'workspace-search') {
+      if (body.cancel === true) return Promise.resolve({ ok: true, cancelled: true })
+      if (body.query === 'deep') {
+        batch += 1
+        return Promise.resolve({
+          root: '/repo',
+          searchId: 'srch-1',
+          done: false,
+          entries: [{ name: 'deep-a.js', path: 'src/unexpanded/deep-a.js', kind: 'file', size: 40, ext: '.js' }],
+          incomplete: false,
+          incompleteReasons: [],
+        })
+      }
+      if (body.searchId === 'srch-1') {
+        return new Promise((resolve) => { resolveSecondBatch = resolve })
+      }
+      if (body.query === 'perm') {
+        return Promise.resolve({
+          root: '/repo',
+          searchId: null,
+          done: true,
+          entries: [{ name: 'ok.js', path: 'src/ok.js', kind: 'file', size: 12, ext: '.js' }],
+          incomplete: true,
+          incompleteReasons: ['permission'],
+        })
+      }
+    }
+    return Promise.resolve({})
+  }
+
+  const team = createTeam()
+  const inst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files' },
+    team,
+    visible: true,
+  })
+  try {
+    inst.render()
+    await tick()
+    let tree = inst.render()
+    const input = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-ft-search-input')[0]
+    assert.ok(input)
+
+    // Typing 'deep' triggers workspace-search (finds unexpanded nested file without expanding src).
+    input.props.onChange({ target: { value: 'deep' } })
+    inst.render()
+    await tick()
+    tree = inst.render()
+    assert.equal(batch, 1)
+    assert.match(textOf(tree), /deep-a\.js/, 'renders first streamed batch immediately')
+    assert.match(textOf(tree), /src\/unexpanded/, 'shows parent path for search hit')
+    const cancelBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-ft-search-cancel')[0]
+    assert.ok(cancelBtn, 'shows Cancel button while multi-batch search is in progress')
+
+    // Resolve second batch -> appends seamlessly and completes.
+    resolveSecondBatch({
+      root: '/repo',
+      searchId: null,
+      done: true,
+      entries: [{ name: 'deep-b.js', path: 'src/unexpanded/deep-b.js', kind: 'file', size: 22, ext: '.js' }],
+      incomplete: false,
+      incompleteReasons: [],
+    })
+    await tick()
+    tree = inst.render()
+    assert.match(textOf(tree), /deep-a\.js/)
+    assert.match(textOf(tree), /deep-b\.js/)
+    assert.match(textOf(tree), /2 matches/)
+
+    // Starting another multi-batch search and clicking Cancel keeps partial matches and shows incomplete notice.
+    input.props.onChange({ target: { value: '' } })
+    inst.render()
+    input.props.onChange({ target: { value: 'deep' } })
+    inst.render()
+    await tick()
+    tree = inst.render()
+    const cancelBtn2 = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-ft-search-cancel')[0]
+    assert.ok(cancelBtn2)
+    cancelBtn2.props.onClick()
+    tree = inst.render()
+    assert.match(textOf(tree), /Search cancelled/, 'cancellation clearly flags partial results')
+    assert.match(textOf(tree), /deep-a\.js/, 'partial matches stay visible after cancel')
+    assert.equal(calls.some(([ep, b]) => ep === 'workspace-search' && b.cancel === true && b.searchId === 'srch-1'), true)
+
+    // Permission-incomplete search surfaces explicit notice.
+    input.props.onChange({ target: { value: 'perm' } })
+    inst.render()
+    await tick()
+    tree = inst.render()
+    assert.match(textOf(tree), /Some folders could not be read/)
+  } finally {
+    inst.unmount()
+  }
+})
+
+test('FilePreview virtualizes large code files, toggles word wrap, zooms images and PDFs, and shows live update reload + auto-refresh switch', () => {
+  // 1. Virtualized CodeLines: 5,000-line file renders only a bounded viewport slice, not all 5,000 rows.
+  const win = computeCodeWindow({ lineCount: 5000, scrollTop: 0, viewportHeight: 570, lineHeight: 19, overscan: 20 })
+  assert.equal(win.start, 0)
+  assert.equal(win.end, 50)
+  assert.equal(win.topPad, 0)
+  assert.equal(win.bottomPad, 4950 * 19)
+
+  const bigText = Array.from({ length: 5000 }, (_, i) => `const line_${i + 1} = ${i + 1}`).join('\n')
+  let reloadClicks = 0
+  let autoToggleClicks = 0
+  const codeView = mount(FilePreview, {
+    file: { kind: 'code', language: 'javascript', name: 'big.js', path: 'src/big.js', size: bigText.length, text: bigText },
+    updated: true,
+    onReload: () => { reloadClicks += 1 },
+    autoRefresh: false,
+    onToggleAutoRefresh: () => { autoToggleClicks += 1 },
+  })
+  try {
+    let tree = codeView.render()
+    const lineRows = all(tree, n => n.type === 'tr' && n.props?.['data-line'] !== undefined)
+    assert.ok(lineRows.length > 0 && lineRows.length < 150, `virtualized 5000-line file must mount < 150 rows (got ${lineRows.length})`)
+    assert.equal(lineRows[0].props['data-line'], 1)
+
+    // Scrolling down shifts the virtual window to the scrolled range.
+    const wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    assert.equal(wrapDiv.props['data-virtualized'], '')
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 2500 } })
+    tree = codeView.render()
+    const scrolledRows = all(tree, n => n.type === 'tr' && n.props?.['data-line'] !== undefined)
+    assert.ok(scrolledRows[0].props['data-line'] > 2400 && scrolledRows[0].props['data-line'] < 2520, 'scroll updates rendered line window')
+
+    // Word wrap toggle toggles data-wrap and aria-pressed.
+    const wrapBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0]
+    assert.ok(wrapBtn)
+    assert.equal(wrapBtn.props['aria-pressed'], false)
+    wrapBtn.props.onClick()
+    tree = codeView.render()
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props['data-wrap'], '')
+
+    // Live update banner & Auto-refresh switch.
+    const reloadBtn = all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n)))[0]
+    assert.ok(reloadBtn, 'shows Updated · Reload button when file changed')
+    reloadBtn.props.onClick()
+    assert.equal(reloadClicks, 1)
+
+    const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+    assert.ok(autoSwitch, 'renders Auto-refresh switch')
+    assert.equal(autoSwitch.props['aria-checked'], false)
+    autoSwitch.props.onClick()
+    assert.equal(autoToggleClicks, 1)
+  } finally {
+    codeView.unmount()
+  }
+
+  // 2. Image zoom controls step cleanly from Fit -> 125% -> Fit.
+  const imgView = mount(FilePreview, {
+    file: { kind: 'image', name: 'logo.png', path: 'logo.png', size: 64, mime: 'image/png', base64: 'AP+AAQ==' },
+  })
+  try {
+    imgView.render()
+    let tree = imgView.render()
+    assert.equal(all(tree, n => n.props?.['data-zoom'] === 'fit').length, 1)
+    const zoomIn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Zoom in')[0]
+    zoomIn.props.onClick()
+    tree = imgView.render()
+    assert.equal(all(tree, n => n.props?.['data-zoom'] === '125').length, 1)
+    const resetBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Reset zoom')[0]
+    resetBtn.props.onClick()
+    tree = imgView.render()
+    assert.equal(all(tree, n => n.props?.['data-zoom'] === 'fit').length, 1)
+  } finally {
+    imgView.unmount()
+  }
+
+  // 3. PDF zoom controls update iframe #zoom fragment.
+  const pdfView = mount(FilePreview, {
+    file: { kind: 'pdf', name: 'doc.pdf', path: 'doc.pdf', size: 128, mime: 'application/pdf', base64: Buffer.from('%PDF-1.4').toString('base64') },
+  })
+  try {
+    pdfView.render()
+    let tree = pdfView.render()
+    const zoomIn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Zoom in')[0]
+    zoomIn.props.onClick()
+    tree = pdfView.render()
+    const iframe = all(tree, n => n.type === 'iframe')[0]
+    assert.match(String(iframe.props.src), /#zoom=125$/)
+  } finally {
+    pdfView.unmount()
+  }
+})
+
+test('Multi-preview tabs stay open side-by-side, follow workspace-changed live updates, and plugin tabs mount lazily and keep state across switches', async () => {
+  let versionA = 1
+  const readCalls = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-watch') return { watchId: 'w-pv', root: '/repo', recursive: true }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-read') {
+      readCalls.push(body.path)
+      if (body.path === 'src/index.js') {
+        return { kind: 'code', language: 'javascript', name: 'index.js', path: body.path, size: 32, text: `// a-v${versionA}` }
+      }
+      return { kind: 'code', language: 'javascript', name: 'index.js', path: body.path, size: 32, text: '// b-v1' }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  team.actions.openSession('b1')
+  team.actions.openFile({ path: 'src/index.js', root: '/repo' })
+  team.actions.openFile({ path: 'test/index.js', root: '/repo' })
+
+  const uiProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  const reg = createSlotRegistry()
+  let pluginMounts = 0
+  let pluginUnmounts = 0
+  function StatefulPlugin() {
+    const [count, setCount] = react.useState(0)
+    react.useEffect(() => {
+      pluginMounts += 1
+      return () => { pluginUnmounts += 1 }
+    }, [])
+    return react.createElement('button', { type: 'button', className: 'plugin-counter', onClick: () => setCount(c => c + 1) }, `count:${count}`)
+  }
+  reg.register({ name: RIGHT_PANE_TAB_SLOT, id: 'stateful', meta: { label: 'Stateful' } }, StatefulPlugin)
+
+  try {
+    let rp = uiProbe.render().props
+    const tabs = buildWorkspaceTabs(rp, reg.list(RIGHT_PANE_TAB_SLOT))
+    assert.equal(tabs.length, 2, 'opening two files keeps both preview tabs open without overwriting')
+    assert.deepEqual(plain(tabs.map(t => t.label)), ['src/index.js', 'test/index.js'], 'colliding basenames are disambiguated')
+    assert.equal(tabs.some(t => t.id === 'plugin:stateful'), false, 'unopened plugin tab is not pinned in tab strip')
+
+    const body = mount(WorkspacePaneBody, { sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+    try {
+      body.render()
+      await tick()
+      let tree = body.render()
+      assert.equal(pluginMounts, 0, 'unopened plugin tab is never mounted')
+      assert.match(textOf(tree), /\/\/ a-v1/)
+      assert.match(textOf(tree), /\/\/ b-v1/)
+
+      // Switch to src/index.js tab, emit workspace-changed -> shows Updated · Reload when auto-refresh is off.
+      const tabA = rp.tabs[0]
+      team.actions.setRightPanelTab(tabA)
+      rp = uiProbe.render().props
+      body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      await tick()
+      versionA = 2
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/index.js'] })
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      const reloadBtn = all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n)))[0]
+      assert.ok(reloadBtn, 'matching workspace-changed marks preview updated')
+
+      // Clicking reload fetches v2 cleanly.
+      reloadBtn.props.onClick()
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /\/\/ a-v2/)
+
+      // Turning on Auto-refresh reloads automatically on the next workspace-changed without needing manual click.
+      const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+      autoSwitch.props.onClick()
+      body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      versionA = 3
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/index.js'] })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /\/\/ a-v3/, 'auto-refresh reloads file silently on workspace-changed')
+
+      // Open plugin tab -> mounts once, retains state across switching away and back, unmounts on close.
+      team.actions.setRightPanelTab('plugin:stateful')
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.equal(pluginMounts, 1)
+      const counterBtn = all(tree, n => n.type === 'button' && n.props?.className === 'plugin-counter')[0]
+      counterBtn.props.onClick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /count:1/)
+
+      // Switch back to preview tab -> plugin tab stays mounted (hidden), does not unmount.
+      team.actions.setRightPanelTab(tabA)
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      const hiddenPluginPane = all(tree, n => n.props?.['data-plugin-tab'] === 'plugin:stateful')
+      assert.equal(hiddenPluginPane.length, 1, 'switching away keeps plugin pane mounted in DOM')
+      assert.equal(hiddenPluginPane[0].props.hidden, true, 'inactive plugin pane is hidden')
+      assert.equal(pluginUnmounts, 0, 'switching away from plugin tab must not unmount it')
+
+      // Switch back to plugin tab -> state `count:1` is preserved.
+      team.actions.setRightPanelTab('plugin:stateful')
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /count:1/, 'plugin tab state survives switching away and back')
+      assert.equal(pluginMounts, 1)
+
+      // Closing plugin tab removes it from rendered panes.
+      team.actions.closeWorkspaceTab('plugin:stateful')
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.equal(all(tree, n => n.props?.['data-plugin-tab'] === 'plugin:stateful').length, 0, 'closing plugin tab unmounts its pane')
+    } finally {
+      body.unmount()
+    }
+  } finally {
+    uiProbe.unmount()
   }
 })

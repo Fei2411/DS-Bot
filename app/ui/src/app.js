@@ -18,7 +18,7 @@ import { AgentEmptyHero, ClassicHeader, ClassicSidebar } from './classic-sidebar
 import { useDshSettingsBridge } from './engine-settings-bridge.js'
 import { getAppLocale } from './locale.js'
 import { pluginRuntime, usePluginPage } from './plugin-runtime.js'
-import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
+import { WorkspacePaneBody, buildWorkspacePluginMenuItems, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal, setLiveShortcutContext } from './shortcuts.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
@@ -527,6 +527,10 @@ export function App() {
     () => buildWorkspaceTabs(rightPanel, rightPluginEntries),
     [rightPanel, rightPluginEntries, localeVersion],
   )
+  const workspacePluginMenuItems = useMemo(
+    () => buildWorkspacePluginMenuItems(rightPluginEntries, tabId => actions.setRightPanelTab(tabId)),
+    [rightPluginEntries, actions, localeVersion],
+  )
   useEffect(() => {
     if (terminalFocusNonce > 0 && rightPanel?.tab !== 'terminal') {
       setTerminalFocusNonce(0)
@@ -535,6 +539,7 @@ export function App() {
   const workspace = useMemo(() => ({
     tabs: workspaceTabs,
     active: rightPanel?.tab ?? null,
+    menuItems: workspacePluginMenuItems,
     browserId: inClassicMode && browserEnabled && typeof actions.browserShow === 'function' ? CLASSIC_BROWSER_OWNER : null,
     onSelect: tabId => actions.setRightPanelTab(tabId),
     onCloseTab: tabId => actions.closeWorkspaceTab(tabId),
@@ -549,7 +554,7 @@ export function App() {
         terminalFocusNonce,
         onConsumeTerminalFocus: consumeTerminalFocus,
       })),
-  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce, consumeTerminalFocus])
+  }), [workspaceTabs, workspacePluginMenuItems, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce, consumeTerminalFocus])
   const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
   // Key the conversation by stable Bot/room id so segment rollovers and initial roster
   // hydration on a rolled-over segment both preserve unsent drafts and composer focus.

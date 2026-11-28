@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { within } from './folders.js'
+import { createWorkspaceSearcher } from './workspace-search.js'
 import { parseXlsxBuffer } from './xlsx-preview.js'
 
 const MAX_LIST_ENTRIES = 500
@@ -470,6 +471,7 @@ export function install(rt) {
     }
     return false
   }
+  const searcher = createWorkspaceSearcher({ withinRoot, isProtectedData })
 
   const resolveWorkspaceRoot = async (sessionId) => {
     await rt.load()
@@ -920,6 +922,7 @@ export function install(rt) {
   async function workspaceEndpoint(name, body = {}, signal) {
     if (name === 'changes') return changesDetail(body, signal)
     if (name === 'unwatch') return unwatchWorkspace(body)
+    if (name === 'search' && body.cancel === true) return searcher.cancel(body.searchId)
     const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
     let realRoot
     try {
@@ -978,6 +981,19 @@ export function install(rt) {
         entries: items,
         truncated,
       }
+    }
+
+    if (name === 'search') {
+      return await searcher.search({
+        realRoot,
+        query: typeof body.query === 'string' ? body.query : '',
+        includeHidden: body.includeHidden === true,
+        respectGitignore: body.respectGitignore !== false,
+        searchId: typeof body.searchId === 'string' ? body.searchId : '',
+        batchMs: body.batchMs,
+        maxDepth: body.maxDepth,
+        signal,
+      })
     }
 
     if (name === 'watch') {
@@ -1448,6 +1464,7 @@ export function install(rt) {
 
   async function terminalDispose() {
     disposed = true
+    searcher.dispose()
     offLocalClients?.()
     await closeAllWatches()
     const pending = [...inFlightSpawns]

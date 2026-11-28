@@ -1,7 +1,9 @@
 // Multi-format document previewer for the workspace right panel:
-// Markdown, code/text with line numbers, CSV/TSV spreadsheet tables, images, SVG,
-// PDF (and libreoffice-kit converted Office documents), and strictly sandboxed HTML.
-import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
+// Markdown, virtualized code/text with line numbers and word-wrap toggle, CSV/TSV
+// spreadsheet tables, Excel workbooks, zoomable images & SVG, zoomable PDF (and
+// libreoffice-kit converted Office documents), strictly sandboxed HTML, and live
+// file-change reload / auto-refresh controls.
+import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fileSizeText, MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CopyIcon, DownloadIcon, FileIcon } from '../../../ds-bot/src/client/icons.js'
@@ -10,6 +12,46 @@ import { prepareHtmlPreview } from './html-preview.js'
 
 const MAX_TABLE_ROWS = 500
 const MAX_TABLE_COLS = 64
+const CODE_LINE_HEIGHT = 19
+const CODE_VIRTUAL_THRESHOLD = 200
+const CODE_OVERSCAN = 24
+const DEFAULT_VIEWPORT_HEIGHT = 600
+const DEFAULT_VIEWPORT_WIDTH = 420
+const WRAP_STORAGE_KEY = 'dsb.preview.wrap'
+const IMAGE_ZOOM_STEPS = [25, 50, 75, 100, 125, 150, 200, 300, 400]
+const PDF_ZOOM_STEPS = [50, 75, 100, 125, 150, 200, 300]
+
+const WrapIcon = () => h('svg', {
+  width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+},
+h('path', { d: 'M3.5 5.5h13' }),
+h('path', { d: 'M3.5 10h10a2.5 2.5 0 0 1 0 5H10' }),
+h('path', { d: 'M12 13l-2 2 2 2' }),
+h('path', { d: 'M3.5 14.5h3.5' }))
+
+const MinusIcon = () => h('svg', {
+  width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': true,
+}, h('path', { d: 'M4.5 10h11' }))
+
+const PlusSmallIcon = () => h('svg', {
+  width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': true,
+}, h('path', { d: 'M10 4.5v11M4.5 10h11' }))
+
+const RefreshSmallIcon = () => h('svg', {
+  width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+}, h('path', { d: 'M15.5 10a5.5 5.5 0 1 1-1.6-3.9' }), h('path', { d: 'M15.5 3.5v3.5H12' }))
+
+function readSavedWrap() {
+  try { return globalThis.localStorage?.getItem(WRAP_STORAGE_KEY) === '1' } catch { return false }
+}
+
+function writeSavedWrap(value) {
+  try { globalThis.localStorage?.setItem(WRAP_STORAGE_KEY, value ? '1' : '0') } catch { /* ignore storage errors */ }
+}
 
 /**
  * Parses RFC 4180 CSV or TSV text into bounded rows for table rendering.
@@ -115,33 +157,185 @@ function useBlobUrl(base64, mime) {
   return url
 }
 
-function CodeLines({ text, language = '', targetLine = null }) {
+function findOffsetIndex(offsets, y) {
+  let lo = 0
+  let hi = offsets.length - 2
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (offsets[mid + 1] <= y) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/**
+ * Computes the visible line slice and top/bottom spacer heights for virtualized code rendering.
+ */
+export function computeCodeWindow({
+  lineCount,
+  scrollTop = 0,
+  viewportHeight = DEFAULT_VIEWPORT_HEIGHT,
+  lineHeight = CODE_LINE_HEIGHT,
+  overscan = CODE_OVERSCAN,
+  offsets = null,
+}) {
+  if (lineCount <= 0) return { start: 0, end: 0, topPad: 0, bottomPad: 0, totalHeight: 0 }
+  const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
+  const st = Math.max(0, scrollTop)
+  if (offsets && offsets.length === lineCount + 1) {
+    const totalHeight = offsets[lineCount]
+    const first = findOffsetIndex(offsets, st)
+    const last = findOffsetIndex(offsets, st + vh)
+    const start = Math.max(0, first - overscan)
+    const end = Math.min(lineCount, last + 1 + overscan)
+    return {
+      start,
+      end,
+      topPad: offsets[start],
+      bottomPad: Math.max(0, totalHeight - offsets[end]),
+      totalHeight,
+    }
+  }
+  const totalHeight = lineCount * lineHeight
+  const first = Math.floor(st / lineHeight)
+  const last = Math.ceil((st + vh) / lineHeight)
+  const start = Math.max(0, first - overscan)
+  const end = Math.min(lineCount, last + overscan)
+  return {
+    start,
+    end,
+    topPad: start * lineHeight,
+    bottomPad: Math.max(0, (lineCount - end) * lineHeight),
+    totalHeight,
+  }
+}
+
+function CodeLines({ text, language = '', targetLine = null, wordWrap = false }) {
   const source = String(text ?? '')
   const lines = useMemo(() => source.split(/\r?\n/), [source])
   const highlighted = useHighlightedLines(source, language)
+  const wrapRef = useRef(null)
   const targetRef = useRef(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewport, setViewport] = useState({ height: DEFAULT_VIEWPORT_HEIGHT, width: DEFAULT_VIEWPORT_WIDTH })
+
+  const isVirtualized = lines.length > CODE_VIRTUAL_THRESHOLD
 
   useEffect(() => {
-    if (Number.isInteger(targetLine) && targetLine > 0) {
-      targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    const el = wrapRef.current
+    if (!el) return undefined
+    const measure = () => {
+      const nextH = el.clientHeight > 0 ? el.clientHeight : DEFAULT_VIEWPORT_HEIGHT
+      const nextW = el.clientWidth > 0 ? el.clientWidth : DEFAULT_VIEWPORT_WIDTH
+      setViewport(cur => (cur.height === nextH && cur.width === nextW ? cur : { height: nextH, width: nextW }))
     }
-  }, [targetLine, source])
+    measure()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [source])
 
-  return h('div', { className: 'dsb-pv-code-wrap' },
-    h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
-      h('tbody', null, lines.map((line, idx) => {
-        const lineNum = idx + 1
-        const isTarget = targetLine === lineNum
-        const tokens = highlighted?.[idx]
-        const content = tokens && tokens.length > 0 ? renderTokenList(tokens, `l${idx}`) : (line || '\u00a0')
-        return h('tr', {
-          key: idx,
-          ref: isTarget ? targetRef : undefined,
-          'data-target-line': isTarget ? '' : undefined,
-        },
-        h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, lineNum),
-        h('td', { className: 'dsb-pv-line' }, content))
-      }))))
+  const wrapOffsets = useMemo(() => {
+    if (!isVirtualized || !wordWrap) return null
+    const charsPerLine = Math.max(20, Math.floor((viewport.width - 72) / 7.4))
+    const offsets = new Float64Array(lines.length + 1)
+    let y = 0
+    for (let i = 0; i < lines.length; i += 1) {
+      offsets[i] = y
+      const wrappedRows = Math.max(1, Math.ceil(Math.max(1, lines[i].length) / charsPerLine))
+      y += wrappedRows * CODE_LINE_HEIGHT
+    }
+    offsets[lines.length] = y
+    return offsets
+  }, [isVirtualized, wordWrap, lines, viewport.width])
+
+  useEffect(() => {
+    if (!Number.isInteger(targetLine) || targetLine <= 0 || targetLine > lines.length) return
+    if (isVirtualized) {
+      const idx = targetLine - 1
+      const lineY = wrapOffsets ? wrapOffsets[idx] : idx * CODE_LINE_HEIGHT
+      const nextScroll = Math.max(0, Math.round(lineY - viewport.height / 2))
+      if (wrapRef.current) wrapRef.current.scrollTop = nextScroll
+      setScrollTop(nextScroll)
+    }
+    targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  }, [targetLine, source, isVirtualized, wrapOffsets, viewport.height, lines.length])
+
+  const onScroll = useCallback((event) => {
+    if (!isVirtualized) return
+    const next = event.currentTarget?.scrollTop ?? 0
+    setScrollTop(cur => (Math.abs(cur - next) >= CODE_LINE_HEIGHT ? next : cur))
+  }, [isVirtualized])
+
+  const windowSlice = isVirtualized
+    ? computeCodeWindow({
+      lineCount: lines.length,
+      scrollTop,
+      viewportHeight: viewport.height,
+      lineHeight: CODE_LINE_HEIGHT,
+      overscan: CODE_OVERSCAN,
+      offsets: wrapOffsets,
+    })
+    : { start: 0, end: lines.length, topPad: 0, bottomPad: 0 }
+
+  // Ensure a jumped target line stays rendered even before its scroll event fires.
+  let start = windowSlice.start
+  let end = windowSlice.end
+  let topPad = windowSlice.topPad
+  let bottomPad = windowSlice.bottomPad
+  if (isVirtualized && Number.isInteger(targetLine) && targetLine > 0 && targetLine <= lines.length) {
+    const idx = targetLine - 1
+    if (idx < start || idx >= end) {
+      const centered = computeCodeWindow({
+        lineCount: lines.length,
+        scrollTop: Math.max(0, (wrapOffsets ? wrapOffsets[idx] : idx * CODE_LINE_HEIGHT) - viewport.height / 2),
+        viewportHeight: viewport.height,
+        lineHeight: CODE_LINE_HEIGHT,
+        overscan: CODE_OVERSCAN,
+        offsets: wrapOffsets,
+      })
+      start = centered.start
+      end = centered.end
+      topPad = centered.topPad
+      bottomPad = centered.bottomPad
+    }
+  }
+
+  const visibleRows = []
+  if (topPad > 0) {
+    visibleRows.push(h('tr', { key: 'pad-top', className: 'dsb-pv-spacer', 'aria-hidden': true },
+      h('td', { colSpan: 2, style: { height: `${topPad}px`, padding: 0, border: 0 } })))
+  }
+  for (let idx = start; idx < end; idx += 1) {
+    const lineNum = idx + 1
+    const isTarget = targetLine === lineNum
+    const tokens = highlighted?.[idx]
+    const content = tokens && tokens.length > 0 ? renderTokenList(tokens, `l${idx}`) : (lines[idx] || '\u00a0')
+    visibleRows.push(h('tr', {
+      key: idx,
+      ref: isTarget ? targetRef : undefined,
+      'data-line': lineNum,
+      'data-target-line': isTarget ? '' : undefined,
+    },
+    h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, lineNum),
+    h('td', { className: 'dsb-pv-line' }, content)))
+  }
+  if (bottomPad > 0) {
+    visibleRows.push(h('tr', { key: 'pad-bot', className: 'dsb-pv-spacer', 'aria-hidden': true },
+      h('td', { colSpan: 2, style: { height: `${bottomPad}px`, padding: 0, border: 0 } })))
+  }
+
+  return h('div', {
+    ref: wrapRef,
+    className: 'dsb-pv-code-wrap',
+    'data-wrap': wordWrap ? '' : undefined,
+    'data-virtualized': isVirtualized ? '' : undefined,
+    'data-total-lines': lines.length,
+    onScroll,
+  },
+  h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
+    h('tbody', null, visibleRows)))
 }
 
 function TablePreview({ text, delimiter }) {
@@ -334,28 +528,115 @@ function SpreadsheetPreview({ file }) {
     }, entry.name))))
 }
 
+function stepZoom(steps, current, delta) {
+  const base = current ?? 100
+  if (delta > 0) {
+    const next = steps.find(step => step > base)
+    return next ?? steps[steps.length - 1]
+  }
+  const prev = [...steps].reverse().find(step => step < base)
+  return prev ?? steps[0]
+}
+
+function ZoomControls({ zoom, steps, onChange, allowFit = false }) {
+  const minStep = steps[0]
+  const maxStep = steps[steps.length - 1]
+  const effective = zoom ?? 100
+  const label = zoom === null ? t('Fit to view') : `${zoom}%`
+  return h('div', { className: 'dsb-pv-zoom', role: 'group', 'aria-label': t('Zoom') },
+    h('button', {
+      type: 'button',
+      className: 'bt-icon-btn dsb-pv-zoom-btn',
+      'aria-label': t('Zoom out'),
+      title: t('Zoom out'),
+      disabled: zoom !== null && effective <= minStep,
+      onClick: () => onChange(stepZoom(steps, zoom, -1)),
+    }, h(MinusIcon)),
+    h('button', {
+      type: 'button',
+      className: 'dsb-pv-zoom-readout',
+      'aria-label': t('Reset zoom'),
+      title: t('Reset zoom'),
+      onClick: () => onChange(allowFit ? (zoom === null ? 100 : null) : 100),
+    }, label),
+    h('button', {
+      type: 'button',
+      className: 'bt-icon-btn dsb-pv-zoom-btn',
+      'aria-label': t('Zoom in'),
+      title: t('Zoom in'),
+      disabled: zoom !== null && effective >= maxStep,
+      onClick: () => onChange(stepZoom(steps, zoom, 1)),
+    }, h(PlusSmallIcon)))
+}
+
 function PdfPreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime || 'application/pdf')
+  const [zoom, setZoom] = useState(100)
+  useEffect(() => { setZoom(100) }, [file?.path, file?.base64])
   const downloadName = file.convertedFrom
     ? `${file.name.replace(/\.[^.]+$/, '')}.pdf`
     : file.name
+  const frameSrc = blobUrl ? (zoom === 100 ? blobUrl : `${blobUrl}#zoom=${zoom}`) : null
   return h('div', { className: 'dsb-pv-pdf-wrap' },
-    file.convertedFrom ? h('div', { className: 'dsb-pv-banner' },
-      h('span', null, t('Converted from {ext}', { ext: file.convertedFrom.toUpperCase() })),
-      blobUrl ? h('a', { className: 'bt-soft bt-soft-sm', href: blobUrl, download: downloadName }, h(DownloadIcon), t('Save')) : null) : null,
-    blobUrl
-      ? h('iframe', { className: 'dsb-pv-frame', src: blobUrl, title: file.name })
+    h('div', { className: 'dsb-pv-banner dsb-pv-pdf-bar' },
+      h('div', { className: 'dsb-pv-pdf-left' },
+        file.convertedFrom ? h('span', null, t('Converted from {ext}', { ext: file.convertedFrom.toUpperCase() })) : null,
+        file.convertedFrom && blobUrl
+          ? h('a', { className: 'bt-soft bt-soft-sm', href: blobUrl, download: downloadName }, h(DownloadIcon), t('Save'))
+          : null),
+      blobUrl ? h(ZoomControls, { zoom, steps: PDF_ZOOM_STEPS, onChange: setZoom, allowFit: false }) : null),
+    frameSrc
+      ? h('iframe', { key: `${blobUrl}:${zoom}`, className: 'dsb-pv-frame', src: frameSrc, title: file.name, 'data-zoom': zoom })
       : h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
 }
 
 function ImagePreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime)
+  const [zoom, setZoom] = useState(null)
+  const [natural, setNatural] = useState({ w: 0, h: 0 })
+
+  useEffect(() => {
+    setZoom(null)
+    setNatural({ w: 0, h: 0 })
+  }, [file?.path, file?.base64])
+
   const src = blobUrl ?? (file.base64 ? `data:${file.mime};base64,${file.base64}` : '')
   if (!src) return h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment'))
-  return h('div', { className: 'dsb-pv-image-wrap' },
-    h('img', { className: 'dsb-pv-image', src, alt: file.name }))
-}
 
+  const imgStyle = zoom === null
+    ? undefined
+    : (natural.w > 0
+      ? { width: `${Math.round((natural.w * zoom) / 100)}px`, height: 'auto', maxWidth: 'none', maxHeight: 'none' }
+      : { width: `${zoom}%`, maxWidth: 'none', maxHeight: 'none' })
+
+  const onWheel = (event) => {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    const delta = event.deltaY < 0 ? 1 : -1
+    setZoom(current => stepZoom(IMAGE_ZOOM_STEPS, current, delta))
+  }
+
+  return h('div', { className: 'dsb-pv-image-shell' },
+    h('div', { className: 'dsb-pv-banner dsb-pv-image-bar' },
+      natural.w > 0 ? h('span', { className: 'dsb-pv-image-dims' }, `${natural.w} × ${natural.h}`) : h('span', null),
+      h(ZoomControls, { zoom, steps: IMAGE_ZOOM_STEPS, onChange: setZoom, allowFit: true })),
+    h('div', {
+      className: zoom === null ? 'dsb-pv-image-wrap' : 'dsb-pv-image-wrap is-zoomed',
+      'data-zoom': zoom === null ? 'fit' : String(zoom),
+      onWheel,
+    },
+    h('img', {
+      className: zoom === null ? 'dsb-pv-image' : 'dsb-pv-image is-zoomed',
+      src,
+      alt: file.name,
+      style: imgStyle,
+      onLoad: (event) => {
+        const w = event.currentTarget?.naturalWidth ?? 0
+        const ht = event.currentTarget?.naturalHeight ?? 0
+        if (w > 0 && ht > 0) setNatural({ w, h: ht })
+      },
+    })))
+}
 
 export function HtmlPreviewNotice() {
   return h('div', { className: 'dsb-pv-banner' }, t('Scripts and external or local resources are blocked in this preview'))
@@ -369,8 +650,19 @@ export function HtmlPreviewFrame({ html, title }) {
 /**
  * Multi-format workspace file preview component.
  */
-export function FilePreview({ file, line = null, loading, error, onRetry }) {
+export function FilePreview({
+  file,
+  line = null,
+  loading,
+  error,
+  onRetry,
+  updated = false,
+  onReload = null,
+  autoRefresh = false,
+  onToggleAutoRefresh = null,
+}) {
   const [mode, setMode] = useState('preview')
+  const [wordWrap, setWordWrap] = useState(readSavedWrap)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
   const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
@@ -381,7 +673,7 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
   }, [file?.path, file?.kind, line])
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
 
-  if (loading) {
+  if (loading && !file) {
     return h('div', { className: 'dsb-rp-empty' }, t('Loading…'))
   }
   if (error) {
@@ -394,6 +686,10 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
   }
 
   const canToggleSource = file.kind === 'markdown' || file.kind === 'html' || file.kind === 'table' || (file.kind === 'svg' && Boolean(file.base64))
+  const isCodeView = file.kind === 'code'
+    || file.kind === 'text'
+    || (canToggleSource && mode === 'source')
+    || (file.kind === 'svg' && !file.base64)
   const canCopyText = typeof file.text === 'string'
   const copy = () => {
     if (!canCopyText) return
@@ -402,6 +698,13 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => { copyTimerRef.current = 0; setCopied(false) }, 1200)
+    })
+  }
+  const toggleWrap = () => {
+    setWordWrap((cur) => {
+      const next = !cur
+      writeSavedWrap(next)
+      return next
     })
   }
 
@@ -430,6 +733,24 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
           'aria-pressed': mode === 'source',
           onClick: () => setMode('source'),
         }, t('Source'))) : null,
+      isCodeView ? h('button', {
+        type: 'button',
+        className: 'bt-icon-btn dsb-pv-wrap-btn',
+        'aria-pressed': wordWrap,
+        'aria-label': t('Wrap lines'),
+        title: t('Wrap lines'),
+        onClick: toggleWrap,
+      }, h(WrapIcon)) : null,
+      onToggleAutoRefresh ? h('label', { className: 'dsb-pv-auto' },
+        h('span', { className: 'dsb-pv-auto-label' }, t('Auto-refresh')),
+        h('button', {
+          type: 'button',
+          role: 'switch',
+          className: 'bt-switch',
+          'aria-checked': autoRefresh,
+          'aria-label': t('Auto-refresh'),
+          onClick: onToggleAutoRefresh,
+        }, h('span', { className: 'bt-switch-knob', 'aria-hidden': true }))) : null,
       canCopyText ? h('button', {
         type: 'button',
         className: 'bt-icon-btn dsb-pv-copy',
@@ -437,32 +758,38 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
         title: copied ? t('Copied') : t('Copy'),
         onClick: copy,
       }, copied ? h(CheckIcon) : h(CopyIcon)) : null),
+    updated && onReload ? h('div', { className: 'dsb-pv-banner dsb-pv-updated', role: 'status' },
+      h('button', {
+        type: 'button',
+        className: 'dsb-pv-reload-btn',
+        onClick: onReload,
+      }, h(RefreshSmallIcon), h('span', null, t('Updated · Reload')))) : null,
     file.truncated ? h('div', { className: 'dsb-pv-banner' }, t('File truncated for preview')) : null,
     file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
-        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
+        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line, wordWrap }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
           text: file.text,
           labels: { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } },
         })))
         : file.kind === 'table'
-          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
+          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line, wordWrap }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
           : file.kind === 'spreadsheet'
             ? h(SpreadsheetPreview, { file })
             : file.kind === 'html'
             ? (mode === 'source'
-                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line })
+                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap })
                 : htmlPreview === null
                   ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
                   : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
-              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line }) : h(ImagePreview, { file }))
+              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap }) : h(ImagePreview, { file }))
               : file.kind === 'image'
                 ? h(ImagePreview, { file })
                 : file.kind === 'pdf'
                   ? h(PdfPreview, { file })
                   : file.kind === 'code' || file.kind === 'text'
-                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line })
+                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line, wordWrap })
                     : h('div', { className: 'dsb-pv-fallback' },
                       h('span', { className: 'dsb-pv-fallback-ico', 'aria-hidden': true }, h(FileIcon)),
                       h('strong', null, file.name),

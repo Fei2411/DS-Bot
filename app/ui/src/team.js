@@ -370,23 +370,60 @@ export function createTeam() {
 
   // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
   // chats, and tasks inside one shared `BotPanel` strip.
-  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileLine: null, fileSessionId: null, fileRoot: null, revealDir: null, revealNonce: 0, changes: null, terminalNonce: 0 }
-  const STALE_WORKSPACE_TABS = new Set(['preview', 'changes'])
+  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', previews: {}, file: null, fileLine: null, fileSessionId: null, fileRoot: null, fileFallback: null, revealDir: null, revealNonce: 0, changes: null, terminalNonce: 0 }
+  const isPreviewTabId = id => id === 'preview' || (typeof id === 'string' && id.startsWith('preview:'))
+  const previewTabIdFor = (path, sessionId, root) => `preview:${sessionId ?? ''}:${root ?? ''}:${path}`
+  const syncActivePreviewFields = (panel) => {
+    const activePreview = isPreviewTabId(panel.tab) ? (panel.previews?.[panel.tab] ?? null) : null
+    if (activePreview) {
+      return {
+        ...panel,
+        file: activePreview.path,
+        fileLine: activePreview.line ?? null,
+        fileSessionId: activePreview.sessionId ?? null,
+        fileRoot: activePreview.root ?? null,
+        fileFallback: activePreview.fallback ?? null,
+      }
+    }
+    const firstPreviewId = panel.tabs.find(id => isPreviewTabId(id) && panel.previews?.[id])
+    const fallbackPreview = firstPreviewId ? panel.previews[firstPreviewId] : null
+    return {
+      ...panel,
+      file: fallbackPreview?.path ?? null,
+      fileLine: fallbackPreview?.line ?? null,
+      fileSessionId: fallbackPreview?.sessionId ?? null,
+      fileRoot: fallbackPreview?.root ?? null,
+      fileFallback: fallbackPreview?.fallback ?? null,
+    }
+  }
   const normalizeRightPanel = (prev) => {
-    if (!prev || typeof prev !== 'object') return { ...EMPTY_RIGHT_PANEL, tabs: [] }
+    if (!prev || typeof prev !== 'object') return { ...EMPTY_RIGHT_PANEL, tabs: [], previews: {} }
     const tabs = Array.isArray(prev.tabs)
       ? prev.tabs.filter(id => typeof id === 'string' && id !== '')
       : (typeof prev.tab === 'string' && prev.tab !== '' ? [prev.tab] : [])
-    return { ...EMPTY_RIGHT_PANEL, ...prev, tabs }
+    const previews = prev.previews && typeof prev.previews === 'object' ? { ...prev.previews } : {}
+    if (tabs.includes('preview') && prev.file && !previews.preview) {
+      previews.preview = {
+        id: 'preview',
+        path: prev.file,
+        line: prev.fileLine ?? null,
+        sessionId: prev.fileSessionId ?? null,
+        root: prev.fileRoot ?? null,
+        fallback: prev.fileFallback ?? null,
+      }
+    }
+    return { ...EMPTY_RIGHT_PANEL, ...prev, tabs, previews }
   }
   const pruneStaleWorkspace = (prev) => {
     if (!prev) return null
     const normalized = normalizeRightPanel(prev)
-    const keptTabs = normalized.tabs.filter(id => !STALE_WORKSPACE_TABS.has(id))
+    const keptTabs = normalized.tabs.filter(id => !isPreviewTabId(id) && id !== 'changes')
     if (keptTabs.length === 0) return null
     const nextTab = keptTabs.includes(normalized.tab) ? normalized.tab : keptTabs[keptTabs.length - 1]
+    const hadPreviews = Object.keys(normalized.previews).length > 0
     const changed = keptTabs.length !== normalized.tabs.length
       || nextTab !== prev.tab
+      || hadPreviews
       || prev.file !== null
       || prev.fileLine !== null
       || prev.fileSessionId !== null
@@ -398,10 +435,12 @@ export function createTeam() {
       ...normalized,
       tabs: keptTabs,
       tab: nextTab,
+      previews: {},
       file: null,
       fileLine: null,
       fileSessionId: null,
       fileRoot: null,
+      fileFallback: null,
       revealDir: null,
       changes: null,
     }
@@ -790,7 +829,21 @@ export function createTeam() {
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
       const fileLine = Number.isInteger(path?.line) && path.line > 0 ? path.line : null
       const fileFallback = typeof path?.onUnavailable === 'function' ? path.onUnavailable : null
-      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileLine, fileSessionId, fileRoot, fileFallback }), fileSessionId)
+      const tabId = previewTabIdFor(target, fileSessionId, fileRoot)
+      openWorkspaceTab(tabId, (prev) => {
+        const nextPreviews = {
+          ...prev.previews,
+          [tabId]: {
+            id: tabId,
+            path: target,
+            line: fileLine,
+            sessionId: fileSessionId,
+            root: fileRoot,
+            fallback: fileFallback,
+          },
+        }
+        return syncActivePreviewFields({ ...prev, previews: nextPreviews })
+      }, fileSessionId)
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
@@ -807,25 +860,42 @@ export function createTeam() {
         return { ...state, rightPanel: { ...state.rightPanel, terminalNonce: 0 } }
       })
     },
-    setRightPanelTab: (tabId) => openWorkspaceTab(tabId),
+    setRightPanelTab: (tabId) => openWorkspaceTab(tabId, (prev) => {
+      if (tabId === 'preview' && !prev.previews?.preview) {
+        const firstPreviewId = prev.tabs.find(id => isPreviewTabId(id) && prev.previews?.[id])
+        if (firstPreviewId) {
+          return syncActivePreviewFields({
+            ...prev,
+            tabs: prev.tabs.filter(id => id !== 'preview'),
+            tab: firstPreviewId,
+          })
+        }
+      }
+      return syncActivePreviewFields(prev)
+    }),
     closeWorkspaceTab: (tabId) => {
       if (typeof tabId !== 'string' || tabId === '') return
       const snap = roster.getSnapshot()
       ui.set((state) => {
         if (!state.rightPanel) return state
         const prev = normalizeRightPanel(state.rightPanel)
-        const remaining = prev.tabs.filter(id => id !== tabId)
+        const targetId = tabId === 'preview' && !prev.tabs.includes('preview')
+          ? (isPreviewTabId(prev.tab) ? prev.tab : prev.tabs.find(id => isPreviewTabId(id)) ?? tabId)
+          : tabId
+        const remaining = prev.tabs.filter(id => id !== targetId)
+        const nextPreviews = { ...prev.previews }
+        if (isPreviewTabId(targetId)) delete nextPreviews[targetId]
         if (remaining.length > 0) {
           return {
             ...state,
-            rightPanel: {
+            rightPanel: syncActivePreviewFields({
               ...prev,
               tabs: remaining,
-              tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
-              ...(tabId === 'preview' ? { file: null, fileLine: null, fileSessionId: null, fileRoot: null, fileFallback: null } : {}),
-              ...(tabId === 'changes' ? { changes: null } : {}),
-              ...(tabId === 'terminal' ? { terminalNonce: 0 } : {}),
-            },
+              tab: prev.tab === targetId ? remaining[remaining.length - 1] : prev.tab,
+              previews: nextPreviews,
+              ...(targetId === 'changes' ? { changes: null } : {}),
+              ...(targetId === 'terminal' ? { terminalNonce: 0 } : {}),
+            }),
           }
         }
         if (state.view !== 'workspace') return { ...state, rightPanel: null }

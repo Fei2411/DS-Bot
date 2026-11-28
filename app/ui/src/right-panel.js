@@ -48,8 +48,64 @@ function resolvePluginTabs(pluginEntries) {
       label: typeof entry.meta?.label === 'function' ? entry.meta.label() : (entry.meta?.label ?? entry.id),
       icon: entry.meta?.icon ?? FileIcon,
       component: entry.component,
-      closable: false,
+      closable: true,
     }))
+}
+
+export function buildWorkspacePluginMenuItems(pluginEntries = [], onOpen = null) {
+  const plugins = resolvePluginTabs(pluginEntries)
+  return plugins.map(plugin => ({
+    key: plugin.id,
+    icon: plugin.icon,
+    label: plugin.label,
+    onPick: () => { onOpen?.(plugin.id) },
+  }))
+}
+
+function isPreviewTabId(id) {
+  return id === 'preview' || (typeof id === 'string' && id.startsWith('preview:'))
+}
+
+function resolveOpenPreviews(panel) {
+  const out = []
+  const seen = new Set()
+  const previews = panel?.previews && typeof panel.previews === 'object' ? panel.previews : null
+  for (const id of openTabIds(panel)) {
+    if (seen.has(id) || !isPreviewTabId(id)) continue
+    const entry = previews?.[id]
+    if (entry && typeof entry.path === 'string' && entry.path !== '') {
+      seen.add(id)
+      out.push({
+        id,
+        path: entry.path,
+        line: entry.line ?? null,
+        sessionId: entry.sessionId ?? null,
+        root: entry.root ?? null,
+        fallback: typeof entry.fallback === 'function' ? entry.fallback : null,
+      })
+    } else if (id === 'preview' && typeof panel?.file === 'string' && panel.file !== '') {
+      seen.add(id)
+      out.push({
+        id: 'preview',
+        path: panel.file,
+        line: panel.fileLine ?? null,
+        sessionId: panel.fileSessionId ?? null,
+        root: panel.fileRoot ?? null,
+        fallback: typeof panel.fileFallback === 'function' ? panel.fileFallback : null,
+      })
+    }
+  }
+  return out
+}
+
+function previewBaseName(filePath) {
+  return String(filePath).split(/[\\/]/).filter(Boolean).at(-1) || t('Preview')
+}
+
+function previewDisambiguatedLabel(filePath) {
+  const parts = String(filePath).split(/[\\/]/).filter(Boolean)
+  if (parts.length <= 1) return parts[0] || t('Preview')
+  return parts.slice(-2).join('/')
 }
 
 function openTabIds(panel) {
@@ -60,22 +116,32 @@ function openTabIds(panel) {
 
 /**
  * Builds the ordered workspace tab descriptors rendered in unified `BotPanel`'s tab strip.
+ * Supports multiple preview tabs (with basename disambiguation) and closable plugin tabs
+ * (unopened plugin tabs are omitted from the strip and exposed via the `+` menu instead).
  */
 export function buildWorkspaceTabs(panel, pluginEntries = []) {
   const plugins = resolvePluginTabs(pluginEntries)
   const pluginById = new Map(plugins.map(tab => [tab.id, tab]))
+  const previewEntries = resolveOpenPreviews(panel)
+  const previewById = new Map(previewEntries.map(entry => [entry.id, entry]))
+  const nameCounts = new Map()
+  for (const entry of previewEntries) {
+    const base = previewBaseName(entry.path)
+    nameCounts.set(base, (nameCounts.get(base) ?? 0) + 1)
+  }
   const tabs = []
   const seen = new Set()
-  const filePath = panel?.file ?? null
   for (const id of openTabIds(panel)) {
     if (seen.has(id)) continue
     if (id === 'files') {
       seen.add(id)
       tabs.push({ id: 'files', label: t('Files'), icon: FolderIcon, closable: true })
-    } else if (id === 'preview' && filePath) {
+    } else if (previewById.has(id)) {
       seen.add(id)
-      const name = String(filePath).split(/[\\/]/).filter(Boolean).at(-1) || t('Preview')
-      tabs.push({ id: 'preview', label: name, icon: FileIcon, closable: true })
+      const entry = previewById.get(id)
+      const base = previewBaseName(entry.path)
+      const label = (nameCounts.get(base) ?? 0) > 1 ? previewDisambiguatedLabel(entry.path) : base
+      tabs.push({ id, label, title: entry.path, icon: FileIcon, closable: true })
     } else if (id === 'changes' && panel?.changes) {
       seen.add(id)
       tabs.push({ id: 'changes', label: t('Changes'), icon: DiffIcon, closable: true })
@@ -85,13 +151,8 @@ export function buildWorkspaceTabs(panel, pluginEntries = []) {
     } else if (pluginById.has(id)) {
       seen.add(id)
       const plugin = pluginById.get(id)
-      tabs.push({ id: plugin.id, label: plugin.label, icon: plugin.icon, closable: false })
+      tabs.push({ id: plugin.id, label: plugin.label, icon: plugin.icon, closable: true })
     }
-  }
-  for (const plugin of plugins) {
-    if (seen.has(plugin.id)) continue
-    seen.add(plugin.id)
-    tabs.push({ id: plugin.id, label: plugin.label, icon: plugin.icon, closable: false })
   }
   return tabs
 }
@@ -386,6 +447,48 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
   return target ? createPortal(node, target) : node
 }
 
+const AUTO_REFRESH_STORAGE_KEY = 'dsb.preview.autoRefresh'
+
+function readSavedAutoRefresh() {
+  try { return globalThis.localStorage?.getItem(AUTO_REFRESH_STORAGE_KEY) === '1' } catch { return false }
+}
+
+function writeSavedAutoRefresh(value) {
+  try { globalThis.localStorage?.setItem(AUTO_REFRESH_STORAGE_KEY, value ? '1' : '0') } catch { /* ignore storage errors */ }
+}
+
+function parentRelDir(relPath) {
+  if (typeof relPath !== 'string' || relPath === '') return ''
+  const norm = relPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const slash = norm.lastIndexOf('/')
+  return slash > 0 ? norm.slice(0, slash) : ''
+}
+
+function previewMatchesChange(entry, changeData, activeWatchRoot) {
+  if (!entry?.path || !changeData) return false
+  const entryRoot = entry.root || activeWatchRoot || ''
+  if (changeData.root && entryRoot && changeData.root !== entryRoot) return false
+  if (changeData.overflow === true) return true
+  const paths = Array.isArray(changeData.paths) ? changeData.paths : []
+  if (paths.length === 0) return true
+  const normTarget = String(entry.path).replace(/\\/g, '/').replace(/^\/+/, '')
+  const targetParent = parentRelDir(normTarget)
+  for (const raw of paths) {
+    const p = String(raw ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    if (p === '' || p === normTarget || (targetParent !== '' && p === targetParent)) return true
+  }
+  return false
+}
+
+function searchIncompleteMessage(searchState) {
+  if (searchState.cancelled) return t('Search cancelled — showing partial results')
+  const reasons = Array.isArray(searchState.incompleteReasons) ? searchState.incompleteReasons : []
+  if (reasons.includes('permission') || reasons.includes('unreadable')) {
+    return t('Some folders could not be read — results may be incomplete')
+  }
+  return t('Results may be incomplete')
+}
+
 function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, revealNonce = 0, onOpenFile, active = true }) {
   const [rootInfo, setRootInfo] = useState({ root: '', rootName: '', missing: false, truncated: false })
   const [childrenByPath, setChildrenByPath] = useState({})
@@ -394,11 +497,24 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   const [loadingDirs, setLoadingDirs] = useState(() => new Set())
   const [includeHidden, setIncludeHidden] = useState(false)
   const [filter, setFilter] = useState('')
+  const [searchState, setSearchState] = useState({
+    query: '',
+    entries: [],
+    searching: false,
+    done: true,
+    cancelled: false,
+    incomplete: false,
+    incompleteReasons: [],
+    error: '',
+  })
   const [highlightedDir, setHighlightedDir] = useState(null)
   const [revealNotice, setRevealNotice] = useState('')
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
   const genRef = useRef(0)
+  const searchRunRef = useRef(0)
+  const searchAbortRef = useRef(null)
+  const searchIdRef = useRef(null)
   const listRef = useRef(null)
   const handledRevealNonceRef = useRef(0)
   const pendingHiddenRevealRef = useRef(null)
@@ -804,10 +920,121 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     }
   }, [childrenByPath, loadDir, refreshTree])
 
+  const cancelActiveSearch = useCallback((markCancelled = false) => {
+    searchRunRef.current += 1
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort()
+      searchAbortRef.current = null
+    }
+    const sid = searchIdRef.current
+    searchIdRef.current = null
+    if (sid) {
+      void call('workspace-search', { sessionId, searchId: sid, cancel: true }).catch(() => {})
+    }
+    if (markCancelled) {
+      setSearchState(cur => (cur.searching
+        ? { ...cur, searching: false, done: true, cancelled: true, incomplete: true, incompleteReasons: [...new Set([...cur.incompleteReasons, 'cancelled'])] }
+        : cur))
+    }
+  }, [sessionId])
+
+  // Full-workspace search via `workspace-search`: streams batches progressively without an
+  // artificial match cap, respects `.gitignore`, reports incomplete results, and cancels cleanly.
+  useEffect(() => {
+    const trimmed = filter.trim()
+    cancelActiveSearch(false)
+    if (trimmed === '') {
+      setSearchState({
+        query: '',
+        entries: [],
+        searching: false,
+        done: true,
+        cancelled: false,
+        incomplete: false,
+        incompleteReasons: [],
+        error: '',
+      })
+      return undefined
+    }
+    const runId = ++searchRunRef.current
+    const controller = typeof AbortController === 'function' ? new AbortController() : null
+    searchAbortRef.current = controller
+    setSearchState({
+      query: trimmed,
+      entries: [],
+      searching: true,
+      done: false,
+      cancelled: false,
+      incomplete: false,
+      incompleteReasons: [],
+      error: '',
+    })
+
+    const run = async () => {
+      let nextSearchId = ''
+      try {
+        while (searchRunRef.current === runId) {
+          const expectedRoot = rootPathRef.current || undefined
+          const payload = nextSearchId
+            ? { sessionId, searchId: nextSearchId, ...(expectedRoot ? { expectedRoot } : {}) }
+            : { sessionId, query: trimmed, includeHidden, ...(expectedRoot ? { expectedRoot } : {}) }
+          const res = await call('workspace-search', payload, controller?.signal)
+          if (searchRunRef.current !== runId) {
+            if (res?.searchId && !res.done) {
+              void call('workspace-search', { sessionId, searchId: res.searchId, cancel: true }).catch(() => {})
+            }
+            return
+          }
+          const batchEntries = Array.isArray(res?.entries) ? res.entries : []
+          const done = res?.done !== false
+          nextSearchId = !done && typeof res?.searchId === 'string' ? res.searchId : ''
+          searchIdRef.current = nextSearchId || null
+          const reasons = Array.isArray(res?.incompleteReasons) ? res.incompleteReasons : []
+          const incomplete = res?.incomplete === true || res?.truncated === true || reasons.length > 0
+          setSearchState(cur => ({
+            query: trimmed,
+            entries: batchEntries.length > 0 ? [...cur.entries, ...batchEntries] : cur.entries,
+            searching: !done,
+            done,
+            cancelled: res?.cancelled === true,
+            incomplete: cur.incomplete || incomplete,
+            incompleteReasons: reasons.length > 0 ? [...new Set([...cur.incompleteReasons, ...reasons])] : cur.incompleteReasons,
+            error: '',
+          }))
+          if (done || nextSearchId === '') break
+        }
+      } catch (failure) {
+        if (searchRunRef.current !== runId || failure?.name === 'AbortError') return
+        setSearchState(cur => ({
+          ...cur,
+          searching: false,
+          done: true,
+          error: hostText(failure?.message ?? String(failure)),
+        }))
+      } finally {
+        if (searchRunRef.current === runId) {
+          searchAbortRef.current = null
+          searchIdRef.current = null
+        }
+      }
+    }
+    void run()
+    return () => {
+      if (searchRunRef.current === runId) {
+        cancelActiveSearch(false)
+      }
+    }
+  }, [filter, sessionId, includeHidden, rootInfo.root, cancelActiveSearch])
+
   const openFileTarget = useCallback((path) => {
     setRevealNotice('')
     onOpenFile(rootPathRef.current ? { path, root: rootPathRef.current } : path)
   }, [onOpenFile])
+
+  const openSearchDir = useCallback((dirPath) => {
+    setFilter('')
+    actions?.revealFolder?.({ path: dirPath, sessionId })
+  }, [actions, sessionId])
 
   const runOpenAction = useCallback((path, action, capturedRoot) => {
     const expectedRoot = capturedRoot || rootPathRef.current || undefined
@@ -833,23 +1060,50 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     })
   }, [actions])
 
+  const isSearchingMode = filter.trim() !== ''
   const rootEntries = childrenByPath[''] ?? []
-  const rows = TreeBranch({
-    entries: rootEntries,
-    depth: 0,
-    ancestors: new Set(['']),
-    expanded,
-    childrenByPath,
-    loadingDirs,
-    truncatedDirs,
-    selectedPath,
-    highlightedDir,
-    menuPath: menu?.entry?.path ?? null,
-    filter,
-    onToggleDir: toggleDir,
-    onSelectFile: openFileTarget,
-    onContextMenu: (entry, x, y, trigger) => setMenu({ entry, x, y, trigger, root: rootPathRef.current }),
-  })
+  const rows = isSearchingMode
+    ? searchState.entries.map((entry) => {
+      const isDir = entry.kind === 'dir'
+      const parent = parentRelDir(entry.path)
+      return h('button', {
+        key: `sr:${entry.kind}:${entry.path}`,
+        type: 'button',
+        role: 'treeitem',
+        className: isDir ? 'dsb-ft-row is-dir is-search-hit' : 'dsb-ft-row is-file is-search-hit',
+        'data-tree-path': entry.path,
+        'data-path': entry.path,
+        'data-menu-open': menu?.entry?.path === entry.path ? '' : undefined,
+        'aria-current': !isDir && selectedPath === entry.path ? 'true' : undefined,
+        onClick: () => { if (isDir) openSearchDir(entry.path); else openFileTarget(entry.path) },
+        onContextMenu: (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          setMenu({ entry, x: event.clientX, y: event.clientY, trigger: event.currentTarget, root: rootPathRef.current })
+        },
+      },
+      h('span', { className: 'dsb-ft-ico', 'aria-hidden': true }, isDir ? h(FolderIcon) : h(FileIcon)),
+      h('span', { className: 'dsb-ft-hit-text' },
+        h('span', { className: 'dsb-ft-name', title: entry.path }, entry.name),
+        parent ? h('span', { className: 'dsb-ft-sub', title: entry.path }, parent) : null),
+      !isDir && Number.isFinite(entry.size) ? h('span', { className: 'dsb-ft-meta' }, fileSizeText(entry.size)) : null)
+    })
+    : TreeBranch({
+      entries: rootEntries,
+      depth: 0,
+      ancestors: new Set(['']),
+      expanded,
+      childrenByPath,
+      loadingDirs,
+      truncatedDirs,
+      selectedPath,
+      highlightedDir,
+      menuPath: menu?.entry?.path ?? null,
+      filter: '',
+      onToggleDir: toggleDir,
+      onSelectFile: openFileTarget,
+      onContextMenu: (entry, x, y, trigger) => setMenu({ entry, x, y, trigger, root: rootPathRef.current }),
+    })
 
   return h('div', { className: 'dsb-ft' },
     h('div', { className: 'dsb-ft-bar' },
@@ -887,15 +1141,32 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
           setRevealNotice('')
           setFilter(event.target.value)
         },
-      })),
+      }),
+      isSearchingMode && searchState.searching
+        ? h('button', {
+          type: 'button',
+          className: 'dsb-ft-search-cancel',
+          onClick: () => cancelActiveSearch(true),
+        }, t('Cancel'))
+        : null),
+    isSearchingMode && (searchState.searching || searchState.incomplete || searchState.entries.length > 0)
+      ? h('div', { className: 'dsb-ft-search-status', role: 'status' },
+        searchState.searching
+          ? h('span', null, t('Searching…'))
+          : h('span', null, searchState.entries.length === 1 ? t('1 match') : t('{count} matches', { count: searchState.entries.length })),
+        searchState.incomplete
+          ? h('span', { className: 'dsb-ft-search-incomplete' }, searchIncompleteMessage(searchState))
+          : null)
+      : null,
     revealNotice ? h('div', { className: 'dsb-rp-error dsb-ft-notice', role: 'alert' }, h('p', null, revealNotice)) : null,
-    error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error))
+    (isSearchingMode ? searchState.error : error) ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, isSearchingMode ? searchState.error : error))
       : rootInfo.missing ? h('div', { className: 'dsb-rp-empty' }, t('Workspace folder is empty'))
-        : loadingDirs.has('') && rootEntries.length === 0 ? h('div', { className: 'dsb-rp-empty' }, t('Loading…'))
-          : rows.length === 0 ? h('div', { className: 'dsb-rp-empty' }, filter.trim() ? t('No matching files') : t('Workspace folder is empty'))
+        : (isSearchingMode ? (searchState.searching && rows.length === 0) : (loadingDirs.has('') && rootEntries.length === 0))
+          ? h('div', { className: 'dsb-rp-empty' }, isSearchingMode ? t('Searching…') : t('Loading…'))
+          : rows.length === 0 ? h('div', { className: 'dsb-rp-empty' }, isSearchingMode ? t('No matching files') : t('Workspace folder is empty'))
             : h('div', { ref: listRef, className: 'dsb-ft-list', role: 'tree', 'aria-label': t('Files') },
               rows,
-              rootInfo.truncated ? h('p', { className: 'dsb-pv-note' }, t('Showing first {count} entries', { count: 500 })) : null),
+              !isSearchingMode && rootInfo.truncated ? h('p', { className: 'dsb-pv-note' }, t('Showing first {count} entries', { count: 500 })) : null),
     h(FileTreeContextMenu, {
       menu,
       expanded,
@@ -911,40 +1182,43 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
 
 /**
  * Inner workspace body mounted inside unified `BotPanel`'s `.bt-panel-workspace` view.
- * Keeps `FileTree` and `WorkspaceTerminal` mounted while their tabs stay open so expanded
- * folders and live PTY sessions survive switching across Details, Side chat, Browser, and
- * other workspace tabs.
+ * Keeps `FileTree`, open `FilePreview` tabs, `WorkspaceTerminal`, and opened plugin tabs
+ * mounted while their tabs stay open so expanded folders, preview state, live PTY sessions,
+ * and plugin state survive switching across Details, Side chat, Browser, and workspace tabs.
  */
 export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSlots, readOnly = false, visible = true, terminalFocusNonce = 0, onConsumeTerminalFocus = null }) {
   const { actions, chat: feed } = team
-  const [fileState, setFileState] = useState({ path: null, data: null, loading: false, error: '' })
-  const [retryState, setRetryState] = useState({ key: null, count: 0 })
+  const [fileStates, setFileStates] = useState({})
+  const [autoRefresh, setAutoRefresh] = useState(readSavedAutoRefresh)
+  const [mountedPluginIds, setMountedPluginIds] = useState(() => new Set())
   const pluginEntries = useSlotEntries(registry, RIGHT_PANE_TAB_SLOT)
-  const fileReqRef = useRef(0)
+  const fileReqsRef = useRef(new Map())
+  const loadedKeysRef = useRef(new Map())
+  const autoRefreshRef = useRef(autoRefresh)
+  autoRefreshRef.current = autoRefresh
+  const previewWatchRootRef = useRef('')
 
   const openIds = useMemo(() => openTabIds(panel), [panel])
   const openSet = useMemo(() => new Set(openIds), [openIds])
-  const filePath = panel?.file ?? null
-  const fileSessionId = panel?.fileSessionId ?? sessionId
-  const fileRoot = panel?.fileRoot ?? null
-  const fileFallback = typeof panel?.fileFallback === 'function' ? panel.fileFallback : null
+  const previewEntries = useMemo(() => resolveOpenPreviews(panel), [panel])
+  const previewEntriesRef = useRef(previewEntries)
+  previewEntriesRef.current = previewEntries
   const changes = panel?.changes ?? null
   const terminalNonce = panel?.terminalNonce ?? 0
 
   const hasFiles = openSet.has('files')
-  const hasPreview = openSet.has('preview') && Boolean(filePath)
   const hasChanges = openSet.has('changes') && Boolean(changes)
   const hasTerminal = openSet.has('terminal')
 
-  const fileKey = hasPreview ? `${fileSessionId ?? ''}:${fileRoot ?? ''}:${filePath}` : null
-  const retryCount = retryState.key === fileKey ? retryState.count : 0
-
   const pluginTabs = useMemo(() => resolvePluginTabs(pluginEntries), [pluginEntries])
+  const pluginById = useMemo(() => new Map(pluginTabs.map(tab => [tab.id, tab])), [pluginTabs])
   const rawTab = panel?.tab ?? openIds[0] ?? null
-  const activePlugin = pluginTabs.find(tab => tab.id === rawTab) ?? null
-  const activeTab = rawTab === 'preview' && !hasPreview
-    ? (hasFiles ? 'files' : openIds.find(id => id !== 'preview') ?? null)
+  const activePreview = previewEntries.find(entry => entry.id === rawTab) ?? null
+  const activeTab = isPreviewTabId(rawTab) && !activePreview
+    ? (hasFiles ? 'files' : openIds.find(id => !isPreviewTabId(id) || previewEntries.some(e => e.id === id)) ?? null)
     : rawTab
+  const activePlugin = pluginById.get(activeTab) ?? null
+  const selectedFilePath = activePreview?.path ?? panel?.file ?? null
 
   const openWorkspaceFile = useCallback((path) => {
     actions.openFile?.(path)
@@ -953,44 +1227,190 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
     actions.consumeTerminalNonce?.(nonce)
   }, [actions])
 
-  // Load workspace file contents whenever a preview tab is open and `panel.file` or retry updates.
-  useEffect(() => {
-    if (!hasPreview || !filePath) return undefined
-    const reqId = ++fileReqRef.current
-    setFileState(current => ({
-      path: filePath,
-      data: current.path === filePath ? current.data : null,
-      loading: true,
-      error: '',
-    }))
-    // Enforce `expectedRoot` on the initial click from FileTree so a mid-session `working_directory`
-    // move never opens a different file; an explicit Retry (`retryCount > 0`) reads the live root.
-    const expectedRoot = retryCount === 0 && fileRoot ? fileRoot : undefined
-    void call('workspace-read', { sessionId: fileSessionId, path: filePath, ...(expectedRoot ? { expectedRoot } : {}) })
+  const toggleAutoRefresh = useCallback(() => {
+    setAutoRefresh((cur) => {
+      const next = !cur
+      writeSavedAutoRefresh(next)
+      return next
+    })
+  }, [])
+
+  const loadPreviewEntry = useCallback((entry, { silent = false, retry = false } = {}) => {
+    const reqId = (fileReqsRef.current.get(entry.id) ?? 0) + 1
+    fileReqsRef.current.set(entry.id, reqId)
+    const effectiveSessionId = entry.sessionId ?? sessionId
+    const entryKey = `${effectiveSessionId ?? ''}:${entry.root ?? ''}:${entry.path}`
+    loadedKeysRef.current.set(entry.id, entryKey)
+    if (!silent) {
+      setFileStates(current => ({
+        ...current,
+        [entry.id]: {
+          key: entryKey,
+          path: entry.path,
+          data: current[entry.id]?.path === entry.path ? current[entry.id].data : null,
+          loading: true,
+          error: '',
+          updated: false,
+        },
+      }))
+    }
+    const expectedRoot = !retry && entry.root ? entry.root : undefined
+    void call('workspace-read', { sessionId: effectiveSessionId, path: entry.path, ...(expectedRoot ? { expectedRoot } : {}) })
       .then((res) => {
-        if (fileReqRef.current !== reqId) return
+        if (fileReqsRef.current.get(entry.id) !== reqId) return
         if (res?.kind === 'dir') {
-          actions.revealFolder?.({ path: res.path ?? filePath, sessionId: fileSessionId })
-          actions.closeWorkspaceTab?.('preview')
+          actions.revealFolder?.({ path: res.path ?? entry.path, sessionId: effectiveSessionId })
+          actions.closeWorkspaceTab?.(entry.id)
           return
         }
-        setFileState({ path: filePath, data: res, loading: false, error: '' })
+        setFileStates(current => ({
+          ...current,
+          [entry.id]: {
+            key: entryKey,
+            path: entry.path,
+            data: res,
+            loading: false,
+            error: '',
+            updated: false,
+          },
+        }))
       })
       .catch((failure) => {
-        if (fileReqRef.current !== reqId) return
-        if (failure?.code === 'bot/refused' && fileFallback !== null) {
-          void Promise.resolve().then(() => fileFallback()).catch(() => {
+        if (fileReqsRef.current.get(entry.id) !== reqId) return
+        if (failure?.code === 'bot/refused' && entry.fallback !== null) {
+          void Promise.resolve().then(() => entry.fallback()).catch(() => {
             actions.notice?.(t('Could not save this file'))
           })
-          actions.closeWorkspaceTab?.('preview')
+          actions.closeWorkspaceTab?.(entry.id)
           return
         }
-        setFileState({ path: filePath, data: null, loading: false, error: hostText(failure?.message ?? String(failure)) })
+        setFileStates(current => ({
+          ...current,
+          [entry.id]: {
+            key: entryKey,
+            path: entry.path,
+            data: silent ? (current[entry.id]?.data ?? null) : null,
+            loading: false,
+            error: hostText(failure?.message ?? String(failure)),
+            updated: false,
+          },
+        }))
       })
-    return () => {
-      if (fileReqRef.current === reqId) fileReqRef.current += 1
+  }, [sessionId, actions])
+  const loadPreviewEntryRef = useRef(loadPreviewEntry)
+  loadPreviewEntryRef.current = loadPreviewEntry
+
+  // Load newly opened or changed preview tabs, and prune closed preview tab state.
+  useEffect(() => {
+    const activeIds = new Set(previewEntries.map(entry => entry.id))
+    for (const id of [...loadedKeysRef.current.keys()]) {
+      if (!activeIds.has(id)) {
+        loadedKeysRef.current.delete(id)
+        fileReqsRef.current.delete(id)
+      }
     }
-  }, [hasPreview, fileSessionId, filePath, fileRoot, fileFallback, retryCount, actions])
+    setFileStates((current) => {
+      const keys = Object.keys(current)
+      if (keys.every(id => activeIds.has(id))) return current
+      const next = {}
+      for (const id of keys) if (activeIds.has(id)) next[id] = current[id]
+      return next
+    })
+    for (const entry of previewEntries) {
+      const effectiveSessionId = entry.sessionId ?? sessionId
+      const entryKey = `${effectiveSessionId ?? ''}:${entry.root ?? ''}:${entry.path}`
+      if (loadedKeysRef.current.get(entry.id) !== entryKey) {
+        loadPreviewEntry(entry, { silent: false, retry: false })
+      }
+    }
+  }, [previewEntries, sessionId, loadPreviewEntry])
+
+  // Watch the active preview tab's workspace so external edits show "Updated · Reload"
+  // or auto-refresh silently when enabled, even if the Files tab is hidden or closed.
+  const activePreviewId = activePreview?.id ?? null
+  const activePreviewPath = activePreview?.path ?? ''
+  const activePreviewSessionId = activePreview?.sessionId ?? sessionId
+  const activePreviewRoot = activePreview?.root ?? ''
+  useEffect(() => {
+    if (!visible || !activePreviewId || !activePreviewPath) return undefined
+    let alive = true
+    let watchId = null
+    const parent = parentRelDir(activePreviewPath)
+    const dirs = parent ? [parent] : []
+    void call('workspace-watch', {
+      sessionId: activePreviewSessionId,
+      dirs,
+      ...(activePreviewRoot ? { expectedRoot: activePreviewRoot } : {}),
+    })
+      .then((res) => {
+        if (!alive) {
+          if (res?.watchId) void call('workspace-unwatch', { watchId: res.watchId }).catch(() => {})
+          return
+        }
+        watchId = res?.watchId ?? null
+        previewWatchRootRef.current = res?.root ?? activePreviewRoot ?? ''
+      })
+      .catch(() => {})
+
+    const off = typeof feed?.on === 'function'
+      ? feed.on((event, data) => {
+        if (!alive || event !== 'workspace-changed') return
+        const entries = previewEntriesRef.current
+        for (const entry of entries) {
+          if (!previewMatchesChange(entry, data, previewWatchRootRef.current)) continue
+          if (autoRefreshRef.current) {
+            loadPreviewEntryRef.current(entry, { silent: true, retry: true })
+          } else {
+            setFileStates((current) => {
+              const prev = current[entry.id]
+              if (!prev || prev.updated) return current
+              return { ...current, [entry.id]: { ...prev, updated: true } }
+            })
+          }
+        }
+      })
+      : () => {}
+
+    return () => {
+      alive = false
+      off()
+      if (watchId) void call('workspace-unwatch', { watchId }).catch(() => {})
+    }
+  }, [visible, activePreviewId, activePreviewPath, activePreviewSessionId, activePreviewRoot, feed])
+
+  // Lazily mount plugin tabs only once opened/activated, keep them mounted while open,
+  // and unmount them as soon as their tab is closed or unregistered.
+  useEffect(() => {
+    setMountedPluginIds((current) => {
+      let changed = false
+      const next = new Set()
+      for (const id of current) {
+        if (openSet.has(id) && pluginById.has(id)) next.add(id)
+        else changed = true
+      }
+      if (activePlugin && openSet.has(activePlugin.id) && !next.has(activePlugin.id)) {
+        next.add(activePlugin.id)
+        changed = true
+      }
+      return changed ? next : current
+    })
+  }, [activePlugin, openSet, pluginById])
+
+  const mountedPlugins = useMemo(() => {
+    const out = []
+    const seen = new Set()
+    for (const id of mountedPluginIds) {
+      const plugin = pluginById.get(id)
+      if (plugin && openSet.has(id) && !seen.has(id)) {
+        seen.add(id)
+        out.push(plugin)
+      }
+    }
+    if (activePlugin && openSet.has(activePlugin.id) && !seen.has(activePlugin.id)) {
+      out.push(activePlugin)
+    }
+    return out
+  }, [mountedPluginIds, pluginById, openSet, activePlugin])
 
   // Notify terminal layout whenever the terminal pane becomes visible again after hiding.
   useEffect(() => {
@@ -1005,7 +1425,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
     return undefined
   }, [visible, hasTerminal, activeTab])
 
-  if (!panel && !activePlugin) return null
+  if (!panel && mountedPlugins.length === 0) return null
 
   return h('div', { className: 'dsb-ws-body' },
     hasFiles
@@ -1014,23 +1434,33 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
           sessionId,
           feed,
           actions,
-          selectedPath: filePath,
+          selectedPath: selectedFilePath,
           revealDir: panel?.revealDir ?? null,
           revealNonce: panel?.revealNonce ?? 0,
           onOpenFile: openWorkspaceFile,
           active: visible && activeTab === 'files',
         }))
       : null,
-    hasPreview
-      ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'preview' },
-        h(FilePreview, {
-          file: fileState.data,
-          line: panel?.fileLine ?? null,
-          loading: fileState.loading,
-          error: fileState.error,
-          onRetry: () => setRetryState(prev => ({ key: fileKey, count: prev.key === fileKey ? prev.count + 1 : 1 })),
-        }))
-      : null,
+    previewEntries.map((entry) => {
+      const state = fileStates[entry.id] ?? { data: null, loading: true, error: '', updated: false }
+      return h('div', {
+        key: entry.id,
+        className: 'dsb-ws-pane',
+        'data-preview-tab': entry.id,
+        hidden: !visible || activeTab !== entry.id,
+      },
+      h(FilePreview, {
+        file: state.data,
+        line: entry.line ?? null,
+        loading: state.loading,
+        error: state.error,
+        updated: state.updated === true,
+        onReload: () => loadPreviewEntry(entry, { silent: true, retry: true }),
+        autoRefresh,
+        onToggleAutoRefresh: toggleAutoRefresh,
+        onRetry: () => loadPreviewEntry(entry, { silent: false, retry: true }),
+      }))
+    }),
     hasChanges
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'changes' },
         h(ChangesReview, { changes, onOpenFile: openWorkspaceFile }))
@@ -1048,23 +1478,25 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
           onConsumeFocusNonce: onConsumeTerminalFocus,
         }))
       : null,
-    activePlugin
-      ? h('div', { className: 'dsb-ws-pane', hidden: !visible },
-        h(SlotErrorBoundary, {
-          key: activePlugin.id,
-          slotName: `${RIGHT_PANE_TAB_SLOT}:${activePlugin.slotId}`,
-          resetKey: `${activePlugin.id}:${sessionId ?? ''}`,
-          pluginId: activePlugin.pluginId,
-          runtime: activePlugin.runtime,
-          onRetry: (typeof activePlugin.component?.reset === 'function' || typeof activePlugin.onRetry === 'function')
-            ? () => {
-              activePlugin.component?.reset?.()
-              activePlugin.onRetry?.()
-            }
-            : undefined,
-        },
-        h(activePlugin.component, { sessionId, team, actions })))
-      : null)
+    mountedPlugins.map(plugin => h('div', {
+      key: plugin.id,
+      className: 'dsb-ws-pane',
+      'data-plugin-tab': plugin.id,
+      hidden: !visible || activeTab !== plugin.id,
+    },
+    h(SlotErrorBoundary, {
+      slotName: `${RIGHT_PANE_TAB_SLOT}:${plugin.slotId}`,
+      resetKey: `${plugin.id}:${sessionId ?? ''}`,
+      pluginId: plugin.pluginId,
+      runtime: plugin.runtime,
+      onRetry: (typeof plugin.component?.reset === 'function' || typeof plugin.onRetry === 'function')
+        ? () => {
+          plugin.component?.reset?.()
+          plugin.onRetry?.()
+        }
+        : undefined,
+    },
+    h(plugin.component, { sessionId, team, actions })))))
 }
 
 export function RightPanel(props) {

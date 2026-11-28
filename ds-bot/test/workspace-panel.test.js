@@ -11,6 +11,7 @@ import { deflateRawSync } from 'node:zlib'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
 import { buildOpenOsCommand, install as installWorkspacePanel, openOsPath } from '../src/host/workspace-panel.js'
+import { isGitignored, parseGitignore } from '../src/host/workspace-search.js'
 import { parseXlsxBuffer } from '../src/host/xlsx-preview.js'
 
 function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners, extraRt } = {}) {
@@ -1214,4 +1215,100 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
   assert.equal(altParsed.sheets[0].rows[0][0].v, 'Alt Prefix OK')
   assert.equal(altParsed.sheets[1].name, 'Strict')
   assert.equal(altParsed.sheets[1].rows[0][0].v, 'Strict NS OK')
+})
+
+test('workspace-search respects root and nested .gitignore, searches unexpanded subtrees without artificial caps, batches cleanly, and supports cancel & incomplete flags', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-search-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'dsb-wp-search-out-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-search-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  // Unit check for parseGitignore / isGitignored semantics.
+  const rules = parseGitignore('# comment\n*.log\n!keep.log\ndist/\n/root-only.txt\nsrc/**/tmp/\n')
+  assert.equal(isGitignored(rules, 'app.log', false), true)
+  assert.equal(isGitignored(rules, 'keep.log', false), false)
+  assert.equal(isGitignored(rules, 'dist', true), true)
+  assert.equal(isGitignored(rules, 'dist/bundle.js', false), true)
+  assert.equal(isGitignored(rules, 'root-only.txt', false), true)
+  assert.equal(isGitignored(rules, 'sub/root-only.txt', false), false)
+  assert.equal(isGitignored(rules, 'src/a/tmp', true), true)
+
+  // Real workspace tree with nested .gitignore, dotfiles, ignored dirs, and escaping symlink.
+  mkdirSync(join(workDir, 'src', 'deep', 'nested'), { recursive: true })
+  mkdirSync(join(workDir, 'dist'), { recursive: true })
+  mkdirSync(join(workDir, 'sub'), { recursive: true })
+  mkdirSync(join(workDir, '.git'), { recursive: true })
+  writeFileSync(join(workDir, '.gitignore'), '*.log\n!important.log\ndist/\n')
+  writeFileSync(join(workDir, 'sub', '.gitignore'), 'secret-*.txt\n')
+  writeFileSync(join(workDir, 'src', 'deep', 'nested', 'needle-target.js'), 'export const found = true\n')
+  writeFileSync(join(workDir, 'debug.log'), 'ignored log\n')
+  writeFileSync(join(workDir, 'important.log'), 'negated log\n')
+  writeFileSync(join(workDir, 'dist', 'needle-ignored.js'), 'ignored build output\n')
+  writeFileSync(join(workDir, 'sub', 'secret-needle.txt'), 'ignored by nested gitignore\n')
+  writeFileSync(join(workDir, 'sub', 'public-needle.txt'), 'visible\n')
+  writeFileSync(join(workDir, '.hidden-needle'), 'dotfile\n')
+  writeFileSync(join(workDir, '.git', 'needle-git'), 'git internal\n')
+  writeFileSync(join(outsideDir, 'outside-needle.txt'), 'outside\n')
+  try {
+    symlinkSync(join(outsideDir, 'outside-needle.txt'), join(workDir, 'escape-needle.txt'))
+  } catch { /* Windows without symlink privilege */ }
+
+  const { rt } = createRuntime(workDir, { dshHome })
+  t.after(() => rt.terminalDispose())
+
+  const res = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: 'needle' })
+  assert.equal(res.done, true)
+  assert.equal(res.incomplete, false)
+  const paths = res.entries.map(e => e.path)
+  assert.ok(paths.includes('src/deep/nested/needle-target.js'), 'finds files in unexpanded nested directories')
+  assert.ok(paths.includes('sub/public-needle.txt'), 'finds non-ignored file in subfolder with nested .gitignore')
+  assert.equal(paths.includes('dist/needle-ignored.js'), false, 'respects root .gitignore directory rule')
+  assert.equal(paths.includes('sub/secret-needle.txt'), false, 'respects nested .gitignore rule')
+  assert.equal(paths.includes('.hidden-needle'), false, 'skips dotfiles when includeHidden is false')
+  assert.equal(paths.includes('.git/needle-git'), false, 'always skips .git')
+  assert.equal(paths.includes('escape-needle.txt'), false, 'enforces workspace containment on symlinks')
+
+  // Negation rule in .gitignore keeps important.log while ignoring debug.log.
+  const logRes = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: '.log' })
+  assert.deepEqual(logRes.entries.map(e => e.path), ['important.log'])
+
+  // includeHidden: true surfaces dotfiles (still excluding .git).
+  const hiddenRes = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: 'needle', includeHidden: true })
+  assert.ok(hiddenRes.entries.some(e => e.path === '.hidden-needle'))
+  assert.equal(hiddenRes.entries.some(e => e.path === '.git/needle-git'), false)
+
+  // Depth limit marks results as incomplete with reason 'depth'.
+  const shallow = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: 'needle', maxDepth: 1 })
+  assert.equal(shallow.done, true)
+  assert.equal(shallow.incomplete, true)
+  assert.ok(shallow.incompleteReasons.includes('depth'))
+
+  // No artificial result count cap: > 600 matching files are all returned across batches.
+  const bulkDir = join(workDir, 'bulk')
+  mkdirSync(bulkDir, { recursive: true })
+  for (let i = 0; i < 620; i += 1) {
+    writeFileSync(join(bulkDir, `item-${String(i).padStart(4, '0')}.txt`), 'x')
+  }
+  const allFound = []
+  let searchId = ''
+  for (let guard = 0; guard < 100; guard += 1) {
+    const page = await rt.workspaceEndpoint('search', searchId ? { sessionId: 'b1', searchId, batchMs: 10 } : { sessionId: 'b1', query: 'item-', batchMs: 10 })
+    allFound.push(...page.entries)
+    if (page.done) break
+    searchId = page.searchId
+  }
+  assert.equal(allFound.length, 620, 'returns all 620 matching files with no artificial count cap')
+
+  // AbortSignal cancellation marks incomplete + cancelled cleanly.
+  const ac = new AbortController()
+  ac.abort()
+  const aborted = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: 'item-' }, ac.signal)
+  assert.equal(aborted.done, true)
+  assert.equal(aborted.cancelled, true)
+  assert.equal(aborted.incomplete, true)
+  assert.ok(aborted.incompleteReasons.includes('cancelled'))
 })
