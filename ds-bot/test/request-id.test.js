@@ -149,11 +149,23 @@ test('two callers with the same request id do not collide', async (t) => {
   const seed = team()
   seed.bots.c = { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 }
   const home = tempHome()
-  const { agents, tool, stop } = await boot(home, seed)
+  const { rt, agents, emit, tool, stop } = await boot(home, seed)
   t.after(async () => { await stop(); cleanup(home) })
 
-  await tool('delegate_work', { to: 'Writer', goal: 'from Chief', request_id: 'r-1' }, 'a')
-  await tool('delegate_work', { to: 'Writer', goal: 'from Tester', request_id: 'r-1' }, 'c')
+  const fromChief = await tool('delegate_work', { to: 'Writer', goal: 'from Chief', request_id: 'r-1' }, 'a')
+  const fromTester = await tool('delegate_work', { to: 'Writer', goal: 'from Tester', request_id: 'r-1' }, 'c')
+  assert.match(fromChief, /^Delegated work #W1 to Writer/)
+  assert.match(fromTester, /^Delegated work #W2 to Writer/)
+  // Work #1 holds the 1:1 session claim on 'b'; work #2 waits in SQLite `ready`.
+  assert.equal(agents.get('b').calls.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 1)
+
+  const firstMsg = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: firstMsg.content, source: firstMsg.source })
+  emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'done 1' }] } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && agents.get('b').calls.length < 2; count += 1) await delay(5)
   assert.equal(agents.get('b').calls.length, 2)
 })
 
@@ -202,9 +214,11 @@ test('a request whose delivery failed is not sent again', async (t) => {
   t.after(async () => { await stop(); cleanup(home) })
 
   const writer = agentOf('b')
-  const steer = writer.steer
+  const { followup, steer } = writer
+  writer.followup = () => { throw new Error('dsh is down') }
   writer.steer = () => { throw new Error('dsh is down') }
   await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /dsh is down/)
+  writer.followup = followup
   writer.steer = steer
   // The outcome of that admission is not known, so it is not sent again.
   await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
@@ -213,31 +227,41 @@ test('a request whose delivery failed is not sent again', async (t) => {
 
 test('separate request IDs get separate assignments; retrying one does not enqueue it again', async (t) => {
   const home = tempHome()
-  const { agentOf, emit, tool, stop } = await boot(home, team())
+  const { rt, agentOf, emit, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
   const writer = agentOf('b')
   writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
-  emit('b', 'turn/start', { turn: 1 })
 
   const first = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1', when: 'queue' }, 'a')
   const second = await tool('delegate_work', { to: 'Writer', goal: 'task 2', request_id: 'r-2', when: 'queue' }, 'a')
+  assert.match(first, /#W1/)
   assert.match(second, /#W2/)
-  assert.equal(writer.inbox.nextTurn.length, 2)
+  assert.equal(writer.inbox.nextTurn.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 1)
 
   const again = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1', when: 'queue' }, 'a')
   assert.equal(again, first)
+  assert.equal(writer.inbox.nextTurn.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 1)
+  assert.equal(writer.inbox.nextTurn[0].source.exchangeId, writer.calls[0][1].source.exchangeId)
+
+  // Finishing task 1 drains task 2 from SQLite ready into nextTurn.
+  const firstMsg = writer.inbox.nextTurn[0]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: firstMsg.content, source: firstMsg.source })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && writer.inbox.nextTurn.length < 2; count += 1) await delay(5)
   assert.equal(writer.inbox.nextTurn.length, 2)
   assert.equal(writer.inbox.nextTurn[0].source.exchangeId, writer.calls[0][1].source.exchangeId)
 })
 
 test('a request with an id that queues, or that answers the user, goes out once', async (t) => {
   const home = tempHome()
-  const { agents, emit, tool, stop } = await boot(home, team())
+  const { rt, agents, emit, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
-  // Writer is working, so a request that waits for its current work is queued.
-  emit('b', 'turn/start', { turn: 1 })
+  // Writer runs queued work #W1 first; a second deliver_to 'user' request queues in SQLite `fg:b` until #W1 settles.
   const queued = await tool('delegate_work', { to: 'Writer', goal: 'later', when: 'queue', request_id: 'r-1' }, 'a')
   assert.match(queued, /^Queued work #W\d+ for Writer/)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
@@ -246,6 +270,13 @@ test('a request with an id that queues, or that answers the user, goes out once'
   const toUser = await tool('delegate_work', { to: 'Writer', goal: 'tell them', deliver_to: 'user', request_id: 'r-2' }, 'a')
   assert.match(toUser, /It will answer the user in its own chat/)
   assert.equal(await tool('delegate_work', { to: 'Writer', goal: 'tell them', deliver_to: 'user', request_id: 'r-2' }, 'a'), toUser)
+  assert.equal(rt.coordDb.listInbox('fg:b', { unreadOnly: true, includeNotes: false }).length, 1)
+
+  const firstMsg = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: firstMsg.content, source: firstMsg.source })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && agents.get('b').calls.length < 2; count += 1) await delay(5)
   assert.equal(agents.get('b').calls.length, 2)
 })
 
@@ -272,16 +303,20 @@ test('a request that was in the air when DS Bot stopped is not sent again', asyn
   first.ctx.sessions.flush = async () => new Promise(() => {})
   const inFlight = first.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   inFlight.catch(() => {})
-  for (let count = 0; count < 200 && Object.keys(first.rt.state.requests).length === 0; count += 1) await delay(10)
-  assert.equal(Object.keys(first.rt.state.requests).length, 1)
-  assert.equal(Object.values(first.rt.state.requests)[0].outcome, 'pending')
+  const reqRows = () => (first.rt.coordDb.getWork('reqlog:a') ? first.rt.coordDb.listInbox('reqlog:a') : [])
+  for (let count = 0; count < 200 && reqRows().length === 0; count += 1) await delay(10)
+  assert.equal(reqRows().length, 1)
+  assert.equal(reqRows()[0].payload.op, 'admit')
   await first.stop()
 
   const again = await boot(home)
   t.after(async () => { await again.stop(); cleanup(home) })
+  // Wait for any startup adoption of the original in-flight SQLite work to settle, then verify the repeat sends nothing new.
+  await delay(50)
+  const beforeRepeat = freshSends(again.agentOf('b')).length
   // The outcome of that admission is not known, so it is not sent again.
   await assert.rejects(again.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
-  assert.equal(freshSends(again.agentOf('b')).length, 0)
+  assert.equal(freshSends(again.agentOf('b')).length, beforeRepeat)
 })
 
 test('a name whose receipt is no longer kept is not used again', async (t) => {
@@ -290,8 +325,26 @@ test('a name whose receipt is no longer kept is not used again', async (t) => {
   t.after(async () => { await stop(); cleanup(home) })
 
   await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
-  // The receipt falls out of what is kept; the name itself stays taken.
-  for (const record of Object.values(rt.state.requests)) record.receipt = undefined
+  // The receipt falls out of what is kept; the name itself stays taken in reqlog:a.
+  const rows = rt.coordDb.listInbox('reqlog:a')
+  const settled = rows.find(row => row.payload?.op === 'settle')
+  assert.ok(settled, 'delivered settle record exists in reqlog:a')
+  rt.coordDb.receiveMessage({
+    workId: 'reqlog:a',
+    kind: 'note',
+    dedupKey: `test-expire:${settled.payload.key}`,
+    senderAddress: 'foreground:a',
+    senderBotId: 'a',
+    payload: {
+      op: 'settle',
+      key: settled.payload.key,
+      fingerprint: settled.payload.fingerprint,
+      outcome: 'delivered',
+      at: Date.now(),
+      epoch: (settled.payload.epoch ?? 1) + 1,
+    },
+    wake: false,
+  })
   const out = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   assert.match(out, /Nothing was sent again: request_id "r-1" was admitted before/)
   assert.equal(agents.get('b').calls.length, 1)
@@ -315,25 +368,35 @@ test('a request whose receipt cannot be saved is not sent', async (t) => {
 
 test('calls without a request id are sent as they were', async (t) => {
   const home = tempHome()
-  const { agents, tool, stop } = await boot(home, team())
+  const { rt, agents, emit, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
   await tool('delegate_work', { to: 'Writer', goal: 'one' }, 'a')
   await tool('delegate_work', { to: 'Writer', goal: 'two' }, 'a')
+  assert.equal(agents.get('b').calls.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 1)
+  const firstMsg = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: firstMsg.content, source: firstMsg.source })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && agents.get('b').calls.length < 2; count += 1) await delay(5)
   assert.equal(agents.get('b').calls.length, 2)
 })
 
-test('the receipt of a request is kept in the team file', async (t) => {
+test('the receipt of a request is kept durably in coordination.sqlite', async (t) => {
   const home = tempHome()
-  const { tool, stop } = await boot(home, team())
-  t.after(async () => { await stop(); cleanup(home) })
+  const first = await boot(home, team())
+  const receipt = await first.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
+  const rows = first.rt.coordDb.listInbox('reqlog:a')
+  const settled = rows.filter(row => row.payload?.op === 'settle')
+  assert.equal(settled.length, 1)
+  assert.equal(settled[0].payload.outcome, 'delivered')
+  assert.match(settled[0].payload.receipt, /^Delegated work #W\d+ to Writer/)
+  await first.stop()
 
-  await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  const receipts = Object.values(saved.requests)
-  assert.equal(receipts.length, 1)
-  assert.equal(receipts[0].outcome, 'delivered')
-  assert.match(receipts[0].receipt, /^Delegated work #W\d+ to Writer/)
+  const second = await boot(home)
+  t.after(async () => { await second.stop(); cleanup(home) })
+  assert.equal(await second.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), receipt)
 })
 
 for (const reason of ['stopped', 'lock lost']) {
@@ -367,9 +430,39 @@ test('a group waitsOnMember refusal does not poison request_id as uncertain', as
   const { rt, tool, stop } = await boot(home, seed)
   t.after(async () => { await stop(); cleanup(home) })
   await rt.load()
-  rt.state.roomBatches = {
-    b1: { key: 'b1', roomId: 'r1', by: 'a', pending: ['b'], done: [], doneIds: [], results: [], worked: false, direct: true, returnRequested: true, answered: false, at: Date.now() },
-  }
+
+  // Seed an open group call in SQLite `coordDb`: Chief ('a') is waiting on Writer ('b') in room 'r1'.
+  rt.coordDb.createWork({
+    workId: 'rw_caller_a',
+    botId: 'a',
+    kind: 'room_work',
+    logicalAddress: 'room:r1:a',
+    status: 'waiting',
+    priority: 'interactive',
+    roomId: 'r1',
+    originKind: 'group',
+  })
+  rt.coordDb.createWork({
+    workId: 'rw_callee_b',
+    botId: 'b',
+    kind: 'room_work',
+    logicalAddress: 'room:r1:b',
+    status: 'running',
+    priority: 'interactive',
+    parentWorkId: 'rw_caller_a',
+    roomId: 'r1',
+    originKind: 'group',
+  })
+  rt.coordDb.createCall({
+    callId: 'c_group_1',
+    parentWorkId: 'rw_caller_a',
+    childWorkId: 'rw_callee_b',
+    callerBotId: 'a',
+    calleeBotId: 'b',
+    returnAddress: 'room:r1:a',
+    visibleScope: 'room',
+    roomId: 'r1',
+  })
 
   let posts = 0
   rt.postToRoom = async (_room, _sender, _body, post) => { assert.deepEqual(post.route.to, ['a']); posts += 1 }
@@ -380,11 +473,11 @@ test('a group waitsOnMember refusal does not poison request_id as uncertain', as
     /already waiting for your result/,
   )
   assert.equal(posts, 0)
-  assert.equal(Object.keys(rt.state.requests ?? {}).length, 0, 'refused upstream wait must not persist an uncertain request_id')
+  assert.equal(rt.coordDb.getWork('reqlog:b'), undefined, 'refused upstream wait must not persist an uncertain request_id')
 
   // Once the upstream wait ends, reusing the exact same request_id succeeds cleanly.
-  delete rt.state.roomBatches.b1
-  await rt.save()
+  rt.coordDb.settleWork({ workId: 'rw_callee_b', outcome: 'done', force: true, summary: 'done' })
+  rt.coordDb.settleWork({ workId: 'rw_caller_a', outcome: 'done', force: true, summary: 'done' })
   const out = await tool('delegate_work', { to: 'Chief', goal: 'verify backup', request_id: 'verify-backup' }, 'gb')
   assert.match(out, /Called Chief in "Ops"/)
   assert.equal(posts, 1)

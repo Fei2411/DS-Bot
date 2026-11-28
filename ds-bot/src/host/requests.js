@@ -1,40 +1,158 @@
 // Request identities: a request a Bot names itself is sent once, however often it repeats it.
 //
-// message_bot merges what the recipient has not read yet, but a request that was read and
-// whose answer was lost could be sent again, and the work would be done twice. A caller
-// that names its request (`request_id`) gets that guarantee: the name belongs to the
-// caller and to the conversation the request was made from, what the request stands for
-// is remembered with a fingerprint of what was asked, and the receipt of the first call
-// is given back instead of a second delivery. The receipt is written before the message
-// goes out, so a restart cannot turn a lost answer into a second delivery either; when
-// the outcome of an admission is not known, the request is not sent again.
-//
-// Accepted identities stay with the team: expiring one would permit an old retry to
-// repeat side effects. Removing receipts needs a separate, explicit retention policy.
+// Backed by SQLite (`rt.coordDb` inbox `dedup_key`) on a per-caller terminal anchor work
+// (`reqlog:<caller>`, `status='done'`, `originKind='request_dedup'`). Same key + same content
+// replays the saved receipt; same key + different content is refused (`conflict`); an
+// interrupted admission from an earlier host run returns `uncertain` so side effects are
+// never repeated blindly. Falls back to `state.requests` only when `rt.coordDb` is absent.
 import { createHash, randomUUID } from 'node:crypto'
 
 // A request name this long is a mistake, not an identity.
 export const NAME_MAX = 200
 
+const reqWorkId = caller => `reqlog:${caller}`
+const encodeKey = key => createHash('sha256').update(key).digest('hex').slice(0, 32)
+const admitDedupKey = (key, epoch) => `req:${encodeKey(key)}:admit:${epoch}`
+const settleDedupKey = (key, epoch) => `req:${encodeKey(key)}:settle:${epoch}`
+
 export function install(rt) {
   const { state } = rt
   // This run's name: a receipt left pending by another run has an unknown outcome.
   const run = randomUUID()
-  const receipts = () => (state.requests ??= {})
   // Requests being admitted now, so that two at once admit one.
   const inflight = new Map()
+  // Per-caller hydrated cache from SQLite `reqlog:<caller>` inbox rows.
+  // Map<caller, { loaded: boolean, lastSeq: number, records: Map<string, { fingerprint, outcome, receipt?, run?, at, epoch }> }>
+  const callerCache = new Map()
 
-  // What the request asked for, as a short hash: the same name with the same content is
-  // the same request, and the same name with other content is a mistake.
+  const hasCoordDb = () => rt.coordDb != null && !rt.coordDb.isClosed?.()
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (hasCoordDb() ? rt.coordDb : null))
+  const writableCoordDb = () => hasCoordDb() && rt.coordDb.readonly !== true
+  const legacyReceipts = () => (state.requests ??= {})
+
   const print = payload => createHash('sha256').update(JSON.stringify(payload)).digest('hex')
 
   // The name of a request in the caller's own space: its Bot, the conversation the request
   // was made from, and the name the caller gave it. The Bot, not its Session: a Bot that
   // moves to a fresh part of its conversation keeps its name.
   const identity = ({ caller, context, name, payload }) => ({
+    caller,
+    context,
+    name,
     key: `${caller}\u0000${context}\u0000${name}`,
+    dedupKey: `req:${caller}:${context}:${name}`,
     print: print(payload),
   })
+
+  const syncCallerFromDb = (caller) => {
+    const db = existingCoordDb()
+    if (!db || typeof caller !== 'string' || caller === '') return undefined
+    let bucket = callerCache.get(caller)
+    if (bucket === undefined) {
+      bucket = { loaded: false, lastSeq: 0, records: new Map() }
+      callerCache.set(caller, bucket)
+    }
+    const workId = reqWorkId(caller)
+    if (db.getWork(workId) === undefined) {
+      bucket.loaded = true
+      return bucket
+    }
+    // Pull any new rows since lastSeq (supports read-only windows seeing new commits).
+    let afterSeq = bucket.lastSeq
+    while (true) {
+      const rows = db.listInbox(workId, { afterSeq, limit: 500 })
+      if (rows.length === 0) break
+      for (const row of rows) {
+        if (row.seq > afterSeq) afterSeq = row.seq
+        const data = row.payload
+        if (!data || typeof data !== 'object' || typeof data.key !== 'string') continue
+        const epoch = Number.isInteger(data.epoch) ? data.epoch : 1
+        const prev = bucket.records.get(data.key)
+        if (data.op === 'admit') {
+          if (prev === undefined || epoch >= prev.epoch) {
+            bucket.records.set(data.key, {
+              fingerprint: data.fingerprint,
+              outcome: 'pending',
+              run: data.run,
+              at: data.at ?? row.createdAt,
+              epoch,
+            })
+          }
+        } else if (data.op === 'settle') {
+          if (prev !== undefined && epoch < prev.epoch) continue
+          if (data.outcome === 'unsent') {
+            bucket.records.set(data.key, {
+              fingerprint: undefined,
+              outcome: 'unsent',
+              at: data.at ?? row.createdAt,
+              epoch,
+            })
+          } else {
+            bucket.records.set(data.key, {
+              fingerprint: prev?.fingerprint ?? data.fingerprint,
+              outcome: data.outcome,
+              ...(data.receipt !== undefined ? { receipt: data.receipt } : {}),
+              run: prev?.run ?? data.run,
+              at: data.at ?? row.createdAt,
+              epoch,
+            })
+          }
+        }
+      }
+      if (rows.length < 500) break
+    }
+    bucket.lastSeq = afterSeq
+    bucket.loaded = true
+    return bucket
+  }
+
+  const readRecord = (request) => {
+    if (hasCoordDb()) {
+      const bucket = syncCallerFromDb(request.caller)
+      const hit = bucket?.records.get(request.key)
+      if (hit !== undefined && hit.outcome !== 'unsent') return hit
+    }
+    if (state.requests == null) return undefined
+    return rt.own(state.requests, request.key)
+  }
+
+  const nextEpochFor = (request) => {
+    if (!hasCoordDb()) return 1
+    const bucket = syncCallerFromDb(request.caller)
+    const hit = bucket?.records.get(request.key)
+    return hit === undefined ? 1 : hit.epoch + 1
+  }
+
+  const ensureReqWork = (caller) => {
+    const workId = reqWorkId(caller)
+    if (rt.coordDb.getWork(workId) !== undefined) return workId
+    rt.coordDb.createWork({
+      workId,
+      botId: caller,
+      kind: 'task',
+      logicalAddress: workId,
+      status: 'done',
+      priority: 'background',
+      originKind: 'request_dedup',
+      visibility: 'private',
+      privacyScoped: false,
+      meta: { internal: true, purpose: 'request_idempotency' },
+    })
+    return workId
+  }
+
+  const writeDbEvent = (caller, dedupKey, payload) => {
+    const workId = ensureReqWork(caller)
+    return rt.coordDb.receiveMessage({
+      workId,
+      kind: 'note',
+      dedupKey,
+      senderAddress: `foreground:${caller}`,
+      senderBotId: caller,
+      payload,
+      wake: false,
+    })
+  }
 
   // What a request that was admitted before means for the caller now: its receipt, a
   // conflict, or an outcome that is not known. Undefined when it was never admitted.
@@ -52,7 +170,7 @@ export function install(rt) {
   // What is known about a request that was admitted before. Undefined when the request
   // was never admitted.
   const known = async (request) => {
-    const record = rt.own(receipts(), request.key)
+    const record = readRecord(request)
     if (record === undefined) return undefined
     const seen = verdict(request, record)
     if (seen !== undefined) return seen
@@ -62,18 +180,22 @@ export function install(rt) {
     const promise = inflight.get(request.key)
     if (promise === undefined) return { status: 'uncertain' }
     await promise.catch(() => {})
-    const settled = rt.own(receipts(), request.key)
+    const settled = readRecord(request)
     if (settled === undefined) return undefined
     return verdict(request, settled) ?? { status: 'uncertain' }
   }
 
-  // Admits the request once and runs it. `work` sends the message and gives the receipt
-  // the caller gets. The receipt is written before the message goes out, so that a restart
-  // knows the request was admitted.
+  // Admits the request once and runs it. The admission record is durably written before
+  // `work` executes, so a crash never turns a lost reply into a duplicate side effect.
   const admit = async (request, work) => {
-    // The receipt is looked for and written without an await in between, so that two
-    // calls at once cannot both admit the same request.
-    const record = rt.own(receipts(), request.key)
+    const activeInflight = inflight.get(request.key)
+    if (activeInflight !== undefined) {
+      await activeInflight.catch(() => {})
+      const after = readRecord(request)
+      if (after === undefined) return admit(request, work)
+      return known(request)
+    }
+    const record = readRecord(request)
     if (record !== undefined) {
       const seen = verdict(request, record)
       if (seen !== undefined) return seen
@@ -81,38 +203,130 @@ export function install(rt) {
       const promise = inflight.get(request.key)
       if (promise === undefined) return { status: 'uncertain' }
       await promise.catch(() => {})
-      // The attempt that was going on gave up before it sent anything (its receipt could
-      // not be saved), so the request is free to be admitted again.
-      if (rt.own(receipts(), request.key) === undefined) return admit(request, work)
+      const after = readRecord(request)
+      if (after === undefined) return admit(request, work)
       return known(request)
     }
-    // A receipt that cannot be saved cannot stop a second delivery later.
-    if (rt.readOnly() !== undefined) return { status: 'readonly' }
+    if (rt.readOnly?.() !== undefined || (hasCoordDb() && rt.coordDb.readonly === true)) {
+      return { status: 'readonly' }
+    }
+
+    if (writableCoordDb()) {
+      const promise = (async () => {
+        // Fail-closed ownership & persistence check: if the host is stopping, state.lock was
+        // stolen by another writer, or storage cannot be written, refuse BEFORE admitting.
+        if (typeof rt.save === 'function') {
+          await rt.save({ required: true })
+        }
+        if (!writableCoordDb()) {
+          throw new Error('The Bot team cannot be saved while stopping.')
+        }
+        const rechecked = readRecord(request)
+        if (rechecked !== undefined) return { __recheck: true }
+        const epoch = nextEpochFor(request)
+        const now = Date.now()
+        const admitRes = writeDbEvent(request.caller, admitDedupKey(request.key, epoch), {
+          op: 'admit',
+          key: request.key,
+          fingerprint: request.print,
+          run,
+          at: now,
+          epoch,
+        })
+        syncCallerFromDb(request.caller)
+        if (admitRes.deduplicated) return { __recheck: true }
+
+        try {
+          const receipt = await work()
+          if (request.unsent === true) {
+            try {
+              writeDbEvent(request.caller, settleDedupKey(request.key, epoch), {
+                op: 'settle',
+                key: request.key,
+                outcome: 'unsent',
+                at: Date.now(),
+                epoch,
+              })
+            } catch (error) {
+              rt.warn?.('ds-bot: the removal of the request receipt was not saved: %s', error)
+              try {
+                writeDbEvent(request.caller, settleDedupKey(request.key, epoch), {
+                  op: 'settle',
+                  key: request.key,
+                  fingerprint: request.print,
+                  outcome: 'uncertain',
+                  at: Date.now(),
+                  epoch,
+                })
+              } catch {}
+            }
+            syncCallerFromDb(request.caller)
+            return receipt
+          }
+          try {
+            writeDbEvent(request.caller, settleDedupKey(request.key, epoch), {
+              op: 'settle',
+              key: request.key,
+              fingerprint: request.print,
+              outcome: 'delivered',
+              receipt,
+              at: Date.now(),
+              epoch,
+            })
+            syncCallerFromDb(request.caller)
+          } catch (error) {
+            rt.warn?.('ds-bot: saving delivered request receipt failed: %s', error)
+          }
+          return receipt
+        } catch (error) {
+          try {
+            writeDbEvent(request.caller, settleDedupKey(request.key, epoch), {
+              op: 'settle',
+              key: request.key,
+              fingerprint: request.print,
+              outcome: 'uncertain',
+              at: Date.now(),
+              epoch,
+            })
+            syncCallerFromDb(request.caller)
+          } catch {}
+          throw error
+        }
+      })()
+      inflight.set(request.key, promise)
+      try {
+        const result = await promise
+        if (result && typeof result === 'object' && result.__recheck === true) {
+          return known(request)
+        }
+        return { status: 'sent', receipt: result }
+      } finally {
+        inflight.delete(request.key)
+      }
+    }
+
+    // Fallback path when `rt.coordDb` is unavailable (narrow unit tests).
     const fresh = { fingerprint: request.print, outcome: 'pending', at: Date.now(), run }
-    receipts()[request.key] = fresh
+    legacyReceipts()[request.key] = fresh
     const promise = (async () => {
       try {
-        // Ordinary saves may be skipped when this host closes or loses the lock.
         await rt.save({ required: true })
       } catch (error) {
-        delete receipts()[request.key]
-        rt.warn('ds-bot: the receipt of the request was not saved: %s', error)
+        delete legacyReceipts()[request.key]
+        rt.warn?.('ds-bot: the receipt of the request was not saved: %s', error)
         throw error
       }
       try {
         const receipt = await work()
         if (request.unsent === true) {
-          // The work decided before anything went out: it is not a delivered
-          // receipt, so the request is free to be admitted again. The removal has
-          // to be saved before that is true: a leftover pending record stays.
-          delete receipts()[request.key]
+          delete legacyReceipts()[request.key]
           try {
             await rt.save({ required: true })
           } catch (error) {
             fresh.outcome = 'uncertain'
             fresh.at = Date.now()
-            receipts()[request.key] = fresh
-            rt.warn('ds-bot: the removal of the request receipt was not saved: %s', error)
+            legacyReceipts()[request.key] = fresh
+            rt.warn?.('ds-bot: the removal of the request receipt was not saved: %s', error)
           }
           return receipt
         }
@@ -122,7 +336,6 @@ export function install(rt) {
         await rt.save().catch(() => {})
         return receipt
       } catch (error) {
-        // The message may have gone out; it is not sent again.
         fresh.outcome = 'uncertain'
         fresh.at = Date.now()
         await rt.save().catch(() => {})
@@ -139,7 +352,9 @@ export function install(rt) {
 
   // Reclaim request identities owned by a deleted Bot (a deleted Bot can never retry).
   const forgetBotRequests = (botId) => {
-    if (typeof botId !== 'string' || botId === '' || state.requests == null) return 0
+    if (typeof botId !== 'string' || botId === '') return 0
+    callerCache.delete(botId)
+    if (state.requests == null) return 0
     const prefix = `${botId}\u0000`
     let removed = 0
     for (const key of Object.keys(state.requests)) {
@@ -151,9 +366,13 @@ export function install(rt) {
     return removed
   }
 
-  // Prune orphaned request entries whose calling Bot no longer exists in state.bots.
+  // Prune orphaned legacy request entries whose calling Bot no longer exists in state.bots.
   const pruneOrphanRequests = () => {
-    if (rt.readOnly?.() !== undefined || state.requests == null || state.bots == null) return 0
+    if (rt.readOnly?.() !== undefined || state.bots == null) return 0
+    for (const caller of callerCache.keys()) {
+      if (rt.own(state.bots, caller) === undefined) callerCache.delete(caller)
+    }
+    if (state.requests == null) return 0
     let removed = 0
     for (const key of Object.keys(state.requests)) {
       const sep = key.indexOf('\u0000')
@@ -167,6 +386,12 @@ export function install(rt) {
     if (removed > 0) void rt.save?.().catch(() => {})
     return removed
   }
+
+  const offAdopted = rt.onAdopted?.(() => { callerCache.clear() })
+  rt.ctx?.effect?.(() => () => {
+    offAdopted?.()
+    callerCache.clear()
+  }, 'ds-bot: requests dedup cache')
 
   Object.assign(rt, { requestIdentity: identity, knownRequest: known, admitRequest: admit, forgetBotRequests, pruneOrphanRequests })
 }

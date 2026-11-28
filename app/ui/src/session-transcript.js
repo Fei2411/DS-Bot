@@ -225,13 +225,23 @@ export function extractTurnFacts(events, { roster, sessionId } = {}) {
   const turns = new Map()
   const lastAssistantText = new Map()
   const closingReplies = new Map()
+  const userMessages = []
   const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
   let openTurn
   let currentTurn
   for (const event of Array.isArray(events) ? events : []) {
     if (!event || typeof event !== 'object') continue
     const turn = Number.isInteger(event.data?.turn) ? event.data.turn : currentTurn
-    if (event.type === 'turn/start') {
+    if (event.type === 'user/message') {
+      if (event.data?.source?.kind !== 'user') continue
+      const content = Array.isArray(event.data?.content) ? event.data.content : []
+      const { text } = contentParts(content)
+      userMessages.push({
+        ...(Number.isInteger(event.seq) ? { seq: event.seq } : {}),
+        text,
+        ...(Number.isFinite(event.time) ? { time: event.time } : {}),
+      })
+    } else if (event.type === 'turn/start') {
       if (!Number.isInteger(event.data?.turn) || hidden(event.data.turn)) continue
       const tNum = event.data.turn
       currentTurn = tNum
@@ -268,7 +278,7 @@ export function extractTurnFacts(events, { roster, sessionId } = {}) {
       currentTurn = undefined
     }
   }
-  return { turns, openTurn, closingReplies }
+  return { turns, openTurn, closingReplies, userMessages }
 }
 
 const hiddenTurn = (roster, sessionId, turn) => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)

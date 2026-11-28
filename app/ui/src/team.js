@@ -267,6 +267,9 @@ export function createTeam() {
     for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id)
     for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id)
     for (const id of [...lastFeedMessageCursor.keys()]) if (!keep(id)) lastFeedMessageCursor.delete(id)
+    for (const id of [...confirmedUsersBySession.keys()]) if (!keep(id)) confirmedUsersBySession.delete(id)
+    for (const id of [...evictedConfirmedSeqBySession.keys()]) if (!keep(id)) evictedConfirmedSeqBySession.delete(id)
+    for (const id of [...maxConfirmedUserSeqBySession.keys()]) if (!keep(id)) maxConfirmedUserSeqBySession.delete(id)
     for (const [fileId, entry] of [...draftFileStore.entries()]) {
       if (entry?.sessionId && !keep(entry.sessionId)) draftFileStore.delete(fileId)
     }
@@ -619,6 +622,107 @@ export function createTeam() {
       if (Number.isInteger(entry?.start?.seq) && entry.start.seq > maxSeq) maxSeq = entry.start.seq
     }
     return maxSeq
+  }
+
+  // Sent-confirmation tracking is decoupled from feed replay / outline deduplication:
+  // each confirmed user message (from either transcript facts or the live feed) clears
+  // at most one matching pending submission, never hangs when history arrives first,
+  // and never double-pops a later pending submission on duplicate/replayed confirmations.
+  const MAX_CONFIRMED_USERS = 512
+  const confirmedUsersBySession = new Map()
+  const evictedConfirmedSeqBySession = new Map()
+  const maxConfirmedUserSeqBySession = new Map()
+  const pendingSentMeta = new WeakMap()
+
+  const confirmedUserKey = (msg) => {
+    if (Number.isInteger(msg?.seq)) return `seq:${msg.seq}`
+    if (msg?.id !== undefined && msg.id !== null && msg.id !== '') return `id:${msg.id}`
+    if (Number.isFinite(msg?.time)) return `time:${msg.time}:${typeof msg.text === 'string' ? msg.text : ''}`
+    return null
+  }
+
+  const recordConfirmedUser = (sessionId, msg) => {
+    const key = confirmedUserKey(msg)
+    const hasSeq = Number.isInteger(msg?.seq)
+    if (key !== null) {
+      const evictedMax = evictedConfirmedSeqBySession.get(sessionId) ?? -1
+      if (hasSeq && msg.seq <= evictedMax) return false
+      let seen = confirmedUsersBySession.get(sessionId)
+      if (!seen) { seen = new Set(); confirmedUsersBySession.set(sessionId, seen) }
+      if (seen.has(key)) return false
+      seen.add(key)
+      while (seen.size > MAX_CONFIRMED_USERS) {
+        const oldest = seen.values().next().value
+        seen.delete(oldest)
+        if (typeof oldest === 'string' && oldest.startsWith('seq:')) {
+          const oldSeq = Number(oldest.slice(4))
+          if (Number.isInteger(oldSeq) && oldSeq > (evictedConfirmedSeqBySession.get(sessionId) ?? -1)) {
+            evictedConfirmedSeqBySession.set(sessionId, oldSeq)
+          }
+        }
+      }
+    }
+    if (hasSeq) {
+      const prevMax = maxConfirmedUserSeqBySession.get(sessionId) ?? -1
+      if (msg.seq > prevMax) maxConfirmedUserSeqBySession.set(sessionId, msg.seq)
+    }
+    return true
+  }
+
+  const textMatchesPending = (pendingText, msgText) => (
+    pendingText === msgText || pendingText.trim() === msgText.trim()
+  )
+
+  const findPendingMatchIndex = (queue, msg, source) => {
+    const hasSeq = Number.isInteger(msg?.seq)
+    const hasMsgText = typeof msg?.text === 'string'
+    const hasMsgTime = Number.isFinite(msg?.time)
+    const isEligible = (entry) => {
+      const meta = pendingSentMeta.get(entry)
+      if (hasSeq && Number.isInteger(meta?.afterSeq) && meta.afterSeq >= 0 && msg.seq <= meta.afterSeq) {
+        return false
+      }
+      if (source === 'facts' && meta?.hasExplicitTime && hasMsgTime && msg.time < entry.time - 2000) {
+        return false
+      }
+      return true
+    }
+    if (hasMsgText) {
+      for (let i = 0; i < queue.length; i += 1) {
+        const entry = queue[i]
+        if (typeof entry.text === 'string' && isEligible(entry) && textMatchesPending(entry.text, msg.text)) {
+          return i
+        }
+      }
+      for (let i = 0; i < queue.length; i += 1) {
+        const entry = queue[i]
+        if (entry.text === undefined && isEligible(entry)) {
+          return i
+        }
+      }
+      return -1
+    }
+    for (let i = 0; i < queue.length; i += 1) {
+      if (isEligible(queue[i])) return i
+    }
+    return -1
+  }
+
+  const confirmUserMessage = (sessionId, msg, { source = 'feed' } = {}) => {
+    if (!sessionId || !msg) return
+    if (!recordConfirmedUser(sessionId, msg)) return
+    sent.set((state) => {
+      const queue = state[sessionId]
+      if (!queue?.length) return state
+      const index = findPendingMatchIndex(queue, msg, source)
+      if (index < 0) return state
+      if (queue.length === 1) {
+        const next = { ...state }
+        delete next[sessionId]
+        return next
+      }
+      return { ...state, [sessionId]: [...queue.slice(0, index), ...queue.slice(index + 1)] }
+    })
   }
 
   const syncOutlineFromFacts = (sessionId, facts) => {
@@ -1315,6 +1419,11 @@ export function createTeam() {
       } else {
         turnFactsBySession.set(sessionId, facts)
         syncOutlineFromFacts(sessionId, facts)
+        if (Array.isArray(facts.userMessages)) {
+          for (const msg of facts.userMessages) {
+            confirmUserMessage(sessionId, msg, { source: 'facts' })
+          }
+        }
       }
       notifyTurnWatchers(sessionId)
     },
@@ -1349,8 +1458,32 @@ export function createTeam() {
         if (set.size === 0) turnWatchers.delete(sessionId)
       }
     },
-    noteSent: (sessionId) => {
-      sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? EMPTY_PENDING), { placement: 'direct', time: Date.now() }] }))
+    noteSent: (sessionId, meta) => {
+      if (!sessionId) return () => {}
+      const hasExplicitTime = Number.isFinite(meta?.time)
+      const entry = {
+        placement: typeof meta?.placement === 'string' ? meta.placement : 'direct',
+        time: hasExplicitTime ? meta.time : Date.now(),
+        ...(typeof meta?.requestId === 'string' && meta.requestId !== '' ? { requestId: meta.requestId } : {}),
+        ...(typeof meta?.text === 'string' ? { text: meta.text } : {}),
+      }
+      const afterSeq = Math.max(maxCoveredSeqOf(sessionId), maxConfirmedUserSeqBySession.get(sessionId) ?? -1)
+      pendingSentMeta.set(entry, { afterSeq, hasExplicitTime })
+      sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? EMPTY_PENDING), entry] }))
+      return () => {
+        sent.set((state) => {
+          const queue = state[sessionId]
+          if (!queue?.length) return state
+          const index = queue.indexOf(entry)
+          if (index < 0) return state
+          if (queue.length === 1) {
+            const next = { ...state }
+            delete next[sessionId]
+            return next
+          }
+          return { ...state, [sessionId]: [...queue.slice(0, index), ...queue.slice(index + 1)] }
+        })
+      }
     },
     checkUpdate: async () => {
       const value = await call('update-check', { fresh: true })
@@ -1565,6 +1698,9 @@ export function createTeam() {
         && !(Number.isInteger(item.turn) && item.turn >= 0)
         && item.seq <= maxCoveredSeqOf(sessionId),
       )
+      if (item.kind === 'user') {
+        confirmUserMessage(sessionId, item, { source: 'feed' })
+      }
       let countReply = false
       if (item.kind === 'bot') {
         const hasFiniteSeq = Number.isFinite(item.seq)
@@ -1607,7 +1743,6 @@ export function createTeam() {
         if (item.kind === 'bot' && text && Number.isInteger(effectiveTurn)) {
           recordClosingReply(sessionId, effectiveTurn, text, hasSeq ? item.seq : null)
         }
-        if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
       } else if (item.kind === 'bot' && streamingReply.delete(sessionId)) {
         actions.noteLive(sessionId, 'reply', null)
       }

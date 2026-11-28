@@ -383,7 +383,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       time: Date.now(),
     }
     setPending(list => [...list, entry])
-    actions.noteSent(activeSessionId)
+    const cancelSent = actions.noteSent(activeSessionId, { requestId: entry.requestId, text: entry.text, time: entry.time })
     try {
       const { images: imageIds, files: fileIds } = await stageAttachmentItems(items, actions)
       if (imageIds.length > 0 || fileIds.length > 0) {
@@ -396,6 +396,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       entry.settled = true
       if (entry.removed) revokeEntryUrls(entry)
     } catch (error) {
+      if (typeof cancelSent === 'function') cancelSent()
       if (sendGen.current === myGen) {
         entry.removed = true
         setPending(list => list.filter(item => item !== entry))

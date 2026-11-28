@@ -1172,3 +1172,179 @@ test('same-seq repeated text blocks all arrive on first delivery and are skipped
     stop()
   }
 })
+
+test('sent-confirm queue clears when history arrives before feed confirm and does not hang', async () => {
+  const { team, emitFeed } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [{ id: 'bot-a', sessionId: 'sess-a', name: 'Alpha' }],
+          rooms: [],
+        }
+      }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    team.actions.openSession('bot-a')
+    const pendingOf = () => team.sessionHook('sess-a')(s => s.pendingSubmissions)
+
+    // Case 1a: turnFacts covers the seq (turns only, no userMessages) BEFORE feed confirm arrives.
+    team.actions.noteSent('sess-a', { requestId: 'req-1', text: 'hello first', time: 1000 })
+    assert.equal(pendingOf().length, 1)
+
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed', start: { seq: 10, time: 1000 }, end: { seq: 12, time: 1050 } }],
+      ]),
+      closingReplies: new Map([[0, 'hi']]),
+    })
+    assert.equal(pendingOf().length, 1, 'turns-only facts without userMessages keeps pending until user confirm arrives')
+
+    // Feed user confirm arrives with seq 10 <= maxCoveredSeqOf (coveredByFacts === true): MUST still clear pending!
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'hello first', seq: 10, block: 0, time: 1000 } })
+    assert.equal(pendingOf().length, 0, 'coveredByFacts feed confirm must still clear pending queue')
+
+    // Case 1b: history facts with userMessages arrive FIRST -> clears immediately even before feed confirm,
+    // and delayed feed confirm must NOT pop a second queued message.
+    team.actions.noteSent('sess-a', { requestId: 'req-2', text: 'second msg', time: 2000 })
+    assert.equal(pendingOf().length, 1)
+
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed', start: { seq: 10, time: 1000 }, end: { seq: 12, time: 1050 } }],
+        [1, { turn: 1, status: 'open', start: { seq: 20, time: 2000 } }],
+      ]),
+      closingReplies: new Map([[0, 'hi']]),
+      userMessages: [
+        { seq: 10, text: 'hello first', time: 1000 },
+        { seq: 20, text: 'second msg', time: 2000 },
+      ],
+    })
+    assert.equal(pendingOf().length, 0, 'history userMessages clears matching pending submission without waiting on feed')
+
+    // Queue a third message, then deliver delayed feed confirm for seq 20 -> third pending MUST remain intact.
+    team.actions.noteSent('sess-a', { requestId: 'req-3', text: 'third msg', time: 3000 })
+    assert.equal(pendingOf().length, 1)
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'second msg', seq: 20, block: 0, time: 2000 } })
+    assert.equal(pendingOf().length, 1, 'delayed feed confirm already satisfied by history must not pop next pending')
+    assert.equal(pendingOf()[0].requestId, 'req-3')
+  } finally {
+    stop()
+  }
+})
+
+test('sent-confirm clears once on feed confirm and keeps a later queued pending intact when history arrives', async () => {
+  const { team, emitFeed } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [{ id: 'bot-a', sessionId: 'sess-a', name: 'Alpha' }],
+          rooms: [],
+        }
+      }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    team.actions.openSession('bot-a')
+    const pendingOf = () => team.sessionHook('sess-a')(s => s.pendingSubmissions)
+
+    // Message 1 sent and confirmed via live feed BEFORE history arrives.
+    team.actions.noteSent('sess-a', { requestId: 'req-1', text: 'msg one', time: 1000 })
+    assert.equal(pendingOf().length, 1)
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'msg one', seq: 10, block: 0, time: 1000 } })
+    assert.equal(pendingOf().length, 0, 'live feed confirm clears first pending submission')
+
+    // Message 2 is now pending while history (including msg one + older earlier-page message) arrives.
+    team.actions.noteSent('sess-a', { requestId: 'req-2', text: 'msg two', time: 2000 })
+    assert.equal(pendingOf().length, 1)
+
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed', start: { seq: 1, time: 100 }, end: { seq: 5, time: 150 } }],
+        [1, { turn: 1, status: 'open', start: { seq: 10, time: 1000 } }],
+      ]),
+      closingReplies: new Map([[0, 'earlier reply']]),
+      userMessages: [
+        { seq: 1, text: 'older history', time: 100 },
+        { seq: 10, text: 'msg one', time: 1000 },
+      ],
+    })
+    assert.equal(pendingOf().length, 1, 'history containing already-confirmed and older messages must leave second pending intact')
+    assert.equal(pendingOf()[0].requestId, 'req-2')
+    assert.equal(pendingOf()[0].text, 'msg two')
+  } finally {
+    stop()
+  }
+})
+
+test('duplicate or replayed feed confirm pops only once and never removes a subsequent pending message', async () => {
+  const { team, emitFeed } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [{ id: 'bot-a', sessionId: 'sess-a', name: 'Alpha' }],
+          rooms: [],
+        }
+      }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    team.actions.openSession('bot-a')
+    const pendingOf = () => team.sessionHook('sess-a')(s => s.pendingSubmissions)
+
+    // Two messages queued (with metadata): confirm for #1 arrives twice (initial + resumed replay).
+    team.actions.noteSent('sess-a', { requestId: 'req-1', text: 'alpha', time: 1000 })
+    team.actions.noteSent('sess-a', { requestId: 'req-2', text: 'beta', time: 2000 })
+    assert.equal(pendingOf().length, 2)
+
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'alpha', seq: 10, block: 0, time: 1000 } })
+    assert.equal(pendingOf().length, 1)
+    assert.equal(pendingOf()[0].requestId, 'req-2')
+
+    // Reconnect replay delivers seq 10 a second time: MUST NOT pop req-2!
+    emitFeed('hello', { revision: 1, feedSeq: 20, resumed: true })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'alpha', seq: 10, block: 0, time: 1000 } })
+    assert.equal(pendingOf().length, 1, 'duplicate/replayed confirm must not pop the second pending message')
+    assert.equal(pendingOf()[0].requestId, 'req-2')
+
+    // Confirm for #2 arrives and clears the queue cleanly.
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'beta', seq: 12, block: 0, time: 2000 } })
+    assert.equal(pendingOf().length, 0)
+
+    // Also verify bare 1-arg noteSent(sessionId) without metadata is protected against duplicate replays.
+    team.actions.noteSent('sess-a')
+    team.actions.noteSent('sess-a')
+    assert.equal(pendingOf().length, 2)
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'bare 1', seq: 20, block: 0, time: 3000 } })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'bare 1', seq: 20, block: 0, time: 3000 } })
+    assert.equal(pendingOf().length, 1, 'duplicate confirm must pop bare noteSent queue only once')
+
+    // Cancelling a failed send removes only that entry.
+    const cancelFailed = team.actions.noteSent('sess-a', { requestId: 'req-fail', text: 'oops', time: 4000 })
+    assert.equal(pendingOf().length, 2)
+    cancelFailed()
+    assert.equal(pendingOf().length, 1)
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'bare 2', seq: 22, block: 0, time: 4100 } })
+    assert.equal(pendingOf().length, 0)
+  } finally {
+    stop()
+  }
+})
