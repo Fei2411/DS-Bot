@@ -191,6 +191,29 @@ describe('createAutoFetchProvider Tier 1 & Tier 2 behavior', () => {
       err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
     )
     assert.equal(browserCalled, false)
+
+    // Hop-1 mixed public+private DNS record is blocked pre-connect (consistent with browser tiers).
+    let hop1Connected = false
+    const mixedProvider = createAutoFetchProvider({
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }, { address: '127.0.0.1', family: 4 }],
+      fetch: async () => { hop1Connected = true; return mockResponse('leaked') },
+      browserFetch: async () => { browserCalled = true; return null },
+    })
+    await assert.rejects(
+      () => mixedProvider.fetch({ url: 'https://mixed.example.com/internal' }),
+      err => err instanceof WebError && err.code === 'WEB_BLOCKED_URL',
+    )
+    assert.equal(hop1Connected, false)
+    assert.equal(browserCalled, false)
+
+    // All-private intranet hostname stays allowed as an explicit intranet fetch.
+    const intranetProvider = createAutoFetchProvider({
+      lookup: async () => [{ address: '10.0.0.5', family: 4 }],
+      fetch: async () => mockResponse('<h1>Intranet Wiki</h1>'),
+    })
+    const intranet = await intranetProvider.fetch({ url: 'http://wiki.corp/docs' })
+    assert.equal(intranet.statusCode, 200)
+    assert.match(intranet.body.content, /Intranet Wiki/)
   })
 
   test('allows direct local/private fetches and private-to-private redirects', async () => {

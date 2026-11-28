@@ -108,6 +108,7 @@ export function createWebFetchBridge({
     let settleTimer
     let settled = false
     let blockedRedirectHost
+    let cancelledMainFrame
     let unsupportedContentType
     let downloadTriggered = false
     let onDownload = null
@@ -213,14 +214,17 @@ export function createWebFetchBridge({
         try {
           parsed = new URL(reqUrl)
         } catch {
+          if (isMain) cancelledMainFrame = { code: 'WEB_INVALID_URL', message: `invalid URL: ${reqUrl}` }
           callback({ cancel: true })
           return
         }
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          if (isMain) cancelledMainFrame = { code: 'WEB_INVALID_URL', message: `unsupported URL scheme "${parsed.protocol}"` }
           callback({ cancel: true })
           return
         }
         if (parsed.username.length > 0 || parsed.password.length > 0) {
+          if (isMain) cancelledMainFrame = { code: 'WEB_BLOCKED_URL', message: 'credentials in URLs are not allowed' }
           callback({ cancel: true })
           return
         }
@@ -311,14 +315,16 @@ export function createWebFetchBridge({
         const onFail = (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
           if (isMainFrame === false) return
           // -3 is ERR_ABORTED, emitted routinely during redirects unless we deliberately blocked/cancelled.
-          if (errorCode === -3 && !blockedRedirectHost && !unsupportedContentType && !downloadTriggered && !task.aborted) return
+          if (errorCode === -3 && !blockedRedirectHost && !cancelledMainFrame && !unsupportedContentType && !downloadTriggered && !task.aborted) return
           settleLoad(reject, new Error(blockedRedirectHost
             ? `redirect from public host to private address (${blockedRedirectHost}) is blocked`
-            : unsupportedContentType
-              ? `unsupported content type "${unsupportedContentType}"`
-              : downloadTriggered
-                ? 'unsupported downloadable content'
-                : `load failed (${errorCode}): ${errorDescription || 'network error'}`))
+            : cancelledMainFrame
+              ? cancelledMainFrame.message
+              : unsupportedContentType
+                ? `unsupported content type "${unsupportedContentType}"`
+                : downloadTriggered
+                  ? 'unsupported downloadable content'
+                  : `load failed (${errorCode}): ${errorDescription || 'network error'}`))
         }
         abortPendingWait = (err) => settleLoad(reject, err ?? new Error('aborted'))
         wc.once('did-finish-load', onFinish)
@@ -326,7 +332,7 @@ export function createWebFetchBridge({
         wc.once?.('destroyed', onGone)
         wc.once?.('render-process-gone', onGone)
         void Promise.resolve(wc.loadURL(url)).catch((error) => {
-          if (error?.code === 'ERR_ABORTED' && !blockedRedirectHost && !unsupportedContentType && !downloadTriggered && !task.aborted) return
+          if (error?.code === 'ERR_ABORTED' && !blockedRedirectHost && !cancelledMainFrame && !unsupportedContentType && !downloadTriggered && !task.aborted) return
           settleLoad(reject, error)
         })
       })
@@ -405,9 +411,11 @@ export function createWebFetchBridge({
       if (task.aborted || settled) return
       const code = blockedRedirectHost
         ? 'WEB_REDIRECT_BLOCKED'
-        : (unsupportedContentType || downloadTriggered)
-          ? 'WEB_UNSUPPORTED_CONTENT_TYPE'
-          : 'WEB_PROVIDER_ERROR'
+        : cancelledMainFrame
+          ? cancelledMainFrame.code
+          : (unsupportedContentType || downloadTriggered)
+            ? 'WEB_UNSUPPORTED_CONTENT_TYPE'
+            : 'WEB_PROVIDER_ERROR'
       finish({
         type: 'ds-bot:web-fetch-response',
         id,

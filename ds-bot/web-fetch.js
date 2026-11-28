@@ -532,7 +532,7 @@ async function fetchWithPinnedIp(url, init, pinnedRecords) {
   }
 }
 
-async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookupImpl, proxyCheck, initialPrivate }, tier1TimeoutMs, outerSignal) {
+async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookupImpl, proxyCheck, initialPrivate, initialRecords }, tier1TimeoutMs, outerSignal) {
   const deadline = createDeadline(outerSignal, tier1TimeoutMs, 'webFetchAutoTimeout')
   try {
     let currentUrl = initialUrl
@@ -540,18 +540,30 @@ async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookup
     for (;;) {
       let pinnedRecords = null
       const proxied = await proxyCheck(currentUrl)
-      if (!proxied && !initialPrivate && redirectsFollowed > 0) {
+      if (!proxied && !initialPrivate) {
         if (isPrivateHost(currentUrl.hostname)) {
-          throw new WebError(`redirect from public host to private address (${currentUrl.hostname}) is blocked`, 'WEB_REDIRECT_BLOCKED')
+          throw new WebError(
+            redirectsFollowed > 0
+              ? `redirect from public host to private address (${currentUrl.hostname}) is blocked`
+              : `private address (${currentUrl.hostname}) is blocked`,
+            redirectsFollowed > 0 ? 'WEB_REDIRECT_BLOCKED' : 'WEB_BLOCKED_URL',
+          )
         }
-        let records = []
-        try {
-          records = await resolveHostAddresses(currentUrl.hostname, lookupImpl)
-        } catch (error) {
-          throw translateTransportError(error, deadline, outerSignal)
+        let records = redirectsFollowed === 0 && Array.isArray(initialRecords) ? initialRecords : null
+        if (records === null) {
+          try {
+            records = await resolveHostAddresses(currentUrl.hostname, lookupImpl)
+          } catch (error) {
+            throw translateTransportError(error, deadline, outerSignal)
+          }
         }
         if (records.some(r => isPrivateIP(r.address))) {
-          throw new WebError(`redirect from public host to private address (${currentUrl.hostname}) is blocked`, 'WEB_REDIRECT_BLOCKED')
+          throw new WebError(
+            redirectsFollowed > 0
+              ? `redirect from public host to private address (${currentUrl.hostname}) is blocked`
+              : `mixed public/private DNS resolution (${currentUrl.hostname}) is blocked`,
+            redirectsFollowed > 0 ? 'WEB_REDIRECT_BLOCKED' : 'WEB_BLOCKED_URL',
+          )
         }
         pinnedRecords = records
       }
@@ -934,6 +946,9 @@ export function createPlaywrightBrowserFetch({
           const addr = await res.serverAddr().catch(() => null)
           if (addr?.ipAddress && isPrivateIP(addr.ipAddress)) {
             blockedRedirectHost = addr.ipAddress
+            void cdp?.send('Page.stopLoading').catch(() => {})
+            void browser?.close?.().catch(() => {})
+            return
           }
         }
         const status = res.status()
@@ -1044,14 +1059,18 @@ export function createAutoFetchProvider(deps = {}, config = {}) {
 
       // Classify initial destination (including intranet DNS names when not proxied).
       let initialPrivate = isPrivateHost(initialUrl.hostname)
+      let initialRecords = null
       if (!initialPrivate && !(await proxyCheck(initialUrl))) {
         try {
-          const initialRecords = await resolveHostAddresses(initialUrl.hostname, lookupImpl)
-          if (initialRecords.length > 0 && initialRecords.every(r => isPrivateIP(r.address))) {
-            initialPrivate = true
+          const resolved = await resolveHostAddresses(initialUrl.hostname, lookupImpl)
+          if (resolved.length > 0) {
+            initialRecords = resolved
+            if (resolved.every(r => isPrivateIP(r.address))) {
+              initialPrivate = true
+            }
           }
         } catch {
-          // Leave initialPrivate false when DNS fails (e.g. host only reachable via OS system proxy).
+          // Leave initialPrivate false and initialRecords null when DNS fails (e.g. host only reachable via OS system proxy).
         }
       }
 
@@ -1065,7 +1084,7 @@ export function createAutoFetchProvider(deps = {}, config = {}) {
         httpResult = await fetchHttp(
           initialUrl,
           options,
-          { fetchImpl, isCustomFetch, lookupImpl, proxyCheck, initialPrivate },
+          { fetchImpl, isCustomFetch, lookupImpl, proxyCheck, initialPrivate, initialRecords },
           tier1TimeoutMs,
           signal,
         )

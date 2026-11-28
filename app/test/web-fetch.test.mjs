@@ -237,6 +237,27 @@ describe('createWebFetchBridge', () => {
     bridge.close()
   })
 
+  test('fails fast when a main-frame redirect is cancelled for credentials or foreign scheme', async () => {
+    let target = 'https://user:pass@example.com/secret'
+    const electron = createFakeElectron({
+      async onLoad({ wc, ses }) {
+        let canceled = false
+        ses.beforeRequestHandler({ url: target, resourceType: 'mainFrame' }, ({ cancel }) => { canceled = cancel })
+        assert.equal(canceled, true)
+        queueMicrotask(() => wc.emit('did-fail-load', {}, -3, 'ERR_ABORTED', target, true))
+      },
+    })
+    const bridge = createWebFetchBridge({ BrowserWindow: electron.BrowserWindow, session: electron.session, lookup: publicLookup })
+
+    const cred = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'c1', url: 'https://example.com/start', timeoutMs: 5000 }, resolve))
+    assert.equal(cred.code, 'WEB_BLOCKED_URL')
+
+    target = 'file:///etc/passwd'
+    const scheme = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'c2', url: 'https://example.com/start', timeoutMs: 5000 }, resolve))
+    assert.equal(scheme.code, 'WEB_INVALID_URL')
+    bridge.close()
+  })
+
   test('ignores unrelated IPC messages and truncates oversized text responses', async () => {
     const electron = createFakeElectron({
       async onLoad({ win, wc, ses, url }) {
