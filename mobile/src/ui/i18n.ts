@@ -120,6 +120,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Browser handoff': '浏览器交接', 'View': '查看',
   'Aside': '旁注', 'Delete aside': '删除旁注',
   'This file cannot be read here': '这个文件在这里读不了',
+  'This file is too large to preview': '文件太大，无法预览',
   'Save {name}': '保存 {name}',
   'Saving to the device is not available on this phone': '这台手机还不能保存到本机',
   'Could not save this file': '保存这个文件失败',
