@@ -3,7 +3,8 @@ import { isAbsolute, sep } from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
 import { REFERENCE_KIND, REPLY_KIND } from './constants.js'
-import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { ReviewError, copyFor, reviewApproval, reviewContext, reviewError, reviewSessionIds, reverifyInspections, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { isFileTool, resolveFileTargets } from './native-targets.js'
 import { ESCALATION } from './extra-folders.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
@@ -24,7 +25,19 @@ function cleanDisplayReason(raw) {
 
 async function nativeEvidence(ctx, exec) {
   const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
-  if (!['bash', 'pwsh'].includes(exec.name) || !exec.agent?.session) return evidence
+  if (!exec.agent?.session) return evidence
+  if (isFileTool(exec.name)) {
+    // File tools escalate when they reach outside the writable roots: the review
+    // needs the real target paths and their workspace ownership, not the raw
+    // argument the model typed. Targets that cannot be bound stay absent, which
+    // the review treats as unknown instead of guessing.
+    const targets = await resolveFileTargets(ctx, { name: exec.name, args: evidence.arguments, agent: exec.agent, signal: exec.signal }).catch(() => undefined)
+    let sessionCwd
+    try { sessionCwd = await ctx.get?.('workingDirectory')?.ensure?.(exec.agent, exec.signal) } catch { sessionCwd = undefined }
+    const cwd = typeof sessionCwd === 'string' && isAbsolute(sessionCwd) ? sessionCwd : undefined
+    return { ...evidence, ...(targets === undefined ? {} : { targets }), ...(cwd === undefined ? {} : { sessionCwd: cwd, cwd }) }
+  }
+  if (!['bash', 'pwsh'].includes(exec.name)) return evidence
   const directories = ctx.get?.('workingDirectory')
   const shell = ctx.get?.('shell')
   const fs = ctx.get?.('fs')
@@ -41,7 +54,41 @@ async function nativeEvidence(ctx, exec) {
   if ((await fs.stat(target, exec.signal))?.type !== 'directory') return evidence
   const cwd = fs.processPath(target)
   if (typeof cwd !== 'string' || !isAbsolute(cwd)) return evidence
-  return { ...evidence, sessionCwd, workdir: spec.workdir, cwd }
+  const enriched = { ...evidence, sessionCwd, workdir: spec.workdir, cwd }
+  // The admission shape carries its operand: bind the diagnostic target through
+  // the host's own filesystem service, resolved exactly as the shell would from
+  // the execution directory. The review never trusts the typed path — a
+  // missing target or anything but a plain file or directory stays unbound,
+  // and the shape of the result is what the drift re-check compares.
+  try {
+    const operand = extractDiagnosticOperand(args.command)
+    if (operand !== undefined) {
+      const resolved = await fs.resolve(isAbsolute(operand) ? operand : `${cwd}${sep}${operand}`, { signal: exec.signal })
+      const info = await fs.stat(resolved, exec.signal)
+      const processPath = fs.processPath(resolved)
+      if (typeof processPath === 'string' && typeof info?.type === 'string') {
+        enriched.diagnosticTarget = { path: processPath, type: info.type }
+      }
+    }
+  } catch (error) {
+    void error // unbound target: the review treats it as unknown
+  }
+  return enriched
+}
+
+// The single operand of an admitted read-only diagnostic, quoted the way the
+// scanner strips it. Returns undefined when the command is not one of those
+// forms — the target then simply stays unbound.
+function extractDiagnosticOperand(command) {
+  if (typeof command !== 'string') return undefined
+  const match = command.match(/^\s*(?:get-item|test-path|get-content|resolve-path)(?:\s+-(?:literalpath|lit|l))?\s+(.+?)\s*$/i)
+  if (!match) return undefined
+  let operand = match[1]
+  if ((operand.startsWith('"') && operand.endsWith('"')) || (operand.startsWith("'") && operand.endsWith("'"))) {
+    operand = operand.slice(1, -1)
+  }
+  if (operand === '' || /[*?]/.test(operand)) return undefined
+  return operand
 }
 
 export function install(rt) {
@@ -167,10 +214,18 @@ export function install(rt) {
   }
   const enabled = owner => owner.botId !== undefined && (rt.roomOf(owner.roomId)?.permission ?? rt.botOf(owner.botId)?.permission) === 'review'
 
+  // Audit truth is single-writer: the in-memory decision settles first and the
+  // record of it is written after. Once an outcome is final — a completed
+  // automatic verdict, a manual fallback, a withdrawal — no later event may
+  // rewrite it. Cancellation, a human answering first, or a late model reply
+  // therefore cannot overwrite the terminal state the audit shows.
   async function record(entry, decision) {
     const item = {
       id: entry.id, botId: entry.botId, ...(entry.roomId ? { roomId: entry.roomId } : {}),
-      tool: entry.tool, at: Date.now(), outcome: decision.decision, reason: clean(decision.reason),
+      tool: entry.tool, at: Date.now(), outcome: decision.decision, reason: clean(decision.reason ?? copyFor(decision.reasonCode)),
+      ...(decision.reasonCode ? { reasonCode: decision.reasonCode } : {}),
+      ...(decision.riskLevel ? { riskLevel: decision.riskLevel } : {}),
+      ...(decision.authorization ? { authorization: decision.authorization } : {}),
       ...(entry.review?.model ? { model: entry.review.model } : {}),
     }
     rt.state.approvalReviews = [...(rt.state.approvalReviews ?? []).filter(previous => previous.id !== item.id), item].slice(-100)
@@ -193,8 +248,11 @@ export function install(rt) {
     const nativeShell = ['bash', 'pwsh'].includes(request.toolName)
     // Privacy guards can ask before the shell itself; their payload still needs its execution scope.
     const evidence = explicit && nativeShell ? { ...explicit, execution } : explicit ?? execution
-    const validateEvidence = execution && nativeShell ? async () => {
-      if (JSON.stringify(await captured.readEvidence()) !== JSON.stringify(execution)) throw new Error('The native execution directory or arguments changed')
+    // The drift re-check exists only where the capture kept its producer: the
+    // "Always allow" capture carries bare arguments for eligibility evaluation
+    // and is not review evidence.
+    const validateEvidence = execution && typeof captured?.readEvidence === 'function' ? async () => {
+      if (JSON.stringify(await captured.readEvidence()) !== JSON.stringify(execution)) throw reviewError('stale-evidence', 'The native execution directory or arguments changed')
     } : undefined
     const id = randomUUID()
     const original = request.signal
@@ -216,16 +274,24 @@ export function install(rt) {
     return new Promise((resolve, reject) => {
       let manualStarted = false
       let timer
-      const abort = () => complete('cancelled')
-      const settle = (outcome, reviewed = false) => {
+      // The terminal audit record for the automatic path. Decided in memory
+      // exactly once, then persisted; the write cannot resurrect or rewrite
+      // what a later cancellation or answer has already closed. Card and audit
+      // share this one terminal state: whichever branch ends the automatic
+      // review first owns both, and every later branch — a late model reply,
+      // the abort the timer itself triggered, a cancellation — writes nothing.
+      // Cancellation and invalidation are terminal states of the automatic
+      // review itself, so they record exactly once like every other outcome;
+      // a request that never entered automatic review records nothing.
+      let auditWritten = false
+      const auditFinal = decision => {
+        if (!automatic || auditWritten) return
+        auditWritten = true
+        void record(entry, decision).catch(error => rt.warn('ds-bot: approval audit not saved: %s', error))
+      }
+      const settle = (outcome) => {
         if (!pending.has(id)) return false
         pending.delete(id)
-        const logged = rt.state?.approvalReviews?.find(item => item.id === id)
-        if (!reviewed && logged && ['allow', 'reject'].includes(logged.outcome)) {
-          logged.outcome = 'cancelled'
-          logged.reason = 'The model decision was withdrawn before it took effect.'
-          void rt.save().catch(() => {})
-        }
         clearTimeout(timer)
         original?.removeEventListener('abort', abort)
         reviewer.abort()
@@ -236,16 +302,27 @@ export function install(rt) {
         emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
         return true
       }
-      const complete = (outcome, reviewed = false) => {
-        const didSettle = settle(outcome, reviewed)
+      const complete = (outcome) => {
+        const didSettle = settle(outcome)
         if (didSettle) resolve(outcome)
         return didSettle
       }
-      const manual = reason => {
+      // The original request itself ended — a shell kill, a session teardown or
+      // the user cancelling. That lifecycle terminal state is audited as
+      // `cancelled` exactly once, before the in-memory settlement closes.
+      const cancelEntry = () => {
+        if (!pending.has(id)) return
+        auditFinal({ decision: 'cancelled', reasonCode: 'cancelled' })
+        complete('cancelled')
+      }
+      const abort = cancelEntry
+      const manual = reasonCode => {
         if (!pending.has(id) || manualStarted) return
         manualStarted = true
         clearTimeout(timer)
-        if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
+        // Card copy is host-controlled: keyed by the reason code, never the
+        // model's rationale or internal error text.
+        if (automatic) entry.review = { ...entry.review, status: 'manual', reason: copyFor(reasonCode), ...(typeof reasonCode === 'string' ? { reasonCode } : {}) }
         changed(entry)
         // Group sessions and background tasks run in hidden Sessions owned by DS Bot's
         // cards (group member card or task deck), so they never race DSH's own card.
@@ -262,10 +339,18 @@ export function install(rt) {
         }, error => { if (settle('cancelled')) reject(error) })
       }
       entry.answer = complete
-      entry.cancelReview = () => reviewer.abort()
+      entry.cancel = cancelEntry
+      // Invalidation — fresh user input or a mode change — supersedes the
+      // review rather than cancelling the request: audited as superseded once,
+      // and the in-flight review's failure still opens the manual card.
+      entry.cancelReview = () => {
+        if (!pending.has(id)) return
+        auditFinal({ decision: 'superseded', reasonCode: 'superseded' })
+        reviewer.abort()
+      }
       entry.toManual = () => {
         if (automatic && pending.has(id) && entry.review?.status === 'reviewing') {
-          manual('Automatic review stopped; review this action manually.')
+          manual('superseded')
         }
       }
       entry.isAborted = () => original?.aborted === true
@@ -308,16 +393,19 @@ export function install(rt) {
           changed(entry)
         }).catch(() => {})
       }
-      if (original?.aborted) return complete('cancelled')
-      if (!automatic) return manual()
+      if (original?.aborted) { cancelEntry(); return }
+      if (!automatic) return manual('policy-manual')
       const timeout = new Promise((_, fail) => {
-        const interrupted = () => fail(new Error('Automatic review stopped; review this action manually'))
+        const interrupted = () => fail(reviewError('superseded', 'Automatic review was withdrawn'))
         reviewer.signal.addEventListener('abort', interrupted, { once: true })
         // Once the model wins the race, a stalled save no longer rejects it.
         // Open the card from the timer itself so persistence cannot block it.
         timer = setTimeout(() => {
           reviewer.abort()
-          if (pending.has(id)) manual('Automatic review could not decide. Review this action manually.')
+          if (pending.has(id) && !manualStarted) {
+            manual('timeout')
+            auditFinal({ decision: 'manual', reasonCode: 'timeout' })
+          }
         }, REVIEW_TIMEOUT_MS)
       })
       void Promise.race([reviewApproval(rt, {
@@ -325,25 +413,43 @@ export function install(rt) {
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
         if (!pending.has(id) || entry.answering) return
-        if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
+        if (reviewer.signal.aborted || !enabled(owner)) throw reviewError('superseded', 'Automatic review was invalidated')
         if (decision.decision === 'manual') {
-          manual(decision.reason)
-          await record(entry, decision)
+          manual(decision.reasonCode)
+          auditFinal(decision)
           return
         }
-        await record(entry, decision)
+        // A deterministic hard-floor refusal is final when it is produced:
+        // later context or evidence drift cannot reopen it as a manual card.
+        if (decision.hardFloor === true) {
+          if (!pending.has(id) || entry.answering) return
+          complete(OUTCOMES[decision.decision])
+          auditFinal(decision)
+          return
+        }
         if (JSON.stringify(await reviewContext(rt, owner, reviewer.signal)) !== JSON.stringify(decision.context)) {
-          throw new Error('The conversation changed while saving the review')
+          throw reviewError('stale-context', 'The conversation changed while saving the review')
         }
         await validateEvidence?.()
+        // The observations the verdict relied on must still hold at settlement;
+        // the final re-verify and the settlement share this synchronous chain.
+        await reverifyInspections(rt, decision.observations, reviewer.signal)
         if (!pending.has(id) || entry.answering) return
-        if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
-        complete(OUTCOMES[decision.decision], true)
-      }).catch(async () => {
+        if (reviewer.signal.aborted || !enabled(owner)) throw reviewError('superseded', 'Automatic review was invalidated')
+        // The verdict settles in memory before its record is written: even a
+        // save that hangs forever cannot un-decide it, and nothing written
+        // later can overwrite this terminal outcome.
+        complete(OUTCOMES[decision.decision])
+        auditFinal(decision)
+      }).catch(error => {
         if (!pending.has(id) || entry.answering) return
-        const reason = 'Automatic review could not decide. Review this action manually.'
-        manual(reason)
-        try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
+        // Every automatic failure opens the human card with its own reason: a
+        // review that could not conclude is not a verdict on the action. The
+        // card and the audit are idempotent on their own — a superseded audit
+        // written by the invalidation itself must not suppress the manual card.
+        const reasonCode = error instanceof ReviewError ? error.code : 'model-failed'
+        manual(reasonCode)
+        auditFinal({ decision: 'manual', reasonCode })
       }).finally(() => clearTimeout(timer))
     })
   }
@@ -367,7 +473,7 @@ export function install(rt) {
       // `allowed-once` synchronously and commit the pre-validated grant.
       entry.cancelReview()
       if (entry.isAborted?.()) {
-        entry.answer('cancelled')
+        entry.cancel()
         throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
       }
       entry.answering = true
@@ -378,13 +484,13 @@ export function install(rt) {
         } catch (error) {
           if (pending.has(id)) {
             entry.answering = false
-            if (entry.isAborted?.()) entry.answer('cancelled')
+            if (entry.isAborted?.()) entry.cancel()
             else entry.toManual?.()
           }
           throw error
         }
         if (!pending.has(id) || entry.isAborted?.()) {
-          if (pending.has(id)) entry.answer('cancelled')
+          if (pending.has(id)) entry.cancel()
           throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
         }
         if (typeof prepared?.verifySync === 'function' && !prepared.verifySync()) {
@@ -405,7 +511,7 @@ export function install(rt) {
   }
   const cancelApprovals = sessionId => {
     for (const entry of pending.values()) {
-      if (entry.lineageSessionIds.includes(sessionId)) entry.answer('cancelled')
+      if (entry.lineageSessionIds.includes(sessionId)) entry.cancel()
     }
   }
   const cancelApprovalReviews = ({ botId, roomId } = {}) => {
@@ -414,7 +520,7 @@ export function install(rt) {
     }
   }
   ctx.effect?.(() => () => {
-    for (const entry of Array.from(pending.values())) entry.answer?.('cancelled')
+    for (const entry of Array.from(pending.values())) entry.cancel?.()
     pending.clear()
     approvalListeners.clear()
     executions.clear()

@@ -302,11 +302,11 @@ export function extractGroupSessionLines(events, botNameOf = () => undefined) {
         // The channel the post came in over survives the backfill exactly as a
         // live post keeps it: a backfilled IM or API line is no owner's line either.
         const via = viaOf(source)
-        lines.push({ who: 'User', text, ...(files.length > 0 ? { files } : {}), ...(via === undefined ? {} : { via }), ...time })
+        lines.push({ who: 'User', text, ...(files.length > 0 ? { files } : {}), ...(via === undefined ? {} : { via }), ...time, ...(Number.isInteger(event.seq) ? { eventSeq: event.seq } : {}), ...(typeof event.data?.id === 'string' ? { messageId: event.data.id } : {}) })
       } else if (source?.kind === 'schedule') {
         const prompts = reminderPrompts(textOf(content))
         const text = prompts.length > 0 ? prompts.join('\n') : textOf(content)
-        lines.push({ who: 'User', text, ...time })
+        lines.push({ who: 'User', schedule: true, text, ...time, ...(Number.isInteger(event.seq) ? { eventSeq: event.seq } : {}), ...(typeof event.data?.id === 'string' ? { messageId: event.data.id } : {}) })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
         if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const raw = textOf(content).replace(POST_HEADER, '')
@@ -1871,7 +1871,13 @@ export function install(rt) {
         const content = Array.isArray(message.content) ? message.content : []
         const text = textOf(content)
         if (text === '' || content.some(block => block?.type !== 'text') || text.includes('dsh-session:')) return lines
-        lines.push({ id: message.id, text, source: message.source, ...(viaOf(message.source) ? { via: viaOf(message.source) } : {}) })
+        lines.push({
+          id: message.id, text, source: message.source,
+          ...(typeof message.messageId === 'string' ? { messageId: message.messageId } : {}),
+          ...(Number.isInteger(message.eventSeq) ? { eventSeq: message.eventSeq } : {}),
+          ...(typeof message.eventSession === 'string' ? { eventSession: message.eventSession } : {}),
+          ...(viaOf(message.source) ? { via: viaOf(message.source) } : {}),
+        })
       }
     }
     return lines
@@ -1900,7 +1906,7 @@ export function install(rt) {
         const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
         noteRoomUserOrigin(room, origin)
       }
-      say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}), ...(line.eventSeq !== undefined ? { eventSeq: line.eventSeq } : {}), ...(line.eventSession !== undefined ? { eventSession: line.eventSession } : {}), ...(line.messageId !== undefined ? { messageId: line.messageId } : {}) })
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       const { speakers, ordered } = openingCall(room, { text: line.text })
@@ -2458,7 +2464,7 @@ export function install(rt) {
       // The user's message, as one the round takes in from the Session's inbox.
       noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
-      say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
+      say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true, ...(post.eventSeq !== undefined ? { eventSeq: post.eventSeq } : {}), ...(post.eventSession !== undefined ? { eventSession: post.eventSession } : {}), ...(post.messageId !== undefined ? { messageId: post.messageId } : {}) })
       unpauseRoomIdle(room)
       round.userMessage = true
       rt.goalUserMessage?.(room.id)

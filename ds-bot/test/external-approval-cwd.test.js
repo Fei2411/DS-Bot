@@ -80,12 +80,14 @@ function reviewer() {
   const inputs = []
   return {
     inputs, state: { prefs: { approvalModel: 'mock/reviewer' } }, resolveAgent: async () => agent,
-    async *eventsBackwards() { yield { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Remove the cache in the project.' }] } } },
+    defaultBotModel: async () => 'mock/default',
+    async *eventsBackwards() { /* no user-authored content: the only shape in which D2 may run at all */ },
     ctx: { llm: {
       resolveModelInfo: async () => ({}),
+      listConfigurableProviders: () => [{ provider: 'mock', declared: true, defaultBaseURL: 'http://127.0.0.1:8899/v1' }],
       async *stream(args) {
         inputs.push(JSON.parse(args.messages[0].content[0].text))
-        yield { type: 'text-delta', index: 0, text: '{"decision":"allow","reason":"Requested cleanup."}' }
+        yield { type: 'text-delta', index: 0, text: '{"risk_level":"low","user_authorization":{"level":"unknown","evidence":[]},"outcome":"allow","rationale":"Requested cleanup."}' }
         yield { type: 'finish', reason: { kind: 'stop' } }
       },
     } },
@@ -112,12 +114,26 @@ test('trusted callback evidence reaches the reviewer and cannot be supplied by t
   await rt.localAgentTools[0].execute(forged, exec)
   assert.equal(evidence[0].cwd, cwd)
   assert.equal(evidence[0].action.action, 'Run Bash')
+  // V2: an external operation with trusted structured evidence is judgeable —
+  // its runtime payload reaches the review model exactly once, as the action
+  // the verdict is about, never as free-form display text.
   const review = reviewer()
-  assert.equal((await reviewApproval(review, {
+  const decision = await reviewApproval(review, {
     request: { toolName: call.name }, owner: { sessionId: 's', ownerSessionId: 's' }, evidence: evidence[0],
     signal: options.signal, onModel() {},
-  })).decision, 'allow')
-  assert.equal(review.inputs[0].action.cwd, cwd)
+  })
+  assert.equal(decision.decision, 'allow')
+  assert.equal(review.inputs.length, 1, 'the model reviews the trusted structured evidence once')
+  assert.equal(review.inputs[0].action.kind, 'external-agent')
+  assert.deepEqual(review.inputs[0].action.cwd, cwd, 'the trusted runtime cwd crosses, not the forged one')
+
+  // Evidence carrying only display strings is not reviewable either: action
+  // and detail are descriptions the model typed, not the operation itself.
+  await assert.rejects(reviewApproval(reviewer(), {
+    request: { toolName: call.name }, owner: { sessionId: 's', ownerSessionId: 's' },
+    evidence: { ...evidence[0], action: { action: 'Run Bash', detail: 'plain display text without structure' } },
+    signal: options.signal, onModel() {},
+  }), error => error.code === 'evidence-incomplete')
 
   await rt.localAgentTools[0].execute(forged, { ...exec, callId: 'model-made-call' })
   await rt.localAgentTools[0].execute(forged, { ...exec, agent: { session: { id: 'other' } } })

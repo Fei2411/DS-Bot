@@ -1498,7 +1498,17 @@ export function install(rt) {
             const content = Array.isArray(event.data.content) ? event.data.content : []
             const images = content.filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
             const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}), ...(viaOf(source) ? { via: viaOf(source) } : {}) })
+            queueRoomMessage(rt.roomOf(id).id, {
+              text: textOf(event.data.content),
+              ...(images.length > 0 ? { images } : {}),
+              ...(files.length > 0 ? { files } : {}),
+              ...(viaOf(source) ? { via: viaOf(source) } : {}),
+              // The host identity of the original user message, as the event
+              // and the inbox entry share it: the approval review binds
+              // ledger lines to their source with it.
+              ...(typeof event.data?.id === 'string' ? { messageId: event.data.id } : {}),
+              ...(Number.isInteger(event.seq) ? { eventSeq: event.seq, eventSession: id } : {}),
+            })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined && !rt.taskOwners?.has(id)) {
