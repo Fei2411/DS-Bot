@@ -223,7 +223,10 @@ export function App() {
   useLayoutEffect(() => {
     if (!isNarrow || drawerOpen || !restoreMobileMenuFocusRef.current) return
     restoreMobileMenuFocusRef.current = false
-    mobileMenuRef.current?.focus?.()
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (!active || active === document.body || active === document.documentElement || active.closest?.('.dsb-side,.bt-leftcol')) {
+      mobileMenuRef.current?.focus?.()
+    }
   }, [isNarrow, drawerOpen])
   useEscape(() => closeDrawer({ restoreFocus: true }), drawerOpen, { priority: ESCAPE_PRIORITY.DRAWER })
   const teamSidebarActions = useMemo(() => ({

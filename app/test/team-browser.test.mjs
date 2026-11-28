@@ -905,7 +905,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
     'locale.js': 'export const getAppLocale = () => ({ subscribe: () => () => {} })',
     'plugin-runtime.js': 'export const pluginRuntime = {}; export const usePluginPage = () => {}',
     'right-panel.js': 'export const WorkspacePaneBody = () => null; export const buildWorkspaceTabs = () => []',
-    'shortcuts.js': 'export const ShortcutsDialog = () => null; export const matchGlobalShortcut = () => null; export const resolveActiveModal = () => null; export const setLiveShortcutContext = () => {}',
+    'shortcuts.js': 'export const ShortcutsDialog = () => null; export const matchGlobalShortcut = (...args) => globalThis.__testMatchShortcut?.(...args) ?? null; export const resolveActiveModal = () => null; export const setLiveShortcutContext = () => {}',
     'shortcuts-model.js': 'export const SHORTCUT_BY_ID = {}; export const isCommandAvailable = () => false; export const isShortcutRecording = () => false; export const shortcutsStore = { getSnapshot: () => ({}), subscribe: () => () => {} }; export const visibleClassicSessions = () => []; export const visibleSidebarTargets = () => []',
     'slots.js': 'export const RIGHT_PANE_TAB_SLOT = "rp"; export const ShellOverlayHost = () => null; export const slots = {}; export const useSlotEntries = () => []',
     'team.js': 'export const createTeam = () => globalThis.__testTeam',
@@ -1035,18 +1035,39 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   const winListeners = new Map()
   const win = {
     innerWidth: 600,
-    addEventListener: (k, fn) => winListeners.set(k, fn),
-    removeEventListener: (k) => winListeners.delete(k),
+    addEventListener: (k, fn) => {
+      const list = winListeners.get(k) ?? []
+      list.push(fn)
+      winListeners.set(k, list)
+    },
+    removeEventListener: (k, fn) => {
+      const list = winListeners.get(k)
+      if (!list) return
+      const at = list.indexOf(fn)
+      if (at !== -1) list.splice(at, 1)
+    },
   }
+  const docListeners = new Map()
   const doc = {
     documentElement: { hasAttribute: () => false, dataset: {}, style: { setProperty() {} } },
     body: { dataset: {}, style: { setProperty() {}, removeProperty() {} } },
+    activeElement: null,
     head: { append() {} },
     createElement: () => ({ textContent: '', remove() {} }),
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener: (k, fn) => {
+      const list = docListeners.get(k) ?? []
+      list.push(fn)
+      docListeners.set(k, list)
+    },
+    removeEventListener: (k, fn) => {
+      const list = docListeners.get(k)
+      if (!list) return
+      const at = list.indexOf(fn)
+      if (at !== -1) list.splice(at, 1)
+    },
     querySelector: () => null,
   }
+  doc.activeElement = doc.body
   const mod = { exports: {} }
   const sandbox = {
     module: mod,
@@ -1057,6 +1078,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
     navigator: { platform: 'MacIntel', userAgent: 'Mac' },
     __testTeam: team,
     __testEscape: null,
+    __testMatchShortcut: null,
   }
   runInNewContext(appBundle[0].text, sandbox)
   const { App } = mod.exports
@@ -1177,20 +1199,43 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
   assert.equal(focusCalls, 4)
 
-  // 8. Classic mode narrow drawer: collapse restores focus to .dsb-mobile-menu.
+  // 8. Classic mode narrow drawer: collapse from a focused control inside .dsb-side restores focus to .dsb-mobile-menu.
   surfaceMode = 'agent'
   tree = render()
   findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
   tree = render()
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
+  doc.activeElement = { closest: sel => sel.includes('.dsb-side') }
   findAll(tree, n => n.type?.name === 'ClassicSidebar')[0].props.actions.toggleSidebar()
   tree = render()
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
   assert.equal(focusCalls, 5)
 
+  // 8b. Toggling the narrow drawer twice via the global sidebar shortcut while the composer
+  // holds focus must keep focus in the composer (never steal it to .dsb-mobile-menu).
+  surfaceMode = 'bot'
+  tree = render()
+  const composerEl = { closest: () => null }
+  doc.activeElement = composerEl
+  sandbox.__testMatchShortcut = () => 'sidebar'
+  const fireKey = () => {
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) {
+      fn({ defaultPrevented: false, preventDefault() {}, stopPropagation() {}, target: composerEl })
+    }
+  }
+  fireKey()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
+  fireKey()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 5)
+  sandbox.__testMatchShortcut = null
+  doc.activeElement = doc.body
+
   // 9. Wide viewport: .dsb-mobile-menu is never mounted.
   win.innerWidth = 1280
-  winListeners.get('resize')?.()
+  for (const fn of [...(winListeners.get('resize') ?? [])]) fn()
   tree = render()
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
 })
