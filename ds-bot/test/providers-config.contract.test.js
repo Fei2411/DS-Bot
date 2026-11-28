@@ -209,7 +209,7 @@ function createRealSchemaHost({
   }
   installModels(rt)
   installProviders(rt)
-  return { rt, store, writes, revisions, deepseekEffective, piAiEffective }
+  return { rt, ctx, store, writes, revisions, deepseekEffective, piAiEffective }
 }
 
 test('providersView exposes real DSH schema metadata: writable, reasoningLevels, retryDefaults, editableModels, credentialChecks', async () => {
@@ -374,6 +374,118 @@ test('provider-config-save is strictly computer-only (denied to phone, browser, 
   assert.equal(BROWSER_ALLOWED.has('provider-config-save'), false)
 })
 
+test('addProviderConfig adds catalog and custom providers with full models and retryPolicy validated by real PiAiConfig', async () => {
+  const { rt, piAiEffective } = createRealSchemaHost({
+    keys: { OPENAI_API_KEY: 'sk-env-secret' },
+    sources: { OPENAI_API_KEY: 'env' },
+    readOnlyKeys: ['OPENAI_API_KEY'],
+  })
+  // Catalog provider with env-detected key, custom baseURL, models override, and retryPolicy
+  const afterOpenAI = await rt.addProviderConfig({
+    provider: 'openai',
+    baseURL: 'https://openai-proxy.example/v1',
+    models: [{ id: 'gpt-5', name: 'GPT-5', contextWindow: 400000, maxTokens: 32000, input: ['text', 'image'] }],
+    retryPolicy: {
+      mode: 'normal',
+      maxRetries: 4,
+      retryableCodes: ['RATE_LIMIT', 'SERVER', 'TIMEOUT'],
+      backoff: { initialDelayMs: 500, maxDelayMs: 15000, jitterRatio: 0.2 },
+    },
+  })
+  const openai = afterOpenAI.providers.find(p => p.id === 'openai')
+  assert.ok(openai)
+  assert.equal(openai.baseURL, 'https://openai-proxy.example/v1')
+  assert.equal(openai.key.source, 'env')
+  assert.equal(openai.editableModels[0].id, 'gpt-5')
+  assert.equal(openai.retryPolicy.maxRetries, 4)
+
+  // Custom provider with full metadata & retryPolicy
+  const afterCustom = await rt.addProviderConfig({
+    custom: true,
+    provider: 'acme-gw',
+    name: 'Acme Gateway',
+    api: 'openai-completions',
+    baseURL: 'https://acme.example/v1',
+    key: 'sk-acme-123',
+    models: [
+      {
+        id: 'acme-1',
+        name: 'Acme One',
+        contextWindow: 256000,
+        maxTokens: 16384,
+        input: ['text', 'image'],
+        reasoningEfforts: { off: null, low: 'low', high: 'high' },
+      },
+    ],
+    retryPolicy: {
+      mode: 'always',
+      backoff: { initialDelayMs: 1000, maxDelayMs: 10000, jitterRatio: 0.1 },
+    },
+  })
+  const acme = afterCustom.providers.find(p => p.id === 'acme-gw')
+  assert.ok(acme)
+  assert.equal(acme.name, 'Acme Gateway')
+  assert.equal(acme.retryPolicy.mode, 'always')
+  assert.deepEqual(acme.editableModels[0].reasoningEfforts, { off: null, low: 'low', high: 'high' })
+  assert.ok(piAiEffective().providers['acme-gw'])
+
+  // Invalid retryPolicy rejected (initialDelayMs > maxDelayMs)
+  await assert.rejects(
+    rt.saveProviderConfig({
+      provider: 'acme-gw',
+      retryPolicy: { mode: 'normal', backoff: { initialDelayMs: 5000, maxDelayMs: 1000 } },
+    }),
+    /initialDelayMs|maxDelayMs|delay/i,
+  )
+})
+
+test('discoverProviderModels probes existing, catalog, and draft endpoints with unsaved baseURL/api/key', async () => {
+  const seen = []
+  const host = createRealSchemaHost({
+    piUser: {
+      providers: {
+        'my-gw': { api: 'openai-completions', baseURL: 'https://saved.example/v1', models: [{ id: 'm1' }] },
+      },
+    },
+  })
+  host.ctx.llm.discoverModels = async (ns, req) => {
+    seen.push({ ns, req })
+    return [
+      { id: 'gpt-5', name: 'GPT-5', contextWindow: 400000, inputModalities: ['text', 'image'] },
+      { id: 'm2', name: 'Model 2' },
+    ]
+  }
+  const res1 = await host.rt.discoverProviderModels({
+    provider: 'my-gw',
+    baseURL: 'https://draft.example/v1',
+    api: 'openai-responses',
+    key: 'sk-draft-probe',
+  })
+  assert.equal(res1.length, 2)
+  assert.equal(seen[0].ns, 'llm-pi-ai')
+  assert.equal(seen[0].req.provider, 'my-gw')
+  assert.equal(seen[0].req.baseURL, 'https://draft.example/v1')
+  assert.equal(seen[0].req.api, 'openai-responses')
+  assert.equal(seen[0].req.apiKey, 'sk-draft-probe')
+
+  // Catalog provider not yet added
+  const res2 = await host.rt.discoverProviderModels({
+    provider: 'openai',
+    key: 'sk-openai-draft',
+  })
+  assert.equal(res2.length, 2)
+  assert.equal(seen[1].req.provider, 'openai')
+  assert.equal(seen[1].req.apiKey, 'sk-openai-draft')
+})
+
+test('provider-config-add and provider-config-discover are strictly computer-only', () => {
+  for (const ep of ['provider-config-add', 'provider-config-discover']) {
+    assert.equal(isComputerOnlyEndpoint(ep), true)
+    assert.equal(isTeamEndpoint(ep), false)
+    assert.equal(BROWSER_ALLOWED.has(ep), false)
+  }
+})
+
 test('keyless editable providers still expose a writable key editor and attach apiKeyEnv when a key is saved later', async () => {
   const { rt, store, piAiEffective } = createRealSchemaHost({
     piUser: {
@@ -409,4 +521,58 @@ test('keyless editable providers still expose a writable key editor and attach a
   const after = await rt.providersView()
   assert.equal(after.providers.find(p => p.id === 'moonshotai').key?.configured, true)
   assert.equal(after.providers.find(p => p.id === 'moonshotai').key?.optional, undefined)
+})
+
+test('providersView hydrates inherited defaultMode for hand-edited retryPolicy omitting mode, and addProviderConfig keyless catalog route allows adding key later', async () => {
+  const handEdited = createRealSchemaHost({
+    piUser: {
+      providers: {
+        moonshotai: { retryPolicy: { maxRetries: 3 } },
+      },
+    },
+  })
+  const view = await handEdited.rt.providersView()
+  const moonshot = view.providers.find(p => p.id === 'moonshotai')
+  assert.ok(moonshot)
+  assert.equal(moonshot.retryPolicy?.mode, 'normal', 'hand-edited retryPolicy without mode hydrates inherited defaultMode')
+  assert.equal(moonshot.retryPolicy?.maxRetries, 3)
+
+  // Saving the hydrated retryPolicy heals the stored route so PiAiConfig accepts it
+  const healed = await handEdited.rt.saveProviderConfig({
+    provider: 'moonshotai',
+    revision: moonshot.revision,
+    retryPolicy: moonshot.retryPolicy,
+  })
+  assert.equal(healed.providers.find(p => p.id === 'moonshotai')?.retryPolicy?.mode, 'normal')
+
+  const fresh = createRealSchemaHost()
+  const afterAdd = await fresh.rt.addProviderConfig({ provider: 'anthropic' })
+  const anthropic = afterAdd.providers.find(p => p.id === 'anthropic')
+  assert.equal(anthropic?.key?.writable, true)
+  assert.equal(anthropic?.key?.optional, true)
+  await fresh.rt.setProviderKey('anthropic', 'sk-ant-later')
+  assert.equal(fresh.store.ANTHROPIC_API_KEY, 'sk-ant-later')
+})
+
+test('addProviderConfig enforces strict revision fencing (bot/stale without writing creds) and retryDefaults exposes integer/min/max/step metadata', async () => {
+  const { rt, store, writes } = createRealSchemaHost()
+  const view = await rt.providersView()
+  const maxRetriesMeta = view.retryDefaults?.branches?.normal?.maxRetries
+  assert.equal(maxRetriesMeta?.step, 1)
+  assert.equal(maxRetriesMeta?.integer, true)
+  assert.equal(maxRetriesMeta?.min, 0)
+  assert.equal(typeof maxRetriesMeta?.max, 'number')
+  assert.equal(typeof view.retryDefaults?.branches?.normal?.backoff?.fields?.initialDelayMs?.max, 'number')
+
+  // Stale revision must fail fast with bot/stale before writing settings or credentials
+  await assert.rejects(
+    rt.addProviderConfig({
+      provider: 'anthropic',
+      key: 'sk-should-not-write',
+      revision: (view.revision ?? 1) + 99,
+    }),
+    error => error.code === 'bot/stale',
+  )
+  assert.equal(store.ANTHROPIC_API_KEY, undefined, 'stale addProviderConfig must not write credentials')
+  assert.equal(writes.length, 0, 'stale addProviderConfig must not mutate settings')
 })

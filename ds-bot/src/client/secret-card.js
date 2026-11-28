@@ -45,7 +45,7 @@ const scopeLabel = (scope, roster) => {
 }
 const when = time => (Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
 
-export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false, multiline = false }) {
+export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false, multiline = false, revealed = false }) {
   const ref = useRef(null)
   const fit = () => {
     const el = ref.current
@@ -79,7 +79,7 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     ref,
     className: multiline ? 'bt-secret-input bt-secret-input-multi' : 'bt-secret-input',
     disabled,
-    'data-masked': MASK_BY_CSS ? '' : multiline ? 'blur' : undefined,
+    'data-masked': revealed ? undefined : (MASK_BY_CSS ? '' : multiline ? 'blur' : undefined),
     value,
     autoFocus,
     autoComplete: multiline || MASK_BY_CSS ? 'off' : 'new-password',
@@ -101,7 +101,7 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     },
   }
   if (multiline) return h('textarea', { ...common, rows: 1 })
-  return h('input', { ...common, type: MASK_BY_CSS ? 'text' : 'password' })
+  return h('input', { ...common, type: revealed || MASK_BY_CSS ? 'text' : 'password' })
 }
 
 function ScopeSwitch({ value, onChange, bot }) {

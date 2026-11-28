@@ -47,7 +47,7 @@ export const ChevronUpIcon = () => h('svg', { width: 14, height: 14, viewBox: '0
 
 const lineIcon = paths => function LineIcon() {
   return h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-    paths.map((d, index) => h('path', { key: index, d })))
+    ...paths.map((d, index) => h('path', { key: index, d })))
 }
 // The classic cloud with a down arrow; `done` swaps the arrow for a check. The arrow
 // is its own group so it can move while an update installs.

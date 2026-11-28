@@ -1,9 +1,9 @@
 // The Models page of a window that has no DSH settings of its own: the model providers
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from './mark.js'
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, EyeIcon, HideIcon, PlusIcon, SearchIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { isLocalRoute } from './agent-routes.js'
@@ -12,10 +12,13 @@ import { SelectMenu } from './select-menu.js'
 import { hostText, t } from './i18n.js'
 import { ChatGPTSettings } from './chatgpt-settings.js'
 import { ModelListEditor } from './model-list-editor.js'
+import { RetryPolicyEditor, cleanRetryPolicyForSave, validateRetryPolicy } from './retry-policy-editor.js'
 import {
+  isValidRouteId,
   normalizeModelDrafts,
   protocolNeedsKey,
   protocolReasoningLevels,
+  validateApiKeyDraft,
   validateBaseUrl,
   validateModelRows,
 } from './provider-model-utils.js'
@@ -203,6 +206,208 @@ function keyState(key) {
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
+function detectedEnvVars(provider) {
+  const found = []
+  const checks = provider?.credentialChecks ?? {}
+  for (const [ref, info] of Object.entries(checks)) {
+    if (info?.configured && info?.source === 'env') found.push(ref)
+  }
+  if (found.length === 0 && provider?.key?.configured && provider?.key?.source === 'env' && provider?.apiKeyEnv) {
+    found.push(provider.apiKeyEnv)
+  }
+  if (found.length === 0 && provider?.derivedCredential?.configured && provider?.derivedCredential?.source === 'env') {
+    found.push(`${String(provider.id ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`)
+  }
+  return found
+}
+
+export function ApiKeyField({ value, onChange, onEnter, label, disabled = false }) {
+  const [revealed, setRevealed] = useState(false)
+  const canReveal = !disabled && typeof value === 'string' && value.length > 0
+  const shown = canReveal && revealed
+  const edit = (next) => {
+    if (next === '') setRevealed(false)
+    onChange(next)
+  }
+  return h('label', { className: 'bt-q-field bt-secret-field bt-key-field' },
+    h(KeyIcon),
+    h(MaskedInput, { value, onChange: edit, onEnter, label, disabled, revealed: shown }),
+    h('button', {
+      type: 'button',
+      className: 'bt-icon-btn bt-key-reveal',
+      'aria-label': shown ? t('Hide API key') : t('Show API key'),
+      title: shown ? t('Hide API key') : t('Show API key'),
+      disabled: !canReveal,
+      onClick: (event) => { event.preventDefault(); setRevealed(cur => !cur) },
+    }, shown ? h(HideIcon) : h(EyeIcon)))
+}
+
+function CredentialHint({ provider }) {
+  const envVars = detectedEnvVars(provider)
+  if (envVars.length > 0) {
+    return h('div', { className: 'bt-set-hint bt-cred-detected', role: 'status' },
+      t('Detected from environment: {names}', { names: envVars.join(', ') }))
+  }
+  if (provider?.key?.configured && provider?.key?.source === 'file' && provider?.key?.masked) {
+    const blockCopy = event => event.preventDefault()
+    return h('div', {
+      className: 'bt-set-hint bt-cred-masked',
+      onCopy: blockCopy,
+      onCut: blockCopy,
+    }, t('Saved key: {masked}', { masked: provider.key.masked }))
+  }
+  if (provider?.nativeAuth?.oauth === true && !provider?.key?.configured) {
+    return h('div', { className: 'bt-set-hint', role: 'status' }, t('Supports built-in sign-in without an API key.'))
+  }
+  return null
+}
+
+function mergePickedModels(existing, discovered, selectedIds) {
+  const byExisting = new Map(existing.filter(m => typeof m?.id === 'string' && m.id.trim() !== '').map(m => [m.id.trim(), m]))
+  const byDiscovered = new Map(discovered.filter(m => typeof m?.id === 'string' && m.id.trim() !== '').map(m => [m.id.trim(), m]))
+  const seen = new Set()
+  const out = []
+  for (const id of selectedIds) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const prev = byExisting.get(id)
+    if (prev !== undefined) {
+      out.push({ ...prev })
+      continue
+    }
+    const found = byDiscovered.get(id)
+    if (found !== undefined) {
+      const next = { id }
+      if (typeof found.name === 'string' && found.name.trim() !== '' && found.name.trim() !== id) next.name = found.name.trim()
+      if (typeof found.contextWindow === 'number' && found.contextWindow > 0) next.contextWindow = found.contextWindow
+      if (typeof found.maxTokens === 'number' && found.maxTokens > 0) next.maxTokens = found.maxTokens
+      if (Array.isArray(found.inputModalities) && found.inputModalities.length > 0) next.input = [...found.inputModalities]
+      else if (Array.isArray(found.input) && found.input.length > 0) next.input = [...found.input]
+      out.push(next)
+    } else {
+      out.push({ id })
+    }
+  }
+  return out
+}
+
+export function ModelFetchPicker({ discovered, existingModels = [], onApply, onCancel, disabled = false }) {
+  const existingIds = new Set(existingModels.map(m => (typeof m?.id === 'string' ? m.id.trim() : '')).filter(Boolean))
+  const discoveredIds = new Set()
+  const returned = []
+  for (const item of Array.isArray(discovered) ? discovered : []) {
+    const id = typeof item?.id === 'string' ? item.id.trim() : ''
+    if (id === '' || discoveredIds.has(id)) continue
+    discoveredIds.add(id)
+    returned.push({ id, name: item.name && item.name !== id ? item.name : undefined })
+  }
+  const unreturned = existingModels
+    .map(m => ({ id: typeof m?.id === 'string' ? m.id.trim() : '', name: m?.name }))
+    .filter(m => m.id !== '' && !discoveredIds.has(m.id))
+
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState(() => {
+    const initial = new Set()
+    if (existingIds.size > 0) {
+      for (const id of existingIds) initial.add(id)
+    } else {
+      for (const row of returned) initial.add(row.id)
+    }
+    return initial
+  })
+
+  const needle = query.trim().toLowerCase()
+  const visibleReturned = needle === ''
+    ? returned
+    : returned.filter(row => row.id.toLowerCase().includes(needle) || (row.name && row.name.toLowerCase().includes(needle)))
+
+  const toggle = (id) => {
+    setSelected((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const selectVisible = () => {
+    setSelected((cur) => {
+      const next = new Set(cur)
+      for (const row of visibleReturned) next.add(row.id)
+      return next
+    })
+  }
+  const deselectVisible = () => {
+    setSelected((cur) => {
+      const next = new Set(cur)
+      for (const row of visibleReturned) next.delete(row.id)
+      return next
+    })
+  }
+
+  const orderedSelected = [
+    ...returned.filter(r => selected.has(r.id)).map(r => r.id),
+    ...unreturned.filter(r => selected.has(r.id)).map(r => r.id),
+  ]
+  const emptyRefused = existingIds.size > 0 && orderedSelected.length === 0
+
+  return h('div', { className: 'bt-fetch-picker' },
+    h('div', { className: 'bt-fetch-bar' },
+      h('label', { className: 'bt-q-field bt-fetch-search' },
+        h(SearchIcon),
+        h('input', {
+          type: 'text',
+          className: 'bt-fetch-search-input',
+          value: query,
+          placeholder: t('Search models'),
+          'aria-label': t('Search models'),
+          disabled,
+          spellCheck: false,
+          autoComplete: 'off',
+          onChange: event => setQuery(event.target.value),
+        })),
+      h('div', { className: 'bt-fetch-bulk' },
+        h('button', { type: 'button', className: 'bt-mini', disabled: disabled || visibleReturned.length === 0, onClick: selectVisible }, t('Select all')),
+        h('button', { type: 'button', className: 'bt-mini', disabled: disabled || visibleReturned.length === 0, onClick: deselectVisible }, t('Deselect all')))),
+    returned.length === 0
+      ? h('div', { className: 'bt-set-hint' }, t('The endpoint lists no models.'))
+      : visibleReturned.length === 0
+        ? h('div', { className: 'bt-set-hint' }, t('No matching models.'))
+        : h('div', { className: 'bt-secret-bots bt-provider-found' },
+            visibleReturned.map(row => h('button', {
+              key: row.id,
+              type: 'button',
+              className: 'bt-secret-bot',
+              'aria-pressed': selected.has(row.id),
+              title: row.name,
+              disabled,
+              onClick: () => toggle(row.id),
+            }, h('code', null, row.id), selected.has(row.id) ? h(CheckIcon) : null))),
+    unreturned.length > 0
+      ? h('div', { className: 'bt-provider-draft-group' },
+          h('div', { className: 'bt-secret-edit-label' }, t("Upstream didn't return")),
+          h('div', { className: 'bt-secret-bots bt-provider-found' },
+            unreturned.map(row => h('button', {
+              key: row.id,
+              type: 'button',
+              className: 'bt-secret-bot',
+              'aria-pressed': selected.has(row.id),
+              title: row.name,
+              disabled,
+              onClick: () => toggle(row.id),
+            }, h('code', null, row.id), selected.has(row.id) ? h(CheckIcon) : null))))
+      : null,
+    emptyRefused ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'status' }, t('Select at least one model')) : null,
+    h('div', { className: 'bt-secret-row-actions' },
+      h('span', { className: 'bt-set-hint bt-fetch-count' }, t('{count} selected', { count: orderedSelected.length })),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
+      h('button', {
+        type: 'button',
+        className: 'bt-send bt-soft-sm',
+        disabled: disabled || emptyRefused || orderedSelected.length === 0,
+        onClick: () => onApply(mergePickedModels(existingModels, discovered, orderedSelected)),
+      }, t('Apply selection'))))
+}
+
 export function ProviderConfigEditor({
   provider, protocols = [], reasoningLevels = [], readOnly, apply, actions, roster, onOpenRefresh, refreshing, canRefresh,
 }) {
@@ -212,6 +417,7 @@ export function ProviderConfigEditor({
   const initialBaseURL = provider.baseURL ?? ''
   const initialApi = provider.api ?? ''
   const initialModels = normalizeModelDrafts(provider.editableModels)
+  const initialRetryPolicy = provider.retryPolicy ?? undefined
 
   const [displayName, setDisplayName] = useState(initialDisplayName)
   const [baseURL, setBaseURL] = useState(initialBaseURL)
@@ -219,6 +425,11 @@ export function ProviderConfigEditor({
   const [models, setModels] = useState(initialModels)
   const [modelsEdited, setModelsEdited] = useState(false)
   const [resetModels, setResetModels] = useState(false)
+  const [retryPolicy, setRetryPolicy] = useState(initialRetryPolicy)
+  const [retryEdited, setRetryEdited] = useState(false)
+  const [discovered, setDiscovered] = useState(null)
+  const [discovering, setDiscovering] = useState(false)
+  const [discoverError, setDiscoverError] = useState('')
   const [draftRevision, setDraftRevision] = useState(provider.revision)
   const [conflicted, setConflicted] = useState(false)
   const [reloading, setReloading] = useState(false)
@@ -243,14 +454,16 @@ export function ProviderConfigEditor({
         requireNonEmpty: ownsIdentity,
       })
     : undefined
+  const retryError = retryEdited ? validateRetryPolicy(retryPolicy, provider.retryDefaults) : undefined
   const protocolKeyMissing = family === 'pi-ai' && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv && !provider.key?.configured
 
   const displayNameChanged = ownsIdentity && displayName.trim() !== initialDisplayName.trim()
   const baseURLChanged = baseURL.trim() !== initialBaseURL.trim()
   const apiChanged = ownsIdentity && api !== initialApi && api !== ''
   const modelsChanged = resetModels || (modelsEdited && JSON.stringify(models) !== JSON.stringify(initialModels))
-  const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged
-  const invalid = Boolean(baseUrlError || modelError || protocolKeyMissing)
+  const retryChanged = retryEdited && JSON.stringify(retryPolicy ?? null) !== JSON.stringify(initialRetryPolicy ?? null)
+  const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged || retryChanged
+  const invalid = Boolean(baseUrlError || modelError || retryError || protocolKeyMissing)
   const disabled = readOnly || saving || reloading
 
   const syncFromProvider = (source = provider) => {
@@ -260,6 +473,10 @@ export function ProviderConfigEditor({
     setModels(normalizeModelDrafts(source.editableModels))
     setModelsEdited(false)
     setResetModels(false)
+    setRetryPolicy(source.retryPolicy ?? undefined)
+    setRetryEdited(false)
+    setDiscovered(null)
+    setDiscoverError('')
     setDraftRevision(source.revision)
     setConflicted(false)
     setSaveError('')
@@ -320,6 +537,25 @@ export function ProviderConfigEditor({
     }
   }
 
+  const canDiscover = family === 'pi-ai' && !readOnly && (typeof actions.discoverProviderModels === 'function' || canRefresh)
+  const fetchModels = () => {
+    if (disabled || discovering) return
+    if (typeof actions.discoverProviderModels !== 'function') {
+      onOpenRefresh?.()
+      return
+    }
+    setDiscovering(true)
+    setDiscoverError('')
+    void translated(actions.discoverProviderModels({
+      provider: provider.id,
+      ...(baseURL.trim() !== '' ? { baseURL: baseURL.trim() } : {}),
+      ...(ownsIdentity && effectiveApi ? { api: effectiveApi } : {}),
+    }))
+      .then((list) => { setDiscovered(Array.isArray(list) ? list : []) })
+      .catch(error => setDiscoverError(error?.message ?? String(error)))
+      .finally(() => setDiscovering(false))
+  }
+
   const save = () => {
     if (disabled || !dirty || invalid || conflicted || typeof actions.saveProviderConfig !== 'function') return
     if (hasImpact && !confirmImpact) {
@@ -335,6 +571,11 @@ export function ProviderConfigEditor({
     if (apiChanged) payload.api = api
     if (resetModels) payload.resetModels = true
     else if (modelsChanged) payload.models = models
+    if (retryChanged) {
+      const cleaned = cleanRetryPolicyForSave(retryPolicy)
+      if (cleaned === undefined) payload.resetRetryPolicy = true
+      else payload.retryPolicy = cleaned
+    }
 
     setSaving(true)
     setSaveError('')
@@ -346,6 +587,8 @@ export function ProviderConfigEditor({
         else {
           setModelsEdited(false)
           setResetModels(false)
+          setRetryEdited(false)
+          setDiscovered(null)
           setConflicted(false)
           setConfirmImpact(false)
         }
@@ -365,14 +608,14 @@ export function ProviderConfigEditor({
   }
 
   const effectiveOverridden = resetModels ? false : (modelsEdited ? true : provider.modelsOverridden)
-  const refreshBtn = canRefresh
+  const fetchBtn = canDiscover
     ? h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
-        disabled: disabled || refreshing,
-        'aria-busy': refreshing ? true : undefined,
-        onClick: onOpenRefresh,
-      }, refreshing ? t('Refreshing…') : t('Refresh models'))
+        disabled: disabled || discovering || refreshing,
+        'aria-busy': discovering || refreshing ? true : undefined,
+        onClick: fetchModels,
+      }, discovering || refreshing ? t('Fetching…') : t('Fetch models'))
     : null
 
   return h('div', { className: 'bt-provider-config' },
@@ -419,39 +662,70 @@ export function ProviderConfigEditor({
       })),
     baseUrlError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(baseUrlError)) : null,
     protocolKeyMissing ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t('Google Gemini requires an API key')) : null,
-    h(ModelListEditor, {
-      key: resetEpoch,
-      resetEpoch,
-      models,
-      family,
-      overridden: effectiveOverridden,
-      inheritedCount: provider.models?.length ?? 0,
-      defaultContextWindow: provider.defaultContextWindow,
-      defaultMaxTokens: provider.defaultMaxTokens,
-      defaultInput: provider.defaultInput,
-      reasoningLevels: reasoning.levels,
-      reasoningLevelsOnly: reasoning.levelsOnly,
-      disabled,
-      onChange: (next) => {
-        setResetModels(false)
-        setModelsEdited(true)
-        setModels(next)
-        setConfirmImpact(false)
-        setSavedNotice(false)
-      },
-      onReset: () => {
-        setResetModels(true)
-        setModels(normalizeModelDrafts(provider.defaultModels))
-        setModelsEdited(false)
-        setConfirmImpact(false)
-        setSavedNotice(false)
-      },
-      extraActions: refreshBtn,
-    }),
+    discovered !== null
+      ? h(ModelFetchPicker, {
+          discovered,
+          existingModels: models,
+          disabled,
+          onCancel: () => setDiscovered(null),
+          onApply: (nextModels) => {
+            setResetModels(false)
+            setModelsEdited(true)
+            setModels(nextModels)
+            setDiscovered(null)
+            setConfirmImpact(false)
+            setSavedNotice(false)
+          },
+        })
+      : h(ModelListEditor, {
+          key: resetEpoch,
+          resetEpoch,
+          models,
+          family,
+          overridden: effectiveOverridden,
+          inheritedCount: provider.models?.length ?? 0,
+          defaultContextWindow: provider.defaultContextWindow,
+          defaultMaxTokens: provider.defaultMaxTokens,
+          defaultInput: provider.defaultInput,
+          reasoningLevels: reasoning.levels,
+          reasoningLevelsOnly: reasoning.levelsOnly,
+          disabled,
+          onChange: (next) => {
+            setResetModels(false)
+            setModelsEdited(true)
+            setModels(next)
+            setConfirmImpact(false)
+            setSavedNotice(false)
+          },
+          onReset: () => {
+            setResetModels(true)
+            setModels(normalizeModelDrafts(provider.defaultModels))
+            setModelsEdited(false)
+            setConfirmImpact(false)
+            setSavedNotice(false)
+          },
+          extraActions: fetchBtn,
+        }),
+    discoverError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, discoverError) : null,
     modelError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' },
       modelError.index >= 0
         ? t('Model {index}: {error}', { index: modelError.index + 1, error: t(modelError.key) })
         : t(modelError.key)) : null,
+    provider.retryDefaults
+      ? h(RetryPolicyEditor, {
+          key: resetEpoch,
+          resetEpoch,
+          policy: retryPolicy,
+          retryDefaults: provider.retryDefaults,
+          disabled,
+          onChange: (next) => {
+            setRetryPolicy(next)
+            setRetryEdited(true)
+            setSavedNotice(false)
+          },
+        })
+      : null,
+    retryError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(retryError)) : null,
     impact.switching.map(bot => h('div', { key: `switch-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
       t('{name} will switch to {model} on its next turn.', { name: bot.name, model: bot.target.name ?? bot.target.ref }))),
     impact.failed.map(bot => h('div', { key: `fail-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
@@ -592,7 +866,10 @@ export function ProviderRow({
         h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': open || undefined }, h(ChevronDownIcon)))),
     open ? h('div', { className: 'bt-secret-edit' },
       !isChatGPT && provider.key?.writable ? h(KeyEditor, { provider, apply, actions, disabled: readOnly }) : null,
-      !isChatGPT && provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
+      !isChatGPT && provider.key && !provider.key.writable ? h(Fragment, null,
+        h(CredentialHint, { provider }),
+        h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.'))) : null,
+      !isChatGPT && provider.key === null ? h(CredentialHint, { provider }) : null,
       (provider.id === 'openai' || isChatGPT) && actions.chatgpt
         ? h(ChatGPTSettings, { actions, apply, provider: isChatGPT ? provider : chatgptProvider }) : null,
       isChatGPT ? null : modelsBlock,
@@ -664,7 +941,8 @@ export function UsedBy({ bots, size = 20, max = 4 }) {
 export function KeyEditor({ provider, apply, actions, compact = false, disabled = false }) {
   const [value, setValue] = useState('')
   const [saved, setSaved] = useState(false)
-  const ready = !disabled && value.trim() !== ''
+  const keyError = value.length > 0 ? validateApiKeyDraft(value) : undefined
+  const ready = !disabled && value.trim() !== '' && keyError === undefined
   const save = () => {
     if (!ready) return
     void apply(actions.setProviderKey(provider.id, value)).then((ok) => { if (ok) { setValue(''); setSaved(true) } })
@@ -673,15 +951,18 @@ export function KeyEditor({ provider, apply, actions, compact = false, disabled 
   const label = t('{provider} API key', { provider: provider.name })
   if (compact) {
     return h('div', { className: 'bt-secret-inline bt-key-compact' },
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label, disabled })),
+      h(ApiKeyField, { value, onChange: edit, onEnter: save, label, disabled }),
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save')))
   }
+  const hasLocalKey = provider.key?.configured === true && provider.key?.source !== 'env'
   return h('div', { className: 'bt-secret-edit-block' },
-    h('div', { className: 'bt-secret-edit-label' }, provider.key.configured ? t('Replace the API key') : t('API key')),
+    h('div', { className: 'bt-secret-edit-label' }, hasLocalKey ? t('Replace the API key') : t('API key')),
+    h(CredentialHint, { provider }),
     h('div', { className: 'bt-secret-inline' },
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label, disabled })),
+      h(ApiKeyField, { value, onChange: edit, onEnter: save, label, disabled }),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: save }, t('Save')),
-      provider.key.configured ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled, onClick: () => apply(actions.setProviderKey(provider.id, null)) }, t('Remove key')) : null),
+      hasLocalKey ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled, onClick: () => apply(actions.setProviderKey(provider.id, null)) }, t('Remove key')) : null),
+    keyError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(keyError)) : null,
     saved ? h('div', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Saved.')) : null)
 }
 
@@ -697,26 +978,143 @@ function AddProvider({ view, apply, actions, onDone }) {
     h('div', { hidden: mode !== 'custom' }, h(CustomForm, { view, apply, actions, onDone })))
 }
 
-function KnownForm({ view, apply, actions, onDone }) {
+export function KnownForm({ view, apply, actions, onDone }) {
   const [provider, setProvider] = useState('')
   const [key, setKey] = useState('')
-  const options = [...view.addable].sort((a, b) => a.name.localeCompare(b.name))
+  const [showCustom, setShowCustom] = useState(false)
+  const [baseURL, setBaseURL] = useState('')
+  const [models, setModels] = useState([])
+  const [retryPolicy, setRetryPolicy] = useState(undefined)
+  const [discovered, setDiscovered] = useState(null)
+  const [asking, setAsking] = useState(false)
+  const [fetchError, setFetchError] = useState('')
+
+  const options = [...(view.addable ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+  const selected = options.find(option => option.id === provider)
+  const keyError = key.length > 0 ? validateApiKeyDraft(key) : undefined
+  const baseUrlError = validateBaseUrl(baseURL)
+  const modelError = models.length > 0 ? validateModelRows(models, { requireNonEmpty: false }) : undefined
+  const retryError = validateRetryPolicy(retryPolicy, view.retryDefaults)
+  const invalid = Boolean(keyError || baseUrlError || modelError || retryError)
+  const ready = provider !== '' && !invalid
+
+  const selectProvider = (next) => {
+    setProvider(next)
+    setDiscovered(null)
+    setFetchError('')
+    setModels([])
+    setBaseURL('')
+    setRetryPolicy(undefined)
+  }
+
+  const fetchModels = () => {
+    if (provider === '' || asking) return
+    const discover = actions.discoverProviderModels ?? actions.providerModels
+    if (typeof discover !== 'function') return
+    setAsking(true)
+    setFetchError('')
+    void translated(discover({
+      provider,
+      ...(baseURL.trim() !== '' ? { baseURL: baseURL.trim() } : {}),
+      ...(key.trim() !== '' ? { key: key.trim() } : {}),
+    }))
+      .then((list) => { setDiscovered(Array.isArray(list) ? list : []) })
+      .catch(error => setFetchError(error?.message ?? String(error)))
+      .finally(() => setAsking(false))
+  }
+
   const add = () => {
-    if (provider === '') return
+    if (!ready) return
+    const rev = view.revision !== undefined ? { revision: view.revision } : {}
+    if (typeof actions.addProviderConfig === 'function') {
+      const cleanedRetry = cleanRetryPolicyForSave(retryPolicy)
+      void apply(actions.addProviderConfig({
+        provider,
+        key,
+        ...rev,
+        ...(baseURL.trim() !== '' ? { baseURL: baseURL.trim() } : {}),
+        ...(models.length > 0 ? { models } : {}),
+        ...(cleanedRetry !== undefined ? { retryPolicy: cleanedRetry } : {}),
+      })).then((ok) => { if (ok) onDone() })
+      return
+    }
     void apply(actions.addProvider({ provider, key })).then((ok) => { if (ok) onDone() })
   }
+
+  const fetchBtn = (actions.discoverProviderModels || actions.providerModels) && provider !== ''
+    ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: asking,
+        'aria-busy': asking ? true : undefined,
+        onClick: fetchModels,
+      }, asking ? t('Fetching…') : t('Fetch models'))
+    : null
+
   return h('div', { className: 'bt-provider-form' },
     h(SelectMenu, {
       'aria-label': t('Provider'),
       value: provider,
       placeholder: t('Choose a provider'),
       options: options.map(option => ({ value: option.id, label: option.name })),
-      onChange: setProvider,
+      onChange: selectProvider,
     }),
+    selected ? h(CredentialHint, { provider: selected }) : null,
     provider === 'openai' && actions.chatgpt
       ? h(ChatGPTSettings, { actions, apply, provider: view.providers.find(entry => entry.auth === 'chatgpt') }) : null,
-    h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value: key, onChange: setKey, onEnter: add, label: t('API key') })),
-    h(FormActions, { onCancel: onDone, onAdd: add, ready: provider !== '' }))
+    h(ApiKeyField, { value: key, onChange: setKey, onEnter: add, label: t('API key') }),
+    keyError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(keyError)) : null,
+    provider !== ''
+      ? h(Fragment, null,
+          h('button', {
+            type: 'button',
+            className: 'bt-retry-fold-btn',
+            'aria-expanded': showCustom,
+            onClick: () => setShowCustom(open => !open),
+          }, showCustom ? h(ChevronDownIcon) : h(ChevronRightIcon), t('Custom settings')),
+          showCustom
+            ? h('div', { className: 'bt-provider-custom-box' },
+                h('label', { className: 'bt-model-field' },
+                  h('span', { className: 'bt-model-field-label' }, t('Base URL')),
+                  h('input', {
+                    className: 'bt-input',
+                    type: 'text',
+                    value: baseURL,
+                    placeholder: selected?.defaultBaseURL ?? 'https://api.example.com/v1',
+                    'aria-label': t('Base URL'),
+                    spellCheck: false,
+                    autoComplete: 'off',
+                    onChange: event => setBaseURL(event.target.value),
+                  })),
+                baseUrlError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(baseUrlError)) : null,
+                discovered !== null
+                  ? h(ModelFetchPicker, {
+                      discovered,
+                      existingModels: models,
+                      onCancel: () => setDiscovered(null),
+                      onApply: (nextModels) => { setModels(nextModels); setDiscovered(null) },
+                    })
+                  : h(ModelListEditor, {
+                      models,
+                      family: 'pi-ai',
+                      overridden: models.length > 0,
+                      reasoningLevels: [],
+                      onChange: setModels,
+                      onReset: () => setModels([]),
+                      extraActions: fetchBtn,
+                    }),
+                fetchError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, fetchError) : null,
+                modelError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' },
+                  modelError.index >= 0
+                    ? t('Model {index}: {error}', { index: modelError.index + 1, error: t(modelError.key) })
+                    : t(modelError.key)) : null,
+                view.retryDefaults
+                  ? h(RetryPolicyEditor, { key: provider, resetEpoch: provider, policy: retryPolicy, retryDefaults: view.retryDefaults, onChange: setRetryPolicy })
+                  : null,
+                retryError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(retryError)) : null)
+            : null)
+      : null,
+    h(FormActions, { onCancel: onDone, onAdd: add, ready }))
 }
 
 // Exported so the Add form's readiness and missing-field hint can be driven without a
@@ -724,30 +1122,68 @@ function KnownForm({ view, apply, actions, onDone }) {
 export function CustomForm({ view, apply, actions, onDone }) {
   const [draft, setDraft] = useState({ provider: '', name: '', baseURL: '', api: view.protocols[0], key: '', typed: '' })
   const [found, setFound] = useState(null)
-  const [picked, setPicked] = useState([])
+  const [configuredModels, setConfiguredModels] = useState([])
+  const [retryPolicy, setRetryPolicy] = useState(undefined)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [asking, setAsking] = useState(false)
+  const [fetchError, setFetchError] = useState('')
   const set = (field, value) => setDraft(current => ({ ...current, [field]: value }))
   const typed = draft.typed.split(/[\s,]+/).map(id => id.trim()).filter(Boolean)
-  const models = [...(found ?? []).filter(model => picked.includes(model.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
+  const configuredIds = new Set(configuredModels.map(m => (typeof m?.id === 'string' ? m.id.trim() : '')).filter(Boolean))
+  const models = [...configuredModels, ...typed.filter(id => !configuredIds.has(id)).map(id => ({ id }))]
+
+  const reasoning = protocolReasoningLevels(draft.api, view.reasoningLevels)
+  const providerIdError = draft.provider.trim() !== '' && !isValidRouteId(draft.provider.trim())
+    ? 'Use lowercase letters, digits, and dashes, starting with a letter'
+    : undefined
+  const baseUrlError = validateBaseUrl(draft.baseURL)
+  const keyError = validateApiKeyDraft(draft.key, { required: protocolNeedsKey(draft.api) })
+  const modelError = configuredModels.length > 0
+    ? validateModelRows(configuredModels, {
+        reasoningLevels: reasoning.levels,
+        reasoningLevelsOnly: reasoning.levelsOnly,
+        requireNonEmpty: false,
+      })
+    : undefined
+  const retryError = validateRetryPolicy(retryPolicy, view.retryDefaults)
+
   const missing = []
   if (draft.provider.trim() === '') missing.push(t('Provider ID'))
   if (draft.baseURL.trim() === '') missing.push(t('Endpoint'))
   if (models.length === 0) missing.push(t('At least one model'))
-  const ready = missing.length === 0
-  const missingHint = ready ? null : h('div', { className: 'bt-set-hint bt-provider-missing', role: 'status' },
+  if (protocolNeedsKey(draft.api) && draft.key.trim() === '') missing.push(t('API key'))
+
+  const invalid = Boolean(providerIdError || baseUrlError || (draft.key.length > 0 && keyError) || modelError || retryError)
+  const ready = missing.length === 0 && !invalid
+  const missingHint = missing.length === 0 ? null : h('div', { className: 'bt-set-hint bt-provider-missing', role: 'status' },
     t('Please enter: {fields}', {
       fields: missing.join(t(', ')),
     }))
   const fetchModels = () => {
+    const discover = actions.discoverProviderModels ?? actions.providerModels
+    if (typeof discover !== 'function' || asking) return
     setAsking(true)
-    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => { setFound(list); setPicked([]) }))
+    setFetchError('')
+    void translated(discover({ baseURL: draft.baseURL, api: draft.api, key: draft.key }))
+      .then((list) => { setFound(Array.isArray(list) ? list : []) })
+      .catch(error => setFetchError(error?.message ?? String(error)))
       .finally(() => setAsking(false))
   }
-  const toggle = id => setPicked(list => (list.includes(id) ? list.filter(item => item !== id) : [...list, id]))
   const add = () => {
     if (!ready) return
-    void apply(actions.addProvider({ custom: true, provider: draft.provider.trim(), name: draft.name, baseURL: draft.baseURL, api: draft.api, key: draft.key, models }))
-      .then((ok) => { if (ok) onDone() })
+    const cleanedRetry = cleanRetryPolicyForSave(retryPolicy)
+    const submit = actions.addProviderConfig ?? actions.addProvider
+    void apply(submit({
+      custom: true,
+      provider: draft.provider.trim(),
+      name: draft.name,
+      baseURL: draft.baseURL,
+      api: draft.api,
+      key: draft.key,
+      models,
+      ...(view.revision !== undefined ? { revision: view.revision } : {}),
+      ...(cleanedRetry !== undefined ? { retryPolicy: cleanedRetry } : {}),
+    })).then((ok) => { if (ok) onDone() })
   }
   const input = (field, label, placeholder) => h('input', {
     className: 'bt-input', 'aria-label': label, placeholder, value: draft[field], spellCheck: false, autoComplete: 'off', onChange: event => set(field, event.target.value),
@@ -756,6 +1192,7 @@ export function CustomForm({ view, apply, actions, onDone }) {
     h('div', { className: 'bt-provider-pair' },
       input('provider', t('Provider ID'), t('Provider ID, e.g. my-gateway')),
       input('name', t('Name'), t('Name (optional)'))),
+    providerIdError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(providerIdError)) : null,
     h('div', { className: 'bt-provider-pair' },
       input('baseURL', t('Endpoint'), ENDPOINT_HINTS[draft.api] ?? 'https://gateway.example/v1'),
       h(SelectMenu, {
@@ -764,16 +1201,47 @@ export function CustomForm({ view, apply, actions, onDone }) {
         options: view.protocols.map(api => ({ value: api, label: PROTOCOL_NAMES[api] ?? api })),
         onChange: value => set('api', value),
       })),
-    h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value: draft.key, onChange: value => set('key', value), label: t('API key') })),
+    baseUrlError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(baseUrlError)) : null,
+    h(ApiKeyField, { value: draft.key, onChange: value => set('key', value), label: t('API key') }),
+    draft.key.length > 0 && keyError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(keyError)) : null,
     h('div', { className: 'bt-secret-edit-block' },
       h('div', { className: 'bt-provider-models-head' },
         h('span', { className: 'bt-secret-edit-label' }, t('Models')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: asking || draft.baseURL.trim() === '', onClick: fetchModels }, asking ? t('Asking…') : t('Fetch models'))),
-      found !== null && found.length === 0 ? h('div', { className: 'bt-set-hint' }, t('The endpoint lists no models. Enter their ids below.')) : null,
-      found !== null && found.length > 0 ? h('div', { className: 'bt-secret-bots bt-provider-found' }, found.map(model => h('button', {
-        key: model.id, type: 'button', className: 'bt-secret-bot', 'aria-pressed': picked.includes(model.id), title: model.name && model.name !== model.id ? model.name : undefined, onClick: () => toggle(model.id),
-      }, h('code', null, model.id), picked.includes(model.id) ? h(CheckIcon) : null))) : null,
+      found !== null
+        ? h(ModelFetchPicker, {
+            discovered: found,
+            existingModels: configuredModels,
+            onCancel: () => setFound(null),
+            onApply: (nextModels) => { setConfiguredModels(nextModels); setFound(null); setShowAdvanced(true) },
+          })
+        : null,
+      fetchError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, fetchError) : null,
       input('typed', t('Model ids'), t('Model ids, separated by commas'))),
+    h('button', {
+      type: 'button',
+      className: 'bt-retry-fold-btn',
+      'aria-expanded': showAdvanced,
+      onClick: () => setShowAdvanced(open => !open),
+    }, showAdvanced ? h(ChevronDownIcon) : h(ChevronRightIcon), t('Custom settings')),
+    showAdvanced
+      ? h('div', { className: 'bt-provider-custom-box' },
+          h(ModelListEditor, {
+            models: configuredModels,
+            family: 'pi-ai',
+            reasoningLevels: reasoning.levels,
+            reasoningLevelsOnly: reasoning.levelsOnly,
+            onChange: setConfiguredModels,
+          }),
+          modelError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' },
+            modelError.index >= 0
+              ? t('Model {index}: {error}', { index: modelError.index + 1, error: t(modelError.key) })
+              : t(modelError.key)) : null,
+          view.retryDefaults
+            ? h(RetryPolicyEditor, { policy: retryPolicy, retryDefaults: view.retryDefaults, onChange: setRetryPolicy })
+            : null,
+          retryError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(retryError)) : null)
+      : null,
     missingHint,
     h(FormActions, { onCancel: onDone, onAdd: add, ready }))
 }
@@ -803,6 +1271,10 @@ export const PROVIDERS_CSS = `
 .bt-provider-state[data-state=missing]::before{background:var(--bt-danger)}
 .bt-provider .bt-secret-field{align-items:center;gap:8px}
 .bt-provider .bt-secret-field>svg,.bt-provider-form .bt-secret-field>svg{flex:none;color:var(--bt-ink-3)}
+.bt-key-field{padding-right:4px}
+.bt-key-reveal{width:28px;height:28px;flex:none;color:var(--bt-ink-2)}
+.bt-cred-detected{color:var(--bt-green)}
+.bt-cred-masked{user-select:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
 .bt-provider-models{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .bt-provider-models .bt-tag{max-width:220px}
 .bt-provider-add{gap:12px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
@@ -825,6 +1297,7 @@ export const PROVIDERS_CSS = `
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
 .bt-provider-config{display:flex;flex-direction:column;gap:12px;padding-top:4px;border-top:.5px solid var(--bt-line)}
+.bt-provider-custom-box{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-main)}
 .bt-provider-form-bar{justify-content:flex-end;align-items:center;gap:8px;padding-top:4px}
 .bt-model-editor{display:flex;flex-direction:column;gap:8px}
 .bt-model-editor-title{display:inline-flex;align-items:center;gap:8px}
@@ -852,7 +1325,21 @@ export const PROVIDERS_CSS = `
 .bt-model-reasoning-cols{margin-bottom:-2px}
 .bt-model-effort-val{height:32px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
 .bt-model-add-level,.bt-model-add-btn{align-self:flex-start}
-@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}.bt-provider-pair,.bt-model-cap-grid{grid-template-columns:1fr}}
-@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}.bt-provider-pair,.bt-model-cap-grid{grid-template-columns:1fr}}
+.bt-retry-editor{display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:.5px solid var(--bt-line)}
+.bt-retry-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-retry-custom-row{display:flex;align-items:center;gap:6px;margin-top:2px}
+.bt-retry-custom-row .bt-input{flex:1 1 auto;min-width:0}
+.bt-retry-fold-btn{align-self:flex-start;display:inline-flex;align-items:center;gap:4px;background:none;border:none;padding:2px 0;font:inherit;font-size:12px;font-weight:500;color:var(--bt-ink-2);cursor:pointer}
+.bt-retry-fold-btn:hover{color:var(--bt-ink)}
+.bt-retry-backoff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bt-fetch-picker{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-main)}
+.bt-fetch-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bt-fetch-search{flex:1 1 180px;display:flex;align-items:center;gap:6px;min-height:32px;padding:0 8px}
+.bt-fetch-search>svg{flex:none;color:var(--bt-ink-3)}
+.bt-fetch-search-input{flex:1 1 auto;min-width:0;border:none;background:none;color:var(--bt-ink);font:inherit;font-size:12px;outline:none}
+.bt-fetch-bulk{display:inline-flex;align-items:center;gap:6px;flex:none}
+.bt-fetch-count{margin-right:auto}
+@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}.bt-provider-pair,.bt-model-cap-grid,.bt-retry-backoff-grid{grid-template-columns:1fr}}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}.bt-provider-pair,.bt-model-cap-grid,.bt-retry-backoff-grid{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `
