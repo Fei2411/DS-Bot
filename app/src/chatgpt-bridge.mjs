@@ -21,14 +21,18 @@ export function createChatGPTBridge({ signIn, relay, getSignIn, getRelay, openEx
   }
 
   const ensureRelay = () => {
-    if (resolvedRelay) return Promise.resolve(resolvedRelay)
     if (closed) return Promise.reject(new Error('ChatGPT bridge closed.'))
-    relayPromise ??= ensureSignIn().then(si => getRelay(si)).then((value) => {
-      resolvedRelay = value
+    if (resolvedRelay) return Promise.resolve(resolvedRelay)
+    relayPromise ??= ensureSignIn().then(si => getRelay(si)).then(async (value) => {
       if (closed) {
-        void Promise.resolve(value.close()).catch(() => {})
+        try {
+          await Promise.resolve(value.close()).catch(() => {})
+        } finally {
+          relayPromise = undefined
+        }
         throw new Error('ChatGPT bridge closed.')
       }
+      resolvedRelay = value
       return value
     }, (error) => {
       relayPromise = undefined
@@ -75,7 +79,7 @@ export function createChatGPTBridge({ signIn, relay, getSignIn, getRelay, openEx
     close() {
       closed = true
       signingIn?.abort()
-      if (resolvedRelay) return resolvedRelay.close()
+      if (resolvedRelay) return Promise.resolve(resolvedRelay.close())
       if (relayPromise) return relayPromise.then(value => value.close(), () => {})
       return Promise.resolve()
     },

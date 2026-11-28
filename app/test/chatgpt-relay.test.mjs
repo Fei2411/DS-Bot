@@ -428,5 +428,107 @@ test('lazy ChatGPT bridge defers signIn until first request and relay until rout
   assert.equal(replies.find(r => r.id === 'r1').result.secret, 'lazy-secret')
   await bridge.close()
   assert.equal(relayClosed, 1)
+  // After close(), ensureRelay must reject rather than returning the closed relay.
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 'r-after-close', method: 'chatgpt:route' }, r => replies.push(r))
+  await tick()
+  await tick()
+  const afterClose = replies.find(r => r.id === 'r-after-close')
+  assert.ok(afterClose?.error, 'chatgpt:route after close() must fail instead of returning a closed relay')
+})
+
+test('lazy ChatGPT bridge retries getSignIn and getRelay after transient initialization failures', async () => {
+  let signInAttempts = 0
+  let relayAttempts = 0
+  const replies = []
+  const bridge = createChatGPTBridge({
+    getSignIn: async () => {
+      signInAttempts += 1
+      if (signInAttempts === 1) throw new Error('transient signIn init error')
+      return {
+        status: () => ({ state: 'signed-out' }),
+        listModels: async () => [],
+        signOut: async () => ({ state: 'signed-out', remoteRevocationConfirmed: false }),
+      }
+    },
+    getRelay: async () => {
+      relayAttempts += 1
+      if (relayAttempts === 1) throw new Error('transient relay init error')
+      return {
+        route: () => ({ baseURL: 'http://127.0.0.1:4243/v1', secret: 'test-recovered-secret' }),
+        close: async () => {},
+      }
+    },
+    openExternal() {},
+  })
+
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 's-fail', method: 'chatgpt:status' }, r => replies.push(r))
+  await tick(); await tick()
+  assert.ok(replies.find(r => r.id === 's-fail')?.error)
+
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 's-ok', method: 'chatgpt:status' }, r => replies.push(r))
+  await tick(); await tick()
+  assert.deepEqual(replies.find(r => r.id === 's-ok')?.result, { state: 'signed-out' })
+  assert.equal(signInAttempts, 2)
+
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 'r-fail', method: 'chatgpt:route' }, r => replies.push(r))
+  await tick(); await tick()
+  assert.ok(replies.find(r => r.id === 'r-fail')?.error)
+
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 'r-ok', method: 'chatgpt:route' }, r => replies.push(r))
+  await tick(); await tick()
+  assert.equal(replies.find(r => r.id === 'r-ok')?.result?.secret, 'test-recovered-secret')
+  assert.equal(relayAttempts, 2)
+
+  await bridge.close()
+})
+
+test('closing ChatGPT bridge while getRelay is in flight awaits relay.close() and blocks future route calls', async () => {
+  let resolveRelay
+  let finishRelayClose
+  let relayClosed = false
+  let relayCloseCalls = 0
+  const replies = []
+  const bridge = createChatGPTBridge({
+    getSignIn: async () => ({
+      status: () => ({ state: 'connected' }),
+      listModels: async () => [],
+      signOut: async () => ({ state: 'signed-out', remoteRevocationConfirmed: false }),
+    }),
+    getRelay: () => new Promise(resolve => { resolveRelay = resolve }),
+    openExternal() {},
+  })
+
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 'r-inflight', method: 'chatgpt:route' }, r => replies.push(r))
+  await tick(); await tick()
+  assert.equal(typeof resolveRelay, 'function', 'getRelay should be in flight')
+
+  let bridgeCloseResolved = false
+  const closing = bridge.close().then(() => { bridgeCloseResolved = true })
+
+  resolveRelay({
+    route: () => ({ baseURL: 'http://127.0.0.1:4244/v1', secret: 'test-never-escape' }),
+    close: () => {
+      relayCloseCalls += 1
+      return new Promise(resolve => {
+        finishRelayClose = () => { relayClosed = true; resolve() }
+      })
+    },
+  })
+  await tick(); await tick()
+
+  assert.equal(relayCloseCalls, 1, 'in-flight relay must be closed when bridge was closed mid-init')
+  assert.equal(bridgeCloseResolved, false, 'bridge.close() must await relay.close() before resolving')
+
+  finishRelayClose()
+  await closing
+  assert.equal(relayClosed, true)
+  assert.equal(bridgeCloseResolved, true)
+  assert.ok(replies.find(r => r.id === 'r-inflight')?.error, 'in-flight route must fail after close()')
+
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 'r-post-close', method: 'chatgpt:route' }, r => replies.push(r))
+  await tick(); await tick()
+  const postClose = replies.find(r => r.id === 'r-post-close')
+  assert.ok(postClose?.error, 'subsequent route after mid-init close() must not return the closed relay')
+  assert.equal(postClose?.result, undefined)
 })
 

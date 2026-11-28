@@ -150,6 +150,8 @@ let attempt = 0
 let bootAbort = new AbortController()
 // The Host answered and the window may talk to it without the launch URL.
 let hostReady = false
+// Stops the active did-fail-load listener attached by onReload() on the team window.
+let stopReloadWatch
 // The Host's launch URL: the first window trades it for the Host's cookie.
 let launchUrl
 // The first load of the Host, which mints that cookie. It ends when the first load came
@@ -165,6 +167,7 @@ let downloadsBound = false
 let copying
 let relaunching = false
 const copyAbort = new AbortController()
+let modulesLoading
 let browserGuests
 let botViews
 let activeShortcuts = []
@@ -224,7 +227,6 @@ if (canonical !== undefined) {
   app.once('will-quit', () => { logs.flush() })
   console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   const bannerAt = Date.now()
-  let stopReloadWatch
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
@@ -241,7 +243,7 @@ if (canonical !== undefined) {
       const win = mainWindow
       if (win === undefined || win.isDestroyed()) return
       const mine = attempt
-      if (win.webContents.getURL().startsWith(`${origin}/`)) {
+      if (hostReady && win.webContents.getURL().startsWith(`${origin}/`)) {
         const wc = win.webContents
         const done = () => {
           if (stopReloadWatch === done) stopReloadWatch = undefined
@@ -401,16 +403,17 @@ async function prepare() {
         startupStep('hostPort', portAt)
       })()
     : Promise.resolve()
-  const modulesWork = browserGuests === undefined
-    ? (async () => {
-        const modulesAt = Date.now()
-        await loadModules()
-        startupStep('loadModules', modulesAt)
-        const ipcAt = Date.now()
-        handleIpc()
-        startupStep('handleIpc', ipcAt)
-      })()
-    : Promise.resolve()
+  const modulesWork = (modulesLoading ??= (async () => {
+    const modulesAt = Date.now()
+    await loadModules()
+    startupStep('loadModules', modulesAt)
+    const ipcAt = Date.now()
+    handleIpc()
+    startupStep('handleIpc', ipcAt)
+  })().catch((error) => {
+    modulesLoading = undefined
+    throw error
+  }))
   await Promise.all([portWork, modulesWork])
   // The team window is made once the start window has painted, already on its final rect, and
   // made again when it is gone for good (a cancelled shutdown kept the app without one), so
@@ -489,6 +492,8 @@ async function retry() {
 // The handshake of the Host that goes: a window rebuilt before the next engine answers must not
 // load against a Host that is stopped, nor take its cookie for the new one's.
 function forgetHost() {
+  stopReloadWatch?.()
+  stopReloadWatch = undefined
   hostReady = false
   bootstrap = undefined
 }

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
 import { state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
-import { startApp, startState, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
+import { startAct, startApp, startState, startWindows, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -16,7 +16,7 @@ before(async () => {
   await startApp()
 })
 
-test('a first load that never came through does not carry the token again', async () => {
+test('a first load that never came through does not carry the token again, including on reload', async () => {
   await waitFor(() => window() !== undefined, 'open the window')
   await waitFor(() => state.tray !== undefined, 'build the tray')
   const first = window()
@@ -24,6 +24,17 @@ test('a first load that never came through does not carry the token again', asyn
   await waitFor(() => first.loaded.some(url => url.includes('token=')), 'try the Host')
   await waitFor(() => startState()?.view === 'viewFailed', 'enter viewFailed immediately on loadURL failure')
   assert.equal(state.cookies.length, 0, 'the Host left no cookie')
+  // Electron leaves webContents.getURL() at the failed ?token= launch URL.
+  assert.ok(first.webContents.getURL().includes('token='), 'failed launch URL stays on webContents.getURL()')
+
+  // Clicking reload after a failed initial ?token= load must go through connectHost (${origin}/)
+  // rather than wc.reload(), so the spent one-time launch token is never replayed.
+  const loadedBeforeReload = first.loaded.length
+  await startAct('reloadView')
+  await waitFor(() => first.loaded.length > loadedBeforeReload, 'reload via connectHost')
+  await waitFor(() => startState()?.view === 'viewFailed', 'enter viewFailed again when reload loadURL fails')
+  assert.equal(first.webContents.reloads, 0, 'must not call wc.reload() on a failed initial ?token= URL')
+  assert.equal(first.loaded.at(-1).includes('token='), false, 'connectHost reload must load plain origin without token')
 
   // The window is gone for good; the tray builds a new one.
   first.destroy()
@@ -36,20 +47,32 @@ test('a first load that never came through does not carry the token again', asyn
 })
 
 test('failed reload on an already-connected team window enters viewFailed via did-fail-load without waiting 20 s', async () => {
-  const { startAct, startWindows } = await import('./helpers/app-harness.mjs')
   const start = startWindows().at(-1)
   if (!start.webContents.mainFrame.url && start.loaded[0]) start.webContents.mainFrame.url = start.loaded[0]
   const win = window()
-  // Simulate a loaded Host page whose reload later fails with a main-frame connection error.
-  win.webContents.url = `${win.loaded[0].split('?')[0]}`
+  await waitFor(() => startState()?.view === 'viewFailed', 'wait for viewFailed before establishing host cookie')
+  // Establish an authenticated Host cookie so connectHost marks hostReady = true and loads ${origin}/.
+  const originUrl = `${win.loaded[0].split('?')[0]}`
+  state.cookies.push({ name: 'dsh-auth', value: 'cookie', domain: '127.0.0.1', path: '/' })
+  const loadsBeforeCookie = win.loaded.length
   await startAct('reloadView')
+  await waitFor(() => win.loaded.length > loadsBeforeCookie, 'connectHost with cookie')
+  await waitFor(() => startState()?.view === 'viewFailed', 'return to viewFailed when loadURL rejects')
+  assert.equal(win.webContents.getURL(), originUrl)
+  assert.equal(win.webContents.reloads, 0)
+
+  // Now hostReady is true and webContents.getURL() is ${origin}/: reloadView must use wc.reload()
+  // and watch did-fail-load for immediate main-frame failure reporting.
+  state.rejectLoads = false
+  await startAct('reloadView')
+  assert.equal(win.webContents.reloads, 1, 'connected window reload should call wc.reload()')
   assert.equal(startState()?.view, 'boot')
   // Subframe failures and ERR_ABORTED (-3) are ignored; main-frame connection errors fail immediately.
-  win.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', win.webContents.url, false)
+  win.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', originUrl, false)
   assert.equal(startState()?.view, 'boot')
-  win.webContents.emit('did-fail-load', {}, -3, 'ERR_ABORTED', win.webContents.url, true)
+  win.webContents.emit('did-fail-load', {}, -3, 'ERR_ABORTED', originUrl, true)
   assert.equal(startState()?.view, 'boot')
-  win.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', win.webContents.url, true)
+  win.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', originUrl, true)
   await waitFor(() => startState()?.view === 'viewFailed', 'enter viewFailed immediately on reload did-fail-load')
 })
 

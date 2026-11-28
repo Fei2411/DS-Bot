@@ -171,7 +171,8 @@ class FakeWebContents extends EventEmitter {
     this.insertCSS = async () => {}
     this.toggleDevTools = () => {}
     this.loadURL = async url => { await this.win.loadURL(url) }
-    this.reload = () => {}
+    this.reloads = 0
+    this.reload = () => { this.reloads += 1 }
   }
 }
 

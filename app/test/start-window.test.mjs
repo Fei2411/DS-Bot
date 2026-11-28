@@ -1024,3 +1024,25 @@ test('teamViewFailed redacts launch tokens from console output', (t) => {
   assert.ok(logged.some(line => line.includes('token=<hidden>')), 'redacted token should appear in log line')
   assert.equal(logged.some(line => line.includes('secret-launch-token')), false, 'raw launch token must never print to console')
 })
+
+test('deferred teamViewFailed transitions to viewFailed after card closes without logging a 20 s timeout', (t) => {
+  const s = startWindow(t)
+  const logged = []
+  const origLog = console.log
+  console.log = (...args) => { logged.push(args.join(' ')) }
+  try {
+    s.start.open('first')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.teamLoading()
+    s.start.card({ kind: 'rejected', reason: 'onedrive', path: 'C:\\OneDrive' })
+    s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED (-102)'))
+    assert.equal(s.state().view, 'card')
+    s.start.card(undefined)
+  } finally {
+    console.log = origLog
+  }
+  assert.equal(s.state().view, 'viewFailed')
+  assert.ok(logged.some(line => line.includes('the team view failed to load')), 'load failure should be logged once')
+  assert.equal(logged.some(line => line.includes('did not call ready() within 20 s')), false, 'must not log misleading 20 s timeout after teamViewFailed')
+})

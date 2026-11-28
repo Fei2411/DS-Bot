@@ -538,3 +538,29 @@ test('macOS without chatgpt-signin.enc never touches safeStorage on init or stat
   assert.ok(calls.includes('isEncryptionAvailable'))
   assert.ok(calls.includes('decryptString'))
 })
+
+test('macOS with existing chatgpt-signin.enc fails closed as temporarily-unavailable when keychain is unavailable without re-probing on status() polling', async t => {
+  const f = await fixture(t)
+  await f.login()
+  const file = join(f.userData, 'chatgpt-signin.enc')
+  const savedBytes = await fs.readFile(file)
+
+  let availabilityChecks = 0
+  const lockedSafeStorage = {
+    isEncryptionAvailable: () => { availabilityChecks += 1; return false },
+    encryptString: () => assert.fail('must not encrypt when keychain is unavailable'),
+    decryptString: () => assert.fail('must not decrypt when keychain is unavailable'),
+  }
+
+  const locked = await createChatGPTSignIn({ ...f.clientOptions, safeStorage: lockedSafeStorage, platform: 'darwin', mockKeychain: false })
+  assert.deepEqual(locked.status(), { state: 'temporarily-unavailable' })
+  const checksAfterInit = availabilityChecks
+  assert.equal(checksAfterInit, 1, 'init probes safeStorage once while attempting to read existing .enc')
+
+  // Repeated status() polling (e.g., ChatGPTSettings 1.5 s timer) must not trigger repeated Keychain probes.
+  for (let i = 0; i < 5; i += 1) {
+    assert.deepEqual(locked.status(), { state: 'temporarily-unavailable' })
+  }
+  assert.equal(availabilityChecks, checksAfterInit, 'status() polling must not re-invoke safeStorage.isEncryptionAvailable()')
+  assert.deepEqual(await fs.readFile(file), savedBytes, 'existing encrypted credential file must remain untouched')
+})
