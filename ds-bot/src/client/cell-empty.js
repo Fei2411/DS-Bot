@@ -1,4 +1,5 @@
 import { createElement as h, useLayoutEffect, useRef } from 'react'
+import { syncHostAncestors } from './chat-room.js'
 
 // A cell that draws nothing marks itself, so the row or seat wrapping it can tell a
 // cell DS Bot emptied from one another renderer filled — a cell holding only text has
@@ -21,6 +22,7 @@ export function CellEmpty({ className }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const marker = ref.current
+    syncHostAncestors(marker)
     const slot = marker?.closest('[data-bt-slot]')
     if (!slot) return undefined
     const sync = gone => (emptied(slot, gone) ? (slot.dataset.btEmptied = '') : delete slot.dataset.btEmptied)

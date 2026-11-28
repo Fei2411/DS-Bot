@@ -942,6 +942,32 @@ function renderTranscriptRows({
   })
 }
 
+// Advances the tail-reply watermark for a DM session. Prepended historical pages
+// (`loadEarlier`) carry `seq <= maxSeq` and therefore report 0 new arrivals; only
+// newly appended assistant replies past the seen tail watermark increment the pill.
+export function advanceReplyWatermark(state, sessionId, ready, rows) {
+  if (!sessionId || !ready) return { next: state, added: 0 }
+  const current = state?.sessionId === sessionId ? state : { sessionId, maxSeq: null }
+  let maxSeq = current.maxSeq
+  let added = 0
+  if (maxSeq === null) {
+    let highest = 0
+    for (const row of rows) {
+      if (row.kind === 'assistant' && row.texts.length > 0 && Number.isFinite(row.seq) && row.seq > highest) {
+        highest = row.seq
+      }
+    }
+    return { next: { sessionId, maxSeq: highest }, added: 0 }
+  }
+  for (const row of rows) {
+    if (row.kind === 'assistant' && row.texts.length > 0 && Number.isFinite(row.seq) && row.seq > maxSeq) {
+      added += 1
+      maxSeq = row.seq
+    }
+  }
+  return { next: maxSeq === current.maxSeq ? current : { sessionId, maxSeq }, added }
+}
+
 export function SessionTranscript({
   log, sessionId, parent, mode, ancestors, bot, roster, actions, classic = false, feed, readOnly = false, onOpenSubagent,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
@@ -1149,14 +1175,13 @@ export function SessionTranscript({
       if (Number.isFinite(row.time)) actions.noteTurnTime(sessionId, row.turn ?? row.key, 'first', row.time)
     }
   }, [classic, sessionId, rowParts.committed, actions])
+  const tailReplyRef = useRef({ sessionId: null, maxSeq: null })
   useEffect(() => {
-    if (classic || !sessionId || typeof actions?.noteReplyCount !== 'function') return
-    let count = 0
-    for (const row of rowParts.committed) {
-      if (row.kind === 'assistant' && row.texts.length > 0) count += 1
-    }
-    if (count > 0) actions.noteReplyCount(sessionId, count)
-  }, [classic, sessionId, rowParts.committed, actions])
+    if (classic || !sessionId || typeof actions?.noteReplyArrival !== 'function') return
+    const { next, added } = advanceReplyWatermark(tailReplyRef.current, sessionId, log?.header !== null, rowParts.committed)
+    tailReplyRef.current = next
+    if (added > 0) actions.noteReplyArrival(sessionId, added)
+  }, [classic, sessionId, log?.header, rowParts.committed, actions])
 
   const rowProps = {
     canLoadEarlierParts, firstUnreadKey, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,

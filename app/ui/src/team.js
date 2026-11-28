@@ -951,9 +951,9 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
-    noteReplyCount: (sessionId, count) => {
-      if (!sessionId || !Number.isFinite(count)) return
-      editRow(sessionId, row => (typeof row.replyCount === 'number' && row.replyCount >= count ? row : { ...row, replyCount: count }))
+    noteReplyArrival: (sessionId, delta) => {
+      if (!sessionId || !Number.isFinite(delta) || delta <= 0) return
+      editRow(sessionId, row => ({ ...row, replyCount: (row.replyCount ?? 0) + delta }))
     },
   }
 
@@ -1123,7 +1123,9 @@ export function createTeam() {
       editRow(sessionId, row => ({
         ...row,
         updatedAt: Math.max(row.updatedAt ?? 0, item.time ?? 0),
-        ...(item.kind === 'bot' ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
+        // Active DM Sessions count tail arrivals via SessionTranscript's monotonic seq watermark
+        // so "Load earlier" never inflates replyCount and live replies are never double-counted.
+        ...(item.kind === 'bot' && shown.getSnapshot() !== sessionId ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
         // The sidebar's preview line; turn -1 is never a hidden exchange turn.
         projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
       }))

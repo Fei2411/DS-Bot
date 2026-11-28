@@ -6,10 +6,15 @@ import { SPRING_POP, SPRING_SLIDE, SPRING_TAP, spring } from './motion.js'
 import { REPLY_FAMILY } from '../shared/reply-fonts.js'
 import { SERIF_REPLIES } from './themes.js'
 
-// Maps DSH's private `--dsh-*` tokens onto DS Bot's `--bt-*` contract and adapts
-// DSH's own shell frame (logo row, footer area, width handle, settings slots, menus).
+// Maps DSH's private `--dsh-*` tokens onto DS Bot's `--bt-*` contract at the exact
+// DOM element level where DSH declares each token (CSS custom properties resolve var()
+// on the declaring element before inheritance), and adapts DSH's own shell frame.
 export const DSH_SHELL_CSS = `
-:root{--bt-content-fs:var(--dsh-content-font-size,14px);--bt-chat-w:var(--dsh-chat-content-width,748px);--bt-chrome-top:var(--dsh-frame-chrome-top,0px);--bt-top-clearance:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));--bt-overlay-top:var(--dsh-frame-overlay-top,32px);--bt-titlebar-h:var(--dsh-windows-titlebar-height,0px);--bt-composer-max-w:var(--dsh-composer-card-max-width,748px);--bt-composer-side:var(--dsh-composer-side-clearance,0px);--bt-composer-dock-inset:var(--dsh-composer-dock-inset,8px);--bt-composer-gap:var(--dsh-composer-dock-gap,8px);--bt-flow-gap:var(--dsh-chat-flow-gap,12px);--bt-mono:var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace);--bt-reply-font:var(--dsh-font-family-text);--bt-reply-font-default:var(--dsh-font-family-text-default,sans-serif)}
+:root{--bt-chrome-top:var(--dsh-frame-chrome-top,0px);--bt-top-clearance:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));--bt-overlay-top:var(--dsh-frame-overlay-top,32px);--bt-titlebar-h:var(--dsh-windows-titlebar-height,0px);--bt-reply-font-default:var(--dsh-font-family-text-default,sans-serif)}
+html body{--bt-content-fs:var(--dsh-content-font-size,14px);--bt-reply-font:var(--dsh-font-family-text);--bt-mono:var(--dsh-font-family-code,var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace))}
+[class*="_body"],[class*="_embeddedBody"]{--bt-chat-w:var(--dsh-chat-content-width,748px);--bt-composer-max-w:var(--dsh-composer-card-max-width,748px);--bt-composer-side:var(--dsh-composer-side-clearance,0px);--bt-composer-dock-inset:var(--dsh-composer-dock-inset,8px)}
+[class*="_composerStack"]{--bt-composer-gap:var(--dsh-composer-stack-gap,8px)}
+[data-chat-flow],[data-chat-flow]>*,[data-chat-group-key]{--bt-flow-gap:var(--dsh-chat-flow-gap,12px)}
 @media (prefers-reduced-motion:reduce){[class*="_centerCol"]{transition:none}}
 @media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
@@ -55,12 +60,13 @@ body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
 // Adapts DSH's conversation DOM (header, scroller, step-process, composer card,
 // user bubble, toBottomSlot, composer dock) when DS Bot runs inside DSH.
 export const DSH_CONVERSATION_CSS = `
-[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 [data-trigger-menu] [role=option]>span{text-align:left}
 [data-conversation-scroll]{--bt-composer-h:var(--dsh-composer-height,152px);--bt-composer-inset:var(--dsh-composer-height,152px)}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 [data-step-process]>div:first-child{display:none!important}
 [data-step-process]>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
+[data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
+[data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 :is([data-step-process],[data-turn-process-hidden])[hidden]{content-visibility:visible!important}
 [class*="_flowItem"]:has(> [data-slot="conversation.chat.node"]:empty, > [data-slot="conversation.chat.node"][data-bt-emptied]){display:none!important}
 [data-step-process]:has(> [data-step-process-body] [data-slot="conversation.chat.node"][data-bt-emptied]):not(:has(> [data-step-process-body] [data-slot="conversation.chat.node"]:not([data-bt-emptied]))){display:none!important}

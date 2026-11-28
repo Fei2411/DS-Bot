@@ -20,12 +20,20 @@ export const FORBIDDEN_PATTERNS = [
   { id: 'dsh-data-scroll', label: 'data-conversation-scroll', re: /data-conversation-scroll\b/g },
   { id: 'dsh-data-slot', label: 'data-slot', re: /data-slot\b/g },
   { id: 'dsh-data-composer', label: 'data-composer-*', re: /data-composer-[\w-]*/g },
+  { id: 'dsh-data-step-process', label: 'data-step-process*', re: /data-step-process(?:-[\w-]*)?\b/g },
+  { id: 'dsh-data-turn-tail', label: 'data-turn-tail', re: /data-turn-tail\b/g },
+  { id: 'dsh-mobile-header', label: 'data-dsh-mobile-header / dsh-native-mobile-active', re: /data-dsh-mobile-header\b|\bdsh-native-mobile-active\b/g },
   { id: 'dsh-textbox-contenteditable', label: '[role=textbox][contenteditable…]', re: /\[role=(?:\\?["'])?textbox(?:\\?["'])?\]\[contenteditable/g },
   { id: 'dsh-css-var', label: '--dsh-*', re: /--dsh-[\w-]*/g },
 ]
 
+const REGEX_PREV_KEYWORDS = new Set([
+  'return', 'case', 'throw', 'in', 'of', 'typeof', 'void', 'delete', 'yield', 'await', 'else', 'do', 'new', 'instanceof',
+])
+const REGEX_PREV_PUNCT = new Set(['(', '[', '{', ',', ';', ':', '=', '!', '?', '&', '|', '^', '~', '+', '-', '*', '%', '<', '>'])
+
 // Strip comments while keeping newlines so reported line numbers stay exact.
-// For JS files, preserves string and template-literal contents (including CSS rules inside them).
+// For JS files, preserves string, template-literal, and regex-literal contents.
 // For CSS files, removes /* ... */ comments.
 export function stripComments(source, isCss) {
   let out = ''
@@ -60,10 +68,43 @@ export function stripComments(source, isCss) {
     return out
   }
 
-  // JS / MJS: strip // and /* ... */ outside strings and template literals.
+  // JS / MJS: strip // and /* ... */ outside strings, regex literals, and template literals.
   // Inside template literals, also strip CSS block comments /* ... */ so comment prose
   // inside embedded CSS strings does not trigger false positives.
   const stack = [] // 'tmpl' when inside `${...}` nested in a template literal
+  let canStartRegex = true
+  const scanTemplateBody = () => {
+    while (i < n) {
+      if (source[i] === '\\') {
+        out += source.slice(i, i + 2)
+        i += 2
+        continue
+      }
+      if (source[i] === '`') {
+        out += '`'
+        i += 1
+        canStartRegex = false
+        return
+      }
+      if (source[i] === '$' && source[i + 1] === '{') {
+        out += '${'
+        i += 2
+        stack.push('tmpl')
+        canStartRegex = true
+        return
+      }
+      if (source[i] === '/' && source[i + 1] === '*') {
+        const end = source.indexOf('*/', i + 2)
+        const stop = end === -1 ? n : end + 2
+        out += blank(source.slice(i, stop))
+        i = stop
+        continue
+      }
+      out += source[i]
+      i += 1
+    }
+  }
+
   while (i < n) {
     const ch = source[i]
     const next = source[i + 1]
@@ -82,6 +123,25 @@ export function stripComments(source, isCss) {
       i = stop
       continue
     }
+    if (ch === '/' && canStartRegex) {
+      let j = i + 1
+      let inClass = false
+      while (j < n && source[j] !== '\n') {
+        if (source[j] === '\\') { j += 2; continue }
+        if (source[j] === '[') { inClass = true; j += 1; continue }
+        if (source[j] === ']') { inClass = false; j += 1; continue }
+        if (source[j] === '/' && !inClass) break
+        j += 1
+      }
+      if (j < n && source[j] === '/') {
+        j += 1
+        while (j < n && /[a-z]/i.test(source[j])) j += 1
+        out += source.slice(i, j)
+        i = j
+        canStartRegex = false
+        continue
+      }
+    }
     if (ch === '"' || ch === "'") {
       let j = i + 1
       while (j < n && source[j] !== ch) {
@@ -91,81 +151,49 @@ export function stripComments(source, isCss) {
       const stop = j < n ? j + 1 : n
       out += source.slice(i, stop)
       i = stop
+      canStartRegex = false
       continue
     }
     if (ch === '`') {
       out += ch
       i += 1
-      while (i < n) {
-        if (source[i] === '\\') {
-          out += source.slice(i, i + 2)
-          i += 2
-          continue
-        }
-        if (source[i] === '`') {
-          out += '`'
-          i += 1
-          break
-        }
-        if (source[i] === '$' && source[i + 1] === '{') {
-          out += '${'
-          i += 2
-          stack.push('tmpl')
-          break
-        }
-        if (source[i] === '/' && source[i + 1] === '*') {
-          const end = source.indexOf('*/', i + 2)
-          const stop = end === -1 ? n : end + 2
-          out += blank(source.slice(i, stop))
-          i = stop
-          continue
-        }
-        out += source[i]
-        i += 1
-      }
+      scanTemplateBody()
       continue
     }
     if (ch === '{' && stack.length > 0) {
       stack.push('brace')
       out += ch
       i += 1
+      canStartRegex = true
       continue
     }
     if (ch === '}' && stack.length > 0) {
       const top = stack.pop()
       out += ch
       i += 1
-      if (top === 'tmpl') {
-        // Resume scanning the enclosing template literal
-        while (i < n) {
-          if (source[i] === '\\') {
-            out += source.slice(i, i + 2)
-            i += 2
-            continue
-          }
-          if (source[i] === '`') {
-            out += '`'
-            i += 1
-            break
-          }
-          if (source[i] === '$' && source[i + 1] === '{') {
-            out += '${'
-            i += 2
-            stack.push('tmpl')
-            break
-          }
-          if (source[i] === '/' && source[i + 1] === '*') {
-            const end = source.indexOf('*/', i + 2)
-            const stop = end === -1 ? n : end + 2
-            out += blank(source.slice(i, stop))
-            i = stop
-            continue
-          }
-          out += source[i]
-          i += 1
-        }
-      }
+      if (top === 'tmpl') scanTemplateBody()
+      else canStartRegex = true
       continue
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      let j = i + 1
+      while (j < n && /[\w$]/.test(source[j])) j += 1
+      const word = source.slice(i, j)
+      out += word
+      i = j
+      canStartRegex = REGEX_PREV_KEYWORDS.has(word)
+      continue
+    }
+    if (/[0-9]/.test(ch)) {
+      let j = i + 1
+      while (j < n && /[\w.]/.test(source[j])) j += 1
+      out += source.slice(i, j)
+      i = j
+      canStartRegex = false
+      continue
+    }
+    if (!/\s/.test(ch)) {
+      canStartRegex = REGEX_PREV_PUNCT.has(ch) || ch === '}'
     }
     out += ch
     i += 1
@@ -226,13 +254,22 @@ export function collectImportGraph(entry, rootDir = REPO_ROOT) {
 
 export function scanFile(file, rootDir = REPO_ROOT) {
   const rel = relative(rootDir, file).replaceAll('\\', '/')
-  if (PLUGIN_ONLY_RE.test(rel)) return []
+  const hits = []
+  if (PLUGIN_ONLY_RE.test(rel)) {
+    hits.push({
+      file: rel,
+      line: 1,
+      rule: 'plugin-only-in-desktop',
+      match: rel,
+      snippet: 'Plugin-only *-dsh.* module is reachable from the desktop UI entry',
+    })
+    return hits
+  }
   const isCss = extname(file) === '.css'
   const raw = readFileSync(file, 'utf8')
   const stripped = stripComments(raw, isCss)
   const lines = stripped.split('\n')
   const rawLines = raw.split('\n')
-  const hits = []
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]
     for (const rule of FORBIDDEN_PATTERNS) {

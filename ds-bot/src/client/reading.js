@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ArrowUpIcon, ChevronDownIcon } from './icons.js'
 import { t } from './i18n.js'
 import { reducedMotion, stepMenuFocus, useLinger } from './motion.js'
+import { syncHostAncestors } from './chat-room.js'
 
 // A Bot reply taller than the chat's visible height is read by scrolling through it. Once
 // its start has scrolled away, a pill under the header takes the reader back there; when
@@ -150,6 +151,7 @@ export function ReplyGuide({ box, active }) {
   const cachedHeadings = useRef(null)
   useEffect(() => {
     const node = box.current
+    if (active && node) syncHostAncestors(node)
     const own = active && node ? node.closest('[data-bt-scroll]') : null
     setScroller(own)
     if (!own) { setLong(false); cachedHeadings.current = null; return undefined }

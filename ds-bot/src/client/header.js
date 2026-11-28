@@ -261,13 +261,18 @@ export function useTranscriptView(headRef) {
       if (records.length > 0 && records.every(inComposer)) return
       schedule()
     })
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
     const measure = () => {
       frame = 0
       const scroller = watched?.isConnected ? watched : document.querySelector('[data-bt-scroll]')
       if (scroller !== watched) {
         observer.disconnect()
+        ro?.disconnect()
         watched = scroller
-        if (scroller) observer.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-bt-following-tail'] })
+        if (scroller) {
+          observer.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-bt-following-tail'] })
+          ro?.observe(scroller)
+        }
       }
       if (!scroller) { setView(null); return }
       const box = scroller.getBoundingClientRect()
@@ -302,6 +307,7 @@ export function useTranscriptView(headRef) {
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      ro?.disconnect()
       document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('resize', schedule)

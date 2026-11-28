@@ -92,7 +92,7 @@ const entryCode = `
   export { createSlotRegistry, SlotErrorBoundary, TOOL_VIEW_SLOT, CHAT_NODE_SLOT } from './ui/src/slots.js'
   export { buildSessionRows, makeToolArgs, splitReasoning, streamReasoningMs } from './ui/src/session-transcript.js'
   export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
-  export { SessionTranscript, useSessionFollow } from './ui/src/session-chat.js'
+  export { SessionTranscript, advanceReplyWatermark, useSessionFollow } from './ui/src/session-chat.js'
   export { Chat } from './ui/src/chat.js'
   export { createTeam } from './ui/src/team.js'
 `
@@ -253,7 +253,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  SessionTranscript, useSessionFollow, Chat, createTeam,
+  SessionTranscript, advanceReplyWatermark, useSessionFollow, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -1745,5 +1745,65 @@ test('SessionTranscript hides non-Bot/MCP tool cards and compaction in Bot DM mo
     assert.match(rendered, /run_code/)
   } finally {
     classicInst.unmount()
+  }
+})
+
+test('SessionTranscript reply watermark ignores Load earlier prepends and only notifies on live tail replies', () => {
+  const msg = (seq, text = 'reply') => ({ kind: 'assistant', seq, texts: [text] })
+
+  // Pure helper contract: initial snapshot establishes baseline with 0 arrivals;
+  // prepending older rows (seq <= maxSeq) reports 0; live tail row (seq > maxSeq) reports +1.
+  const pre = advanceReplyWatermark({ sessionId: null, maxSeq: null }, 's1', false, [])
+  assert.equal(pre.added, 0)
+  const init = advanceReplyWatermark(pre.next, 's1', true, [msg(10), msg(20)])
+  assert.equal(init.added, 0)
+  assert.equal(init.next.maxSeq, 20)
+  const paged = advanceReplyWatermark(init.next, 's1', true, [msg(2), msg(4), msg(10), msg(20)])
+  assert.equal(paged.added, 0)
+  const live = advanceReplyWatermark(paged.next, 's1', true, [msg(2), msg(4), msg(10), msg(20), msg(25)])
+  assert.equal(live.added, 1)
+  assert.equal(live.next.maxSeq, 25)
+
+  // Real SessionTranscript lifecycle with addPage (Load earlier) + applyFrame (live tail arrival)
+  const bot = { id: 'b1', name: 'Helper', sessionId: 'b1', parts: [] }
+  const roster = { bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const arrivals = []
+  const actions = { noteReplyArrival: (sid, delta) => arrivals.push([sid, delta]) }
+
+  let { log } = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 11,
+    hasMore: true,
+    records: [
+      { type: 'event', event: { type: 'user/message', seq: 10, time: 2000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 11, time: 2100, data: { turn: 5, step: 1, message: { content: [{ type: 'text', text: 'initial reply' }] } } } },
+    ],
+  })
+  const inst = mount(SessionTranscript, { log, sessionId: 'b1', bot, roster, actions, classic: false })
+  try {
+    inst.render()
+    assert.deepEqual(arrivals, [], 'opening snapshot must not report new arrivals')
+
+    // Prepend an earlier history page (seq 1..2 < 11) via addPage (Load earlier)
+    log = addPage(log, {
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 1, time: 1000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'older q' }] } } },
+        { type: 'event', event: { type: 'assistant/message', seq: 2, time: 1100, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'older reply' }] } } } },
+      ],
+    })
+    inst.render({ log, sessionId: 'b1', bot, roster, actions, classic: false })
+    assert.deepEqual(arrivals, [], 'Load earlier prepended replies must NOT trigger new-message arrivals')
+
+    // Live reply arrives at the tail (seq 12 > 11)
+    ;({ log } = applyFrame(log, {
+      type: 'event',
+      event: { type: 'assistant/message', seq: 12, time: 3000, data: { turn: 6, step: 1, message: { content: [{ type: 'text', text: 'live reply' }] } } },
+    }))
+    inst.render({ log, sessionId: 'b1', bot, roster, actions, classic: false })
+    assert.deepEqual(arrivals, [['b1', 1]], 'live tail reply must report exactly +1 arrival')
+  } finally {
+    inst.unmount()
   }
 })

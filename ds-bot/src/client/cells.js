@@ -9,6 +9,7 @@ import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
+import { syncHostAncestors } from './chat-room.js'
 import { AskUserCell, SettledQuestion } from './questions.js'
 import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
@@ -454,6 +455,7 @@ export function syncGroupChains(flow) {
     const chainNext = Boolean(botId && next?.classList.contains('bt-group-msg') && next.dataset.botId === botId)
     if (chainPrev) curr.dataset.chainPrev = ''; else delete curr.dataset.chainPrev
     if (chainNext) curr.dataset.chainNext = ''; else delete curr.dataset.chainNext
+    syncHostAncestors(curr)
     const turn = curr.closest('[data-bt-group-key]')
     if (turn) {
       if (chainPrev) turn.dataset.btChainPrev = ''; else delete turn.dataset.btChainPrev
@@ -496,6 +498,7 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
   useLayoutEffect(() => {
     const el = ref.current
     if (!el?.closest) return undefined
+    syncHostAncestors(el)
     const flow = el.closest('[data-bt-flow]')
     if (!flow) return undefined
     scheduleGroupChains(flow)

@@ -19,7 +19,7 @@ async function loadClientModules(exportsSource) {
     platform: 'browser',
     write: false,
     logLevel: 'silent',
-    external: ['react'],
+    external: ['react', 'react-dom'],
   })
   const mod = { exports: {} }
   const reactStub = {
@@ -32,7 +32,7 @@ async function loadClientModules(exportsSource) {
   runInNewContext(outputFiles[0].text, {
     module: mod,
     exports: mod.exports,
-    require: name => (name === 'react' ? reactStub : {}),
+    require: name => (name === 'react' ? reactStub : name === 'react-dom' ? { createPortal: node => node } : {}),
   })
   return mod.exports
 }
@@ -50,7 +50,7 @@ test('check-desktop-selectors passes on the real desktop import graph with 0 vio
   assert.deepEqual(result.violations, [])
 })
 
-test('check-desktop-selectors catches DSH-private selectors/vars, ignores comments, and exempts *-dsh.js', () => {
+test('check-desktop-selectors catches DSH-private selectors/vars, regex edge cases, ignores comments, and rejects *-dsh.js in desktop graph', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-sel-guard-'))
   try {
     mkdirSync(join(dir, 'app', 'ui', 'src'), { recursive: true })
@@ -63,26 +63,37 @@ test('check-desktop-selectors catches DSH-private selectors/vars, ignores commen
     writeFileSync(join(dir, 'app', 'ui', 'src', 'clean.js'), [
       '// comment mentioning [class*="_centerCol"] and --dsh-composer-height is ignored',
       '/* block comment with data-composer-card and data-slot="x" is ignored */',
+      'export const urlRe = /https?:\\/\\//i',
+      'export const quoteRe = /"/g',
       'export const sel = "[data-bt-scroll] [data-bt-composer] var(--bt-composer-h)"',
     ].join('\n'))
     writeFileSync(join(dir, 'app', 'ui', 'src', 'bad.js'), [
-      'export const a = "[class*=\\"_centerCol\\"]"',
-      'export const b = "[data-chat-following-tail]"',
+      'export const re = /https?:\\/\\//; export const a = "[class*=\\"_centerCol\\"]"',
+      'export const q = /"/; export const b = "[data-chat-following-tail]"',
       'export const c = "[data-composer-card]"',
       'export const d = "[data-conversation-scroll]"',
       'export const e = "[data-slot=\\"main\\"]"',
       'export const f = "[role=textbox][contenteditable=true]"',
       'export const g = "var(--dsh-composer-height)"',
       'export const h = "dsb_centerCol"',
+      'export const i = "[data-step-process] [data-step-process-body]"',
+      'export const j = "[data-turn-tail]"',
+      'export const k = "html.dsh-native-mobile-active [data-dsh-mobile-header]"',
+      'export const l = "[data-composer-overlay]"',
     ].join('\n'))
-    // Plugin-only file exempted by `*-dsh.js` naming convention.
+    // Plugin-only file reachable from desktop main.js MUST fail with plugin-only-in-desktop.
     writeFileSync(join(dir, 'app', 'ui', 'src', 'styles-dsh.js'), 'export const css = "[class*=\\"_header\\"]{height:var(--dsh-composer-height)}"')
+    // Plugin-only file NOT reachable from desktop main.js is ignored.
+    writeFileSync(join(dir, 'ds-bot', 'src', 'client', 'plugin-only-dsh.js'), 'export const css = "[class*=\\"_header\\"]"')
 
     const result = checkDesktopSelectors({ entry: join(dir, 'app', 'ui', 'src', 'main.js'), rootDir: dir })
-    assert.ok(result.files.some(f => f.endsWith('app/ui/src/styles-dsh.js')))
-    assert.ok(result.files.some(f => f.endsWith('app/ui/src/clean.js')))
+    const normFiles = result.files.map(f => f.replaceAll('\\', '/'))
+    assert.ok(normFiles.some(f => f.endsWith('app/ui/src/styles-dsh.js')))
+    assert.ok(normFiles.some(f => f.endsWith('app/ui/src/clean.js')))
+    assert.equal(normFiles.some(f => f.endsWith('plugin-only-dsh.js')), false)
     assert.equal(result.violations.filter(v => v.file === 'app/ui/src/clean.js').length, 0)
-    assert.equal(result.violations.filter(v => v.file === 'app/ui/src/styles-dsh.js').length, 0)
+    const dshRules = new Set(result.violations.filter(v => v.file === 'app/ui/src/styles-dsh.js').map(v => v.rule))
+    assert.ok(dshRules.has('plugin-only-in-desktop'), 'importing *-dsh.js from desktop graph must fail with plugin-only-in-desktop')
     const badIds = new Set(result.violations.filter(v => v.file === 'app/ui/src/bad.js').map(v => v.rule))
     for (const id of [
       'dsh-class-fragment',
@@ -90,12 +101,16 @@ test('check-desktop-selectors catches DSH-private selectors/vars, ignores commen
       'dsh-data-composer',
       'dsh-data-scroll',
       'dsh-data-slot',
+      'dsh-data-step-process',
+      'dsh-data-turn-tail',
+      'dsh-mobile-header',
       'dsh-textbox-contenteditable',
       'dsh-css-var',
       'dsh-centercol-shim',
     ]) {
       assert.ok(badIds.has(id), `expected rule ${id} to be detected`)
     }
+    assert.ok(result.violations.some(v => v.file === 'app/ui/src/bad.js' && v.match === 'data-composer-overlay'))
     assert.equal(scanFile(join(dir, 'app', 'ui', 'src', 'clean.js'), dir).length, 0)
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -168,7 +183,7 @@ test('ComposerVoice quote-reply focuses desktop <textarea data-bt-composer-input
     platform: 'browser',
     write: false,
     logLevel: 'silent',
-    external: ['react'],
+    external: ['react', 'react-dom'],
   })
   const effects = []
   const refs = []
@@ -201,7 +216,7 @@ test('ComposerVoice quote-reply focuses desktop <textarea data-bt-composer-input
   runInNewContext(outputFiles[0].text, {
     module: mod,
     exports: mod.exports,
-    require: () => react,
+    require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
     document: { querySelector: () => null },
     window: { getSelection: () => null },
     HTMLElement: class {},

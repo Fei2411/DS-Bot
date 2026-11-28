@@ -4,6 +4,7 @@
 import { installStyles } from './styles.js'
 
 let hostCollapsedReader = null
+let hostNodeSync = null
 
 export function registerHostCollapsed(reader) {
   hostCollapsedReader = typeof reader === 'function' ? reader : null
@@ -14,6 +15,20 @@ export function registerHostCollapsed(reader) {
 
 export function dshCollapsed() {
   return hostCollapsedReader ? hostCollapsedReader() : null
+}
+
+// Synchronous DOM-bridge hook for plugin mode: when shared components run
+// `useLayoutEffect` on newly mounted DSH nodes before MutationObserver fires,
+// plugin mode stamps DSH ancestors on demand; desktop leaves this unregistered.
+export function registerHostNodeSync(sync) {
+  hostNodeSync = typeof sync === 'function' ? sync : null
+  return () => {
+    if (hostNodeSync === sync) hostNodeSync = null
+  }
+}
+
+export function syncHostAncestors(node) {
+  if (hostNodeSync && node) hostNodeSync(node)
 }
 
 const room = { rule: null }

@@ -27283,7 +27283,11 @@ body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,
 
 // src/client/styles-dsh.js
 var DSH_SHELL_CSS = `
-:root{--bt-content-fs:var(--dsh-content-font-size,14px);--bt-chat-w:var(--dsh-chat-content-width,748px);--bt-chrome-top:var(--dsh-frame-chrome-top,0px);--bt-top-clearance:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));--bt-overlay-top:var(--dsh-frame-overlay-top,32px);--bt-titlebar-h:var(--dsh-windows-titlebar-height,0px);--bt-composer-max-w:var(--dsh-composer-card-max-width,748px);--bt-composer-side:var(--dsh-composer-side-clearance,0px);--bt-composer-dock-inset:var(--dsh-composer-dock-inset,8px);--bt-composer-gap:var(--dsh-composer-dock-gap,8px);--bt-flow-gap:var(--dsh-chat-flow-gap,12px);--bt-mono:var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace);--bt-reply-font:var(--dsh-font-family-text);--bt-reply-font-default:var(--dsh-font-family-text-default,sans-serif)}
+:root{--bt-chrome-top:var(--dsh-frame-chrome-top,0px);--bt-top-clearance:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));--bt-overlay-top:var(--dsh-frame-overlay-top,32px);--bt-titlebar-h:var(--dsh-windows-titlebar-height,0px);--bt-reply-font-default:var(--dsh-font-family-text-default,sans-serif)}
+html body{--bt-content-fs:var(--dsh-content-font-size,14px);--bt-reply-font:var(--dsh-font-family-text);--bt-mono:var(--dsh-font-family-code,var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace))}
+[class*="_body"],[class*="_embeddedBody"]{--bt-chat-w:var(--dsh-chat-content-width,748px);--bt-composer-max-w:var(--dsh-composer-card-max-width,748px);--bt-composer-side:var(--dsh-composer-side-clearance,0px);--bt-composer-dock-inset:var(--dsh-composer-dock-inset,8px)}
+[class*="_composerStack"]{--bt-composer-gap:var(--dsh-composer-stack-gap,8px)}
+[data-chat-flow],[data-chat-flow]>*,[data-chat-group-key]{--bt-flow-gap:var(--dsh-chat-flow-gap,12px)}
 @media (prefers-reduced-motion:reduce){[class*="_centerCol"]{transition:none}}
 @media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
@@ -27326,12 +27330,13 @@ body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
 [data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 `;
 var DSH_CONVERSATION_CSS = `
-[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 [data-trigger-menu] [role=option]>span{text-align:left}
 [data-conversation-scroll]{--bt-composer-h:var(--dsh-composer-height,152px);--bt-composer-inset:var(--dsh-composer-height,152px)}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 [data-step-process]>div:first-child{display:none!important}
 [data-step-process]>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
+[data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
+[data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 :is([data-step-process],[data-turn-process-hidden])[hidden]{content-visibility:visible!important}
 [class*="_flowItem"]:has(> [data-slot="conversation.chat.node"]:empty, > [data-slot="conversation.chat.node"][data-bt-emptied]){display:none!important}
 [data-step-process]:has(> [data-step-process-body] [data-slot="conversation.chat.node"][data-bt-emptied]):not(:has(> [data-step-process-body] [data-slot="conversation.chat.node"]:not([data-bt-emptied]))){display:none!important}
@@ -27439,6 +27444,71 @@ function dshThemeCss(theme) {
   return `.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
 }
 
+// src/client/chat-room.js
+var hostCollapsedReader = null;
+var hostNodeSync = null;
+function registerHostCollapsed(reader) {
+  hostCollapsedReader = typeof reader === "function" ? reader : null;
+  return () => {
+    if (hostCollapsedReader === reader) hostCollapsedReader = null;
+  };
+}
+function dshCollapsed() {
+  return hostCollapsedReader ? hostCollapsedReader() : null;
+}
+function registerHostNodeSync(sync) {
+  hostNodeSync = typeof sync === "function" ? sync : null;
+  return () => {
+    if (hostNodeSync === sync) hostNodeSync = null;
+  };
+}
+function syncHostAncestors(node) {
+  if (hostNodeSync && node) hostNodeSync(node);
+}
+var room = { rule: null };
+var roomRule = () => {
+  const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected;
+  if (live) return room.rule;
+  const declarations2 = room.rule?.style.cssText ?? "";
+  room.rule?.parentStyleSheet?.ownerNode?.remove();
+  const style = installStyles(`[data-bt-center]{${declarations2}}`, "chat-room");
+  room.rule = style.sheet.cssRules[0];
+  return room.rule;
+};
+var margin = (side2, width, style) => {
+  if (width === null) style.removeProperty(`margin-${side2}`);
+  else style.setProperty(`margin-${side2}`, `${width}px`, "important");
+  if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
+  else style.removeProperty("width");
+};
+var roomHold = 0;
+var chatRoom = {
+  /** The margin the Bot panel takes on the right, in px, or null for the shell's own. */
+  setRight(width) {
+    margin("right", width, roomRule().style);
+  },
+  /** The margin our own left column takes while the shell sidebar is collapsed. */
+  setLeft(width) {
+    margin("left", width, roomRule().style);
+  },
+  /** While on, a margin change lands at once instead of gliding. */
+  hold(on) {
+    cancelAnimationFrame(roomHold);
+    if (on) {
+      roomRule().style.setProperty("transition", "none", "important");
+      return;
+    }
+    roomHold = requestAnimationFrame(() => {
+      roomHold = requestAnimationFrame(() => roomRule().style.removeProperty("transition"));
+    });
+  },
+  /** The columns themselves, for a drag's per-frame writes. */
+  columns() {
+    roomRule();
+    return [...document.querySelectorAll("[data-bt-center]")];
+  }
+};
+
 // src/client/adapter-dsh.js
 var MIRROR_ATTRS = [
   ["data-chat-flow-key", "data-bt-flow-key"],
@@ -27446,17 +27516,23 @@ var MIRROR_ATTRS = [
   ["data-chat-group-key", "data-bt-group-key"],
   ["data-slot", "data-bt-slot"]
 ];
-var FLAG_SELECTORS = [
-  ['[class*="_centerCol"]', "data-bt-center"],
-  ["[data-conversation-scroll]", "data-bt-scroll"],
-  ['[class*="_toBottomSlot"] > button', "data-bt-to-bottom"],
-  ["[data-chat-flow]", "data-bt-flow"],
-  ["[data-chat-running]", "data-bt-running"],
-  ["[data-composer-card]", "data-bt-composer"],
-  ["[data-composer-input]", "data-bt-composer-input"],
-  ['[data-composer-card] [role="textbox"][contenteditable="true"]', "data-bt-composer-input"],
-  ["[data-composer-composing]", "data-bt-composing"]
+var MIRROR_BY_SOURCE = new Map(MIRROR_ATTRS);
+var FLAG_RULES = [
+  ["data-bt-center", ['[class*="_centerCol"]']],
+  ["data-bt-scroll", ["[data-conversation-scroll]"]],
+  ["data-bt-to-bottom", ['[class*="_toBottomSlot"] > button']],
+  ["data-bt-flow", ["[data-chat-flow]"]],
+  ["data-bt-running", ["[data-chat-running]"]],
+  ["data-bt-composer", ["[data-composer-card]"]],
+  ["data-bt-composer-input", ["[data-composer-input]", '[data-composer-card] [role="textbox"][contenteditable="true"]']],
+  ["data-bt-composing", ["[data-composer-composing]"]]
 ];
+var ALL_SOURCE_SELECTOR = [
+  ...FLAG_RULES.flatMap(([, sels]) => sels),
+  ...MIRROR_ATTRS.map(([from]) => `[${from}]`)
+].join(",");
+var TAIL_NODE_SELECTOR = '[data-chat-following-tail],[class*="_toBottomSlot"],[class*="_toBottomSlot"] > button';
+var TAIL_DESCENDANT_SELECTOR = '[data-chat-following-tail],[class*="_toBottomSlot"] > button';
 var isElement = (node) => node != null && node.nodeType === 1;
 function setAttrIfChanged(el, name, value) {
   if (el.getAttribute(name) !== value) el.setAttribute(name, value);
@@ -27466,41 +27542,59 @@ function removeAttrIfPresent(el, name) {
 }
 function syncTailState(scroller) {
   if (!isElement(scroller)) return;
+  if (!scroller.hasAttribute("data-conversation-scroll")) {
+    removeAttrIfPresent(scroller, "data-bt-following-tail");
+    return;
+  }
   const following = scroller.querySelector("[data-chat-following-tail]") !== null ? "true" : scroller.querySelector('[class*="_toBottomSlot"] > button') !== null ? "false" : "true";
   setAttrIfChanged(scroller, "data-bt-following-tail", following);
 }
+function syncFlag(el, attr, selectors) {
+  let matched = false;
+  for (const sel of selectors) {
+    if (el.matches?.(sel)) {
+      matched = true;
+      break;
+    }
+  }
+  if (matched) setAttrIfChanged(el, attr, "");
+  else removeAttrIfPresent(el, attr);
+}
 function stampOne(el) {
   if (!isElement(el)) return;
-  for (const [selector, attr] of FLAG_SELECTORS) {
-    if (el.matches?.(selector)) setAttrIfChanged(el, attr, "");
-  }
+  for (const [attr, selectors] of FLAG_RULES) syncFlag(el, attr, selectors);
   for (const [from, to] of MIRROR_ATTRS) {
     if (el.hasAttribute(from)) setAttrIfChanged(el, to, el.getAttribute(from) ?? "");
+    else removeAttrIfPresent(el, to);
   }
-  if (el.hasAttribute("data-conversation-scroll")) syncTailState(el);
+  syncTailState(el);
+}
+function syncDshAncestors(node) {
+  for (let cur = isElement(node) ? node : node?.parentElement; isElement(cur); cur = cur.parentElement) {
+    stampOne(cur);
+  }
 }
 function syncDshNode(root) {
   if (!root) return;
   if (isElement(root)) stampOne(root);
   if (typeof root.querySelectorAll !== "function") return;
-  for (const [selector, attr] of FLAG_SELECTORS) {
-    for (const el of root.querySelectorAll(selector)) setAttrIfChanged(el, attr, "");
-  }
-  for (const [from, to] of MIRROR_ATTRS) {
-    for (const el of root.querySelectorAll(`[${from}]`)) {
-      setAttrIfChanged(el, to, el.getAttribute(from) ?? "");
-    }
-  }
-  for (const scroller of root.querySelectorAll("[data-conversation-scroll]")) {
-    syncTailState(scroller);
-  }
+  const matched = root.querySelectorAll(ALL_SOURCE_SELECTOR);
+  for (const el of matched) stampOne(el);
 }
 function touchesTailNode(node) {
   if (!isElement(node)) return false;
-  if (node.hasAttribute("data-chat-following-tail")) return true;
-  if (node.matches?.('[class*="_toBottomSlot"], [class*="_toBottomSlot"] > button')) return true;
-  return Boolean(node.querySelector?.('[data-chat-following-tail], [class*="_toBottomSlot"] > button'));
+  if (node.matches?.(TAIL_NODE_SELECTOR)) return true;
+  return Boolean(node.querySelector?.(TAIL_DESCENDANT_SELECTOR));
 }
+var DIRECT_FLAG_ATTRS = /* @__PURE__ */ new Map([
+  ["data-conversation-scroll", "data-bt-scroll"],
+  ["data-chat-flow", "data-bt-flow"],
+  ["data-chat-running", "data-bt-running"],
+  ["data-composer-card", "data-bt-composer"],
+  ["data-composer-composing", "data-bt-composing"]
+]);
+var COMPOSER_INPUT_SELS = FLAG_RULES.find(([attr]) => attr === "data-bt-composer-input")[1];
+var TO_BOTTOM_SELS = FLAG_RULES.find(([attr]) => attr === "data-bt-to-bottom")[1];
 function installDshAdapter(doc = document) {
   if (!doc) return () => {
   };
@@ -27508,8 +27602,8 @@ function installDshAdapter(doc = document) {
   if (!root) return () => {
   };
   syncDshNode(root);
-  if (typeof MutationObserver !== "function") return () => {
-  };
+  const unregisterSync = registerHostNodeSync(syncDshAncestors);
+  if (typeof MutationObserver !== "function") return unregisterSync;
   const observer2 = new MutationObserver((records) => {
     const dirtyScrollers = /* @__PURE__ */ new Set();
     for (const record of records) {
@@ -27517,9 +27611,19 @@ function installDshAdapter(doc = document) {
         const target2 = record.target;
         if (!isElement(target2)) continue;
         const name = record.attributeName;
-        if (name === "data-composer-composing") {
-          if (target2.hasAttribute("data-composer-composing")) setAttrIfChanged(target2, "data-bt-composing", "");
-          else removeAttrIfPresent(target2, "data-bt-composing");
+        if (name === "class") {
+          const cls = typeof target2.className === "string" ? target2.className : "";
+          if (cls.includes("_centerCol")) setAttrIfChanged(target2, "data-bt-center", "");
+          else if (target2.hasAttribute("data-bt-center")) removeAttrIfPresent(target2, "data-bt-center");
+          const isSlot = cls.includes("_toBottomSlot");
+          const hadSlotBtn = !isSlot && target2.querySelector?.(":scope > button[data-bt-to-bottom]") !== null;
+          if (isSlot || hadSlotBtn) {
+            for (const child of target2.children ?? []) {
+              if (child.tagName === "BUTTON") syncFlag(child, "data-bt-to-bottom", TO_BOTTOM_SELS);
+            }
+            const scroller = target2.closest?.("[data-conversation-scroll]");
+            if (scroller) dirtyScrollers.add(scroller);
+          }
           continue;
         }
         if (name === "data-chat-following-tail") {
@@ -27527,14 +27631,27 @@ function installDshAdapter(doc = document) {
           if (scroller) dirtyScrollers.add(scroller);
           continue;
         }
-        const mirrored = MIRROR_ATTRS.find(([from]) => from === name);
+        const mirrored = MIRROR_BY_SOURCE.get(name);
         if (mirrored) {
-          const [from, to] = mirrored;
-          if (target2.hasAttribute(from)) setAttrIfChanged(target2, to, target2.getAttribute(from) ?? "");
-          else removeAttrIfPresent(target2, to);
+          if (target2.hasAttribute(name)) setAttrIfChanged(target2, mirrored, target2.getAttribute(name) ?? "");
+          else removeAttrIfPresent(target2, mirrored);
           continue;
         }
-        stampOne(target2);
+        const flag = DIRECT_FLAG_ATTRS.get(name);
+        if (flag) {
+          if (target2.hasAttribute(name)) setAttrIfChanged(target2, flag, "");
+          else removeAttrIfPresent(target2, flag);
+          if (name === "data-conversation-scroll") syncTailState(target2);
+          if (name === "data-composer-card") {
+            for (const tb of target2.querySelectorAll?.('[role="textbox"][contenteditable="true"], [data-bt-composer-input]') ?? []) {
+              syncFlag(tb, "data-bt-composer-input", COMPOSER_INPUT_SELS);
+            }
+          }
+          continue;
+        }
+        if (name === "data-composer-input" || name === "role" || name === "contenteditable") {
+          syncFlag(target2, "data-bt-composer-input", COMPOSER_INPUT_SELS);
+        }
         continue;
       }
       if (record.type !== "childList") continue;
@@ -27578,7 +27695,10 @@ function installDshAdapter(doc = document) {
       "data-composer-composing"
     ]
   });
-  return () => observer2.disconnect();
+  return () => {
+    unregisterSync();
+    observer2.disconnect();
+  };
 }
 
 // src/client/avatar/clips.js
@@ -32509,6 +32629,7 @@ function CellEmpty({ className }) {
   const ref = (0, import_react8.useRef)(null);
   (0, import_react8.useLayoutEffect)(() => {
     const marker = ref.current;
+    syncHostAncestors(marker);
     const slot = marker?.closest("[data-bt-slot]");
     if (!slot) return void 0;
     const sync = (gone) => emptied(slot, gone) ? slot.dataset.btEmptied = "" : delete slot.dataset.btEmptied;
@@ -37949,10 +38070,6 @@ var SECRET_CSS = `
 .bt-secret-seg{position:relative;z-index:1;height:28px;padding:0 14px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:color .16s ease}
 .bt-secret-seg[aria-checked=true]{color:var(--bt-ink);font-weight:500}
 .bt-secret-seg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-/* A key card asks the user to act, so the process group carrying it stays open in every
-   work-details mode (same override as .bt-group-replies in styles.js). */
-[data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
-[data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 .bt-secret-ok{display:flex;align-items:center;gap:4px;margin-top:6px;animation:bt-secret-in .22s cubic-bezier(.22,1,.36,1)}
 .bt-secret-ok svg{width:13px;height:13px;color:var(--bt-green)}
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
@@ -44131,6 +44248,7 @@ function ReplyGuide({ box, active }) {
   const cachedHeadings = (0, import_react36.useRef)(null);
   (0, import_react36.useEffect)(() => {
     const node = box.current;
+    if (active && node) syncHostAncestors(node);
     const own = active && node ? node.closest("[data-bt-scroll]") : null;
     setScroller(own);
     if (!own) {
@@ -45462,6 +45580,7 @@ function syncGroupChains(flow) {
     else delete curr.dataset.chainPrev;
     if (chainNext) curr.dataset.chainNext = "";
     else delete curr.dataset.chainNext;
+    syncHostAncestors(curr);
     const turn = curr.closest("[data-bt-group-key]");
     if (turn) {
       if (chainPrev) turn.dataset.btChainPrev = "";
@@ -45498,6 +45617,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
   (0, import_react39.useLayoutEffect)(() => {
     const el = ref.current;
     if (!el?.closest) return void 0;
+    syncHostAncestors(el);
     const flow = el.closest("[data-bt-flow]");
     if (!flow) return void 0;
     scheduleGroupChains(flow);
@@ -47838,61 +47958,6 @@ function showsDshRow(dsh, app) {
   if (dsh.kind === "npm") return true;
   return dsh.kind === "app" && APP_OFFER.has(app?.phase) && sameVersion(app.version, dsh.verified);
 }
-
-// src/client/chat-room.js
-var hostCollapsedReader = null;
-function registerHostCollapsed(reader) {
-  hostCollapsedReader = typeof reader === "function" ? reader : null;
-  return () => {
-    if (hostCollapsedReader === reader) hostCollapsedReader = null;
-  };
-}
-function dshCollapsed() {
-  return hostCollapsedReader ? hostCollapsedReader() : null;
-}
-var room = { rule: null };
-var roomRule = () => {
-  const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected;
-  if (live) return room.rule;
-  const declarations2 = room.rule?.style.cssText ?? "";
-  room.rule?.parentStyleSheet?.ownerNode?.remove();
-  const style = installStyles(`[data-bt-center]{${declarations2}}`, "chat-room");
-  room.rule = style.sheet.cssRules[0];
-  return room.rule;
-};
-var margin = (side2, width, style) => {
-  if (width === null) style.removeProperty(`margin-${side2}`);
-  else style.setProperty(`margin-${side2}`, `${width}px`, "important");
-  if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
-  else style.removeProperty("width");
-};
-var roomHold = 0;
-var chatRoom = {
-  /** The margin the Bot panel takes on the right, in px, or null for the shell's own. */
-  setRight(width) {
-    margin("right", width, roomRule().style);
-  },
-  /** The margin our own left column takes while the shell sidebar is collapsed. */
-  setLeft(width) {
-    margin("left", width, roomRule().style);
-  },
-  /** While on, a margin change lands at once instead of gliding. */
-  hold(on) {
-    cancelAnimationFrame(roomHold);
-    if (on) {
-      roomRule().style.setProperty("transition", "none", "important");
-      return;
-    }
-    roomHold = requestAnimationFrame(() => {
-      roomHold = requestAnimationFrame(() => roomRule().style.removeProperty("transition"));
-    });
-  },
-  /** The columns themselves, for a drag's per-frame writes. */
-  columns() {
-    roomRule();
-    return [...document.querySelectorAll("[data-bt-center]")];
-  }
-};
 
 // src/client/member-status.js
 var import_react42 = require("react");
@@ -66723,13 +66788,18 @@ function useTranscriptView(headRef) {
       if (records.length > 0 && records.every(inComposer)) return;
       schedule();
     });
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
     const measure = () => {
       frame3 = 0;
       const scroller = watched?.isConnected ? watched : document.querySelector("[data-bt-scroll]");
       if (scroller !== watched) {
         observer2.disconnect();
+        ro?.disconnect();
         watched = scroller;
-        if (scroller) observer2.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-bt-following-tail"] });
+        if (scroller) {
+          observer2.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-bt-following-tail"] });
+          ro?.observe(scroller);
+        }
       }
       if (!scroller) {
         setView(null);
@@ -66769,6 +66839,7 @@ function useTranscriptView(headRef) {
     return () => {
       cancelAnimationFrame(frame3);
       observer2.disconnect();
+      ro?.disconnect();
       document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("resize", schedule);
@@ -67155,6 +67226,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
   const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
   const composerRoot = (0, import_react82.useRef)(null);
   (0, import_react82.useEffect)(() => {
+    syncHostAncestors(composerRoot.current);
     const root = composerRoot.current?.closest("[data-bt-composer]");
     if (enterToSend || !inputActions || !root) return void 0;
     const onKey = (event) => insertComposerNewline(event, inputActions);
@@ -67308,6 +67380,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
 
 `;
     inputActions.insertText(line, inputActions.captureInsertion());
+    syncHostAncestors(composerRoot.current);
     const box = composerRoot.current?.closest?.("[data-bt-composer]")?.querySelector?.("[data-bt-composer-input]") ?? document.querySelector("[data-bt-composer] [data-bt-composer-input]");
     if (box && typeof box.focus === "function") {
       box.focus();
@@ -67406,6 +67479,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
     };
   }, [open]);
   (0, import_react82.useEffect)(() => {
+    syncHostAncestors(button.current);
     const card = button.current?.closest("[data-bt-composer]");
     if (!ready || card === null || card === void 0) return void 0;
     const next = JSON.stringify(t("Press Enter to steer queued messages"));

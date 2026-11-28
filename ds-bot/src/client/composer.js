@@ -6,6 +6,7 @@ import { BotMark } from './mark.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
+import { syncHostAncestors } from './chat-room.js'
 import { emptyAccelQueueKey, enterSteers, steerable } from './enter-steer.js'
 import {
   captureAdmissionBaseline, chatOfSession, dropPartDraft, dropSentDraft,
@@ -88,6 +89,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
   const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
   const composerRoot = useRef(null)
   useEffect(() => {
+    syncHostAncestors(composerRoot.current)
     const root = composerRoot.current?.closest('[data-bt-composer]')
     if (enterToSend || !inputActions || !root) return undefined
     const onKey = event => insertComposerNewline(event, inputActions)
@@ -233,6 +235,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     const excerpt = quote.text.replace(/\s+/g, ' ').trim()
     const line = `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}\n\n`
     inputActions.insertText(line, inputActions.captureInsertion())
+    syncHostAncestors(composerRoot.current)
     const box = composerRoot.current?.closest?.('[data-bt-composer]')?.querySelector?.('[data-bt-composer-input]')
       ?? document.querySelector('[data-bt-composer] [data-bt-composer-input]')
     if (box && typeof box.focus === 'function') {
@@ -323,6 +326,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
     return () => { window.removeEventListener('mousedown', onDown, true); window.removeEventListener('keydown', onKey, true) }
   }, [open])
   useEffect(() => {
+    syncHostAncestors(button.current)
     const card = button.current?.closest('[data-bt-composer]')
     if (!ready || card === null || card === undefined) return undefined
     const next = JSON.stringify(t('Press Enter to steer queued messages'))
