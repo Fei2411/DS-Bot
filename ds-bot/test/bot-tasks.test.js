@@ -1997,3 +1997,58 @@ test('stopping an idle fg-handoff task with a running shell job archives once th
   await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
   assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
 })
+
+test('rejected foreground handoff save under a held lock never archives the Session still listed as foreground in state.json (#2374)', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const bot = env.rt.botOf('a')
+  const firstSid = env.rt.chatOf(bot.id)
+  const firstAgent = env.agentMap.get(firstSid)
+  firstAgent.status = 'running'
+  await env.emit(firstSid, 'turn/start', { turn: 1 })
+  assert.equal(env.rt.teamWriteAccess(), 'locked')
+
+  // Simulate EACCES on state.json writes while the team lock stays held.
+  const origSave = env.rt.save
+  let failSave = true
+  env.rt.save = async (opts) => {
+    if (failSave) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    return origSave(opts)
+  }
+
+  const opId = 'op-rejected-save-2374'
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: bot.id, operationId: opId }),
+    /EACCES/,
+  )
+  const onDiskBefore = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+  assert.equal(onDiskBefore.bots.a.sessionId, firstSid, 'state.json still lists dm-a as foreground after rejected save')
+  assert.equal(env.rt.teamWriteAccess(), 'locked', 'team lock remains held')
+
+  // Stopping the in-memory task also fails to save; when the old agent becomes idle, dm-a must NOT archive.
+  const task1 = bot.tasks.find(item => item.sessionId === firstSid)
+  assert.ok(task1 !== undefined)
+  await assert.rejects(
+    () => env.rt.stopTask(bot.id, task1.id),
+    /EACCES/,
+  )
+  await env.emit(firstSid, 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: firstAgent.cancelled[0] } })
+  firstAgent.status = 'idle'
+  env.ctx.emit('agent/status', { agent: firstAgent, status: 'idle' })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  assert.equal(env.archivedSessions.some(item => item.sid === firstSid), false, 'unsaved handoff must not archive dm-a while state.json still lists it as foreground')
+
+  // Even if state.json becomes writable again, dm-a stays unarchived until the handoff itself is durably saved.
+  failSave = false
+  env.ctx.emit('agent/status', { agent: firstAgent, status: 'idle' })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  assert.equal(env.archivedSessions.some(item => item.sid === firstSid), false, 'dm-a stays unarchived until the rejected handoff is saved durably')
+
+  // Retrying the same operationId finishes saving the handoff durably -> now dm-a archives cleanly.
+  const retried = await env.rt.moveForegroundToBackground({ botId: bot.id, operationId: opId })
+  assert.equal(retried.moved, true)
+  const onDiskAfter = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+  assert.equal(onDiskAfter.bots.a.sessionId, retried.sessionId, 'state.json now durably lists the new foreground session')
+  await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
+})

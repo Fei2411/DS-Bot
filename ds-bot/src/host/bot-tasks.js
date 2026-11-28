@@ -349,6 +349,7 @@ export function install(rt) {
       }
       const postSaves = new Set()
       for (const { id, entry, result: extraResult, liveMatch } of extraOps) {
+        if (entry.taskId !== undefined) unsavedHandoffTasks.delete(entry.taskId)
         entry.operationIds.delete(id)
         entry.savedOperationIds.add(id)
         pendingSaveMoveOps.delete(id)
@@ -508,6 +509,7 @@ export function install(rt) {
     || (task?.origin === 'bot-handoff' && task.forkedPrefixSessionId !== undefined)
 
   const archivedTaskSessions = new Set()
+  const unsavedHandoffTasks = new Set()
   const sessionAlreadyArchived = (id) => {
     try {
       const archived = ctx.workspaceRegistry?.archivedSessionIds
@@ -524,7 +526,7 @@ export function install(rt) {
   }
 
   const unarchivedSettledHandoffIds = (bot, task) => {
-    if (isActiveTask(task) || !archivesOnSettle(task)) return []
+    if (isActiveTask(task) || !archivesOnSettle(task) || unsavedHandoffTasks.has(task.id)) return []
     if (settling.has(task.id) || delivering.has(task.id) || hasOpenOutgoingWorks(bot, task)) return []
     return ownedTaskSessionIds(task).filter(id => !hasLiveSessionOwner(id) && !sessionAlreadyArchived(id))
   }
@@ -625,7 +627,7 @@ export function install(rt) {
           }))
         : []
       if (pruned.length === 0 && (access !== 'locked' || (pending.length === 0 && unarchivedHandoffs.length === 0))) return
-      if (pruned.length > 0 || pending.length > 0) await rt.save({ required: true })
+      await rt.save({ required: true })
       if (access !== 'locked') return
       let retry = false
       for (const entry of pending) {
@@ -687,7 +689,7 @@ export function install(rt) {
           if (rt.botOf(bot.id) !== bot || !tasksOf(bot).includes(task) || isActiveTask(task)) break
           if (hasLiveSessionOwner(id) || sessionAlreadyArchived(id)) continue
           if (keepSessions.has(id) || sessionBusy(id) || isInheritedByActiveTask(id)
-            || pendingHandoff(bot.id) || handoffing.has(bot.id)
+            || unsavedHandoffTasks.has(task.id) || pendingHandoff(bot.id) || handoffing.has(bot.id)
             || settling.has(task.id) || delivering.has(task.id) || hasOpenOutgoingWorks(bot, task)) {
             if (ctx.get('agents')?.get(id)?.status !== 'running' && (rt.runningJobs?.(id)?.length ?? 0) > 0) retry = true
             continue
@@ -699,7 +701,7 @@ export function install(rt) {
             if (rt.botOf(bot.id) !== bot || !tasksOf(bot).includes(task) || isActiveTask(task)) break
             if (hasLiveSessionOwner(id) || sessionAlreadyArchived(id)) continue
             if (keepSessions.has(id) || sessionBusy(id) || isInheritedByActiveTask(id)
-              || pendingHandoff(bot.id) || handoffing.has(bot.id)
+              || unsavedHandoffTasks.has(task.id) || pendingHandoff(bot.id) || handoffing.has(bot.id)
               || settling.has(task.id) || delivering.has(task.id) || hasOpenOutgoingWorks(bot, task)
               || retirementTarget({ botId: bot.id, roomId: task.roomId }) !== target) {
               if (ctx.get('agents')?.get(id)?.status !== 'running' && (rt.runningJobs?.(id)?.length ?? 0) > 0) retry = true
@@ -1704,6 +1706,7 @@ export function install(rt) {
     stagedMoveOps.clear()
     inFlightSaveMoveOps.clear()
     pendingSaveMoveOps.clear()
+    unsavedHandoffTasks.clear()
     completedMoveOps.clear()
     inspectedSettledSessionRpcIds.clear()
     transferOwnerToken.clear()
@@ -3025,6 +3028,7 @@ export function install(rt) {
         ...(movedImOrigin !== undefined ? { imOrigin: movedImOrigin } : {}),
       }
       ;(bot.tasks ??= []).push(task)
+      unsavedHandoffTasks.add(task.id)
       bot.sessionId = newSid
       if (forked) {
         bot.cacheAffinitySessionId = newSid
@@ -3234,6 +3238,7 @@ export function install(rt) {
         }
       }
       const finishPostSave = async () => {
+        unsavedHandoffTasks.delete(task.id)
         await preparePostSaveContext()
         // Drain any Desktop/Web messages intercepted while the handoff was running
         // (including when `channel.js:sendUser` initiated the handoff).
@@ -3245,6 +3250,10 @@ export function install(rt) {
           for (const entry of deferredInputs) postSaveContextByInput.delete(entry)
           await reconcilePendingHandoffInputs(deferredInputs)
           deferredInputs.clear()
+        }
+        if (!handoffing.has(bot.id) && !pendingHandoff(bot.id) && rt.botOf(bot.id) === bot
+          && hasUnarchivedSettledHandoff(bot)) {
+          void retireTasks([bot])
         }
       }
 
@@ -3291,6 +3300,7 @@ export function install(rt) {
         let checkpointed = record.messages.length
         try {
           await rt.save({ required: true })
+          unsavedHandoffTasks.delete(task.id)
           commitStagedMoveOps(staged)
           record.savedMoveResult = moveResult
         } catch (error) {
@@ -3313,6 +3323,7 @@ export function install(rt) {
           rememberMoveOp(id, moveResult)
         }
         for (const { id, entry, result } of supersededOps) {
+          if (entry.taskId !== undefined) unsavedHandoffTasks.delete(entry.taskId)
           entry.operationIds.delete(id)
           entry.savedOperationIds.add(id)
           pendingSaveMoveOps.delete(id)
