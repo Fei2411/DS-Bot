@@ -471,7 +471,13 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
       return
     }
     programmaticScrollTopRef.current = null
-    lastUserScrollTsRef.current = Date.now()
+    // Only treat `onScroll` as continuing an active user scroll if a real user input inside the
+    // scroll container (`wheel`, `touch`, `pointerdown`, `keydown`) happened recently. Browser
+    // reflows during panel-splitter drags fire `scroll` without user scroll input inside this
+    // container and must NOT trigger the active-scroll guard.
+    if (Date.now() - lastUserScrollTsRef.current < 600) {
+      lastUserScrollTsRef.current = Date.now()
+    }
     pendingAnchorRef.current = null
     liveScrollTopRef.current = next
     // Never measure DOM rows synchronously during `onScroll`: after a large jump, React has not
@@ -688,6 +694,7 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
   return h('div', {
     ref: wrapRef,
     className: 'dsb-pv-code-wrap',
+    style: isVirtualized ? { overflowAnchor: 'none' } : undefined,
     'data-wrap': wordWrap ? '' : undefined,
     'data-virtualized': isVirtualized ? '' : undefined,
     'data-total-lines': lines.length,
