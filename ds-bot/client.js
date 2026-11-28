@@ -23498,20 +23498,26 @@ ${quoted2}${ask ? `
 
 ${ask}` : ""}`;
 }
+function fenceMark(line) {
+  const open = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+  if (open === null) return null;
+  const bare2 = new RegExp(`^\\s{0,3}${open[1][0]}{${open[1].length},}\\s*$`).test(line);
+  return { closes: (fence) => fence.ch === open[1][0] && open[1].length >= fence.len && bare2, ch: open[1][0], len: open[1].length };
+}
 function readableMarkdown(text) {
   const lines = String(text ?? "").split("\n");
   let fence = null;
   return lines.map((line) => {
-    const mark2 = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
-    if (mark2) {
-      if (fence === null) fence = mark2[1][0];
-      else if (mark2[1][0] === fence) fence = null;
+    const mark2 = fenceMark(line);
+    if (mark2 !== null) {
+      if (fence === null) fence = mark2;
+      else if (mark2.closes(fence)) fence = null;
       return line;
     }
     if (fence !== null) return line;
     return line.split(/(`+[^`]*`+)/).map((part, index) => {
       if (index % 2 === 1) return part;
-      return part.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => alt.trim() ? `[${t("Image")}: ${alt.trim()}]` : `[${t("Image")}]`).replace(/!\[/g, "!\\[").replace(/<(\/?[a-zA-Z][^>]*|!--[^>]*)>/g, (tag) => tag.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
+      return part.replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => alt.trim() ? `[${t("Image")}: ${alt.trim()}]` : `[${t("Image")}]`).replace(/!\[/g, "!\\[").replace(/<(?=[/!a-zA-Z])/g, "&lt;");
     }).join("");
   }).join("\n");
 }
@@ -23545,10 +23551,10 @@ function readerParts(text, displayPath) {
     run2 = [];
   };
   for (const line of lines) {
-    const mark2 = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
-    if (mark2) {
-      if (fence === null) fence = mark2[1][0];
-      else if (mark2[1][0] === fence) fence = null;
+    const mark2 = fenceMark(line);
+    if (mark2 !== null) {
+      if (fence === null) fence = mark2;
+      else if (mark2.closes(fence)) fence = null;
       run2.push(line);
       continue;
     }
@@ -23819,13 +23825,11 @@ function usePreview(tab, active, request = (body) => call("side-app-preview", bo
   };
   const on = (0, import_react.useRef)(active);
   on.current = active;
-  const failures = (0, import_react.useRef)(0);
   (0, import_react.useEffect)(() => {
     if (!active) return void 0;
     return startPolling({
       tick: async () => {
         await pull();
-        failures.current = 0;
       },
       delay: () => POLL_MS,
       active: () => on.current
@@ -73045,6 +73049,12 @@ function AskCard({ pick: pick2, onClose, onAdd, onSend }) {
   const [request, setRequest] = (0, import_react100.useState)("");
   const [leaving, setLeaving] = (0, import_react100.useState)(false);
   const field = (0, import_react100.useRef)(null);
+  const box = (0, import_react100.useRef)(null);
+  const [top, setTop] = (0, import_react100.useState)(pick2.top);
+  (0, import_react100.useLayoutEffect)(() => {
+    const node = box.current;
+    if (node) setTop(Math.max(8, Math.min(pick2.top, window.innerHeight - node.offsetHeight - 8)));
+  }, [pick2.top]);
   (0, import_react100.useEffect)(() => {
     field.current?.focus();
   }, []);
@@ -73059,11 +73069,12 @@ function AskCard({ pick: pick2, onClose, onAdd, onSend }) {
   return (0, import_react100.createElement)(
     "div",
     {
+      ref: box,
       className: "bt-sapp-ask",
       role: "dialog",
       "aria-label": t("Ask Bot about this passage"),
       "data-leaving": leaving || void 0,
-      style: { left: `${pick2.left}px`, top: `${pick2.top}px` },
+      style: { left: `${pick2.left}px`, top: `${top}px` },
       onMouseDown: (event) => event.stopPropagation()
     },
     (0, import_react100.createElement)("blockquote", { className: "bt-sapp-ask-quote" }, excerpt),

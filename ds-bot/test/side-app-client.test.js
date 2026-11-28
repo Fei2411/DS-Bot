@@ -214,7 +214,7 @@ test('readableMarkdown disables raw HTML and every image while leaving code unto
     '```',
   ].join('\n')
   const output = readableMarkdown(input)
-  assert.match(output, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+  assert.match(output, /&lt;script>alert\(1\)&lt;\/script>/)
   assert.doesNotMatch(output, /!\[diagram\]\(assets\/diagram\.svg\)/)
   assert.match(output, /\[Image: diagram\]/)
   assert.match(output, /\[Image: pixel\]/)

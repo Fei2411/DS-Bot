@@ -267,12 +267,11 @@ export function usePreview(tab, active, request = (body) => call('side-app-previ
   }
   const on = useRef(active)
   on.current = active
-  const failures = useRef(0)
   useEffect(() => {
     if (!active) return undefined
     // The first read of a tab is not merged; later ones wait the merge window out.
     return startPolling({
-      tick: async () => { await pull(); failures.current = 0 },
+      tick: async () => { await pull() },
       delay: () => POLL_MS,
       active: () => on.current,
     })

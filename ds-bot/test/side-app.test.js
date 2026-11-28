@@ -613,13 +613,15 @@ test('canvas refuses hidden and credential entries up front while reader stays u
   const root = fixture(t)
   write(root, '.draft.html', '<h1>hidden</h1>')
   write(root, '.git/entry.html', '<h1>git</h1>')
+  write(root, '.hidden/index.html', '<h1>dot folder</h1>')
   write(root, '.notes.md', '# hidden notes')
   write(root, 'normal.html', '<h1>normal</h1>')
   const { rt } = harness({ root })
   assert.match(await tool(rt, 'open_canvas').execute({ path: '.draft.html' }, execIn('s1', root)), /hidden or credential files/)
   assert.match(await tool(rt, 'open_canvas').execute({ path: '.git/entry.html' }, execIn('s1', root)), /hidden or credential files/)
+  assert.match(await tool(rt, 'open_canvas').execute({ path: '.hidden/index.html' }, execIn('s1', root)), /hidden or credential files/, 'a plain dot directory is a hidden entry even though no name in it is a credential')
   const normal = await openWithTool(rt, root, 'normal.html')
-  for (const displayPath of ['.draft.html', '.git/entry.html']) {
+  for (const displayPath of ['.draft.html', '.git/entry.html', '.hidden/index.html']) {
     await assert.rejects(
       rt.sideAppEndpoint('side-app-open', { ...fileBody({ ...normal, displayPath }), app: 'canvas' }),
       error => error?.code === 'bot/forbidden' && /hidden or credential files/.test(error.message),

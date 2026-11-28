@@ -315,10 +315,13 @@ export function install(rt) {
     return info
   }
 
-  const fileKind = (app, realPath) => {
+  const fileKind = (app, realPath, root) => {
     const ext = extname(realPath).toLowerCase()
     if (app === 'canvas') {
-      if (basename(realPath).startsWith('.') || SENSITIVE_NAME.test(realPath)) throw forbidden('Canvas does not open hidden or credential files')
+      // Dot segments anywhere below the working root count, not only the file's own
+      // name: an entry inside `.hidden/` would otherwise make that directory the
+      // ticket root, where the asset scan can no longer see the dot.
+      if (root !== undefined ? hiddenOrSensitive(root, realPath) : basename(realPath).startsWith('.') || SENSITIVE_NAME.test(realPath)) throw forbidden('Canvas does not open hidden or credential files')
       if (!CANVAS_EXTENSIONS.has(ext)) throw invalid(`Canvas opens HTML files (.html/.htm), not ${ext || 'this file'}`)
     } else if (!READER_EXTENSIONS.has(ext)) throw invalid(`Reader opens Markdown files (.md/.markdown/.mdx), not ${ext || 'this file'}`)
     return ext
@@ -678,7 +681,7 @@ export function install(rt) {
     const app = body?.app === 'canvas' || body?.app === 'reader' ? body.app : undefined
     if (app === undefined) throw invalid('app must be canvas or reader')
     const { target } = await authorizeFile(body, { app })
-    const ext = fileKind(app, target.realPath)
+    const ext = fileKind(app, target.realPath, target.root)
     const limits = app === 'canvas' ? { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' } : {}
     const { bytes, size } = await readVerified(target.realPath, { anchor: target.root, ...limits })
     const revision = sha(bytes)
@@ -696,7 +699,7 @@ export function install(rt) {
     const { target, app } = await authorizeFile(body)
     // The card's app binds what may be read: a canvas card never reads Markdown and a
     // reader card never reads HTML, however the caller rewrites displayPath.
-    fileKind(app, target.realPath)
+    fileKind(app, target.realPath, target.root)
     // Text reads cap at the text line even for HTML: the 8 MiB allowance is for the
     // rendered preview bytes, never for text a client shows.
     const { bytes } = await readVerified(target.realPath, { anchor: target.root, limit: TEXT_LIMIT, oversized: 'The file is larger than 4 MiB of text' })
@@ -737,7 +740,9 @@ export function install(rt) {
     const ext = extname(target.realPath).toLowerCase()
     const mime = IMAGE_MIMES.get(ext)
     if (mime === undefined) throw invalid(`Only image files can be read here (png, jpg, gif, webp, avif, svg), not ${ext || 'this file'}`)
-    const { bytes } = await readVerified(target.realPath, { anchor: target.root, limit: IMAGE_LIMIT, oversized: 'The image is larger than 4 MiB' })
+    // The read-time anchor matches the granularity resolveSiblingOf authorized: the
+    // article's own folder, not the whole working root.
+    const { bytes } = await readVerified(target.realPath, { anchor: dirname(document.realPath), limit: IMAGE_LIMIT, oversized: 'The image is larger than 4 MiB' })
     const revision = sha(bytes)
     if (typeof body.knownRevision === 'string' && body.knownRevision === revision) return { kind: 'unchanged', revision }
     return { kind: 'bytes', revision, mime, size: bytes.length, data: bytes.toString('base64') }
@@ -767,7 +772,7 @@ export function install(rt) {
     const { sessionId, target, ownerBot } = await authorizeFile(body, { app: 'canvas' })
     // The preview entry revalidates as a real, regular HTML file every time: a card
     // cannot outlive its target turning into a directory, a symlink or another type.
-    fileKind('canvas', target.realPath)
+    fileKind('canvas', target.realPath, target.root)
     const info = await statTarget(target.realPath)
     if (info.size > HTML_LIMIT) return { kind: 'preview-unavailable', reason: 'The HTML file is larger than 8 MiB' }
     // One live ticket per file and session: a repeat call refreshes it instead of
@@ -833,7 +838,7 @@ export function install(rt) {
     let target
     try {
       target = await resolveInRoot(root, raw)
-      fileKind(app, target.realPath)
+      fileKind(app, target.realPath, root)
       const info = await statTarget(target.realPath)
       if (app === 'canvas' && info.size > HTML_LIMIT) return `That HTML file is ${(info.size / (1024 * 1024)).toFixed(1)} MiB, larger than the 8 MiB Canvas limit. Open it in an editor instead.`
     } catch (error) {

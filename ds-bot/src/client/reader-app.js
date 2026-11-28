@@ -56,6 +56,14 @@ function AskCard({ pick, onClose, onAdd, onSend }) {
   const [request, setRequest] = useState('')
   const [leaving, setLeaving] = useState(false)
   const field = useRef(null)
+  const box = useRef(null)
+  // The pill's spot is clamped for a 28px pill; the open card is far taller, so it
+  // re-clamps against its real height once mounted instead of falling off the screen.
+  const [top, setTop] = useState(pick.top)
+  useLayoutEffect(() => {
+    const node = box.current
+    if (node) setTop(Math.max(8, Math.min(pick.top, window.innerHeight - node.offsetHeight - 8)))
+  }, [pick.top])
   useEffect(() => { field.current?.focus() }, [])
   useEscape(() => onClose(true), true, { priority: -1 })
   const key = (event) => {
@@ -66,8 +74,9 @@ function AskCard({ pick, onClose, onAdd, onSend }) {
   }
   const excerpt = pick.quote.length > 240 ? `${pick.quote.slice(0, 240)}…` : pick.quote
   return h('div', {
+    ref: box,
     className: 'bt-sapp-ask', role: 'dialog', 'aria-label': t('Ask Bot about this passage'), 'data-leaving': leaving || undefined,
-    style: { left: `${pick.left}px`, top: `${pick.top}px` },
+    style: { left: `${pick.left}px`, top: `${top}px` },
     onMouseDown: event => event.stopPropagation(),
   },
   h('blockquote', { className: 'bt-sapp-ask-quote' }, excerpt),

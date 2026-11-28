@@ -177,6 +177,16 @@ export function revisionMessage({ displayPath, section, quote, source, request }
 
 // ---- text safety for the reader ----------------------------------------------------
 
+// A fence line as CommonMark reads it: the run may be longer than three, and a line
+// closes the block only when it is the same character, at least as long as the
+// opening run, and carries nothing after the run but whitespace.
+function fenceMark(line) {
+  const open = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
+  if (open === null) return null
+  const bare = new RegExp(`^\\s{0,3}${open[1][0]}{${open[1].length},}\\s*$`).test(line)
+  return { closes: fence => fence.ch === open[1][0] && open[1].length >= fence.len && bare, ch: open[1][0], len: open[1].length }
+}
+
 /**
  * Markdown text the reader may hand to the renderer: raw HTML tags are shown as text
  * and images become their labels, so reading a file never loads a page, a pixel
@@ -186,10 +196,10 @@ export function readableMarkdown(text) {
   const lines = String(text ?? '').split('\n')
   let fence = null
   return lines.map((line) => {
-    const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
-    if (mark) {
-      if (fence === null) fence = mark[1][0]
-      else if (mark[1][0] === fence) fence = null
+    const mark = fenceMark(line)
+    if (mark !== null) {
+      if (fence === null) fence = mark
+      else if (mark.closes(fence)) fence = null
       return line
     }
     if (fence !== null) return line
@@ -198,7 +208,7 @@ export function readableMarkdown(text) {
       return part
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => (alt.trim() ? `[${t('Image')}: ${alt.trim()}]` : `[${t('Image')}]`))
         .replace(/!\[/g, '!\\[')
-        .replace(/<(\/?[a-zA-Z][^>]*|!--[^>]*)>/g, (tag) => tag.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+        .replace(/<(?=[/!a-zA-Z])/g, '&lt;')
     }).join('')
   }).join('\n')
 }
@@ -238,10 +248,10 @@ export function readerParts(text, displayPath) {
   let images = 0
   const flush = () => { if (run.length > 0) parts.push({ kind: 'text', text: readableMarkdown(run.join('\n')) }); run = [] }
   for (const line of lines) {
-    const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
-    if (mark) {
-      if (fence === null) fence = mark[1][0]
-      else if (mark[1][0] === fence) fence = null
+    const mark = fenceMark(line)
+    if (mark !== null) {
+      if (fence === null) fence = mark
+      else if (mark.closes(fence)) fence = null
       run.push(line)
       continue
     }

@@ -154,6 +154,21 @@ test('reading a file never loads a pixel, a page or a script', () => {
   assert.ok(code.includes('`<b>inline</b>`'))
 })
 
+test('readableMarkdown tracks fence length and character the way CommonMark does', () => {
+  // A four-backtick block is not closed by a three-backtick line: the image after it is still code.
+  const wide = apps.readableMarkdown(['````', '```', '![x](https://evil.example/x.png)', '````'].join('\n'))
+  assert.ok(wide.includes('![x](https://evil.example/x.png)'))
+  // A longer closing run closes a shorter opening one, with nothing after it but whitespace.
+  const closed = apps.readableMarkdown(['```', 'code', '````  ', 'text ![y](y.png)'].join('\n'))
+  assert.ok(closed.includes('[Image: y]'))
+  // An info string after the run means it cannot close a block.
+  const info = apps.readableMarkdown(['```', '```js', '![z](https://evil.example/z.png)', '```'].join('\n'))
+  assert.ok(info.includes('![z](https://evil.example/z.png)'))
+  // Tildes never close backticks.
+  const mixed = apps.readableMarkdown(['```', '~~~', '![w](https://evil.example/w.png)', '```'].join('\n'))
+  assert.ok(mixed.includes('![w](https://evil.example/w.png)'))
+})
+
 test('only a Markdown file beside the open one is a link the Reader follows', () => {
   assert.equal(apps.siblingPath('docs/a.md', 'b.md'), 'docs/b.md')
   assert.equal(apps.siblingPath('docs/a.md', './sub/c.markdown#part'), 'docs/sub/c.markdown')
