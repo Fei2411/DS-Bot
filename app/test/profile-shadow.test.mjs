@@ -259,3 +259,53 @@ test('real dsh-app-boot contract: removing shadowed dsh-tool-subagent@0.2.1-rc.4
   assert.notEqual(after.presetSubagent?.disabled, true, 'tool-subagent must be enabled after cleanup')
   assert.notEqual(after.presetFork?.disabled, true, 'tool-subagent-fork must be enabled after cleanup')
 })
+
+test('never flags custom/third-party plugins or profile-only official packages, and cleans duplicate dependency sections', async (t) => {
+  const dir = folder(t)
+  const official = bundledOfficialPackages(INSTALL_ANCHOR)
+  const runtimeVersion = getDshRuntimeVersion()
+
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify({
+    name: 'ds-bot-profile',
+    dependencies: {
+      '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-subagent-claude-code': '0.2.1-rc.4',
+      '@acme/dsh-custom-plugin': '1.0.0',
+      'custom-community-plugin': '2.1.0',
+    },
+    optionalDependencies: {
+      '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.3',
+      '@deepseek-ai/dsh-cua-native-linux': '0.2.1-rc.4',
+      'custom-community-plugin': '2.1.0',
+    },
+  }, null, 2)}\n`)
+  plant(dir, '@deepseek-ai/dsh-tool-subagent', '0.2.1-rc.4')
+  plant(dir, '@deepseek-ai/dsh-subagent-claude-code', '0.2.1-rc.4')
+  plant(dir, '@deepseek-ai/dsh-cua-native-linux', '0.2.1-rc.4')
+  plant(dir, '@acme/dsh-custom-plugin', '1.0.0')
+  plant(dir, 'custom-community-plugin', '2.1.0')
+
+  const found = shadowedBundles(dir, BUNDLES, {
+    retiredNames: RETIRED_BUNDLES,
+    bundledOfficial: official,
+    runtimeVersion,
+  })
+  assert.deepEqual(found, [{ name: '@deepseek-ai/dsh-tool-subagent', version: '0.2.1-rc.4' }])
+
+  await removeShadowed(dir, found.map(entry => entry.name))
+  const saved = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  assert.deepEqual(saved.dependencies, {
+    '@deepseek-ai/dsh-subagent-claude-code': '0.2.1-rc.4',
+    '@acme/dsh-custom-plugin': '1.0.0',
+    'custom-community-plugin': '2.1.0',
+  })
+  assert.deepEqual(saved.optionalDependencies, {
+    '@deepseek-ai/dsh-cua-native-linux': '0.2.1-rc.4',
+    'custom-community-plugin': '2.1.0',
+  })
+  assert.equal(existsSync(join(dir, 'node_modules', '@deepseek-ai', 'dsh-tool-subagent')), false)
+  assert.equal(existsSync(join(dir, 'node_modules', '@deepseek-ai', 'dsh-subagent-claude-code')), true)
+  assert.equal(existsSync(join(dir, 'node_modules', '@deepseek-ai', 'dsh-cua-native-linux')), true)
+  assert.equal(existsSync(join(dir, 'node_modules', '@acme', 'dsh-custom-plugin')), true)
+  assert.equal(existsSync(join(dir, 'node_modules', 'custom-community-plugin')), true)
+})

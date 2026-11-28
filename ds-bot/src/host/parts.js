@@ -20,7 +20,7 @@ import { openTurnAt } from './btw.js'
 import { AUTO_SWITCH_RESUME_LIMIT, HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, LOCAL_AGENT_SESSION_LOST_LIMIT, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { BLOCKING_CODES, PAUSED_CODES } from './turns.js'
 import { DEFAULT_BYTES_PER_TOKEN, computeHandoffBudget, countMessageAttachments, fitHandoffHistory, measureMessagesBytes, utf8Bytes } from './handoff-budget.js'
-import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
+import { FORWARDED_UNKNOWN_SOURCE_KIND, isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
 import { buildCheckpointPack, extractToolTrail, toolArgSummary as summarizeToolArg } from './context-pack.js'
 import { install as ensureContextRuntime } from './context-runtime.js'
 import { assembleLlmStream } from './models.js'
@@ -2407,6 +2407,25 @@ export function install(rt) {
     return { seenTransferIds, seenExchangeIds }
   }
 
+  const isPlainSource = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  const hasValidV4SourceKind = source => isPlainSource(source)
+    && typeof source.kind === 'string'
+    && source.kind.trim() !== ''
+    && source.kind !== 'plugin'
+  const forwardedSourceOf = (message, key) => {
+    const raw = message?.source
+    // DSH v4 rejects user/message events without a producer-owned source.kind (#2009),
+    // including blank strings and the retired 'plugin' wrapper. Fall back to a non-user,
+    // context-only DS Bot kind so unknown/sourceless messages stay non-waking and are
+    // never escalated into human user prompts.
+    const base = hasValidV4SourceKind(raw)
+      ? raw
+      : { ...(isPlainSource(raw) ? raw : {}), kind: FORWARDED_UNKNOWN_SOURCE_KIND }
+    return key !== undefined && base.transferId === undefined
+      ? { ...base, transferId: key }
+      : base
+  }
+
   // Input for an earlier part goes on in the current one: a browser may still show the
   // old part, and a turn stopped for a switch hands on what it claimed.
   async function forward(owner, messages, target = currentOf(owner)) {
@@ -2433,16 +2452,7 @@ export function install(rt) {
         flushNeeded = true
         continue
       }
-      // DSH v4 rejects user/message events without a producer-owned source.kind (#2009);
-      // preserve any existing source metadata while guaranteeing a valid kind on forwarded copies.
-      const baseSource = message.source && typeof message.source === 'object'
-        ? (typeof message.source.kind === 'string' && message.source.kind.trim() !== ''
-          ? message.source
-          : { ...message.source, kind: 'user' })
-        : { kind: 'user' }
-      const source = key !== undefined && baseSource.transferId === undefined
-        ? { ...baseSource, transferId: key }
-        : baseSource
+      const source = forwardedSourceOf(message, key)
       const copy = createUserMessage({ content: message.content, source })
       if (isSilentRelay(message)) {
         if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushNeeded = true

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { planRepair, repair, stalePins } from '../bin/ds-bot-doctor.mjs'
+import { bundledDshPackages, classifyStalePins, planRepair, repair, stalePins } from '../bin/ds-bot-doctor.mjs'
 
 // #1449: after a DSH upgrade a profile whose manifest pins official DSH runtime
 // packages at a version the running DSH does not satisfy keeps its own old copies; DSH
@@ -174,6 +174,131 @@ test('catches stale official DSH tool plugins like dsh-tool-subagent and hoisted
     assert.equal(check.status, 1)
     assert.match(check.stdout, /@deepseek-ai\/dsh-tool-subagent@0\.2\.1-rc\.4 \(hoisted in node_modules\)/)
     assert.match(check.stdout, /pnpm why/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('does not auto-delete profile-only official packages such as native Computer Use drivers, and reports them separately', () => {
+  const pkg = {
+    name: 'dsh-profile-web',
+    private: true,
+    dependencies: {
+      'ds-bot': '0.4.1',
+      'my-custom-plugin': '1.2.3',
+      '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-cua-native': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-experimental-cua-windows': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-experimental-schedule-bundle': '0.2.1-rc.4',
+    },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-cua-native'] } },
+  }
+
+  // With an explicit bundled set from a running DSH installation (confirming dsh-tool-subagent is built-in,
+  // while native CUA drivers are profile-only, and retired schedule-bundle is retired):
+  const bundled = new Set(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-tool-subagent'])
+  const classified = classifyStalePins(pkg, RUNNING, { bundledPackages: bundled })
+  assert.deepEqual(names(classified.stale), [
+    '@deepseek-ai/dsh-tool-subagent@0.2.1-rc.4',
+    '@deepseek-ai/dsh-experimental-schedule-bundle@0.2.1-rc.4',
+  ])
+  assert.deepEqual(names(classified.profileOnly), [
+    '@deepseek-ai/dsh-cua-native@0.2.1-rc.4',
+    '@deepseek-ai/dsh-experimental-cua-windows@0.2.1-rc.4',
+    '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.1-rc.4',
+  ])
+
+  // Without a DSH install on disk (fallback allowlist), profile-only native CUA drivers are STILL protected:
+  const fallback = classifyStalePins(pkg, RUNNING)
+  assert.deepEqual(names(fallback.stale), [
+    '@deepseek-ai/dsh-tool-subagent@0.2.1-rc.4',
+    '@deepseek-ai/dsh-experimental-schedule-bundle@0.2.1-rc.4',
+  ])
+  assert.deepEqual(names(fallback.profileOnly), [
+    '@deepseek-ai/dsh-cua-native@0.2.1-rc.4',
+    '@deepseek-ai/dsh-experimental-cua-windows@0.2.1-rc.4',
+    '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.1-rc.4',
+  ])
+
+  // End-to-end `doctor --fix` removes confirmed built-in / retired stale pins but NEVER deletes
+  // profile-only native CUA drivers or custom plugins, and reports upgrade instructions instead.
+  const home = homeWith({ web: pkg })
+  const dshInstallDir = mkdtempSync(join(tmpdir(), 'ds-bot-doctor-dsh-'))
+  try {
+    mkdirSync(join(dshInstallDir, 'node_modules', '@deepseek-ai', 'dsh-tool-subagent'), { recursive: true })
+    writeFileSync(join(dshInstallDir, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh',
+      version: RUNNING,
+      dependencies: { '@deepseek-ai/dsh-tool-subagent': RUNNING },
+    }))
+    writeFileSync(join(dshInstallDir, 'node_modules', '@deepseek-ai', 'dsh-tool-subagent', 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-tool-subagent',
+      version: RUNNING,
+    }))
+    assert.deepEqual([...bundledDshPackages(join(dshInstallDir, 'package.json'))].sort(), ['@deepseek-ai/dsh', '@deepseek-ai/dsh-tool-subagent'])
+
+    const fixed = spawnSync(
+      process.execPath,
+      [DOCTOR, 'doctor', '--home', home, '--dsh-version', RUNNING, '--dsh-install', dshInstallDir, '--fix'],
+      { encoding: 'utf8', env: { ...process.env, DSH_PNPM: FAKE_PNPM } },
+    )
+    assert.equal(fixed.status, 1, 'remaining profile-only stale packages require manual upgrade so exit status stays 1')
+    assert.match(fixed.stdout, /removed @deepseek-ai\/dsh-tool-subagent@0\.2\.1-rc\.4, @deepseek-ai\/dsh-experimental-schedule-bundle@0\.2\.1-rc\.4/)
+    assert.match(fixed.stdout, /@deepseek-ai\/dsh-cua-native@0\.2\.1-rc\.4.*profile-only/)
+    assert.match(fixed.stdout, /pnpm add @deepseek-ai\/dsh-cua-native@0\.2\.2-rc\.2/)
+    const saved = JSON.parse(readFileSync(join(home, 'profiles', 'web', 'package.json'), 'utf8'))
+    assert.equal(saved.dependencies['@deepseek-ai/dsh-tool-subagent'], undefined)
+    assert.equal(saved.dependencies['@deepseek-ai/dsh-experimental-schedule-bundle'], undefined)
+    assert.equal(saved.dependencies['@deepseek-ai/dsh-cua-native'], '0.2.1-rc.4')
+    assert.equal(saved.dependencies['@deepseek-ai/dsh-experimental-cua-windows'], '0.2.1-rc.4')
+    assert.equal(saved.dependencies['@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'], '0.2.1-rc.4')
+    assert.equal(saved.dependencies['my-custom-plugin'], '1.2.3')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+    rmSync(dshInstallDir, { recursive: true, force: true })
+  }
+})
+
+test('removes duplicate stale pins across dependencies and optionalDependencies while keeping compatible peerDependencies intact', () => {
+  const pkg = {
+    name: 'dsh-profile-web',
+    private: true,
+    dependencies: {
+      'ds-bot': '0.4.1',
+      '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-schedule': RUNNING,
+    },
+    optionalDependencies: {
+      '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.3',
+      '@deepseek-ai/dsh-schedule': '0.2.1-rc.4',
+      'custom-optional': '2.0.0',
+    },
+    peerDependencies: {
+      '@deepseek-ai/dsh-tool-subagent': `^${RUNNING}`,
+      '@deepseek-ai/dsh-web-app': '0.2.1-rc.2',
+    },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
+  }
+  const home = homeWith({ web: pkg })
+  try {
+    const plan = planRepair({ home, dshVersion: RUNNING })
+    assert.deepEqual(
+      plan[0].stale.map(pin => [pin.field ?? 'dependencies', pin.name, pin.spec]),
+      [
+        ['dependencies', '@deepseek-ai/dsh-tool-subagent', '0.2.1-rc.4'],
+        ['optionalDependencies', '@deepseek-ai/dsh-tool-subagent', '0.2.1-rc.3'],
+        ['optionalDependencies', '@deepseek-ai/dsh-schedule', '0.2.1-rc.4'],
+        ['peerDependencies', '@deepseek-ai/dsh-web-app', '0.2.1-rc.2'],
+      ],
+    )
+    const changed = repair(plan, { pnpm: FAKE_PNPM })
+    assert.equal(changed.length, 1)
+    assert.equal(changed[0].installed, true)
+    const saved = JSON.parse(readFileSync(join(home, 'profiles', 'web', 'package.json'), 'utf8'))
+    assert.deepEqual(saved.dependencies, { 'ds-bot': '0.4.1', '@deepseek-ai/dsh-schedule': RUNNING })
+    assert.deepEqual(saved.optionalDependencies, { 'custom-optional': '2.0.0' })
+    assert.deepEqual(saved.peerDependencies, { '@deepseek-ai/dsh-tool-subagent': `^${RUNNING}` })
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
