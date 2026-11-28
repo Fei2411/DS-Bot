@@ -345,6 +345,9 @@ export class AcpEngine {
           // stays generic for the same reason its first line is.
           session.push({ type: 'status', text: meta ? 'Working…' : described, ...(team ? { team: true } : {}) })
         }
+        // The CLI can resume thinking without another activity event; once the
+        // last tracked call ends, the live indicator must stop naming that call.
+        if (terminal && known !== undefined && session.toolCalls.size === 0) session.push({ type: 'idle' })
         break
       }
       case 'plan':
@@ -1097,24 +1100,32 @@ export function modelsFromProbe(probe) {
     // No evidence this CLI publishes one id per level. A model's own level list
     // wins over the session-wide one — Grok's availableModels carry
     // `_meta.reasoningEfforts` (descending, and per model: grok-4.5 has no xhigh),
-    // which the shared option cannot say. Whatever the source, the list is
-    // normalized weak-to-strong: the CLI's own order is never trusted.
+    // which the shared option cannot say. An explicit empty list is evidence the
+    // model has no levels; only a missing list may use the shared option. Whatever
+    // the source, the list is normalized weak-to-strong: the CLI's own order is
+    // never trusted.
     const ownLevelsOf = (model) => {
       const own = entries.find(entry => entry.id === model.id)?.entry?._meta?.reasoningEfforts
-      if (!Array.isArray(own) || own.length === 0) return undefined
-      const efforts = sortEfforts(own.map(entry => ({
-        id: String(entry.id ?? entry.value ?? entry.name),
-        name: String(entry.name ?? entry.label ?? entry.id ?? entry.value),
-        ...(entry.description ? { description: String(entry.description) } : {}),
-      })).filter(entry => entry.id !== ''))
-      return efforts.length > 0 ? efforts : undefined
+      if (!Array.isArray(own)) return undefined
+      const efforts = sortEfforts(own.map((entry) => {
+        const raw = typeof entry === 'string' ? entry : (entry?.id ?? entry?.value ?? entry?.name)
+        const id = String(raw ?? '').trim()
+        const label = typeof entry === 'string' ? id : String(entry?.name ?? entry?.label ?? raw ?? '').trim()
+        return {
+          id,
+          name: label || id,
+          ...(typeof entry === 'object' && entry?.description ? { description: String(entry.description) } : {}),
+        }
+      }).filter(entry => entry.id !== ''))
+      return efforts.length > 0 ? efforts : null
     }
     const shared = sortEfforts(thoughtOptions)
     const baseModels = configBases.length > 0
       ? configBases
       : entries.map(({ entry, id }) => ({ id, name: String(entry.name ?? id) }))
     return baseModels.map((model) => {
-      const efforts = ownLevelsOf(model) ?? (shared.length > 0 ? shared : undefined)
+      const own = ownLevelsOf(model)
+      const efforts = own === undefined ? (shared.length > 0 ? shared : undefined) : own ?? undefined
       return efforts === undefined ? model : { ...model, reasoning: { efforts } }
     })
   }

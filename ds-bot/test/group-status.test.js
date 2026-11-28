@@ -407,6 +407,13 @@ test('a local CLI member streams live work, keeps the round alive, frees it afte
   assert.deepEqual([state.work.bots.b.tool, state.work.bots.b.note], ['cli', 'Run npm test'])
   assert.equal(host.rt.liveOf('gb').toolCount, 2)
 
+  // Thought prose means the CLI is reasoning again: the last tool stops being
+  // the live action even though the turn itself is still open.
+  host.rt.noteLocalAgentEvent('gb', { type: 'thought', text: 'The test failure needs a closer look.' })
+  state = (await host.call('state', {})).value
+  assert.equal(state.activity.b, 'thinking')
+  assert.equal(state.work.bots.b.tool, undefined)
+
   t.mock.timers.tick(1)
   await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
@@ -424,6 +431,23 @@ test('a local CLI member streams live work, keeps the round alive, frees it afte
   // A turn that actually ran tools is not retried as a promise with no work.
   assert.equal(host.agentOf('gb').calls.length, 1)
   assert.equal(text(host.agentOf('r1').calls[0]), '[Group post from Writer]\nI checked src/schema.js.')
+})
+
+test('a local CLI thought clears its DM tool activity before the turn ends', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  host.emit('b', 'turn/start', { turn: 1 })
+  host.rt.noteLocalAgentEvent('b', { type: 'activity', text: '▸ Read src/schema.js' })
+  let state = (await host.call('state', {})).value
+  assert.equal(state.activity.b, 'searching')
+  assert.equal(state.work.bots.b.tool, 'read')
+
+  host.rt.noteLocalAgentEvent('b', { type: 'thought', text: 'Now I understand the schema.' })
+  state = (await host.call('state', {})).value
+  assert.equal(state.activity.b, 'thinking')
+  assert.equal(state.work.bots.b.tool, undefined)
+
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 })
 
 test('an unmarked DS Bot MCP call from a local CLI is team work and starts no grace', async (t) => {

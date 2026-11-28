@@ -20,6 +20,7 @@ import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, turnActivity, thinkingStep, opensReply, stepLiveActivity } from './turn-reasoning.js'
 import { compressedRelayPreview, parseReplies, presentedFiles, relayRange, stackReplies } from '../shared/group-replies.js'
+import { metaToolTextName } from '../shared/meta-tools.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { ReplyGuide } from './reading.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
@@ -1253,15 +1254,12 @@ function toolActivity(name, arg, findBot, self) {
   }
 }
 
-// Internal meta/discovery tools of local agent CLIs must never leak raw names into live status.
-const META_TOOL_NOTE = /^(?:(?:mcp__[^_\s]+__)?(?:search_tool|use_tool|tool_search|load_tool|list_tools|discover_tools?))\b/i
-
 // Map a local CLI activity/status line onto the same quiet status phrases DSH tools use.
 export function localActivityNote(raw, fallbackTool) {
   const line = String(raw ?? '').replace(/^\s*▸\s*/, '').replaceAll('`', '').replace(/\s+/g, ' ').trim()
   if (line === '') return fallbackTool ? { label: null, state: fallbackTool === 'read' ? 'searching' : 'working' } : null
   const head = line.split(/[\s:()[\]]+/)[0] ?? ''
-  if (META_TOOL_NOTE.test(head)) return { label: null, state: 'working' }
+  if (metaToolTextName(line) !== undefined) return { label: null, state: 'working' }
   if (/^(?:web_?search|search_?web)$/i.test(head)) return { label: t('Searching online'), state: 'searching' }
   if (/^(?:fetch|web_?fetch|browse|browser)$/i.test(head)) return { label: t('Reading a page'), state: 'searching' }
   if (/^(?:run|shell|bash|pwsh|powershell|exec|command|terminal)$/i.test(head)) return { label: t('Running shell commands'), state: 'working' }
@@ -1277,7 +1275,7 @@ export function localActivityNote(raw, fallbackTool) {
 export function workPhrase(doing) {
   const { tool, said, note, target, switching, folder } = typeof doing === 'string' ? { tool: doing } : doing ?? {}
   if (switching) return folder === true ? t('Switching working folder') : t('Moving to a fresh conversation')
-  const safeNote = typeof note === 'string' && META_TOOL_NOTE.test(note.trim()) ? undefined : note
+  const safeNote = typeof note === 'string' && metaToolTextName(note.trim()) !== undefined ? undefined : note
   const own = (said || safeNote)?.replace(/[\s.。…]+$/u, '')
   if (own) return own
   if (!tool) return t('Thinking about it')

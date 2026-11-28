@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 import { chmodSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, parse, posix, resolve, win32 } from 'node:path'
+import { bareToolName, metaToolName, metaToolTextName } from '../../shared/meta-tools.js'
 
 export const KINDS = ['acp', 'codex', 'claude']
 export const PROFILE_SEPARATOR = '@'
@@ -557,7 +558,7 @@ export const cliMode = (kind, preset) => (kind === 'acp' ? undefined : MODES[pre
 // `xhigh, high, medium, low` — so every list is normalized, never trusted.
 export const EFFORT_ORDER = ['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 export const effortRank = id => {
-  const rank = EFFORT_ORDER.indexOf(String(id ?? '').toLowerCase())
+  const rank = EFFORT_ORDER.indexOf(String(id ?? '').trim().toLowerCase())
   return rank === -1 ? EFFORT_ORDER.length : rank
 }
 // A stable weak-to-strong sort; levels the table does not know keep their
@@ -567,27 +568,11 @@ export const sortEfforts = (efforts) => (Array.isArray(efforts) ? [...efforts] :
   .sort((a, b) => a.rank - b.rank || a.index - b.index)
   .map(entry => entry.effort)
 
-// Meta/discovery tools of a CLI's own runtime: they search the tool catalog or
-// activate deferred tools (Grok's search_tool/use_tool), and they only narrate
-// the agent's plumbing, never its work on the user's behalf. Bare names and
-// the shapes ACP reports (mcp__server__tool, server__tool, server_tool,
-// server:tool, server/tool) are all matched on the tool's own name.
-const META_TOOL_NAMES = new Set(['search_tool', 'use_tool', 'list_tools', 'tool_search', 'search_tools', 'load_tool', 'discover_tools'])
-export const bareToolName = (name) => {
-  const text = String(name ?? '').trim()
-  if (text === '') return ''
-  const withoutMcp = text.replace(/^mcp(?:__|_)/i, '')
-  const parts = withoutMcp.split(/__|[:/]/).filter(part => part !== '')
-  let base = parts.length > 1 ? parts.at(-1) : withoutMcp
-  if (base.startsWith('dsbot_') && base !== 'dsbot') base = base.slice('dsbot_'.length)
-  return base
-}
+export { bareToolName }
 export const isMetaToolCall = (call) => {
-  const name = bareToolName(call?.name ?? call?.toolName)
-  if (META_TOOL_NAMES.has(name)) return true
+  if (metaToolName(call?.name ?? call?.toolName) !== undefined) return true
   // ACP carries no standard tool-name field: some agents only title the call.
-  const title = typeof call?.title === 'string' ? call.title.trim() : ''
-  return META_TOOL_NAMES.has(bareToolName(title.split(/\s+/)[0]))
+  return metaToolTextName(call?.title) !== undefined
 }
 
 // An activity line starts with the tool's name, so only that name may mark a

@@ -1966,10 +1966,10 @@ test('sortEfforts normalizes the weak-to-strong ladder without trusting CLI orde
   assert.deepEqual(pick([{ id: 'max' }, { id: 'off' }, { id: 'low' }, { id: 'none' }, { id: 'minimal' }, { id: 'high' }, { id: 'xhigh' }, { id: 'medium' }]), ['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
   // Unknown levels keep their relative order behind every known one.
   assert.deepEqual(pick([{ id: 'zebra' }, { id: 'high' }, { id: 'apple' }, { id: 'low' }]), ['low', 'high', 'zebra', 'apple'])
-  // Case is normalized, the input is not mutated, junk survives as unknown.
-  const source = [{ id: 'HIGH' }, { id: 'low' }]
-  assert.deepEqual(pick(source), ['low', 'HIGH'])
-  assert.deepEqual(source.map(effort => effort.id), ['HIGH', 'low'])
+  // Case and surrounding whitespace are normalized, the input is not mutated, junk survives as unknown.
+  const source = [{ id: 'HIGH' }, { id: ' low ' }]
+  assert.deepEqual(pick(source), [' low ', 'HIGH'])
+  assert.deepEqual(source.map(effort => effort.id), ['HIGH', ' low '])
   assert.deepEqual(sortEfforts(undefined), [])
 })
 
@@ -1984,8 +1984,14 @@ test('isMetaToolCall matches discovery plumbing in every naming shape, sparing r
     { name: 'tool_search' },
     { name: 'search_tools' },
     { name: 'load_tool' },
+    { name: 'discover_tool' },
     { name: 'discover_tools' },
+    { name: 'toolsearch' },
+    { name: 'ToolSearch' },
     { title: 'search_tool dsbot schedule_create' },
+    { title: 'search_tool(query: dsbot)' },
+    { title: 'ToolSearch(query: dsbot)' },
+    { title: 'grok:use_tool(name: dsbot__schedule_create)' },
     { title: 'use_tool' },
   ]) assert.equal(isMetaToolCall(call), true, JSON.stringify(call))
   for (const call of [
@@ -1995,6 +2001,7 @@ test('isMetaToolCall matches discovery plumbing in every naming shape, sparing r
     { name: 'read_file' },
     { title: 'Searching the repository' },
     { title: 'Read src/host/acp.js' },
+    { title: 'Read search_tool notes' },
     undefined,
     {},
   ]) assert.equal(isMetaToolCall(call), false, JSON.stringify(call))
@@ -2109,6 +2116,12 @@ test('acp: meta tools stay out of the reasoning stream, real work and failures s
   assert.ok(!statuses.some(text => /search_tool|use_tool|schedule_create|dsbot/.test(text ?? '')), JSON.stringify(statuses))
   const activities = events.filter(event => event.type === 'activity').map(event => event.text)
   assert.ok(!activities.some(text => text.startsWith('▸ search_tool')), JSON.stringify(activities))
+  // A terminal tool batch resets the live action before answer text or the end of
+  // the turn; the only end-of-drain idle report cannot be the first reset.
+  const types = events.map(event => event.type)
+  const firstIdle = types.indexOf('idle')
+  assert.ok(firstIdle !== -1 && firstIdle < types.indexOf('text'), JSON.stringify(events.map(event => [event.type, event.text])))
+  assert.ok(types.filter(type => type === 'idle').length >= 2, JSON.stringify(types))
 })
 
 test('acp: a team tool call through the dsbot server never doubles into the reasoning stream', async (t) => {

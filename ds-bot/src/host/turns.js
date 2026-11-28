@@ -688,6 +688,10 @@ export function install(rt) {
       }
       return
     }
+    if (event.type === 'thought' && entry.localDoing !== undefined) {
+      entry.localDoing = undefined
+      showCall(id, entry)
+    }
     if (rt.groupOwners.has(id)) rt.touchRoomTurn?.(id)
     if (event.type !== 'activity' && event.type !== 'status') return
     const text = String(event.text ?? '').replace(/^\s*▸\s*/, '').trim()

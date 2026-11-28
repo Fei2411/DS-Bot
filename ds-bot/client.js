@@ -43771,6 +43771,46 @@ var presentedFiles = (value) => (Array.isArray(value) ? value : []).filter((file
   ...Number.isInteger(file.index) ? { index: file.index } : {}
 }));
 
+// src/shared/meta-tools.js
+var META_TOOL_NAMES = Object.freeze([
+  "search_tool",
+  "search_tools",
+  "use_tool",
+  "list_tools",
+  "tool_search",
+  "toolsearch",
+  "load_tool",
+  "discover_tool",
+  "discover_tools"
+]);
+var META_TOOL_SET = new Set(META_TOOL_NAMES);
+function bareToolName(name) {
+  const text = String(name ?? "").trim();
+  if (text === "") return "";
+  const withoutMcp = text.replace(/^mcp(?:__|_)/i, "");
+  const parts = withoutMcp.split(/__|[:/]/).map((part) => part.trim()).filter((part) => part !== "");
+  let base = parts.length > 0 ? parts.at(-1) : "";
+  if (base.toLowerCase().startsWith("dsbot_") && base.toLowerCase() !== "dsbot") base = base.slice("dsbot_".length);
+  return base;
+}
+function metaToolName(name) {
+  const base = bareToolName(name).toLowerCase();
+  return META_TOOL_SET.has(base) ? base : void 0;
+}
+function metaToolTextName(text) {
+  let value = String(text ?? "").trim();
+  if (value === "") return void 0;
+  value = value.replace(/^mcp(?:__|_)/i, "");
+  const prefixed = /^([^\s:()[\]]+?)(?:__|:|\/)/.exec(value);
+  if (prefixed !== null) {
+    const prefixName = metaToolName(prefixed[1]);
+    if (prefixName !== void 0) return prefixName;
+    value = value.slice(prefixed[0].length).trim();
+  }
+  const [first = ""] = value.split(/[\s:()[\]]+/);
+  return metaToolName(first);
+}
+
 // src/client/fold.js
 var import_react35 = require("react");
 var FOLD_AT = { chars: 1500, lines: 25 };
@@ -46114,12 +46154,11 @@ function toolActivity(name, arg, findBot, self) {
       return { label: phrase ? t(phrase) : null, state: toolState(name) };
   }
 }
-var META_TOOL_NOTE = /^(?:(?:mcp__[^_\s]+__)?(?:search_tool|use_tool|tool_search|load_tool|list_tools|discover_tools?))\b/i;
 function localActivityNote(raw, fallbackTool) {
   const line = String(raw ?? "").replace(/^\s*▸\s*/, "").replaceAll("`", "").replace(/\s+/g, " ").trim();
   if (line === "") return fallbackTool ? { label: null, state: fallbackTool === "read" ? "searching" : "working" } : null;
   const head = line.split(/[\s:()[\]]+/)[0] ?? "";
-  if (META_TOOL_NOTE.test(head)) return { label: null, state: "working" };
+  if (metaToolTextName(line) !== void 0) return { label: null, state: "working" };
   if (/^(?:web_?search|search_?web)$/i.test(head)) return { label: t("Searching online"), state: "searching" };
   if (/^(?:fetch|web_?fetch|browse|browser)$/i.test(head)) return { label: t("Reading a page"), state: "searching" };
   if (/^(?:run|shell|bash|pwsh|powershell|exec|command|terminal)$/i.test(head)) return { label: t("Running shell commands"), state: "working" };
@@ -46131,7 +46170,7 @@ function localActivityNote(raw, fallbackTool) {
 function workPhrase(doing) {
   const { tool, said, note, target, switching, folder } = typeof doing === "string" ? { tool: doing } : doing ?? {};
   if (switching) return folder === true ? t("Switching working folder") : t("Moving to a fresh conversation");
-  const safeNote = typeof note === "string" && META_TOOL_NOTE.test(note.trim()) ? void 0 : note;
+  const safeNote = typeof note === "string" && metaToolTextName(note.trim()) !== void 0 ? void 0 : note;
   const own = (said || safeNote)?.replace(/[\s.。…]+$/u, "");
   if (own) return own;
   if (!tool) return t("Thinking about it");

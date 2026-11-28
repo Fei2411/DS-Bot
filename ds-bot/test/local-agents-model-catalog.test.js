@@ -198,6 +198,47 @@ test('agents without a variant map keep the flat thinking-level fallback', () =>
   assert.deepEqual(models[0].reasoning.efforts.map(effort => effort.id), ['low', 'high'])
 })
 
+test('an explicit empty per-model effort list means no reasoning levels, not the shared fallback', () => {
+  const models = modelsFromProbe({
+    configOptions: [
+      { id: 'model', category: 'model', options: [{ value: 'alpha', name: 'Alpha' }, { value: 'beta', name: 'Beta' }] },
+      { id: 'thought_level', category: 'thought_level', options: [{ value: 'low' }, { value: 'high' }] },
+    ],
+    models: {
+      availableModels: [
+        { modelId: 'alpha', name: 'Alpha', _meta: { reasoningEfforts: [] } },
+        { modelId: 'beta', name: 'Beta' },
+      ],
+    },
+  })
+  const byId = Object.fromEntries(models.map(model => [model.id, model]))
+  assert.equal(byId.alpha.reasoning, undefined)
+  assert.deepEqual(byId.beta.reasoning.efforts.map(effort => effort.id), ['low', 'high'])
+})
+
+test('per-model effort entries normalize strings and object ids, skipping empty ids', () => {
+  const [model] = modelsFromProbe({
+    configOptions: [{ id: 'model', category: 'model', options: [{ value: 'alpha', name: 'Alpha' }] }],
+    models: {
+      availableModels: [{
+        modelId: 'alpha',
+        name: 'Alpha',
+        _meta: {
+          reasoningEfforts: [
+            ' high ',
+            { value: 'low', label: 'Low' },
+            { name: 'medium' },
+            { id: '  ' },
+            {},
+            'xhigh',
+          ],
+        },
+      }],
+    },
+  })
+  assert.deepEqual(model.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
+})
+
 test('legacy agents without a model config list their entries verbatim', () => {
   const models = modelsFromProbe({
     models: { availableModels: [{ modelId: 'legacy-std', name: 'Legacy Standard' }, { modelId: 'legacy-fast', name: 'Legacy Fast' }] },

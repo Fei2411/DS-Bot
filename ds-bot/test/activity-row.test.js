@@ -195,6 +195,10 @@ test('pickActivity prefers a newer host activity over an older chat note and hid
 
   // Host status alone stays hidden while reply text is already streaming.
   assert.equal(pickActivity({ tools: [], localNote: newerHost, localAt: 200, streaming: true }), undefined)
+
+  // Once the host clears the CLI's tool action, no stale host candidate remains:
+  // the row's caller falls back to its ordinary thinking phrase.
+  assert.equal(pickActivity({ tools: [], localNote: null, localAt: 200, streaming: false }), undefined)
 })
 
 // The move-to-background action stays invisible and borderless at rest so the
