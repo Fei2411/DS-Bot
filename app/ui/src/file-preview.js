@@ -3,7 +3,7 @@
 // spreadsheet tables, Excel workbooks, zoomable images & SVG, zoomable PDF (and
 // libreoffice-kit converted Office documents), strictly sandboxed HTML, and live
 // file-change reload / auto-refresh controls.
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { fileSizeText, MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CopyIcon, DownloadIcon, FileIcon } from '../../../ds-bot/src/client/icons.js'
@@ -170,6 +170,8 @@ function findOffsetIndex(offsets, y) {
 
 /**
  * Computes the visible line slice and top/bottom spacer heights for virtualized code rendering.
+ * Always clamps `scrollTop` into `[0, maxScroll]` and guarantees `0 <= start <= end <= lineCount`
+ * so shrinking content (e.g. turning word wrap off or reloading a shorter file) never blanks the view.
  */
 export function computeCodeWindow({
   lineCount,
@@ -181,13 +183,14 @@ export function computeCodeWindow({
 }) {
   if (lineCount <= 0) return { start: 0, end: 0, topPad: 0, bottomPad: 0, totalHeight: 0 }
   const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
-  const st = Math.max(0, scrollTop)
   if (offsets && offsets.length === lineCount + 1) {
     const totalHeight = offsets[lineCount]
+    const maxScroll = Math.max(0, totalHeight - vh)
+    const st = Math.min(Math.max(0, scrollTop), maxScroll)
     const first = findOffsetIndex(offsets, st)
     const last = findOffsetIndex(offsets, st + vh)
-    const start = Math.max(0, first - overscan)
-    const end = Math.min(lineCount, last + 1 + overscan)
+    const start = Math.max(0, Math.min(lineCount - 1, first - overscan))
+    const end = Math.max(start, Math.min(lineCount, last + 1 + overscan))
     return {
       start,
       end,
@@ -197,10 +200,12 @@ export function computeCodeWindow({
     }
   }
   const totalHeight = lineCount * lineHeight
+  const maxScroll = Math.max(0, totalHeight - vh)
+  const st = Math.min(Math.max(0, scrollTop), maxScroll)
   const first = Math.floor(st / lineHeight)
   const last = Math.ceil((st + vh) / lineHeight)
-  const start = Math.max(0, first - overscan)
-  const end = Math.min(lineCount, last + overscan)
+  const start = Math.max(0, Math.min(lineCount - 1, first - overscan))
+  const end = Math.max(start, Math.min(lineCount, last + overscan))
   return {
     start,
     end,
@@ -208,6 +213,56 @@ export function computeCodeWindow({
     bottomPad: Math.max(0, (lineCount - end) * lineHeight),
     totalHeight,
   }
+}
+
+function firstVisibleLineOf({ lineCount, scrollTop = 0, viewportHeight = DEFAULT_VIEWPORT_HEIGHT, lineHeight = CODE_LINE_HEIGHT, offsets = null }) {
+  if (lineCount <= 0) return 0
+  const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
+  if (offsets && offsets.length === lineCount + 1) {
+    const maxScroll = Math.max(0, offsets[lineCount] - vh)
+    const st = Math.min(Math.max(0, scrollTop), maxScroll)
+    return Math.max(0, Math.min(lineCount - 1, findOffsetIndex(offsets, st)))
+  }
+  const maxScroll = Math.max(0, lineCount * lineHeight - vh)
+  const st = Math.min(Math.max(0, scrollTop), maxScroll)
+  return Math.max(0, Math.min(lineCount - 1, Math.floor(st / lineHeight)))
+}
+
+function scrollTopForLine({ lineIndex, lineCount, viewportHeight = DEFAULT_VIEWPORT_HEIGHT, lineHeight = CODE_LINE_HEIGHT, offsets = null }) {
+  if (lineCount <= 0) return 0
+  const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
+  const idx = Math.max(0, Math.min(lineCount - 1, lineIndex))
+  if (offsets && offsets.length === lineCount + 1) {
+    const maxScroll = Math.max(0, offsets[lineCount] - vh)
+    return Math.min(maxScroll, Math.max(0, offsets[idx]))
+  }
+  const maxScroll = Math.max(0, lineCount * lineHeight - vh)
+  return Math.min(maxScroll, Math.max(0, idx * lineHeight))
+}
+
+// Binary-searches rendered `tr[data-line]` rows in a live DOM container to find the exact
+// 0-based line index currently at the top of the viewport (returns null outside a real DOM).
+function firstVisibleDomLine(el) {
+  if (!el || typeof el.querySelectorAll !== 'function' || typeof el.getBoundingClientRect !== 'function') return null
+  const containerRect = el.getBoundingClientRect()
+  if (!containerRect || containerRect.height <= 0) return null
+  const rows = el.querySelectorAll('tr[data-line]')
+  if (!rows || rows.length === 0) return null
+  let lo = 0
+  let hi = rows.length - 1
+  let best = rows[0]
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1
+    const rect = rows[mid].getBoundingClientRect()
+    if (rect.bottom > containerRect.top + 1) {
+      best = rows[mid]
+      hi = mid - 1
+    } else {
+      lo = mid + 1
+    }
+  }
+  const lineNum = Number(best?.getAttribute?.('data-line'))
+  return Number.isInteger(lineNum) && lineNum > 0 ? lineNum - 1 : null
 }
 
 function computeTargetScrollTop({ targetLine, lineCount, isVirtualized, wrapOffsets, viewportHeight }) {
@@ -257,6 +312,31 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
   wrapOffsetsRef.current = wrapOffsets
   const viewportHeightRef = useRef(viewport.height)
   viewportHeightRef.current = viewport.height
+  const liveScrollTopRef = useRef(scrollTop)
+  const domAnchorRef = useRef(null)
+  const prevLayoutRef = useRef({ fileScope, wrapOffsets, lineCount: lines.length })
+
+  const computeAnchoredScroll = useCallback((prevLayout) => {
+    const rawSt = liveScrollTopRef.current
+    const domAnchor = domAnchorRef.current
+    const anchorLine = domAnchor !== null && Math.abs(domAnchor.scrollTop - rawSt) <= 2
+      ? domAnchor.line
+      : firstVisibleLineOf({
+        lineCount: prevLayout.lineCount,
+        scrollTop: rawSt,
+        viewportHeight: viewport.height,
+        lineHeight: CODE_LINE_HEIGHT,
+        offsets: prevLayout.wrapOffsets,
+      })
+    const nextScroll = scrollTopForLine({
+      lineIndex: anchorLine,
+      lineCount: lines.length,
+      viewportHeight: viewport.height,
+      lineHeight: CODE_LINE_HEIGHT,
+      offsets: wrapOffsets,
+    })
+    return { anchorLine: Math.min(anchorLine, Math.max(0, lines.length - 1)), nextScroll }
+  }, [lines.length, viewport.height, wrapOffsets])
 
   useEffect(() => {
     const el = wrapRef.current
@@ -273,6 +353,33 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     return () => observer.disconnect()
   }, [fileScope])
 
+  // Preserve the first visible line when word wrap, viewport width, or line count changes
+  // `totalHeight` on the same file, and clamp `scrollTop` synchronously before paint so the
+  // browser never cascades scroll-clamping events through empty render windows.
+  useLayoutEffect(() => {
+    const prevLayout = prevLayoutRef.current
+    const nextLayout = { fileScope, wrapOffsets, lineCount: lines.length }
+    prevLayoutRef.current = nextLayout
+    if (!isVirtualized || prevLayout.fileScope !== fileScope) return
+    const layoutChanged = prevLayout.wrapOffsets !== wrapOffsets || prevLayout.lineCount !== lines.length
+    if (layoutChanged) {
+      const { anchorLine, nextScroll } = computeAnchoredScroll(prevLayout)
+      liveScrollTopRef.current = nextScroll
+      domAnchorRef.current = { line: anchorLine, scrollTop: nextScroll }
+      if (wrapRef.current) wrapRef.current.scrollTop = nextScroll
+      setScrollTop(nextScroll)
+      return
+    }
+    const totalHeight = wrapOffsets ? wrapOffsets[lines.length] : lines.length * CODE_LINE_HEIGHT
+    const maxScroll = Math.max(0, totalHeight - viewport.height)
+    if (liveScrollTopRef.current > maxScroll) {
+      liveScrollTopRef.current = maxScroll
+      domAnchorRef.current = null
+      if (wrapRef.current) wrapRef.current.scrollTop = maxScroll
+      setScrollTop(maxScroll)
+    }
+  }, [isVirtualized, fileScope, wrapOffsets, lines.length, viewport.height, computeAnchoredScroll])
+
   // Jump at most once per unique `(fileScope, targetLine)` so subsequent user scrolling,
   // viewport resizes, and word-wrap toggles stay at the user's current scroll position.
   useEffect(() => {
@@ -283,6 +390,8 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     if (!hasTarget) {
       jumpedKeyRef.current = null
       if (fileChanged) {
+        liveScrollTopRef.current = 0
+        domAnchorRef.current = null
         if (wrapRef.current) wrapRef.current.scrollTop = 0
         setScrollTop(0)
       }
@@ -301,6 +410,8 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
         wrapOffsets: wrapOffsetsRef.current,
         viewportHeight: vh,
       })
+      liveScrollTopRef.current = nextScroll
+      domAnchorRef.current = null
       if (el) el.scrollTop = nextScroll
       setScrollTop(nextScroll)
     } else {
@@ -312,6 +423,9 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     if (!isVirtualized) return
     const el = event.currentTarget
     const next = Math.max(0, el?.scrollTop ?? 0)
+    liveScrollTopRef.current = next
+    const domLine = firstVisibleDomLine(el)
+    domAnchorRef.current = domLine !== null ? { line: domLine, scrollTop: next } : null
     setScrollTop((cur) => {
       if (cur === next) return cur
       if (next === 0 || Math.abs(cur - next) >= CODE_LINE_HEIGHT) return next
@@ -322,10 +436,19 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     })
   }, [isVirtualized])
 
+  // On the exact render where layout changes (e.g. toggling word wrap), derive the remapped
+  // scrollTop purely from the previous layout so frame 0 renders the anchored line immediately.
+  const prevLayout = prevLayoutRef.current
+  const effectiveScrollTop = isVirtualized
+    && prevLayout.fileScope === fileScope
+    && (prevLayout.wrapOffsets !== wrapOffsets || prevLayout.lineCount !== lines.length)
+    ? computeAnchoredScroll(prevLayout).nextScroll
+    : scrollTop
+
   const { start, end, topPad, bottomPad } = isVirtualized
     ? computeCodeWindow({
       lineCount: lines.length,
-      scrollTop,
+      scrollTop: effectiveScrollTop,
       viewportHeight: viewport.height,
       lineHeight: CODE_LINE_HEIGHT,
       overscan: CODE_OVERSCAN,

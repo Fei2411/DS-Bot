@@ -2534,3 +2534,82 @@ test('Active preview renews workspace-watch and detects edits on unresumed hello
     view.unmount()
   }
 })
+
+test('computeCodeWindow clamps scrollTop past maxScroll, and CodeLines preserves first visible line without blanking across word-wrap toggles and file shrinks', () => {
+  // 1. Direct computeCodeWindow clamping in fixed-height (unwrapped) and offsets (wrapped) modes.
+  const unwrappedPastEof = computeCodeWindow({ lineCount: 1000, scrollTop: 170285, viewportHeight: 500, lineHeight: 19, overscan: 24 })
+  assert.ok(unwrappedPastEof.start <= unwrappedPastEof.end, 'unwrapped start must be <= end')
+  assert.ok(unwrappedPastEof.end > unwrappedPastEof.start, 'unwrapped window past EOF must stay non-empty')
+  assert.equal(unwrappedPastEof.end, 1000, 'unwrapped window past EOF must clamp to final lines')
+  assert.ok(unwrappedPastEof.topPad < unwrappedPastEof.totalHeight, 'topPad must not exceed totalHeight')
+
+  const offsets = new Float64Array(1001)
+  for (let i = 0; i <= 1000; i += 1) offsets[i] = i * 190
+  const wrappedPastEof = computeCodeWindow({ lineCount: 1000, scrollTop: 500000, viewportHeight: 500, lineHeight: 19, overscan: 24, offsets })
+  assert.ok(wrappedPastEof.start <= wrappedPastEof.end, 'wrapped start must be <= end')
+  assert.ok(wrappedPastEof.end > wrappedPastEof.start, 'wrapped window past EOF must stay non-empty')
+  assert.equal(wrappedPastEof.end, 1000, 'wrapped window past EOF must clamp to final lines')
+
+  // 2. 1,000 lines x 400 chars: enable Word Wrap, scroll deep (~100,000px), toggle Word Wrap OFF ->
+  //    ZERO blank frames on first render, first visible line preserved, toggle back ON preserves same line!
+  const longText = Array.from({ length: 1000 }, (_, i) => `L${String(i + 1).padStart(4, '0')} ${'x'.repeat(394)}`).join('\n')
+  const wideFile = { kind: 'code', language: 'text', name: 'wide.txt', path: 'wide.txt', size: longText.length, text: longText }
+  sandbox.localStorage.removeItem('dsb.preview.wrap')
+  const view = mount(FilePreview, { file: wideFile })
+  try {
+    let tree = view.render({ file: wideFile })
+    const wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    const scrollEl = wrapDiv.props.ref.current
+    assert.ok(scrollEl, 'CodeLines attaches wrapRef to scroll container')
+    tree = view.render({ file: wideFile })
+
+    // Turn Word Wrap ON.
+    const wrapBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0]
+    assert.ok(wrapBtn)
+    wrapBtn.props.onClick()
+    tree = view.render({ file: wideFile })
+
+    // Scroll deep into wrapped file (~100,000 px, far beyond unwrapped totalHeight of 19,000 px).
+    const deepScroll = 100_000
+    scrollEl.scrollTop = deepScroll
+    all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({
+      currentTarget: { scrollTop: deepScroll, scrollHeight: 361_000, clientHeight: scrollEl.clientHeight },
+    })
+    tree = view.render({ file: wideFile })
+    const wrappedLines = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(wrappedLines.length > 0, 'wrapped deep scroll renders rows')
+
+    const charsPerLine = Math.max(20, Math.floor((scrollEl.clientWidth - 72) / 7.4))
+    const rowsPerLine = Math.ceil(400 / charsPerLine)
+    const expectedLineIdx = Math.floor(deepScroll / (rowsPerLine * 19))
+    const expectedLineNum = expectedLineIdx + 1
+    assert.ok(wrappedLines.includes(expectedLineNum), `anchored line ${expectedLineNum} is mounted before wrap-off`)
+
+    // Toggle Word Wrap OFF -> MUST be non-empty on the VERY FIRST render and anchored to expectedLineNum!
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    tree = view.render({ file: wideFile })
+    const afterOffRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(afterOffRows.length > 0, 'turning Word Wrap OFF must never produce a blank frame')
+    assert.ok(afterOffRows.includes(expectedLineNum), `turning Word Wrap OFF must keep anchored line ${expectedLineNum} visible`)
+    assert.equal(scrollEl.scrollTop, expectedLineIdx * 19, 'scrollTop must remap to anchored line top in unwrapped coordinates')
+
+    // Toggle Word Wrap back ON -> MUST keep the EXACT same anchored line!
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    tree = view.render({ file: wideFile })
+    const afterOnRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(afterOnRows.length > 0, 'turning Word Wrap back ON must stay non-empty')
+    assert.ok(afterOnRows.includes(expectedLineNum), `round-trip wrap ON/OFF/ON must keep anchored line ${expectedLineNum} visible`)
+    assert.equal(scrollEl.scrollTop, expectedLineIdx * rowsPerLine * 19, 'scrollTop must remap back to anchored line top in wrapped coordinates')
+
+    // 3. Live reload shrinks file from 1,000 lines to 300 lines while scrolled deep -> non-empty & clamped!
+    const shrunkText = Array.from({ length: 300 }, (_, i) => `S${i + 1} short`).join('\n')
+    const shrunkFile = { ...wideFile, size: shrunkText.length, text: shrunkText }
+    tree = view.render({ file: shrunkFile })
+    const shrunkRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(shrunkRows.length > 0, 'shrunk live-reloaded file must never render blank')
+    assert.ok(shrunkRows.includes(300), 'shrunk file clamps to bottom lines')
+  } finally {
+    view.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.wrap')
+  }
+})

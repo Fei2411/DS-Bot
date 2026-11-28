@@ -61,7 +61,10 @@ function parseCharClass(glob, start) {
       }
       const lo = ch.charCodeAt(0)
       const hi = endCh.charCodeAt(0)
+      // Match git wildmatch.c: reversed ranges like `[z-a]` still match the leading char `z`
+      // while treating the range itself as empty.
       if (lo <= hi) ranges.push([lo, hi])
+      else singles.add(ch)
     } else {
       singles.add(ch)
     }

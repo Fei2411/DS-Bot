@@ -1379,6 +1379,12 @@ test('isGitignored and workspace-search match git check-ignore across negated di
       expectedIgnored: { 'logs/debug.log': true, 'logs/keep.txt': false, 'root.log': true, 'src/app.js': false },
     },
     {
+      name: 'reversed character class [z-a] matches git wildmatch behavior',
+      gitignore: 'a[z-a]b.txt\nc[!z-a]d.txt\n',
+      files: ['azb.txt', 'aab.txt', 'amb.txt', 'czd.txt', 'cad.txt', 'cmd.txt'],
+      expectedIgnored: { 'azb.txt': true, 'aab.txt': false, 'amb.txt': false, 'czd.txt': false, 'cad.txt': true, 'cmd.txt': true },
+    },
+    {
       name: 'negated dir without trailing slash must not un-ignore descendant files',
       gitignore: '*.log\n!logs\n',
       files: ['logs/debug.log', 'logs/keep.txt', 'root.log'],
