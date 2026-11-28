@@ -119,14 +119,36 @@ export function createImageCache({ maxBytes = computeImageCacheBudgetBytes(), re
       return entry.url
     },
     set(key, { url, bytes, isBlob = false }) {
+      const cost = Math.max(1, Number.isFinite(bytes) ? bytes : 1)
       const existing = entries.get(key)
+      if (existing && existing.url === url) {
+        entries.delete(key)
+        totalBytes += cost - existing.bytes
+        existing.bytes = cost
+        existing.isBlob = isBlob
+        existing.evicted = false
+        deferred.delete(url)
+        entries.set(key, existing)
+        byUrl.set(url, existing)
+        evictIfNeeded(key)
+        return existing.url
+      }
       if (existing) {
         entries.delete(key)
         totalBytes -= existing.bytes
-        if (existing.url !== url) retire(existing)
+        retire(existing)
       }
-      const cost = Math.max(1, Number.isFinite(bytes) ? bytes : 1)
-      const entry = { url, bytes: cost, isBlob, refs: 0, evicted: false }
+      const revived = deferred.get(url)
+      let entry
+      if (revived) {
+        deferred.delete(url)
+        revived.bytes = cost
+        revived.isBlob = isBlob
+        revived.evicted = false
+        entry = revived
+      } else {
+        entry = { url, bytes: cost, isBlob, refs: 0, evicted: false }
+      }
       entries.set(key, entry)
       byUrl.set(url, entry)
       totalBytes += cost

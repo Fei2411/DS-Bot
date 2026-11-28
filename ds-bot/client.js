@@ -46704,6 +46704,26 @@ function stableViewArgs(row) {
   }
   return cached.value;
 }
+var eventBotsCache = /* @__PURE__ */ new WeakMap();
+var stableEventBots = (row, other) => {
+  let cached = eventBotsCache.get(row);
+  if (!cached || cached.other !== other) {
+    cached = { other, value: [other] };
+    eventBotsCache.set(row, cached);
+  }
+  return cached.value;
+};
+var eventOpenCache = /* @__PURE__ */ new WeakMap();
+var stableEventOpen = (row, selfId, otherId, actions) => {
+  let cached = eventOpenCache.get(row);
+  if (!cached || cached.selfId !== selfId || cached.otherId !== otherId || cached.actions !== actions) {
+    cached = { selfId, otherId, actions, value: () => {
+      if (selfId && otherId) actions.openExchange(selfId, otherId);
+    } };
+    eventOpenCache.set(row, cached);
+  }
+  return cached.value;
+};
 function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   switch (row.kind) {
     case "divider":
@@ -46763,9 +46783,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         answer: t("Answer from"),
         reply: t("Reply from")
       }[row.role] ?? t("Message from");
-      return (0, import_react39.createElement)(MemoEventLine, { key, prefix, bots: [other], onOpen: () => {
-        if (selfId && other.id) actions.openExchange(selfId, other.id);
-      }, whole: true });
+      return (0, import_react39.createElement)(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true });
     }
     default:
       return null;

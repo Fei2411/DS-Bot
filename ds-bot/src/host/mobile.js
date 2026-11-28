@@ -391,7 +391,6 @@ export function install(rt) {
     const currentSeq = agent && Number.isInteger(Number(agent.session.seq)) ? Number(agent.session.seq) - 1 : -1
     const currentRoomSeq = Number.isInteger(room.seq) ? room.seq : 0
 
-    // Collect live replies of active rounds with per-call counts for incremental tail tracking.
     const collectOpenCounts = (entries) => {
       const counts = {}
       for (const [callId, round] of entries) {
@@ -400,93 +399,123 @@ export function install(rt) {
       }
       return counts
     }
+    const stampLiveItems = (items) => {
+      for (const item of items) {
+        if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
+      }
+      return items
+    }
+    const makeTip = (openCounts, tailCallId) => ({
+      boot,
+      sessionId: part.sessionId,
+      part: index,
+      seq: currentSeq,
+      roomSeq: currentRoomSeq,
+      openCounts,
+      tailCallId,
+    })
 
-    // Incremental fast path: when the client already holds up to `after` on the current part,
-    // send only newly arrived items instead of re-reading and re-serializing the whole page.
+    // Incremental fast path: strictly an optimization. Whenever host boot, part segment,
+    // unresolved agent seq, roomSeq, vanished/shrunk live rounds, or interleaved events
+    // could diverge from a full page, fall through to the full page below.
     if (
       after !== null
       && body.steps !== true
       && index === parts.length - 1
+      && after.boot === boot
+      && after.sessionId === part.sessionId
       && after.part === index
       && Number.isInteger(after.seq)
-      && Number.isInteger(after.roomSeq)
+      && after.seq >= 0
+      && currentSeq >= 0
       && currentSeq >= after.seq
+      && Number.isInteger(after.roomSeq)
+      && currentRoomSeq >= after.roomSeq
     ) {
       const prevOpenCounts = after.openCounts && typeof after.openCounts === 'object' ? after.openCounts : {}
       const nextOpenCounts = collectOpenCounts(running)
-      if (currentSeq === after.seq) {
-        // No new session events: only emit newly appended live round rows (zero page I/O).
-        const delta = []
-        for (const [callId, round] of running) {
-          const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
-          const start = Number.isInteger(prevOpenCounts[callId]) ? prevOpenCounts[callId] : 0
-          for (let idx = start; idx < said.length; idx += 1) {
-            const item = replyItem(said[idx], `${callId}:${idx}`, { live: true })
-            if (item) {
-              if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
-              delta.push(item)
-            }
-          }
-        }
-        return {
-          roomId: room.id,
-          sessionId: part.sessionId,
-          items: delta,
-          incremental: true,
-          tip: { part: index, seq: currentSeq, roomSeq: currentRoomSeq, openCounts: nextOpenCounts },
-          running: running.length > 0,
-          speaking,
+      const prevCallIds = Object.keys(prevOpenCounts)
+      let openCompatible = true
+      for (const callId of prevCallIds) {
+        const prevCount = prevOpenCounts[callId]
+        if (!Number.isInteger(prevCount) || prevCount < 0) { openCompatible = false; break }
+        if (!Object.hasOwn(nextOpenCounts, callId) || nextOpenCounts[callId] < prevCount) {
+          openCompatible = false
+          break
         }
       }
-      const seqGap = currentSeq - after.seq
-      if (seqGap <= ROOM_PAGE) {
-        const deltaPage = await ctx.sessionController.page({
-          address: { kind: 'session', sessionId: part.sessionId },
-          ...(agent ? { throughSeq: currentSeq } : {}),
-          maxMessages: Math.min(ROOM_PAGE, seqGap + 4),
-        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
-        const rawEvents = deltaPage.records.map(record => record.event)
-        const covered = !deltaPage.hasMore || (rawEvents.length > 0 && rawEvents[0].seq <= after.seq + 1)
-        if (covered) {
-          const newEvents = rawEvents.filter(ev => Number.isInteger(ev?.seq) && ev.seq > after.seq)
-          const { items: deltaItems, open: deltaOpen } = roomItems(newEvents, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
-          for (const item of deltaItems) {
-            if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
-          }
-          // Splice live rows for any newly opened relays in this delta, plus any newly added rows
-          // for relays that were already open before `after.seq`.
-          const splicedCalls = new Set()
-          for (const { callId, at } of deltaOpen.reverse()) {
-            const round = rt.roomProgress.get(callId)
-            if (round === undefined) continue
-            splicedCalls.add(callId)
-            const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
-            const live = said.map((reply, idx) => replyItem(reply, `${callId}:${idx}`, { live: true })).filter(Boolean)
-            for (const item of live) {
-              if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
-            }
-            deltaItems.splice(at, 0, ...live)
-          }
-          for (const [callId, round] of running) {
-            if (splicedCalls.has(callId)) continue
-            const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
-            const start = Number.isInteger(prevOpenCounts[callId]) ? prevOpenCounts[callId] : 0
-            for (let idx = start; idx < said.length; idx += 1) {
-              const item = replyItem(said[idx], `${callId}:${idx}`, { live: true })
-              if (item) {
-                if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
-                deltaItems.push(item)
-              }
-            }
-          }
+      if (openCompatible && currentSeq === after.seq) {
+        const unchanged = running.length === prevCallIds.length
+          && running.every(([callId]) => nextOpenCounts[callId] === prevOpenCounts[callId])
+        if (unchanged) {
           return {
             roomId: room.id,
-            sessionId: part.sessionId,
-            items: deltaItems,
+            items: [],
             incremental: true,
-            tip: { part: index, seq: currentSeq, roomSeq: currentRoomSeq, openCounts: nextOpenCounts },
+            tip: makeTip(nextOpenCounts, typeof after.tailCallId === 'string' ? after.tailCallId : null),
             running: running.length > 0,
             speaking,
+          }
+        }
+        // Only append live rows with zero page I/O when a single active round sits strictly
+        // at the tail of the page (guaranteed identical order to full-page splice).
+        if (running.length === 1 && running[0][0] === after.tailCallId) {
+          const [callId, round] = running[0]
+          const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
+          const start = Number.isInteger(prevOpenCounts[callId]) ? prevOpenCounts[callId] : 0
+          const delta = []
+          for (let idx = start; idx < said.length; idx += 1) {
+            const item = replyItem(said[idx], `${callId}:${idx}`, { live: true })
+            if (item) delta.push(item)
+          }
+          stampLiveItems(delta)
+          return {
+            roomId: room.id,
+            items: delta,
+            incremental: true,
+            tip: makeTip(nextOpenCounts, callId),
+            running: true,
+            speaking,
+          }
+        }
+      } else if (openCompatible && currentSeq > after.seq && prevCallIds.length === 0) {
+        const seqGap = currentSeq - after.seq
+        if (seqGap <= ROOM_PAGE) {
+          const deltaPage = await ctx.sessionController.page({
+            address: { kind: 'session', sessionId: part.sessionId },
+            ...(agent ? { throughSeq: currentSeq } : {}),
+            maxMessages: Math.min(ROOM_PAGE, seqGap + 4),
+          }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+          const rawEvents = deltaPage.records.map(record => record.event)
+          const covered = !deltaPage.hasMore || (rawEvents.length > 0 && rawEvents[0].seq <= after.seq + 1)
+          if (covered) {
+            const newEvents = rawEvents.filter(ev => Number.isInteger(ev?.seq) && ev.seq > after.seq)
+            const { items: deltaItems, open: deltaOpen } = roomItems(newEvents, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
+            stampLiveItems(deltaItems)
+            const tailCandidate = running.length === 1 && deltaOpen.length === 1
+              && deltaOpen[0].callId === running[0][0] && deltaOpen[0].at === deltaItems.length
+              ? running[0][0]
+              : null
+            const splicedCalls = new Set()
+            for (const { callId, at } of deltaOpen.reverse()) {
+              const round = rt.roomProgress.get(callId)
+              if (round === undefined) continue
+              splicedCalls.add(callId)
+              const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
+              const live = stampLiveItems(said.map((reply, idx) => replyItem(reply, `${callId}:${idx}`, { live: true })).filter(Boolean))
+              deltaItems.splice(at, 0, ...live)
+            }
+            // If any running round was not opened inside `newEvents`, fall back to full page.
+            if (running.every(([callId]) => splicedCalls.has(callId))) {
+              return {
+                roomId: room.id,
+                items: deltaItems,
+                incremental: true,
+                tip: makeTip(nextOpenCounts, tailCandidate),
+                running: running.length > 0,
+                speaking,
+              }
+            }
           }
         }
       }
@@ -500,24 +529,26 @@ export function install(rt) {
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
-    for (const item of items) {
-      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
-    }
+    stampLiveItems(items)
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId, { atTip: !Number.isInteger(cursor?.beforeSeq) && index === parts.length - 1 })
+    const fullTailCallId = cursor === undefined && running.length === 1 && open.length === 1
+      && open[0].callId === running[0][0] && open[0].at === items.length
+      ? running[0][0]
+      : null
     // The newest page shows what the running round has said so far, where its call sits.
     if (cursor === undefined) {
       for (const { callId, at } of open.reverse()) {
         const round = rt.roomProgress.get(callId)
         if (round === undefined) continue
         const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
-        const live = said.map((reply, idx) => replyItem(reply, `${callId}:${idx}`, { live: true })).filter(Boolean)
+        const live = stampLiveItems(said.map((reply, idx) => replyItem(reply, `${callId}:${idx}`, { live: true })).filter(Boolean))
         items.splice(at, 0, ...live)
       }
     }
     const more = page.hasMore && events.length > 0
     return {
       roomId: room.id,
-      ...(cursor === undefined ? { sessionId: part.sessionId, tip: { part: index, seq: currentSeq, roomSeq: currentRoomSeq, openCounts: collectOpenCounts(running) } } : {}),
+      ...(cursor === undefined ? { tip: makeTip(collectOpenCounts(running), fullTailCallId) } : {}),
       items,
       cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null,
       running: running.length > 0,

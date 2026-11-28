@@ -392,10 +392,14 @@ export function App() {
     const listeners = new Set()
     let snap = buildOwnFrameSnapshot(frameParamsRef.current)
     let raf = 0
-    const refresh = () => {
+    const syncSnap = () => {
       const next = buildOwnFrameSnapshot(frameParamsRef.current)
-      if (next.viewport === snap.viewport && next.sidebarWidth === snap.sidebarWidth && next.collapsedWidth === snap.collapsedWidth) return
+      if (next.viewport === snap.viewport && next.sidebarWidth === snap.sidebarWidth && next.collapsedWidth === snap.collapsedWidth) return false
       snap = next
+      return true
+    }
+    const refresh = () => {
+      if (!syncSnap()) return
       for (const listener of listeners) listener()
     }
     const onResize = () => {
@@ -427,8 +431,21 @@ export function App() {
   }, [isNarrow, sidebarWidth, drawerOpen])
   const useOwnFrame = useCallback((selector) => {
     const store = ownFrameStoreRef.current
-    const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-    return selector(snap)
+    const selectorRef = useRef(selector)
+    selectorRef.current = selector
+    const lastRef = useRef({ snap: null, value: undefined })
+    const getSelected = useCallback(() => {
+      const snap = store.getSnapshot()
+      if (lastRef.current.snap === snap) return lastRef.current.value
+      const next = selectorRef.current(snap)
+      if (Object.is(lastRef.current.value, next)) {
+        lastRef.current.snap = snap
+        return lastRef.current.value
+      }
+      lastRef.current = { snap, value: next }
+      return next
+    }, [store])
+    return useSyncExternalStore(store.subscribe, getSelected, getSelected)
   }, [])
   const effectivePref = isNarrow
     ? (drawerOpen ? 'open' : 'hidden')

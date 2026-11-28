@@ -898,6 +898,26 @@ function stableViewArgs(row) {
   return cached.value
 }
 
+const eventBotsCache = new WeakMap()
+const stableEventBots = (row, other) => {
+  let cached = eventBotsCache.get(row)
+  if (!cached || cached.other !== other) {
+    cached = { other, value: [other] }
+    eventBotsCache.set(row, cached)
+  }
+  return cached.value
+}
+
+const eventOpenCache = new WeakMap()
+const stableEventOpen = (row, selfId, otherId, actions) => {
+  let cached = eventOpenCache.get(row)
+  if (!cached || cached.selfId !== selfId || cached.otherId !== otherId || cached.actions !== actions) {
+    cached = { selfId, otherId, actions, value: () => { if (selfId && otherId) actions.openExchange(selfId, otherId) } }
+    eventOpenCache.set(row, cached)
+  }
+  return cached.value
+}
+
 // `useUi` gives a block its reactions and its Reply tool.
 // Each row component is individually memoized with stable keys and stable props so
 // appending a new group message (or prepending an earlier page) skips unchanged rows.
@@ -945,7 +965,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         answer: t('Answer from'),
         reply: t('Reply from'),
       }[row.role] ?? t('Message from')
-      return h(MemoEventLine, { key, prefix, bots: [other], onOpen: () => { if (selfId && other.id) actions.openExchange(selfId, other.id) }, whole: true })
+      return h(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true })
     }
     default: return null
   }

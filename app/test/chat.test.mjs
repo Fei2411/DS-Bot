@@ -1314,3 +1314,60 @@ test('W4 part 3: group chat sends incremental `after` on room feed events and au
     sandbox.IntersectionObserver = origIO
   }
 })
+
+test('W4 part 3: group chat part rollover merges new part onto displayed history instead of wiping the screen', async () => {
+  const listeners = new Set()
+  let phase = 0
+  const origCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint !== 'room-chat') return {}
+    phase += 1
+    if (phase === 1) {
+      return {
+        roomId: 'r1',
+        tip: { boot: 'b1', sessionId: 'r1', part: 0, seq: 10, roomSeq: 1, openCounts: {} },
+        items: [{ id: '10', kind: 'user', text: 'part 0 message', time: 1000 }],
+        cursor: null,
+      }
+    }
+    // Host rolled over to part 1 (`r1-part-2`) and fell back from incremental `after` to full page.
+    return {
+      roomId: 'r1',
+      tip: { boot: 'b1', sessionId: 'r1-part-2', part: 1, seq: 1, roomSeq: 2, openCounts: {} },
+      items: [{ id: '1', kind: 'user', text: 'part 1 message', time: 2000 }],
+      cursor: { part: 0 },
+    }
+  }
+  const roomRoster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [{ id: 'b1', name: 'Chief' }],
+    byId: { b1: { id: 'b1', name: 'Chief' } },
+    rooms: [{ id: 'r1', name: 'Launch', members: ['b1'] }],
+    roomsById: { r1: { id: 'r1', name: 'Launch', members: ['b1'] } },
+    questions: {},
+  }
+  const roomTeam = {
+    actions: { noteSent() {}, send: async () => {}, speech: () => undefined, openVoice() {}, clearQuote() {}, canReferenceChat: () => false },
+    hooks: { useRoster: s => s(roomRoster), useUi: s => s({}), useTurnClock: s => s({}), useSessionStatus: s => s(new Map()) },
+    chat: { on: (fn) => { listeners.add(fn); return () => listeners.delete(fn) } },
+  }
+  const plain = value => JSON.parse(JSON.stringify(value))
+  const inst = mount({ sessionId: 'r1', team: roomTeam })
+  try {
+    await tick()
+    inst.render()
+    for (const fn of listeners) fn('room', { roomId: 'r1' })
+    await tick()
+    const tree = inst.render()
+    const chatRowsNode = all(tree, n => n.type === 'chat-rows')[0]
+    assert.deepEqual(
+      plain(chatRowsNode.props.items.map(i => i.text)),
+      ['part 0 message', 'part 1 message'],
+      'part rollover full refresh must append new part onto existing displayed history without wiping part 0',
+    )
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = origCall
+  }
+})

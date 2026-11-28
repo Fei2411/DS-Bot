@@ -217,16 +217,27 @@ export function adaptRoomItem(item) {
 
 export const adaptRoomItems = items => (Array.isArray(items) ? items.map(adaptRoomItem) : [])
 
-const itemsEqual = (a, b) => a === b || (
-  sameItem(a, b)
-  && a.text === b.text
-  && (a.duration ?? null) === (b.duration ?? null)
-  && (a.file?.attachmentId ?? a.file ?? null) === (b.file?.attachmentId ?? b.file ?? null)
-  && (a.presented?.length ?? 0) === (b.presented?.length ?? 0)
-  && (a.changes?.total ?? null) === (b.changes?.total ?? null)
-  && (a.reply?.text ?? null) === (b.reply?.text ?? null)
-  && (a.reply?.kind ?? null) === (b.reply?.kind ?? null)
-)
+function valuesEqual(a, b) {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i += 1) {
+      if (!valuesEqual(a[i], b[i])) return false
+    }
+    return true
+  }
+  const keysA = Object.keys(a)
+  const keysB = Object.keys(b)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!Object.hasOwn(b, key) || !valuesEqual(a[key], b[key])) return false
+  }
+  return true
+}
+
+const itemsEqual = (a, b) => a === b || (sameItem(a, b) && valuesEqual(a, b))
 
 // Appends incremental room delta items while preserving exact object references of
 // unchanged existing rows so memoized `ChatRows` entries skip re-rendering.
@@ -289,7 +300,7 @@ const userItemKey = item => (item.id !== undefined ? `id:${item.id}` : `t:${item
 // Group chat: pages from `room-chat`, incrementally appended when the live feed announces room activity.
 function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   const active = roomId !== undefined
-  const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
+  const [view, setView] = useState({ sessionId: null, partSessionId: null, items: [], cursor: null, loading: active, failed: false })
   const ready = useRef(false)
   const busy = useRef(false)
   const reloadQueued = useRef(false)
@@ -324,20 +335,25 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
       if (gen.current !== myGen) return
       const pageItems = adaptRoomItems(page.items)
       const pageSessionId = page.sessionId ?? part
+      const pagePartSessionId = page.tip?.sessionId ?? null
       if (cursor === undefined) {
         ready.current = true
         if (page.tip !== undefined) tipRef.current = page.tip
         setView((current) => {
-          if (page.incremental === true && current.sessionId === pageSessionId) {
+          if (
+            page.incremental === true
+            && current.sessionId === pageSessionId
+            && (pagePartSessionId === null || current.partSessionId === pagePartSessionId)
+          ) {
             const nextItems = mergeIncrementalItems(current.items, pageItems)
             if (nextItems === current.items && !current.loading && !current.failed) return current
             return { ...current, items: nextItems, loading: false, failed: false }
           }
           if (refresh && current.sessionId === pageSessionId && current.items.length > 0) {
             const merged = mergeLatestPage(current.items, current.cursor, pageItems, page.cursor)
-            return { ...current, items: merged.items, cursor: merged.cursor, loading: false, failed: false }
+            return { ...current, partSessionId: pagePartSessionId, items: merged.items, cursor: merged.cursor, loading: false, failed: false }
           }
-          return { sessionId: pageSessionId, items: pageItems, cursor: page.cursor, loading: false, failed: false }
+          return { sessionId: pageSessionId, partSessionId: pagePartSessionId, items: pageItems, cursor: page.cursor, loading: false, failed: false }
         })
         const initial = !hasLoaded.current
         hasLoaded.current = true
@@ -386,7 +402,7 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
     ready.current = false
     hasLoaded.current = false
     knownUserIds.current.clear()
-    setView({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
+    setView({ sessionId: null, partSessionId: null, items: [], cursor: null, loading: active, failed: false })
     if (active) void loadRef.current(undefined)
     return () => {
       if (gen.current === myGen) gen.current += 1

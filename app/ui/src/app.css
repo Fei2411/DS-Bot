@@ -63,10 +63,10 @@ html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-le
 .dsb-column{max-width:min(960px,100%);min-width:0;margin:0 auto}
 .dsb-flow{display:flex;flex-direction:column;gap:6px;min-width:0}
 /* Skip offscreen layout/paint for settled transcript rows and cards while keeping floating hover tools outside containment. */
-.bt-ubody,.dsb-dsh-user-bubble{content-visibility:auto;contain-intrinsic-size:auto 72px}
-.dsb-dsh-asst-body{content-visibility:auto;contain-intrinsic-size:auto 160px}
-.dsb-tool{content-visibility:auto;contain-intrinsic-size:auto 44px}
-.dsb-deliverables{content-visibility:auto;contain-intrinsic-size:auto 64px}
+.bt-ubody,.dsb-dsh-user-bubble{content-visibility:auto;contain-intrinsic-block-size:auto 72px}
+.dsb-dsh-asst-body{content-visibility:auto;contain-intrinsic-block-size:auto 160px}
+.dsb-tool{content-visibility:auto;contain-intrinsic-block-size:auto 44px}
+.dsb-deliverables{content-visibility:auto;contain-intrinsic-block-size:auto 64px}
 /* The first separator sits where DSH puts a transcript's opening time. */
 .dsb-flow>.bt-time-sep{margin:8px 0 2px}
 .dsb-flow>.bt-time-sep:first-child{margin:17px 0 6px}

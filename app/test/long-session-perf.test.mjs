@@ -95,12 +95,12 @@ function mount(element) {
   }
 }
 
-test('Step 5: app.css sets content-visibility: auto with intrinsic heights on desktop message rows and cards', () => {
+test('Step 5: app.css sets content-visibility: auto with intrinsic block heights on desktop message rows and cards', () => {
   const css = readFileSync(join(appDir, 'ui', 'src', 'app.css'), 'utf8')
-  assert.match(css, /\.bt-ubody,\.dsb-dsh-user-bubble\{content-visibility:auto;contain-intrinsic-size:auto \d+px\}/)
-  assert.match(css, /\.dsb-dsh-asst-body\{content-visibility:auto;contain-intrinsic-size:auto \d+px\}/)
-  assert.match(css, /\.dsb-tool\{content-visibility:auto;contain-intrinsic-size:auto \d+px\}/)
-  assert.match(css, /\.dsb-deliverables\{content-visibility:auto;contain-intrinsic-size:auto \d+px\}/)
+  assert.match(css, /\.bt-ubody,\.dsb-dsh-user-bubble\{content-visibility:auto;contain-intrinsic-block-size:auto \d+px\}/)
+  assert.match(css, /\.dsb-dsh-asst-body\{content-visibility:auto;contain-intrinsic-block-size:auto \d+px\}/)
+  assert.match(css, /\.dsb-tool\{content-visibility:auto;contain-intrinsic-block-size:auto \d+px\}/)
+  assert.match(css, /\.dsb-deliverables\{content-visibility:auto;contain-intrinsic-block-size:auto \d+px\}/)
 })
 
 test('Step 6: image cache derives byte budget from deviceMemory, evicts LRU by bytes, defers revocation while mounted, and reloads cleanly', () => {
@@ -136,6 +136,19 @@ test('Step 6: image cache derives byte budget from deviceMemory, evicts LRU by b
   // Unmounting k1 releases the last reference and revokes its blob URL.
   releaseK1()
   assert.deepEqual(revoked, ['blob:img-2', 'blob:img-3', 'blob:img-1'], 'evicted blob URL revoked once last consumer unmounts')
+
+  // Overwriting the same (key, url) via set() must preserve active refs and never revoke while mounted.
+  revoked.length = 0
+  cache.clear()
+  revoked.length = 0
+  cache.set('same', { url: 'blob:same-url', bytes: 60, isBlob: true })
+  const releaseSame = cache.acquire('same', 'blob:same-url')
+  cache.set('same', { url: 'blob:same-url', bytes: 60, isBlob: true })
+  cache.set('evictor', { url: 'blob:evictor', bytes: 80, isBlob: true })
+  assert.equal(cache.has('same'), false, 'same entry evicted by budget')
+  assert.deepEqual(revoked, [], 'same (key, url) overwritten via set() must preserve refs and not revoke while mounted')
+  releaseSame()
+  assert.deepEqual(revoked, ['blob:same-url'], 'revoked cleanly once active consumer releases')
 
   // Full-size image helper produces a blob URL when `blob: true` and data URL for compact previews.
   const fullBuilt = buildImageUrl('image/png', 'iVBORw0KGgo=', { blob: true })
@@ -239,6 +252,18 @@ test('Step 7: ChatRows memoizes existing rows across incremental appends and pre
     assert.equal(afterAppend[0], u1, 'existing u1 object identity preserved')
     assert.equal(afterAppend[1], p1, 'unchanged p1 object identity preserved')
     assert.equal(afterAppend.length, 4)
+
+    // Metadata updates (e.g. color/claims/presented path change with same array length) MUST NOT be dropped by itemsEqual.
+    const withMetaUpdate = mergeIncrementalItems(afterAppend, [
+      { ...p1, color: 'emerald', presented: [{ path: 'a.txt' }] },
+    ])
+    assert.notEqual(withMetaUpdate[1], p1, 'metadata update must replace item reference')
+    assert.equal(withMetaUpdate[1].color, 'emerald')
+    const withPresentedSwap = mergeIncrementalItems(withMetaUpdate, [
+      { ...withMetaUpdate[1], presented: [{ path: 'b.txt' }] },
+    ])
+    assert.notEqual(withPresentedSwap[1], withMetaUpdate[1], 'same-length presented path change must replace item reference')
+    assert.equal(withPresentedSwap[1].presented[0].path, 'b.txt')
 
     renderedTexts.length = 0
     view.update(h(ChatRows, {
