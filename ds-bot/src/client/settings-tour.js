@@ -76,8 +76,8 @@ const SECTION_TOURS = {
       cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
       fallback: {
         target: 'open-plugins',
-        title: 'Turn on Automation tasks in DSH',
-        cue: 'Switch on Automation tasks on the Plugins page in Settings.',
+        title: 'Turn on scheduled tasks',
+        cue: 'Turn on scheduled tasks to run prompts automatically on a schedule.',
       },
     },
   ],

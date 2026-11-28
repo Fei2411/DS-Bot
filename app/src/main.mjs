@@ -150,6 +150,8 @@ let attempt = 0
 let bootAbort = new AbortController()
 // The Host answered and the window may talk to it without the launch URL.
 let hostReady = false
+// Stops the active did-fail-load listener attached by onReload() on the team window.
+let stopReloadWatch
 // The Host's launch URL: the first window trades it for the Host's cookie.
 let launchUrl
 // The first load of the Host, which mints that cookie. It ends when the first load came
@@ -165,6 +167,7 @@ let downloadsBound = false
 let copying
 let relaunching = false
 const copyAbort = new AbortController()
+let modulesLoading
 let browserGuests
 let botViews
 let activeShortcuts = []
@@ -223,6 +226,7 @@ if (canonical !== undefined) {
   rawOutput = captureStdio(logs)
   app.once('will-quit', () => { logs.flush() })
   console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
+  const bannerAt = Date.now()
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
@@ -233,7 +237,38 @@ if (canonical !== undefined) {
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
     onRetry: () => { retry().catch(fail) },
-    onReload: () => { mainWindow?.webContents.reload() },
+    onReload: () => {
+      stopReloadWatch?.()
+      stopReloadWatch = undefined
+      const win = mainWindow
+      if (win === undefined || win.isDestroyed()) return
+      const mine = attempt
+      if (hostReady && win.webContents.getURL().startsWith(`${origin}/`)) {
+        const wc = win.webContents
+        const done = () => {
+          if (stopReloadWatch === done) stopReloadWatch = undefined
+          wc.removeListener?.('did-fail-load', onFail)
+          wc.removeListener?.('did-finish-load', done)
+          wc.removeListener?.('did-stop-loading', done)
+        }
+        const onFail = (_event, errorCode, errorDescription, _url, isMainFrame) => {
+          if (isMainFrame === false || errorCode === -3) return
+          done()
+          if (mine === attempt && !stopping) {
+            startWindow.teamViewFailed(new Error(`ERR_LOAD_${String(errorCode)}: ${errorDescription || 'reload failed'}`))
+          }
+        }
+        stopReloadWatch = done
+        wc.on?.('did-fail-load', onFail)
+        wc.once?.('did-finish-load', done)
+        wc.once?.('did-stop-loading', done)
+        wc.reload()
+        return
+      }
+      void connectHost(win).catch((error) => {
+        if (mine === attempt && !stopping && !isAbortedLoad(error)) startWindow.teamViewFailed(error)
+      })
+    },
     // Closing the start window before the hand-off quits: there is no team window yet to stay in
     // the tray with.
     onClose: () => { app.quit() },
@@ -280,7 +315,45 @@ if (canonical !== undefined) {
     if (stopping) { void (hostStop ?? Promise.resolve()).then(() => { app.quit() }); return }
     void stopHost().then(() => { app.quit() })
   })
-  app.whenReady().then(async () => { shell.install(); await start() }).catch(fail)
+  app.whenReady().then(async () => {
+    startupStep('whenReady', bannerAt)
+    const trayAt = Date.now()
+    shell.install()
+    startupStep('shell.install', trayAt)
+    await start()
+  }).catch(fail)
+}
+
+const startupStep = (step, since) => {
+  console.log(`DS Bot: startup: ${step} took ${String(Date.now() - since)} ms`)
+}
+
+const isAbortedLoad = error => error?.code === 'ERR_ABORTED' || error?.errno === -3
+
+function ensureChatGPT() {
+  if (!chatgpt) {
+    chatgpt = createChatGPTBridge({
+      getSignIn: async () => {
+        const since = Date.now()
+        const signIn = await createChatGPTSignIn({
+          userData: app.getPath('userData'),
+          safeStorage,
+          mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
+          onChange: status => host?.send({ type: 'chatgpt:changed', status }),
+        })
+        console.log(`DS Bot: chatgpt: signIn init took ${String(Date.now() - since)} ms`)
+        return signIn
+      },
+      getRelay: async (signIn) => {
+        const since = Date.now()
+        const relay = await createChatGPTRelay({ signIn })
+        console.log(`DS Bot: chatgpt: relay init took ${String(Date.now() - since)} ms`)
+        return relay
+      },
+      openExternal: url => electronShell.openExternal(url),
+    })
+  }
+  return chatgpt
 }
 
 function stopHost() {
@@ -301,37 +374,47 @@ function startKind() {
 }
 
 async function start() {
+  const menuAt = Date.now()
   setMenu()
   nativeTheme.themeSource = readStartFrame(frameFile).themeSource
   // A packaged app has the icon in its bundle; Electron's own run shows Electron's.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(iconFile)
+  startupStep('setMenu', menuAt)
   await prepare()
   run()
 }
 
 // What the boot needs; a retry after a failure here does what is still missing.
 async function prepare() {
-  if (!chatgpt) {
-    const signIn = await createChatGPTSignIn({ userData: app.getPath('userData'), safeStorage,
-      mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
-      onChange: status => host?.send({ type: 'chatgpt:changed', status }),
-    })
-    const relay = await createChatGPTRelay({ signIn })
-    chatgpt = createChatGPTBridge({ signIn, relay, openExternal: url => electronShell.openExternal(url) })
-  }
+  // Open the start window first so nothing async (port checks, dynamic imports, or OS keychain
+  // access) blocks the first paint (#2415, #2436). ChatGPT sign-in initializes lazily on first use.
+  const openAt = Date.now()
+  startWindow.open(startKind())
+  startupStep('startWindow.open', openAt)
   if (!webFetch) {
     webFetch = createWebFetchBridge({ BrowserWindow, session })
   }
-  // Before the windows: the team window's page is told the Host's origin.
-  if (port === undefined) {
-    port = await hostPort(join(app.getPath('userData'), 'host-port.json'))
-    origin = `http://127.0.0.1:${String(port)}`
-  }
-  startWindow.open(startKind())
-  if (browserGuests === undefined) {
+  // Before the team window: its preload is told the Host's origin.
+  const portWork = port === undefined
+    ? (async () => {
+        const portAt = Date.now()
+        port = await hostPort(join(app.getPath('userData'), 'host-port.json'))
+        origin = `http://127.0.0.1:${String(port)}`
+        startupStep('hostPort', portAt)
+      })()
+    : Promise.resolve()
+  const modulesWork = (modulesLoading ??= (async () => {
+    const modulesAt = Date.now()
     await loadModules()
+    startupStep('loadModules', modulesAt)
+    const ipcAt = Date.now()
     handleIpc()
-  }
+    startupStep('handleIpc', ipcAt)
+  })().catch((error) => {
+    modulesLoading = undefined
+    throw error
+  }))
+  await Promise.all([portWork, modulesWork])
   // The team window is made once the start window has painted, already on its final rect, and
   // made again when it is gone for good (a cancelled shutdown kept the app without one), so
   // that the next engine has a window to load into.
@@ -409,6 +492,8 @@ async function retry() {
 // The handshake of the Host that goes: a window rebuilt before the next engine answers must not
 // load against a Host that is stopped, nor take its cookie for the new one's.
 function forgetHost() {
+  stopReloadWatch?.()
+  stopReloadWatch = undefined
   hostReady = false
   bootstrap = undefined
 }
@@ -493,7 +578,10 @@ async function boot(mine) {
   bootstrap = win.loadURL(engine.url).then(() => {
     if (mine === attempt) hostReady = true
     return true
-  }).catch(() => false)
+  }).catch((error) => {
+    if (mine === attempt && !stopping && !isAbortedLoad(error)) startWindow.teamViewFailed(error)
+    return false
+  })
 }
 
 function setPlaces(next) {
@@ -655,7 +743,7 @@ function newHost() {
     redactOutput: false,
   })
   child.onMessage(message => {
-    chatgpt?.handle(message, response => child.send(response))
+    if (message?.type === 'ds-bot:chatgpt') ensureChatGPT().handle(message, response => child.send(response))
     webFetch?.handle(message, response => child.send(response))
   })
   return child

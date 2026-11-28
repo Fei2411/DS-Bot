@@ -198,6 +198,7 @@ export function App() {
       else actions.toggleLeftHidden()
     },
     openSettings: (...args) => { setDrawerOpen(false); return actions.openSettings(...args) },
+    selectPanel: (...args) => { setDrawerOpen(false); return actions.selectPanel(...args) },
     openNewChat: (...args) => { setDrawerOpen(false); return actions.openNewChat(...args) },
     openPalette: (...args) => { setDrawerOpen(false); return actions.openPalette(...args) },
   }), [actions, isNarrow])
@@ -626,7 +627,9 @@ export function App() {
           })
           : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
-      : (inClassicMode ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true })) : null)),
+      : (inClassicMode
+        ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))
+        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null))),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
     h(ShortcutsDialog, {

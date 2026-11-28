@@ -1916,6 +1916,20 @@ var init_zh = __esm({
       "Create task": "创建任务",
       "Turn on Automation tasks in DSH": "在 DSH 里打开「自动化任务」",
       "Switch on Automation tasks on the Plugins page in Settings.": "在设置的插件页启用「自动化任务」。",
+      "Scheduled tasks are off": "定时任务已关闭",
+      "Turn on scheduled tasks to run prompts automatically on a schedule.": "开启后，Bot 会按设定时间自动运行任务。",
+      "Turn on scheduled tasks": "开启定时任务",
+      "Turning on…": "正在开启…",
+      "Restart DS Bot for scheduled tasks to take effect.": "请重启 DS Bot 使定时任务生效。",
+      "Scheduled tasks failed to start": "定时任务启动失败",
+      "Restart DS Bot, or refresh status after fixing the issue.": "请重启 DS Bot，或在排查后刷新状态。",
+      "Refresh status": "刷新状态",
+      "Starting scheduled tasks…": "正在启动定时任务…",
+      "Scheduled tasks cannot be turned on from here.": "当前环境无法直接开启定时任务。",
+      "Scheduled tasks are not available in this installation.": "当前安装未包含定时任务组件。",
+      "Scheduled tasks cannot be changed here.": "当前配置不允许在此修改定时任务。",
+      "Scheduled tasks are locked by your configuration.": "定时任务已被当前配置锁定。",
+      "Could not turn on scheduled tasks.": "无法开启定时任务。",
       "New task": "新建任务",
       "No scheduled tasks yet.": "还没有定时任务。",
       "No scheduled tasks yet. Add one": "还没有定时任务，去添加",
@@ -4962,6 +4976,20 @@ var init_ja = __esm({
       "Create task": "タスクを作成",
       "Turn on Automation tasks in DSH": "DSH で「自動化タスク」をオンにしてください",
       "Switch on Automation tasks on the Plugins page in Settings.": "設定のプラグインページで「自動化タスク」を有効にしてください。",
+      "Scheduled tasks are off": "定期タスクはオフになっています",
+      "Turn on scheduled tasks to run prompts automatically on a schedule.": "定期タスクをオンにすると、設定したスケジュールで自動的に実行されます。",
+      "Turn on scheduled tasks": "定期タスクをオンにする",
+      "Turning on…": "有効化中…",
+      "Restart DS Bot for scheduled tasks to take effect.": "定期タスクを有効にするには DS Bot を再起動してください。",
+      "Scheduled tasks failed to start": "定期タスクの起動に失敗しました",
+      "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot を再起動するか、問題解決後に状態を更新してください。",
+      "Refresh status": "状態を更新",
+      "Starting scheduled tasks…": "定期タスクを起動しています…",
+      "Scheduled tasks cannot be turned on from here.": "ここでは定期タスクをオンにできません。",
+      "Scheduled tasks are not available in this installation.": "このインストールでは定期タスクを利用できません。",
+      "Scheduled tasks cannot be changed here.": "ここでは定期タスクを変更できません。",
+      "Scheduled tasks are locked by your configuration.": "定期タスクは設定によってロックされています。",
+      "Could not turn on scheduled tasks.": "定期タスクをオンにできませんでした。",
       "New task": "新しいタスク",
       "No scheduled tasks yet.": "定期タスクはまだありません。",
       "No scheduled tasks yet. Add one": "定期タスクはまだありません。追加する",
@@ -8643,6 +8671,20 @@ var init_ko = __esm({
       "Create task": "작업 만들기",
       "Turn on Automation tasks in DSH": 'DSH에서 "자동화 작업" 켜기',
       "Switch on Automation tasks on the Plugins page in Settings.": '설정의 플러그인 페이지에서 "자동화 작업"을 활성화하세요.',
+      "Scheduled tasks are off": "예약 작업이 꺼져 있습니다",
+      "Turn on scheduled tasks to run prompts automatically on a schedule.": "예약 작업을 켜면 정해진 일정에 따라 자동으로 작업을 실행합니다.",
+      "Turn on scheduled tasks": "예약 작업 켜기",
+      "Turning on…": "켜는 중…",
+      "Restart DS Bot for scheduled tasks to take effect.": "예약 작업을 적용하려면 DS Bot을 다시 시작하세요.",
+      "Scheduled tasks failed to start": "예약 작업을 시작하지 못했습니다",
+      "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot을 다시 시작하거나 문제를 해결한 뒤 상태를 새로 고치세요.",
+      "Refresh status": "상태 새로 고침",
+      "Starting scheduled tasks…": "예약 작업을 시작하는 중…",
+      "Scheduled tasks cannot be turned on from here.": "여기에서는 예약 작업을 켤 수 없습니다.",
+      "Scheduled tasks are not available in this installation.": "이 설치에서는 예약 작업을 사용할 수 없습니다.",
+      "Scheduled tasks cannot be changed here.": "여기에서는 예약 작업을 변경할 수 없습니다.",
+      "Scheduled tasks are locked by your configuration.": "예약 작업이 설정으로 잠겨 있습니다.",
+      "Could not turn on scheduled tasks.": "예약 작업을 켤 수 없습니다.",
       "New task": "새 작업",
       "No scheduled tasks yet.": "아직 예약 작업이 없습니다.",
       "No scheduled tasks yet. Add one": "아직 예약 작업이 없습니다. 추가하기",
@@ -12327,6 +12369,20 @@ var init_es = __esm({
       "Create task": "Crear tarea",
       "Turn on Automation tasks in DSH": "Activa las Tareas de automatización en DSH",
       "Switch on Automation tasks on the Plugins page in Settings.": "Activa las Tareas de automatización en la página de Plugins en Ajustes.",
+      "Scheduled tasks are off": "Las tareas programadas están desactivadas",
+      "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activa las tareas programadas para ejecutar instrucciones automáticamente según un horario.",
+      "Turn on scheduled tasks": "Activar tareas programadas",
+      "Turning on…": "Activando…",
+      "Restart DS Bot for scheduled tasks to take effect.": "Reinicia DS Bot para que las tareas programadas surtan efecto.",
+      "Scheduled tasks failed to start": "No se pudieron iniciar las tareas programadas",
+      "Restart DS Bot, or refresh status after fixing the issue.": "Reinicia DS Bot o actualiza el estado después de corregir el problema.",
+      "Refresh status": "Actualizar estado",
+      "Starting scheduled tasks…": "Iniciando tareas programadas…",
+      "Scheduled tasks cannot be turned on from here.": "No se pueden activar las tareas programadas desde aquí.",
+      "Scheduled tasks are not available in this installation.": "Las tareas programadas no están disponibles en esta instalación.",
+      "Scheduled tasks cannot be changed here.": "Las tareas programadas no se pueden cambiar aquí.",
+      "Scheduled tasks are locked by your configuration.": "Las tareas programadas están bloqueadas por tu configuración.",
+      "Could not turn on scheduled tasks.": "No se pudieron activar las tareas programadas.",
       "New task": "Nueva tarea",
       "No scheduled tasks yet.": "Aún no hay tareas programadas.",
       "No scheduled tasks yet. Add one": "Aún no hay tareas programadas. Añade una",
@@ -15969,6 +16025,20 @@ var init_fr = __esm({
       "Create task": "Créer la tâche",
       "Turn on Automation tasks in DSH": "Activer les « Tâches d’automatisation » dans DSH",
       "Switch on Automation tasks on the Plugins page in Settings.": "Activez « Tâches d’automatisation » sur la page Extensions dans les Paramètres.",
+      "Scheduled tasks are off": "Les tâches planifiées sont désactivées",
+      "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activez les tâches planifiées pour exécuter automatiquement des consignes selon un calendrier.",
+      "Turn on scheduled tasks": "Activer les tâches planifiées",
+      "Turning on…": "Activation…",
+      "Restart DS Bot for scheduled tasks to take effect.": "Redémarrez DS Bot pour que les tâches planifiées prennent effet.",
+      "Scheduled tasks failed to start": "Échec du démarrage des tâches planifiées",
+      "Restart DS Bot, or refresh status after fixing the issue.": "Redémarrez DS Bot ou actualisez l’état après avoir corrigé le problème.",
+      "Refresh status": "Actualiser l’état",
+      "Starting scheduled tasks…": "Démarrage des tâches planifiées…",
+      "Scheduled tasks cannot be turned on from here.": "Impossible d’activer les tâches planifiées depuis ici.",
+      "Scheduled tasks are not available in this installation.": "Les tâches planifiées ne sont pas disponibles dans cette installation.",
+      "Scheduled tasks cannot be changed here.": "Les tâches planifiées ne peuvent pas être modifiées ici.",
+      "Scheduled tasks are locked by your configuration.": "Les tâches planifiées sont verrouillées par votre configuration.",
+      "Could not turn on scheduled tasks.": "Impossible d’activer les tâches planifiées.",
       "New task": "Nouvelle tâche",
       "No scheduled tasks yet.": "Aucune tâche planifiée pour le moment.",
       "No scheduled tasks yet. Add one": "Aucune tâche planifiée. En ajouter une",
@@ -19650,6 +19720,20 @@ var init_de = __esm({
       "Create task": "Aufgabe erstellen",
       "Turn on Automation tasks in DSH": "„Automatisierungsaufgaben“ in DSH aktivieren",
       "Switch on Automation tasks on the Plugins page in Settings.": "Aktiviere „Automatisierungsaufgaben“ auf der Seite „Plugins“ in den Einstellungen.",
+      "Scheduled tasks are off": "Geplante Aufgaben sind deaktiviert",
+      "Turn on scheduled tasks to run prompts automatically on a schedule.": "Aktiviere geplante Aufgaben, um Aufträge automatisch nach Zeitplan auszuführen.",
+      "Turn on scheduled tasks": "Geplante Aufgaben aktivieren",
+      "Turning on…": "Wird aktiviert…",
+      "Restart DS Bot for scheduled tasks to take effect.": "Starte DS Bot neu, damit geplante Aufgaben wirksam werden.",
+      "Scheduled tasks failed to start": "Geplante Aufgaben konnten nicht gestartet werden",
+      "Restart DS Bot, or refresh status after fixing the issue.": "Starte DS Bot neu oder aktualisiere den Status nach der Behebung.",
+      "Refresh status": "Status aktualisieren",
+      "Starting scheduled tasks…": "Geplante Aufgaben werden gestartet…",
+      "Scheduled tasks cannot be turned on from here.": "Geplante Aufgaben können hier nicht aktiviert werden.",
+      "Scheduled tasks are not available in this installation.": "Geplante Aufgaben sind in dieser Installation nicht verfügbar.",
+      "Scheduled tasks cannot be changed here.": "Geplante Aufgaben können hier nicht geändert werden.",
+      "Scheduled tasks are locked by your configuration.": "Geplante Aufgaben sind durch deine Konfiguration gesperrt.",
+      "Could not turn on scheduled tasks.": "Geplante Aufgaben konnten nicht aktiviert werden.",
       "New task": "Neue Aufgabe",
       "No scheduled tasks yet.": "Noch keine geplanten Aufgaben.",
       "No scheduled tasks yet. Add one": "Noch keine geplanten Aufgaben. Jetzt hinzufügen",
@@ -21843,7 +21927,7 @@ var clearClientErrors = () => {
 var clientErrors = () => entries.map((entry) => entry.count > 1 ? { ...entry, text: `${entry.text} (×${entry.count})` } : { ...entry });
 function clientFacts() {
   return {
-    surface: window.dshDesktop ? "DSH Desktop" : "DSH Web",
+    surface: globalThis.dsBotApp ? "DS Bot Desktop" : window.dshDesktop ? "DSH Desktop" : "DSH Web",
     language: language(),
     userAgent: navigator.userAgent
   };
@@ -23653,6 +23737,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     pluginsSourceRemove: (id) => after(call2("plugins-source-remove", { id })),
     pluginsRetry: () => after(call2("plugins-retry", {})),
     schedules: () => call2("schedules"),
+    scheduleEnable: () => call2("schedule-enable"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
     schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
@@ -39611,36 +39696,59 @@ var FOLDER_CSS = `
 // src/client/schedules.js
 var import_react26 = require("react");
 var POLL_MS = 3e4;
+var PENDING_POLL_MS = 1e3;
 var shared = null;
+var publishSeq = 0;
 var listeners = /* @__PURE__ */ new Set();
+var rescheduleListeners = /* @__PURE__ */ new Set();
 function publish(view) {
+  publishSeq += 1;
   shared = view;
   for (const listener of listeners) listener(view);
+  for (const listener of rescheduleListeners) listener(view);
 }
-function useSchedules(actions) {
+function useSchedulesState(actions) {
   const [view, setView] = (0, import_react26.useState)(shared);
+  const [error, setError] = (0, import_react26.useState)("");
+  const loadRef = (0, import_react26.useRef)(null);
   (0, import_react26.useEffect)(() => {
     listeners.add(setView);
     let stopped = false;
     let inFlight = false;
     let timer2;
-    const schedule = () => {
+    const schedule = (nextView) => {
       clearTimeout(timer2);
       if (stopped || typeof document !== "undefined" && document.hidden) return;
-      timer2 = setTimeout(load, POLL_MS);
+      timer2 = setTimeout(load, nextView?.pending === true ? PENDING_POLL_MS : POLL_MS);
     };
+    const onPublish = (nextView) => {
+      if (!stopped && !inFlight && nextView?.pending === true) schedule(nextView);
+    };
+    rescheduleListeners.add(onPublish);
     const load = () => {
       if (stopped || inFlight) return;
       if (typeof document !== "undefined" && document.hidden) return;
       inFlight = true;
+      const seq = publishSeq;
+      let latest = shared;
       Promise.resolve(actions.schedules?.()).then((next) => {
-        if (!stopped && next !== void 0) publish(next);
-      }).catch(() => {
+        if (stopped) return;
+        setError("");
+        if (next !== void 0 && publishSeq === seq) {
+          latest = next;
+          publish(next);
+        } else {
+          latest = shared;
+        }
+      }).catch((failure) => {
+        if (!stopped && publishSeq === seq) setError(hostText(failure?.message ?? String(failure)));
+        latest = shared;
       }).finally(() => {
         inFlight = false;
-        schedule();
+        schedule(latest);
       });
     };
+    loadRef.current = load;
     const onVisibility2 = () => {
       if (document.hidden) clearTimeout(timer2);
       else if (!stopped) load();
@@ -39649,12 +39757,20 @@ function useSchedules(actions) {
     load();
     return () => {
       stopped = true;
+      loadRef.current = null;
       clearTimeout(timer2);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
       listeners.delete(setView);
+      rescheduleListeners.delete(onPublish);
     };
   }, []);
-  return view;
+  return { view, error, retry: () => {
+    setError("");
+    loadRef.current?.();
+  } };
+}
+function useSchedules(actions) {
+  return useSchedulesState(actions).view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 var clock3 = (time) => {
@@ -39907,7 +40023,66 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     )
   );
 }
-function AutomationOff({ actions }) {
+function AutomationOff({ view, actions, readOnly, onEnabled, onRetry }) {
+  const [busy, setBusy] = (0, import_react26.useState)(false);
+  const [error, setError] = (0, import_react26.useState)("");
+  const restartRequired = view?.restartRequired === true;
+  const canEnable = !restartRequired && view?.canEnable === true && typeof actions.scheduleEnable === "function";
+  const failed = view?.reason === "error";
+  const lockedDisabled = !restartRequired && !canEnable && view?.reason === "disabled";
+  const enable = () => {
+    if (busy || !canEnable || readOnly) return;
+    setBusy(true);
+    setError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setBusy(false);
+      if (next?.error) setError(hostText(next.error));
+      if (next !== void 0) onEnabled?.(next);
+    }, (failure) => {
+      setBusy(false);
+      setError(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  if (restartRequired) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot for scheduled tasks to take effect."))
+    );
+  }
+  if (canEnable) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Turn on scheduled tasks to run prompts automatically on a schedule.")),
+      error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, error) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", "data-tour": "open-plugins", disabled: busy || readOnly, onClick: enable }, busy ? t("Turning on…") : t("Turn on scheduled tasks"))
+    );
+  }
+  if (failed) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks failed to start")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot, or refresh status after fixing the issue.")),
+      view?.error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, hostText(view.error)) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => onRetry?.() }, t("Refresh status"))
+    );
+  }
+  if (lockedDisabled) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Scheduled tasks cannot be changed here."))
+    );
+  }
   return (0, import_react26.createElement)(
     "div",
     { className: "bt-set-card bt-task-off" },
@@ -39918,12 +40093,26 @@ function AutomationOff({ actions }) {
   );
 }
 function SchedulesPage({ roster, actions, start }) {
-  const view = useSchedules(actions);
+  const { view, error: loadError, retry } = useSchedulesState(actions);
   const [owner, setOwner] = (0, import_react26.useState)(() => start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null);
   const filter = start?.startsWith("bot:") || start?.startsWith("room:");
   const [adding, setAdding] = (0, import_react26.useState)(Boolean(start) && !filter);
-  if (view === null) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
-  if (!view.available) return (0, import_react26.createElement)(AutomationOff, { actions });
+  if (view === null) {
+    if (loadError) {
+      return (0, import_react26.createElement)(
+        "div",
+        { className: "bt-set-card bt-task-off" },
+        (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+        (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, loadError),
+        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: retry }, t("Retry"))
+      );
+    }
+    return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
+  }
+  if (!view.available) {
+    if (view.pending === true) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Starting scheduled tasks…"));
+    return (0, import_react26.createElement)(AutomationOff, { view, actions, readOnly: Boolean(roster?.readOnly), onEnabled: publish, onRetry: retry });
+  }
   const shown = (next) => {
     publish(next);
     setAdding(false);
@@ -39955,8 +40144,28 @@ function SchedulesPage({ roster, actions, start }) {
 }
 function BotSchedules({ bot, roster, actions }) {
   const view = useSchedules(actions);
+  const [enabling, setEnabling] = (0, import_react26.useState)(false);
+  const [enableError, setEnableError] = (0, import_react26.useState)("");
   if (view === null) return null;
   const tasks = view.available ? view.tasks.filter((task) => task.botId === bot.id) : [];
+  const readOnly = Boolean(roster?.readOnly);
+  const restartRequired = !view.available && view.restartRequired === true;
+  const pending = !view.available && view.pending === true;
+  const canEnable = !view.available && !restartRequired && !pending && view.canEnable === true && typeof actions.scheduleEnable === "function";
+  const lockedDisabled = !view.available && !restartRequired && !pending && !canEnable && view.reason === "disabled";
+  const enable = () => {
+    if (enabling || !canEnable || readOnly) return;
+    setEnabling(true);
+    setEnableError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setEnabling(false);
+      if (next?.error) setEnableError(hostText(next.error));
+      if (next !== void 0) publish(next);
+    }, (failure) => {
+      setEnabling(false);
+      setEnableError(hostText(failure?.message ?? String(failure)));
+    });
+  };
   return (0, import_react26.createElement)(
     "section",
     { className: "bt-set-section" },
@@ -39964,12 +40173,19 @@ function BotSchedules({ bot, roster, actions }) {
     (0, import_react26.createElement)(
       "div",
       { className: "bt-set-card" },
-      !view.available ? (0, import_react26.createElement)(
-        "div",
-        { className: "bt-set-row bt-bs-row" },
-        (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
-        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
-      ) : [
+      !view.available ? [
+        (0, import_react26.createElement)(
+          "div",
+          { key: "off", className: "bt-set-row bt-bs-row" },
+          (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)(
+            "span",
+            { className: "bt-set-hint" },
+            pending ? t("Starting scheduled tasks…") : restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : canEnable || lockedDisabled ? t("Scheduled tasks are off") : view.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.")
+          )),
+          pending || restartRequired || lockedDisabled ? null : canEnable ? (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: enabling || readOnly, onClick: enable }, enabling ? t("Turning on…") : t("Turn on scheduled tasks")) : view.reason === "error" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules", bot.id) }, t("Scheduled tasks")) : (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
+        ),
+        enableError ? (0, import_react26.createElement)("div", { key: "err", className: "bt-set-row bt-task-failed", role: "alert" }, (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint" }, enableError)) : null
+      ] : [
         ...tasks.map((task) => (0, import_react26.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react26.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react26.createElement)(PlusIcon), t("New task"))
       ]
@@ -39979,11 +40195,12 @@ function BotSchedules({ bot, roster, actions }) {
 function ScheduleSummary({ bot, actions }) {
   const view = useSchedules(actions);
   const tasks = view?.available ? view.tasks.filter((task) => task.botId === bot.id && task.status === "active") : [];
+  const offLabel = view?.pending ? t("Starting scheduled tasks…") : view?.restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : view?.canEnable || view?.reason === "disabled" ? t("Scheduled tasks are off") : view?.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.");
   return (0, import_react26.createElement)(
     "div",
     null,
     (0, import_react26.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
-    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
+    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? offLabel : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
       "button",
       { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react26.createElement)(ClockIcon),
@@ -50914,7 +51131,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t("Usage"), GaugeIcon, () => actions.openSettings("usage")],
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
-      [t("Scheduled tasks"), ClockIcon, () => actions.selectPanel("schedules")],
+      [t("Scheduled tasks"), ClockIcon, () => typeof actions.selectPanel === "function" ? actions.selectPanel("schedules") : actions.openSettings("schedules")],
       [t("Settings"), GearIcon, () => actions.openSettings("overview")]
     ].filter(Boolean),
     typeof actions.setSurface === "function" ? [[t("Classic Agent mode"), SwitchIcon, () => actions.setSurface("agent")]] : null
@@ -50955,7 +51172,11 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
           role: "menuitem",
           onClick: () => {
             if (stay !== true) setOpen(false);
-            void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
+            try {
+              void Promise.resolve(run2()).catch((error) => actions.reportError?.(error, "menu"));
+            } catch (error) {
+              actions.reportError?.(error, "menu");
+            }
           }
         }, (0, import_react47.createElement)(Icon), (0, import_react47.createElement)("span", { className: "bt-menu-label" }, label), hint ? (0, import_react47.createElement)("span", { className: "bt-menu-hint" }, hint) : null))
       ))
@@ -51549,8 +51770,8 @@ var SECTION_TOURS = {
       cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
       fallback: {
         target: "open-plugins",
-        title: "Turn on Automation tasks in DSH",
-        cue: "Switch on Automation tasks on the Plugins page in Settings."
+        title: "Turn on scheduled tasks",
+        cue: "Turn on scheduled tasks to run prompts automatically on a schedule."
       }
     }
   ],
@@ -52270,39 +52491,105 @@ var b = (code, { mod = false, ctrl = false, alt = false, shift = false } = {}) =
   alt: Boolean(alt),
   shift: Boolean(shift)
 });
+var DESKTOP_ONLY = Object.freeze(["desktop"]);
+var BOTH_HOSTS = Object.freeze(["desktop", "plugin"]);
 var SHORTCUT_DEFS = [
   // Navigation
-  { id: "palette", group: "navigation", label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
-  { id: "switch-surface", group: "navigation", label: "Switch Bot / Classic Agent mode", defaultBinding: b("KeyM", { mod: true, shift: true }), requiresSurface: true },
-  { id: "inbox", group: "navigation", label: "Open Inbox", defaultBinding: b("KeyI", { mod: true }), requiresInbox: true, allowInModal: ["inbox"] },
-  { id: "prev-chat", group: "navigation", label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
-  { id: "next-chat", group: "navigation", label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
+  { id: "palette", group: "navigation", hosts: DESKTOP_ONLY, label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
+  {
+    id: "switch-surface",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Switch Bot / Classic Agent mode",
+    defaultBinding: b("KeyM", { mod: true, shift: true }),
+    requiresSurface: true,
+    plugin: { id: "ds-bot.switch-surface", aliases: ["classic", "agent", "bot", "mode"], webModifiers: ["primary", "shift"] }
+  },
+  {
+    id: "inbox",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Open Inbox",
+    defaultBinding: b("KeyI", { mod: true }),
+    requiresInbox: true,
+    allowInModal: ["inbox"],
+    plugin: { id: "ds-bot.open-inbox", aliases: ["inbox", "notifications"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "prev-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
+  { id: "next-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
   // Panels
-  { id: "sidebar", group: "panels", label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
-  { id: "right-panel", group: "panels", label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
-  { id: "browser", group: "panels", label: "Toggle Bot browser", classicLabel: "Toggle browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
-  { id: "terminal", group: "panels", label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
-  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
-  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
+  { id: "sidebar", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
+  { id: "right-panel", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
+  {
+    id: "browser",
+    group: "panels",
+    hosts: BOTH_HOSTS,
+    label: "Toggle Bot browser",
+    classicLabel: "Toggle browser",
+    defaultBinding: b("KeyB", { mod: true, shift: true }),
+    requiresBrowser: true,
+    plugin: { id: "ds-bot.open-browser", aliases: ["browser", "web"], webModifiers: ["primary", "alt", "shift"] }
+  },
+  { id: "terminal", group: "panels", hosts: DESKTOP_ONLY, label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
+  { id: "details", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
+  { id: "memory", group: "panels", hosts: DESKTOP_ONLY, label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
   // Conversation
-  { id: "new-chat", group: "conversation", label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
-  { id: "focus-composer", group: "conversation", label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
-  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ["groupSearch"] },
-  { id: "stop-turn", group: "conversation", label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
+  { id: "new-chat", group: "conversation", hosts: DESKTOP_ONLY, label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
+  { id: "focus-composer", group: "conversation", hosts: DESKTOP_ONLY, label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
+  {
+    id: "group-search",
+    group: "conversation",
+    hosts: BOTH_HOSTS,
+    label: "Search in group",
+    defaultBinding: b("KeyF", { mod: true, shift: true }),
+    requiresGroupSearch: true,
+    allowInModal: ["groupSearch"],
+    plugin: { id: "ds-bot.group-search", aliases: ["search", "group"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "stop-turn", group: "conversation", hosts: DESKTOP_ONLY, label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
   // Application
-  { id: "settings", group: "application", label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
-  { id: "shortcuts", group: "application", label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
+  { id: "settings", group: "application", hosts: DESKTOP_ONLY, label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
+  { id: "shortcuts", group: "application", hosts: DESKTOP_ONLY, label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
   // Quick switch 1..9 (#1694)
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `switch-bot-${index + 1}`,
     group: "chats",
+    hosts: BOTH_HOSTS,
     label: "Switch to conversation {n}",
     labelVars: { n: index + 1 },
     slot: index,
-    defaultBinding: b(`Digit${index + 1}`, { mod: true })
+    defaultBinding: b(`Digit${index + 1}`, { mod: true }),
+    plugin: { id: `ds-bot.switch-bot-${index + 1}`, aliases: ["bot", "switch", String(index + 1)], webModifiers: ["primary", "alt"] }
   }))
 ];
 var SHORTCUT_BY_ID = Object.fromEntries(SHORTCUT_DEFS.map((def) => [def.id, def]));
+function shortcutsForHost(host = "desktop") {
+  return SHORTCUT_DEFS.filter((def) => Array.isArray(def.hosts) && def.hosts.includes(host));
+}
+function bindingToDshModifiers(binding) {
+  if (!binding) return [];
+  const mods = [];
+  if (binding.mod) mods.push("primary");
+  if (binding.ctrl) mods.push("control");
+  if (binding.alt) mods.push("alt");
+  if (binding.shift) mods.push("shift");
+  return mods;
+}
+function pluginShortcutDefaults(def) {
+  const code = def?.defaultBinding?.code;
+  if (!code) return {};
+  const desktopModifiers = bindingToDshModifiers(def.defaultBinding);
+  const webModifiers = def?.plugin?.webModifiers;
+  return {
+    "desktop:macos": { code, modifiers: desktopModifiers },
+    "desktop:windows": { code, modifiers: desktopModifiers },
+    "desktop:linux": { code, modifiers: desktopModifiers },
+    ...webModifiers ? {
+      "web:macos": { code, modifiers: webModifiers },
+      "web:windows": { code, modifiers: webModifiers }
+    } : {}
+  };
+}
 var MODIFIER_CODES = /* @__PURE__ */ new Set([
   "ShiftLeft",
   "ShiftRight",
@@ -52560,10 +52847,10 @@ function effectiveBinding(id, overrides = {}) {
   }
   return def.defaultBinding ?? null;
 }
-function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) {
+function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform(), host = "desktop") {
   const key = bindingKey(binding, mac);
   if (!key) return null;
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost(host)) {
     if (def.id === targetId) continue;
     const current2 = effectiveBinding(def.id, overrides);
     if (current2 && bindingKey(current2, mac) === key) return def;
@@ -52572,6 +52859,27 @@ function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) 
 }
 function platformBucket(mac = isMacPlatform()) {
   return mac ? "mac" : "other";
+}
+function isDesktopDef(def) {
+  return Boolean(def && Array.isArray(def.hosts) && def.hosts.includes("desktop"));
+}
+function resolveEffectiveOverrides(explicit = {}, mac = isMacPlatform(), host = "desktop") {
+  const effective = { ...explicit };
+  const usedByExplicit = /* @__PURE__ */ new Set();
+  for (const [id, binding] of Object.entries(explicit)) {
+    if (!binding) continue;
+    const def = SHORTCUT_BY_ID[id];
+    if (!def || !Array.isArray(def.hosts) || !def.hosts.includes(host)) continue;
+    const key = bindingKey(binding, mac);
+    if (key) usedByExplicit.add(key);
+  }
+  for (const def of shortcutsForHost(host)) {
+    if (Object.prototype.hasOwnProperty.call(explicit, def.id)) continue;
+    if (!def.defaultBinding) continue;
+    const key = bindingKey(def.defaultBinding, mac);
+    if (key && usedByExplicit.has(key)) effective[def.id] = null;
+  }
+  return effective;
 }
 function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? null : localStorage, mac = isMacPlatform()) {
   if (!storage) return {};
@@ -52584,11 +52892,15 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
     if (!bucket || typeof bucket !== "object") return {};
     const clean = {};
     for (const [id, value] of Object.entries(bucket)) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     return clean;
@@ -52607,11 +52919,15 @@ function saveShortcutOverrides(overrides, storage = typeof localStorage === "und
     }
     const clean = {};
     for (const [id, value] of Object.entries(overrides ?? {})) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     parsed[platformBucket(mac)] = clean;
@@ -52628,65 +52944,71 @@ function isShortcutRecording() {
 }
 function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
   const resolveStorage = () => storage !== void 0 ? storage : typeof localStorage === "undefined" ? null : localStorage;
-  let overrides = loadShortcutOverrides(resolveStorage(), mac);
+  let explicit = loadShortcutOverrides(resolveStorage(), mac);
+  let effective = resolveEffectiveOverrides(explicit, mac, "desktop");
   const listeners3 = /* @__PURE__ */ new Set();
   const notify = () => {
     for (const fn of listeners3) fn();
   };
-  const commit = (next) => {
-    overrides = next;
-    saveShortcutOverrides(overrides, resolveStorage(), mac);
+  const commit = (nextExplicit) => {
+    explicit = nextExplicit;
+    effective = resolveEffectiveOverrides(explicit, mac, "desktop");
+    saveShortcutOverrides(explicit, resolveStorage(), mac);
     notify();
   };
   return {
-    getSnapshot: () => overrides,
+    getSnapshot: () => effective,
     subscribe(listener) {
       listeners3.add(listener);
       return () => listeners3.delete(listener);
     },
-    bindingOf: (id) => effectiveBinding(id, overrides),
-    isCustomized: (id) => Object.prototype.hasOwnProperty.call(overrides, id),
-    hasCustomizations: () => Object.keys(overrides).length > 0,
+    bindingOf: (id) => effectiveBinding(id, effective),
+    isCustomized: (id) => Object.prototype.hasOwnProperty.call(explicit, id),
+    hasCustomizations: () => Object.keys(explicit).length > 0,
     setBinding(id, binding, { replaceConflict = false } = {}) {
-      if (!SHORTCUT_BY_ID[id]) return { ok: false, reason: "unknown" };
-      const next = { ...overrides };
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) return { ok: false, reason: "unknown" };
+      const nextExplicit = { ...explicit };
       if (binding === null) {
-        if (SHORTCUT_BY_ID[id].defaultBinding === null) delete next[id];
-        else next[id] = null;
-        commit(next);
+        if (def.defaultBinding === null) delete nextExplicit[id];
+        else nextExplicit[id] = null;
+        commit(nextExplicit);
         return { ok: true };
       }
       const normalized = normalizeBinding(binding);
       const check = validateBinding(normalized, mac);
       if (!check.ok) return check;
-      const conflict = findConflict(id, normalized, next, mac);
+      const conflict = findConflict(id, normalized, effective, mac);
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      if (bindingsEqual(normalized, SHORTCUT_BY_ID[id].defaultBinding, mac)) {
-        delete next[id];
+      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+        delete nextExplicit[id];
       } else {
-        next[id] = normalized;
+        nextExplicit[id] = normalized;
       }
-      commit(next);
+      commit(nextExplicit);
       return { ok: true };
     },
     resetBinding(id, { replaceConflict = false } = {}) {
       const def = SHORTCUT_BY_ID[id];
-      if (!def || !Object.prototype.hasOwnProperty.call(overrides, id)) return { ok: true };
-      const next = { ...overrides };
-      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, next, mac) : null;
+      if (!isDesktopDef(def)) return { ok: true };
+      if (!Object.prototype.hasOwnProperty.call(effective, id) && !Object.prototype.hasOwnProperty.call(explicit, id)) {
+        return { ok: true };
+      }
+      const nextExplicit = { ...explicit };
+      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, effective, mac) : null;
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict, binding: def.defaultBinding };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      delete next[id];
-      commit(next);
+      delete nextExplicit[id];
+      commit(nextExplicit);
       return { ok: true };
     },
     resetAll() {
-      if (Object.keys(overrides).length === 0) return;
+      if (Object.keys(explicit).length === 0) return;
       commit({});
     },
     /**
@@ -52694,9 +53016,9 @@ function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
      */
     activeBindings(capabilities = {}) {
       const list = [];
-      for (const def of SHORTCUT_DEFS) {
+      for (const def of shortcutsForHost("desktop")) {
         if (!isCommandAvailable(def, capabilities)) continue;
-        const binding = effectiveBinding(def.id, overrides);
+        const binding = effectiveBinding(def.id, effective);
         if (!binding) continue;
         list.push({ id: def.id, ...binding });
       }
@@ -52730,7 +53052,7 @@ function matchShortcutEvent(event, {
     event.target?.closest?.(".xterm") || !event.target?.closest && typeof document !== "undefined" && document.activeElement?.closest?.(".xterm")
   );
   const activeModal = modal ?? (settingsOpen ? "settings" : null);
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost("desktop")) {
     if (!isCommandAvailable(def, capabilities)) continue;
     const binding = effectiveBinding(def.id, overrides);
     if (!binding || binding.code !== code) continue;
@@ -62502,7 +62824,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react74.useMemo)(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
-    return SHORTCUT_DEFS.filter((def) => {
+    return shortcutsForHost("desktop").filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false;
       if (!wanted) return true;
       const label = labelForDef(def, classic).toLowerCase();
@@ -62519,7 +62841,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
     }
     return SHORTCUT_GROUPS.map((group) => ({ ...group, items: byGroup.get(group.id) ?? [] })).filter((group) => group.items.length > 0);
   }, [visibleDefs]);
-  const hasCustom = Object.keys(overrides).length > 0;
+  const hasCustom = store.hasCustomizations();
   const modCap = mac ? "⌘" : "Ctrl";
   const shiftCap = mac ? "⇧" : "Shift";
   const fixedRows = (0, import_react74.useMemo)(() => {
@@ -62609,7 +62931,8 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides);
         const caps = formatBindingCaps(binding, mac);
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
+        const customized = store.isCustomized(def.id);
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
         const label = labelForDef(def, classic);
@@ -62629,7 +62952,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
             (0, import_react74.createElement)(
               "div",
               { className: "bt-sc-controls" },
-              customized ? (0, import_react74.createElement)("button", {
+              customized || suppressed ? (0, import_react74.createElement)("button", {
                 type: "button",
                 className: "bt-mini bt-sc-reset",
                 onClick: () => resetOne(def.id)
@@ -74288,15 +74611,6 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 }
 
 // src/client/plugin-shortcuts.js
-var pluginDefaults = (code, desktopModifiers, webModifiers) => ({
-  "desktop:macos": { code, modifiers: desktopModifiers },
-  "desktop:windows": { code, modifiers: desktopModifiers },
-  "desktop:linux": { code, modifiers: desktopModifiers },
-  ...webModifiers ? {
-    "web:macos": { code, modifiers: webModifiers },
-    "web:windows": { code, modifiers: webModifiers }
-  } : {}
-});
 function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, sessionsById }) {
   const activeBotTarget = () => {
     const snap = roster.getSnapshot();
@@ -74304,98 +74618,76 @@ function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, s
     if (current2 && snap.byId?.[current2]) return snap.byId[current2].id;
     return snap.mainBotId ?? snap.bots?.[0]?.id ?? null;
   };
-  return [
-    {
-      id: "ds-bot.switch-surface",
-      label: () => t("Switch Bot / Classic Agent mode"),
-      aliases: ["classic", "agent", "bot", "mode"],
-      defaults: pluginDefaults("KeyM", ["primary", "shift"], ["primary", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
-      }
+  const resolvers = {
+    "switch-surface": ({ modal }) => {
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
     },
-    ...typeof actions.openInbox === "function" ? [{
-      id: "ds-bot.open-inbox",
-      label: () => t("Open Inbox"),
-      aliases: ["inbox", "notifications"],
-      defaults: pluginDefaults("KeyI", ["primary"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return {
-          status: "handled",
-          run: () => {
-            if (ui.getSnapshot().inbox) actions.closeInbox?.();
-            else actions.openInbox();
-          }
-        };
-      }
-    }] : [],
-    ...typeof actions.openBrowser === "function" ? [{
-      id: "ds-bot.open-browser",
-      label: () => t("Toggle Bot browser"),
-      aliases: ["browser", "web"],
-      defaults: pluginDefaults("KeyB", ["primary", "shift"], ["primary", "alt", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        const snap = roster.getSnapshot();
-        if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const botId = activeBotTarget();
-        if (!botId) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => actions.toggleBrowser(botId)
-        };
-      }
-    }] : [],
-    {
-      id: "ds-bot.group-search",
-      label: () => t("Search in group"),
-      aliases: ["search", "group"],
-      defaults: pluginDefaults("KeyF", ["primary", "shift"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const current2 = mainView();
-        const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
-        return {
-          status: "handled",
-          run: () => {
-            if (room2) actions.openGroupSearch?.(room2.id);
-            else actions.openPalette();
-          }
-        };
-      }
+    inbox: ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return {
+        status: "handled",
+        run: () => {
+          if (ui.getSnapshot().inbox) actions.closeInbox?.();
+          else actions.openInbox();
+        }
+      };
     },
-    ...Array.from({ length: 9 }, (_, index) => ({
-      id: `ds-bot.switch-bot-${index + 1}`,
-      label: () => t("Switch to conversation {n}", { n: index + 1 }),
-      aliases: ["bot", "switch", String(index + 1)],
-      defaults: pluginDefaults(`Digit${index + 1}`, ["primary"], ["primary", "alt"]),
+    browser: ({ modal }) => {
+      const snap = roster.getSnapshot();
+      if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const botId = activeBotTarget();
+      if (!botId) return { status: "blocked", reason: "unavailable" };
+      return {
+        status: "handled",
+        run: () => actions.toggleBrowser(botId)
+      };
+    },
+    "group-search": ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const current2 = mainView();
+      const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
+      return {
+        status: "handled",
+        run: () => {
+          if (room2) actions.openGroupSearch?.(room2.id);
+          else actions.openPalette();
+        }
+      };
+    }
+  };
+  const resolveSlot = (slot) => ({ modal }) => {
+    if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+    if (modal !== null) return { status: "blocked", reason: "modal" };
+    const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
+    const target = targets[slot];
+    if (!target) return { status: "blocked", reason: "unavailable" };
+    return {
+      status: "handled",
+      run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
+    };
+  };
+  const commands = [];
+  for (const def of shortcutsForHost("plugin")) {
+    if (!def.plugin?.id) continue;
+    if (def.requiresInbox && typeof actions.openInbox !== "function") continue;
+    if (def.requiresBrowser && typeof actions.openBrowser !== "function") continue;
+    const resolve2 = Number.isInteger(def.slot) ? resolveSlot(def.slot) : resolvers[def.id];
+    if (typeof resolve2 !== "function") continue;
+    commands.push({
+      id: def.plugin.id,
+      label: () => def.labelVars ? t(def.label, def.labelVars) : t(def.label),
+      aliases: def.plugin.aliases ?? [],
+      defaults: pluginShortcutDefaults(def),
       regions: ["page", "editable"],
       modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
-        const target = targets[index];
-        if (!target) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
-        };
-      }
-    }))
-  ];
+      resolve: resolve2
+    });
+  }
+  return commands;
 }
 function registerPluginShortcuts(shortcuts, { onError, ...deps }) {
   const commands = buildPluginShortcutCommands(deps);
