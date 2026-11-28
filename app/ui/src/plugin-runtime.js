@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from 'r
 import { noteClientError } from '../../../ds-bot/src/client/diagnostics.js'
 import { sanitizeUserSheet } from '../../../ds-bot/src/client/theme-css.js'
 import { registerShape, registerTheme } from '../../../ds-bot/src/client/themes.js'
+import { themeCssLoadsRemoteFiles, themeCssWithoutImports } from '../../../ds-bot/src/shared/theme-css.js'
 import { slots as defaultSlots } from './slots.js'
 
 const EMPTY_PLUGINS = Object.freeze([])
@@ -40,40 +41,57 @@ function runDisposers(disposers, pluginId) {
   }
 }
 
-function sanitizePluginCss(cssText) {
-  if (typeof cssText !== 'string' || cssText.trim() === '') return ''
-  if (typeof CSSStyleSheet === 'function' && typeof CSSStyleSheet.prototype?.replaceSync === 'function') {
-    try {
-      const sheet = new CSSStyleSheet()
-      sheet.replaceSync(cssText)
-      sanitizeUserSheet(sheet, typeof window !== 'undefined' ? window : undefined)
-      return Array.from(sheet.cssRules ?? []).map(rule => rule.cssText).join('\n')
-    } catch { /* fall back to DOM style element below */ }
-  }
-  if (typeof document === 'undefined' || !document.head) return ''
-  const style = document.createElement('style')
-  style.disabled = true
-  style.textContent = cssText
-  document.head.append(style)
+function buildSanitizedPluginSheet(cssText, doc) {
+  if (typeof cssText !== 'string' || cssText.trim() === '') return null
+  const view = doc?.defaultView ?? (typeof window !== 'undefined' ? window : globalThis)
+  const SheetCtor = view?.CSSStyleSheet ?? (typeof CSSStyleSheet === 'function' ? CSSStyleSheet : null)
+  if (typeof SheetCtor !== 'function' || typeof SheetCtor.prototype?.replaceSync !== 'function') return null
   try {
-    if (!style.sheet) return ''
-    sanitizeUserSheet(style.sheet, document.defaultView)
-    return Array.from(style.sheet.cssRules ?? []).map(rule => rule.cssText).join('\n')
-  } finally {
-    style.remove()
+    const sheet = new SheetCtor()
+    sheet.replaceSync(themeCssWithoutImports(cssText))
+    sanitizeUserSheet(sheet, view)
+    const serialized = Array.from(sheet.cssRules ?? []).map(rule => rule.cssText).join('\n')
+    if (serialized !== '' && themeCssLoadsRemoteFiles(serialized)) {
+      try { sheet.replaceSync('') } catch { /* ignore */ }
+      return null
+    }
+    return { sheet, serialized }
+  } catch {
+    return null
   }
 }
 
-function mountSanitizedPluginStyle(pluginId, cssText) {
-  if (typeof cssText !== 'string' || cssText.trim() === '' || typeof document === 'undefined' || !document.head) {
+// Fail-closed offline CSSOM sanitizer for plugin-provided theme CSS: strips @import before
+// parsing, sanitizes in a detached CSSStyleSheet (never touching document.head), and re-checks
+// the serialized CSS text for any residual remote fetch syntax.
+export function sanitizePluginCss(cssText, doc = typeof document !== 'undefined' ? document : undefined) {
+  const built = buildSanitizedPluginSheet(cssText, doc)
+  if (!built) return ''
+  try { built.sheet.replaceSync('') } catch { /* ignore */ }
+  return built.serialized
+}
+
+// Fail-closed offline CSSOM mount for ctx.style(): sanitizes in a detached CSSStyleSheet and
+// attaches via document.adoptedStyleSheets so unsanitized CSS never touches document.head.
+function mountSanitizedPluginStyle(cssText, doc = typeof document !== 'undefined' ? document : undefined) {
+  if (!doc || !Array.isArray(doc.adoptedStyleSheets)) return () => {}
+  const built = buildSanitizedPluginSheet(cssText, doc)
+  if (!built || built.serialized === '') return () => {}
+  const { sheet } = built
+  try {
+    doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
+  } catch {
+    try { sheet.replaceSync('') } catch { /* ignore */ }
     return () => {}
   }
-  const style = document.createElement('style')
-  style.dataset.dsbUiPlugin = pluginId
-  style.textContent = cssText
-  document.head.append(style)
-  if (style.sheet) sanitizeUserSheet(style.sheet, document.defaultView)
-  return () => { style.remove() }
+  return () => {
+    try { sheet.replaceSync('') } catch { /* ignore */ }
+    try {
+      if (Array.isArray(doc.adoptedStyleSheets)) {
+        doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter(item => item !== sheet)
+      }
+    } catch { /* ignore */ }
+  }
 }
 
 function normalizePlugin(first, second) {
@@ -222,7 +240,7 @@ export function createPluginRuntime({
         return track(registerThemeFn(id, themeDef))
       },
       shape: (id, shapeDef) => track(registerShapeFn(id, shapeDef)),
-      style: cssText => track(mountSanitizedPluginStyle(entry.id, cssText)),
+      style: cssText => track(mountSanitizedPluginStyle(cssText)),
       effect: (fn) => {
         if (typeof fn !== 'function') throw new TypeError('ctx.effect requires a function')
         if (entry.disposed || entry.generation !== gen) return () => {}
@@ -262,6 +280,10 @@ export function createPluginRuntime({
     const applyFn = entry.apply ?? entry.loadedApply
     if (typeof applyFn === 'function') {
       runApply(entry, gen, applyFn)
+      return
+    }
+    if (entry.load === null && entry.url === null && entry.initialError !== null) {
+      fail(entry, new Error(entry.initialError))
       return
     }
     entry.status = 'loading'
@@ -451,6 +473,7 @@ export function createPluginRuntime({
       apply,
       load,
       url,
+      initialError,
       unloadOnLeave,
       loadedApply: null,
       everOpened: pages.length === 0,

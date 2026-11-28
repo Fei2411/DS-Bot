@@ -293,9 +293,25 @@ export function apply(ctx, config) {
     return cachedUiSnapshot
   }
 
+  const authorizeUiPlugins = (request) => {
+    const admission = typeof ctx.connection.admit === 'function'
+      ? ctx.connection.admit(request)
+      : { rejection: 401 }
+    if ('rejection' in admission) {
+      return new Response(admission.rejection === 403 ? 'forbidden' : 'unauthorized', {
+        status: admission.rejection,
+        headers: SECURITY_HEADERS,
+      })
+    }
+    if (admission.peer?.principal?.kind !== 'owner') {
+      return new Response('forbidden', { status: 403, headers: SECURITY_HEADERS })
+    }
+    return undefined
+  }
+
   const uiPluginsResource = createUiPluginsResource({
     getSnapshot: getUiSnapshot,
-    authorizeRequest: authorizeIndex,
+    authorizeRequest: authorizeUiPlugins,
   })
   ctx.effect(
     () => ctx.webServer.register({ kind: 'prefix', path: UI_PLUGINS_API_PREFIX, resource: uiPluginsResource }),

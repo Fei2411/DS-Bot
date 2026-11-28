@@ -14,8 +14,9 @@ const state = {
 let metaSnapshot = Object.freeze({ ...state })
 const listeners = new Set()
 const mounted = new Map()
+const pluginEpochs = new Map()
 let inFlight = null
-let reloadEpoch = 0
+let syncSeq = 0
 
 function emitMeta() {
   metaSnapshot = Object.freeze({ ...state })
@@ -24,9 +25,13 @@ function emitMeta() {
   }
 }
 
-function descriptorSignature(desc, forceReloadEpoch) {
+function defaultModuleImporter(specifier) {
+  return import(/* @vite-ignore */ specifier)
+}
+
+function descriptorSignature(desc, epoch) {
   return JSON.stringify({
-    epoch: forceReloadEpoch,
+    epoch,
     id: desc.id,
     name: desc.name,
     source: desc.source,
@@ -39,7 +44,7 @@ function descriptorSignature(desc, forceReloadEpoch) {
   })
 }
 
-function registerDescriptor(runtime, desc, epoch) {
+function registerDescriptor(runtime, desc, epoch, importer) {
   const base = {
     id: desc.id,
     name: desc.name || desc.id,
@@ -64,14 +69,16 @@ function registerDescriptor(runtime, desc, epoch) {
       return runtime.use({
         ...base,
         load: async ({ bust }) => {
-          const mod = await import(/* @vite-ignore */ bust(versionedUrl))
+          const mod = await importer(bust(versionedUrl))
           const fn = typeof mod === 'function'
             ? mod
             : (typeof mod?.apply === 'function' ? mod.apply : (typeof mod?.default === 'function' ? mod.default : null))
+          if (typeof fn !== 'function') {
+            throw new TypeError(`UI plugin "${desc.id}" module did not export an apply function`)
+          }
           return (ctx) => {
             ctx.theme(desc.theme.id, desc.theme)
-            if (typeof fn === 'function') return fn(ctx)
-            return undefined
+            return fn(ctx)
           }
         },
       })
@@ -90,13 +97,16 @@ function registerDescriptor(runtime, desc, epoch) {
 
 export async function syncExternalUiPlugins(runtime = defaultRuntime, {
   fetchImpl = globalThis.fetch,
+  importer = defaultModuleImporter,
   forceReload = false,
+  onlyId = null,
 } = {}) {
   if (typeof fetchImpl !== 'function') return metaSnapshot
-  if (forceReload) reloadEpoch += 1
-  const currentEpoch = reloadEpoch
+  const mySeq = ++syncSeq
+  const targetId = typeof onlyId === 'string' && onlyId.trim() !== '' ? onlyId.trim() : null
   try {
     const res = await fetchImpl(MANIFEST_URL, { cache: 'no-store' })
+    if (mySeq !== syncSeq) return metaSnapshot
     if (!res.ok) {
       if (res.status !== 404) {
         state.error = `HTTP ${res.status}`
@@ -105,6 +115,8 @@ export async function syncExternalUiPlugins(runtime = defaultRuntime, {
       return metaSnapshot
     }
     const payload = await res.json()
+    if (mySeq !== syncSeq) return metaSnapshot
+
     state.uiPluginsDir = typeof payload?.uiPluginsDir === 'string' && payload.uiPluginsDir.trim() !== ''
       ? payload.uiPluginsDir.trim()
       : null
@@ -112,28 +124,58 @@ export async function syncExternalUiPlugins(runtime = defaultRuntime, {
     state.error = ''
 
     const incoming = Array.isArray(payload?.plugins) ? payload.plugins : []
+    if (targetId !== null) {
+      // Targeted retry: only touch the specified plugin so healthy external plugins stay mounted.
+      const match = incoming.find(desc => desc && desc.id === targetId)
+      const prev = mounted.get(targetId)
+      if (!match) {
+        if (prev) {
+          try { prev.dispose() } catch { /* ignore */ }
+          mounted.delete(targetId)
+        }
+        pluginEpochs.delete(targetId)
+        emitMeta()
+        return metaSnapshot
+      }
+      const nextEpoch = (pluginEpochs.get(targetId) ?? 0) + 1
+      pluginEpochs.set(targetId, nextEpoch)
+      if (prev) {
+        try { prev.dispose() } catch { /* ignore */ }
+        mounted.delete(targetId)
+      }
+      const dispose = registerDescriptor(runtime, match, nextEpoch, importer)
+      mounted.set(targetId, { sig: descriptorSignature(match, nextEpoch), dispose })
+      emitMeta()
+      return metaSnapshot
+    }
+
     const nextIds = new Set()
     for (const desc of incoming) {
       if (!desc || typeof desc.id !== 'string' || desc.id.trim() === '') continue
       nextIds.add(desc.id)
-      const sig = descriptorSignature(desc, forceReload ? currentEpoch : 0)
+      const prevEpoch = pluginEpochs.get(desc.id) ?? 0
+      const epoch = forceReload ? prevEpoch + 1 : prevEpoch
+      if (forceReload) pluginEpochs.set(desc.id, epoch)
+      const sig = descriptorSignature(desc, epoch)
       const prev = mounted.get(desc.id)
       if (prev && prev.sig === sig) continue
       if (prev) {
         try { prev.dispose() } catch { /* ignore */ }
         mounted.delete(desc.id)
       }
-      const dispose = registerDescriptor(runtime, desc, currentEpoch)
+      const dispose = registerDescriptor(runtime, desc, epoch, importer)
       mounted.set(desc.id, { sig, dispose })
     }
     for (const [id, entry] of Array.from(mounted.entries())) {
       if (!nextIds.has(id)) {
         try { entry.dispose() } catch { /* ignore */ }
         mounted.delete(id)
+        pluginEpochs.delete(id)
       }
     }
     emitMeta()
   } catch (error) {
+    if (mySeq !== syncSeq) return metaSnapshot
     state.error = error?.message ?? String(error)
     emitMeta()
   }
@@ -141,14 +183,23 @@ export async function syncExternalUiPlugins(runtime = defaultRuntime, {
 }
 
 export function loadExternalUiPlugins(runtime = defaultRuntime, options = {}) {
-  inFlight ??= syncExternalUiPlugins(runtime, options).finally(() => { inFlight = null })
-  return inFlight
+  if (inFlight !== null) return inFlight
+  const task = syncExternalUiPlugins(runtime, options)
+  const wrapped = task.finally(() => {
+    if (inFlight === wrapped) inFlight = null
+  })
+  inFlight = wrapped
+  return wrapped
 }
 
 export function reloadExternalUiPlugins(runtime = defaultRuntime, options = {}) {
-  const next = syncExternalUiPlugins(runtime, { ...options, forceReload: true })
-  inFlight = next.finally(() => { if (inFlight === next) inFlight = null })
-  return next
+  const onlyId = typeof options?.onlyId === 'string' && options.onlyId.trim() !== '' ? options.onlyId.trim() : null
+  const task = syncExternalUiPlugins(runtime, { ...options, forceReload: onlyId === null, onlyId })
+  const wrapped = task.finally(() => {
+    if (inFlight === wrapped) inFlight = null
+  })
+  inFlight = wrapped
+  return wrapped
 }
 
 export function resetExternalUiPluginsForTest() {
@@ -156,10 +207,11 @@ export function resetExternalUiPluginsForTest() {
     try { entry.dispose() } catch { /* ignore */ }
   }
   mounted.clear()
+  pluginEpochs.clear()
   state.uiPluginsDir = null
   state.loaded = false
   state.error = ''
-  reloadEpoch = 0
+  syncSeq = 0
   inFlight = null
   emitMeta()
 }

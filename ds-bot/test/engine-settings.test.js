@@ -740,6 +740,8 @@ test('engine-plugins-list annotates clientSurface and custom cordis.patch.yml pl
         return [
           { entryId: 'include', moduleName: 'cordis:include', enabled: true, fiberPhase: 'active', readOnlyReason: 'unaddressable' },
           { entryId: 'entry-bot', patchId: 'bot', moduleName: 'ds-bot', enabled: true, fiberPhase: 'active' },
+          { entryId: 'entry-subpath', patchId: 'web-search', moduleName: 'ds-bot/web-search', enabled: true, fiberPhase: 'active' },
+          { entryId: 'entry-scoped-subpath', patchId: 'scoped-sub', moduleName: '@deepseek-ai/ds-bot/extra', enabled: true, fiberPhase: 'active' },
           { entryId: 'entry-skin', patchId: 'skin-row', moduleName: 'my-dsh-skin', enabled: true, fiberPhase: 'active' },
           { entryId: 'include:entry-custom', patchId: 'my-custom', moduleName: pathToFileURL(join(customPluginDir, 'index.js')).href, enabled: true, fiberPhase: 'active' },
         ]

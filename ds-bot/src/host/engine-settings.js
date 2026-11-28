@@ -588,7 +588,7 @@ export function install(rt) {
             || (bareId !== '' && bundleRowIds.has(bareId))
             || (patchId !== '' && bundleRowIds.has(patchId))
             || (id !== '' && bundleRowIds.has(id))
-          const isInternalModule = /^@deepseek-ai\/(?:dsh-|cordis-)|^cordis:|^dsbot-engine$|^ds-bot$|^@deepseek-ai\/ds-bot$/i.test(String(plugin.moduleName ?? '').trim())
+          const isInternalModule = /^@deepseek-ai\/(?:dsh-|cordis-)|^cordis:|^dsbot-engine(?:\/|$)|^ds-bot(?:\/|$)|^@deepseek-ai\/ds-bot(?:\/|$)/i.test(String(plugin.moduleName ?? '').trim())
           const custom = !fromBundle && (!isInternalModule || Boolean(resolveLocalModulePath(plugin.moduleName, profileDir ?? '')))
           const extras = custom ? inspectCustomPlugin(plugin, profileDir ?? '') : {}
           return cleanPlugin(plugin, { custom, ...extras })

@@ -151,7 +151,9 @@ export function isBannedNamespace(ns, surfaceMode = 'bot') {
 export function isExcludedBundle(bundle) {
   const name = typeof bundle === 'string' ? bundle : bundle?.name
   if (typeof name !== 'string' || name.trim() === '') return true
-  const enabled = typeof bundle === 'object' && bundle !== null ? Boolean(bundle.enabled || bundle.error) : false
+  const enabled = typeof bundle === 'object' && bundle !== null
+    ? Boolean(bundle.enabled || (bundle.installed && bundle.error))
+    : false
   return isBlockedEngineBundle(name, { desktop: true, enabled })
 }
 
@@ -1976,7 +1978,8 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
     setBusyKey('ui-plugins:reload')
     setError('')
     try {
-      await reloadExternalUiPlugins(runtime)
+      const meta = await reloadExternalUiPlugins(runtime)
+      if (mounted.current && meta?.error) setError(hostText(meta.error))
     } finally {
       if (mounted.current) setBusyKey('')
     }
@@ -2416,15 +2419,20 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
               type: 'button',
               className: 'bt-soft bt-soft-sm',
               onClick: () => {
-                if (entry.external) void reloadExternalUiPlugins(runtime)
-                else runtime.retry(entry.id)
+                if (entry.external) {
+                  void reloadExternalUiPlugins(runtime, { onlyId: entry.id }).then((meta) => {
+                    if (mounted.current && meta?.error) setError(hostText(meta.error))
+                  })
+                } else {
+                  runtime.retry(entry.id)
+                }
               },
             }, t('Retry')))
           : null))
       : h('div', { className: 'dsb-engine-empty' }, data?.uiPluginsDir || '')) : null,
     customPlugins.length > 0 ? h(EngineSection, {
       title: t('Custom profile plugins'),
-      action: settingsData?.documentPath && !readOnly ? h('button', {
+      action: settingsData?.documentPath && settingsData?.writable && !readOnly ? h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
         disabled: Boolean(busyKey),

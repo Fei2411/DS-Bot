@@ -271,16 +271,16 @@ export async function discoverUiPlugins({
       } catch {
         continue
       }
-      const manifestPath = join(dir, 'manifest.json')
-      const pkgPath = join(dir, 'package.json')
-      const hasManifest = existsSync(manifestPath)
-      const hasPkg = existsSync(pkgPath)
+      const hasManifest = existsSync(join(dir, 'manifest.json'))
+      const hasPkg = existsSync(join(dir, 'package.json'))
       if (!hasManifest && !hasPkg) continue
 
       const fallbackSlug = entry.name
       const fallbackId = `local:${fallbackSlug}`
       try {
-        const raw = readJsonFile(hasManifest ? manifestPath : pkgPath)
+        const metaFile = hasManifest ? 'manifest.json' : 'package.json'
+        const containedMeta = await resolveContainedFile(dir, metaFile)
+        const raw = readJsonFile(containedMeta.realTarget)
         const spec = hasManifest
           ? raw
           : (typeof raw?.dsBot?.ui === 'string'
@@ -372,16 +372,37 @@ export async function discoverUiPlugins({
 }
 
 /**
- * Validate a decoded pathname for `/api/ui-plugins/*` (same hardening as static UI assets).
+ * Decode and validate the raw encoded relative path portion after `/api/ui-plugins/files/<encodedId>/`.
+ * Decodes each segment exactly once so encoded separators (`%2F`, `%5C`) inside a segment are rejected
+ * instead of silently turning into path separators or breaking scoped package ids (`@scope/pkg`).
  */
-function sanitizePluginRelPath(relPath) {
-  if (relPath.includes('\0') || relPath.includes('\\') || relPath.includes(':')) return null
-  if (relPath === '' || relPath.startsWith('/') || relPath.endsWith('/')) return null
-  const segments = relPath.split('/')
-  for (const seg of segments) {
-    if (seg === '' || seg === '.' || seg === '..' || /[. ]$/u.test(seg)) return null
+function parseEncodedPluginRelPath(rawRel) {
+  if (!rawRel || rawRel.startsWith('/') || rawRel.endsWith('/')) return { status: 403 }
+  const rawSegments = rawRel.split('/')
+  const decodedSegments = []
+  for (const rawSeg of rawSegments) {
+    if (rawSeg === '') return { status: 403 }
+    let seg
+    try {
+      seg = decodeURIComponent(rawSeg)
+    } catch {
+      return { status: 400 }
+    }
+    if (
+      seg === ''
+      || seg === '.'
+      || seg === '..'
+      || seg.includes('/')
+      || seg.includes('\\')
+      || seg.includes(':')
+      || seg.includes('\0')
+      || /[. ]$/u.test(seg)
+    ) {
+      return { status: 403 }
+    }
+    decodedSegments.push(seg)
   }
-  return segments.join('/')
+  return { ok: true, relPath: decodedSegments.join('/') }
 }
 
 /**
@@ -393,23 +414,21 @@ export function createUiPluginsResource({ getSnapshot, authorizeRequest }) {
       return new Response(null, { status: 405, headers: { ...SECURITY_HEADERS, allow: 'GET, HEAD' } })
     }
     const url = new URL(request.url)
-    if (peer === undefined) {
-      // Never accept launch-token redirects on API endpoints; require an established session cookie.
+    if (peer !== undefined) {
+      if (peer.principal?.kind !== 'owner') {
+        return new Response('forbidden', { status: 403, headers: SECURITY_HEADERS })
+      }
+    } else {
+      // Never accept launch-token redirects on API endpoints; require an admitted owner request.
       if (url.searchParams.has('token')) {
         return new Response('unauthorized', { status: 401, headers: SECURITY_HEADERS })
       }
-      const refusal = authorizeRequest(request)
+      const refusal = authorizeRequest(request, peer)
       if (refusal !== undefined) return refusal
     }
 
-    let decodedPath
-    try {
-      decodedPath = decodeURIComponent(url.pathname)
-    } catch {
-      return new Response(null, { status: 400, headers: SECURITY_HEADERS })
-    }
-
-    if (decodedPath === UI_PLUGINS_MANIFEST_PATH) {
+    const rawPathname = url.pathname
+    if (rawPathname === UI_PLUGINS_MANIFEST_PATH) {
       const snapshot = await getSnapshot({ refresh: true })
       const body = JSON.stringify({
         uiPluginsDir: snapshot.uiPluginsDir,
@@ -424,25 +443,29 @@ export function createUiPluginsResource({ getSnapshot, authorizeRequest }) {
       return new Response(body, { status: 200, headers })
     }
 
-    if (!decodedPath.startsWith(UI_PLUGINS_FILES_PREFIX)) {
+    if (!rawPathname.startsWith(UI_PLUGINS_FILES_PREFIX)) {
       return new Response(null, { status: 404, headers: SECURITY_HEADERS })
     }
 
-    const rest = decodedPath.slice(UI_PLUGINS_FILES_PREFIX.length)
-    const slash = rest.indexOf('/')
+    const rawRest = rawPathname.slice(UI_PLUGINS_FILES_PREFIX.length)
+    const slash = rawRest.indexOf('/')
     if (slash <= 0) {
       return new Response(null, { status: 404, headers: SECURITY_HEADERS })
     }
     let pluginId
     try {
-      pluginId = decodeURIComponent(rest.slice(0, slash))
+      pluginId = decodeURIComponent(rawRest.slice(0, slash))
     } catch {
       return new Response(null, { status: 400, headers: SECURITY_HEADERS })
     }
-    const relPath = sanitizePluginRelPath(rest.slice(slash + 1))
-    if (relPath === null) {
+    if (!pluginId || pluginId.includes('\0') || pluginId.includes('\\')) {
       return new Response(null, { status: 403, headers: SECURITY_HEADERS })
     }
+    const parsedRel = parseEncodedPluginRelPath(rawRest.slice(slash + 1))
+    if (!parsedRel.ok) {
+      return new Response(null, { status: parsedRel.status, headers: SECURITY_HEADERS })
+    }
+    const { relPath } = parsedRel
     const mime = ALLOWED_PLUGIN_MIME[extname(relPath).toLowerCase()]
     if (!mime) {
       return new Response(null, { status: 403, headers: SECURITY_HEADERS })
