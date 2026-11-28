@@ -598,6 +598,7 @@ export function install(rt) {
       if (record.botId === undefined) return { kind: 'user', text: record.text, time, ...(record.via ? { via: record.via } : {}) }
       return {
         ...who, text: record.text, time,
+        roomSeq: record.seq,
         ...(record.duration === undefined ? {} : { duration: record.duration }),
         ...(record.claims === undefined ? {} : { claims: record.claims }),
         ...(record.changes === undefined ? {} : { changes: record.changes }),
@@ -2944,7 +2945,7 @@ export function install(rt) {
           say(room, { who: sender.name, botId: sender.id, kind: post.done ? 'done' : post.stopped ? 'stopped' : post.again ? 'cut' : 'resumed', text: '', ...(post.changes === undefined ? {} : { changes: post.changes }) })
         } else {
           const presented = presentedFiles(post.presented)
-          say(room, { who: sender.name, botId: sender.id, text, ...(post.route ? { route: post.route } : {}), ...(post.files === undefined ? {} : { files: post.files }), ...(presented.length > 0 ? { presented } : {}), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true, ...(post.late !== true && post.progress !== true ? { openingPost: true } : {}) })
+          say(room, { who: sender.name, botId: sender.id, text, exchangeId: post.exchangeId, ...(post.route ? { route: post.route } : {}), ...(post.files === undefined ? {} : { files: post.files }), ...(presented.length > 0 ? { presented } : {}), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true, ...(post.late !== true && post.progress !== true ? { openingPost: true } : {}) })
         }
         callPost(room, round, sender, post.text ?? '', post)
         settleQueuedReportInRound(room, post)
@@ -3099,6 +3100,7 @@ export function install(rt) {
       say(room, {
         who,
         ...(post.botId ? { botId: post.botId } : {}),
+        ...(post.botId && post.exchangeId ? { exchangeId: post.exchangeId } : {}),
         ...(post.route ? { route: post.route } : {}),
         text,
         ...(post.images === undefined ? {} : { images: post.images }),

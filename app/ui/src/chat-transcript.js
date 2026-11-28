@@ -73,6 +73,7 @@ export function adaptRoomItem(item) {
       id: item.id,
       kind: 'post',
       seq: item.id,
+      ...(item.messageId ? { messageId: item.messageId } : {}),
       ...(Number.isInteger(item.turn) ? { turn: item.turn } : {}),
       botId: item.botId,
       name: item.name,

@@ -124,6 +124,10 @@ const presentedFileRefs = value => presentedFiles(value).map(file => ({
   ...(Number.isInteger(file.index) ? { index: file.index } : {}),
 }))
 
+const roomMessageId = (roomSeq, exchangeId) => Number.isInteger(roomSeq)
+  ? { messageId: `line:${roomSeq}` }
+  : typeof exchangeId === 'string' && exchangeId !== '' ? { messageId: `post:${exchangeId}` } : {}
+
 // One reply of a round as an item: a member's message, the user's message that came in
 // while the round ran, or an event of the round. `id` names it the same while the round
 // runs and once its result is logged, so a client can swap the one for the other.
@@ -133,7 +137,7 @@ function replyItem(reply, id, extra = {}) {
   if (reply.kind === 'user') return { id, kind: 'user', text: String(reply.text ?? ''), time, ...extra }
   if (reply.kind === undefined) {
     const files = presentedFileRefs(reply.presented)
-    return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...(files.length > 0 ? { files } : {}), ...extra }
+    return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...roomMessageId(reply.roomSeq), ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...(files.length > 0 ? { files } : {}), ...extra }
   }
   if (!ROUND_EVENTS.has(reply.kind)) return undefined
   return {
@@ -183,6 +187,7 @@ export function roomItems(events, rowsOf = () => [], seedTurn) {
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
           text: textOf(content).replace(POST_HEADER, ''), time: event.time ?? null,
+          ...roomMessageId(undefined, source.exchangeId),
           ...(file ? { whole: { length: source.length, file } } : {}),
           ...(files.length > 0 ? { files } : {}),
           ...anchor,
@@ -262,7 +267,8 @@ export function install(rt) {
     const base = { roomId: room.id, title: room.name }
     if (line.kind === undefined) {
       const summary = line.text || (Array.isArray(line.presented) ? line.presented.map(file => presentedFileName(file.path)).join(', ') : '')
-      botNotice(line.botId, { kind: 'group', ...base, text: summary })
+      const anchor = line.session === true ? roomMessageId(undefined, line.exchangeId) : roomMessageId(line.seq)
+      botNotice(line.botId, { kind: 'group', ...base, text: summary, ...anchor })
     }
     else if (line.kind === 'done') botNotice(line.botId, { kind: 'done', ...base, text: '' })
   }

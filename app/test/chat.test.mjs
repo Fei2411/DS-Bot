@@ -459,24 +459,32 @@ test('group chat cancels queued reload when unmounted during an in-flight reques
 })
 
 test('a synthetic group message jump pages within the searched part until it finds the reply or exhausts it', async () => {
-  for (const found of [true, false]) {
+  for (const [snippet, rendered, found] of [
+    ['Use **palette jump** to open the message.', 'Use palette jump to open the message.', true],
+    ['Done', 'Done', true],
+    ['Done', 'Done', false],
+  ]) {
     const cursors = []
     const scrolled = []
-    const target = { sessionId: 'r1', turn: 5, snippet: 'Older reply', synthetic: true }
+    const target = { sessionId: 'r1', turn: 5, snippet, synthetic: true, role: 'response', messageId: 'line:1', group: true }
     const ui = { messageJump: target }
-    const row = {
-      textContent: target.snippet,
-      getAttribute: () => 'r1',
-      scrollIntoView: ({ block }) => scrolled.push(block),
+    const row = (id, sessionId = 'r1') => ({
+      textContent: rendered,
+      getAttribute: name => ({ 'data-bt-message-session': sessionId, 'data-bt-message-role': 'response', 'data-bt-message-id': id })[name],
+      scrollIntoView: ({ block }) => scrolled.push([id, block]),
       classList: { add() {}, remove() {} },
-    }
+    })
+    const newer = row('line:2')
+    const otherSession = row('line:1', 'other-part')
     field.querySelectorAll = () => []
     const room = mountRoom(async (name, body) => {
       assert.equal(name, 'room-chat')
       cursors.push(body.cursor?.beforeSeq)
-      if (body.cursor?.beforeSeq === 10 && found) field.querySelectorAll = () => [row]
+      const older = body.cursor?.beforeSeq === 10
+      field.querySelectorAll = () => older && found ? [newer, otherSession, row('line:1')] : [newer, otherSession]
       const next = body.cursor === undefined ? { part: 1, beforeSeq: 10 } : { part: 0 }
-      return { roomId: 'r1', items: [], cursor: next }
+      const id = older ? 'line:1' : 'line:2'
+      return { roomId: 'r1', items: older && !found ? [] : [{ id, messageId: id, sessionId: 'r1', kind: 'bot', botId: 'b1', text: snippet }], cursor: next }
     }, ui, {
       finishMessageJump: (jump) => { assert.equal(jump, target); ui.messageJump = null },
     })
@@ -488,7 +496,7 @@ test('a synthetic group message jump pages within the searched part until it fin
       await tick()
       await tick()
       assert.deepEqual(cursors, [undefined, 10])
-      assert.deepEqual(scrolled, found ? ['center'] : [])
+      assert.deepEqual(scrolled, found ? [['line:1', 'center']] : [])
       assert.equal(ui.messageJump, null)
     } finally {
       room.unmount()
@@ -991,7 +999,8 @@ test('DSH Agent blank session renders AgentEmptyHero with workspace folder and f
 test('adaptRoomItem preserves presented files on group Bot messages for ChatRows', () => {
   const { adaptRoomItem } = module.exports
   const file = { name: 'report.pdf', path: '/work/report.pdf', description: 'Final', sessionId: 'm1', seq: 5, index: 0 }
-  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file] })
+  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file], messageId: 'line:1' })
+  assert.equal(adapted.messageId, 'line:1')
   assert.equal(adapted.kind, 'post')
   assert.deepEqual(adapted.presented, [file])
 })

@@ -496,7 +496,7 @@ export function claimLines(claims) {
   return lines
 }
 
-export function GroupMessage({ bot, text, texts = [text], files = [], openFile, room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes, anchorSessionId, turn }) {
+export function GroupMessage({ bot, text, texts = [text], files = [], openFile, room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes, anchorSessionId, turn, messageId }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -518,7 +518,7 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
   const fileList = presentedFiles(files)
   const filesOnly = visibleTexts.length === 0 && fileList.length > 0
   const fileCards = fileList.length > 0 ? h(PresentedFiles, { files: fileList, openFile, actions }) : null
-  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id, ...messageAnchor(anchorSessionId, turn, 'response') },
+  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id, ...messageAnchor(anchorSessionId, turn, 'response', messageId) },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
@@ -948,7 +948,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       return h(MemoGroupMessage, {
         key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
-        whole: stableWhole(row, actions), locale, anchorSessionId: row.sessionId, turn: row.turn,
+        whole: stableWhole(row, actions), locale, anchorSessionId: row.sessionId, turn: row.turn, messageId: row.messageId,
       })
     }
     case 'relay': {

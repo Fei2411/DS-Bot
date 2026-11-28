@@ -1765,6 +1765,7 @@ export function createTeam() {
       if (data.text && !isReplay) {
         editRow(roomSession, (row) => {
           const next = appendTurnOutline(row, { kind: 'bot', text: data.text, turn: data.turn, seq: Number.isInteger(data.seq) ? data.seq : null })
+          if (typeof data.messageId === 'string') next.outline.find(entry => entry.turn === next.turn).messageId = data.messageId
           return {
             ...row,
             updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),

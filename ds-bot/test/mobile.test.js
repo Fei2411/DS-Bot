@@ -266,6 +266,10 @@ test('a group round logs notices a returning client reads back, and the feed say
   assert.equal(caught.reset, false)
   const groupNotices = caught.notices.filter(notice => notice.kind === 'group')
   assert.deepEqual(groupNotices.map(notice => [notice.botId, notice.roomId, notice.title, notice.text]), [[chief, room.id, 'Launch', 'Chief here.'], [writer.id, room.id, 'Launch', 'Writer here.']])
+  assert.match(groupNotices[0].messageId, /^line:\d+$/)
+  assert.notEqual(groupNotices[0].messageId, groupNotices[1].messageId)
+  assert.deepEqual(done.items.filter(item => item.kind === 'bot').map(item => item.messageId), groupNotices.map(notice => notice.messageId))
+  assert.equal(live.items[1].messageId, groupNotices[0].messageId)
   const latest = caught.seq
   assert.deepEqual((await call('notices', { boot, since: latest })).value.notices, [])
   // A client from before a restart starts over.

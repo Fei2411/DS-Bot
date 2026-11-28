@@ -25246,13 +25246,15 @@ function writeSkinSurfaceVars(doc, read) {
 // src/client/message-jump.js
 var HIGHLIGHT_MS = 1800;
 var HIGHLIGHT_CLASS = "bt-message-jump";
-var messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn) ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true, role: target.role } : null;
-var messageAnchor = (sessionId, turn, role) => sessionId !== void 0 ? { "data-bt-message-session": sessionId, "data-bt-message-turn": Number.isInteger(turn) ? turn : void 0, "data-bt-message-role": role } : void 0;
+var messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn) && !(target.group && target.synthetic && !target.messageId) ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true, role: target.role, ...target.group ? { group: true } : {}, ...target.messageId ? { messageId: target.messageId } : {} } : null;
+var messageAnchor = (sessionId, turn, role, messageId) => sessionId !== void 0 ? { "data-bt-message-session": sessionId, "data-bt-message-turn": Number.isInteger(turn) ? turn : void 0, "data-bt-message-role": role, "data-bt-message-id": messageId } : void 0;
 var normalized = (text) => String(text ?? "").replace(/\s+/g, "").toLowerCase();
-function findMessageRow(root, { sessionId, turn, snippet, synthetic, role }, allowFallback = true) {
-  const selector = synthetic ? "[data-bt-message-session]" : `[data-bt-message-turn="${turn}"]`;
+function findMessageRow(root, { sessionId, turn, snippet, synthetic, role, group, messageId }, allowFallback = true) {
+  const selector = messageId ? "[data-bt-message-id]" : `[data-bt-message-turn="${turn}"]`;
   const rows2 = [...root?.querySelectorAll(selector) ?? []].filter((row) => row.getAttribute("data-bt-message-session") === sessionId);
   const preferred = role === void 0 ? rows2 : rows2.filter((row) => row.getAttribute("data-bt-message-role") === role);
+  if (messageId) return preferred.find((row) => row.getAttribute("data-bt-message-id") === messageId);
+  if (group) return synthetic ? void 0 : preferred[0];
   const match = normalized(snippet).replace(/^…/, "");
   const matches3 = match ? preferred.filter((row) => normalized(row.textContent).includes(match)) : [];
   if (synthetic) return matches3.length === 1 ? matches3[0] : void 0;
@@ -46364,7 +46366,7 @@ function claimLines(claims) {
   for (const path2 of claims.missingFiles ?? []) lines.push({ kind: "file", text: t("File not found: {path}", { path: path2 }) });
   return lines;
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile, room: room2, sessionId, roster, actions, msgKey, useUi, whole: whole2, time, duration, claims, changes, anchorSessionId, turn }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile, room: room2, sessionId, roster, actions, msgKey, useUi, whole: whole2, time, duration, claims, changes, anchorSessionId, turn, messageId }) {
   const ref = (0, import_react39.useRef)(null);
   (0, import_react39.useLayoutEffect)(() => {
     const el = ref.current;
@@ -46389,7 +46391,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
   const fileCards = fileList.length > 0 ? (0, import_react39.createElement)(PresentedFiles, { files: fileList, openFile, actions }) : null;
   return (0, import_react39.createElement)(
     "div",
-    { ref, className: "bt-group-msg", "data-bot-id": bot.id, ...messageAnchor(anchorSessionId, turn, "response") },
+    { ref, className: "bt-group-msg", "data-bot-id": bot.id, ...messageAnchor(anchorSessionId, turn, "response", messageId) },
     (0, import_react39.createElement)(
       "span",
       { className: "bt-group-name", style: flat ? void 0 : { color: inkText(colorOf(bot)) } },
@@ -46822,7 +46824,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         whole: stableWhole(row, actions),
         locale,
         anchorSessionId: row.sessionId,
-        turn: row.turn
+        turn: row.turn,
+        messageId: row.messageId
       });
     }
     case "relay": {
@@ -69997,7 +70000,8 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS);
   };
   useEscape(close);
-  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(currentPart)];
+  const rooms = new Map(roster.rooms.map((room2) => [currentPart(room2), room2]));
+  const ids = [...roster.bots.map(currentPart), ...rooms.keys()];
   const found = useSessions((list) => {
     if (wanted.length < 2) return "[]";
     const hits = [];
@@ -70013,7 +70017,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
           const at2 = text.toLowerCase().indexOf(wanted);
           if (at2 < 0) continue;
           const from = Math.max(0, at2 - 24);
-          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60), entry._synthetic === true, role]);
+          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60), entry._synthetic === true, role, role === "response" ? entry.messageId : void 0]);
           break;
         }
       }
@@ -70055,15 +70059,15 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     run: () => actions.openAgent(agent.id)
   }));
   if (agents.length) sections.push(["DSH Agent", agents]);
-  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic, role]) => {
+  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic, role, messageId]) => {
     const bot = roster.byId[id];
-    const room2 = roster.roomsById[id];
+    const room2 = rooms.get(id);
     return {
       key: `${id}:${turn}`,
       title: bot?.name ?? room2?.name ?? t("Bot"),
       subtitle: snippet,
       avatar: bot ? (0, import_react86.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react86.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
-      run: () => actions.openSession(id, { turn, snippet, role, ...synthetic ? { synthetic } : {} })
+      run: () => actions.openSession(id, { turn, snippet, role, ...synthetic ? { synthetic } : {}, ...room2 ? { group: true } : {}, ...messageId ? { messageId } : {} })
     };
   });
   if (messages.length) sections.push([t("Messages"), messages]);
