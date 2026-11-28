@@ -3,7 +3,7 @@ import { createDecipheriv } from 'node:crypto'
 import { createServer } from 'node:http'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from '../src/host/im/outbound-images.js'
@@ -70,6 +70,17 @@ test('extractLocalMarkdownImages handles CRLF fences, indented code, quoted fenc
     ['AfterCrlfFence', './after-crlf.png'],
     ['FileUrl', 'file:///tmp/demo.jpg'],
   ])
+})
+
+test('extractLocalMarkdownImages preserves Windows home-relative destinations (#2405)', () => {
+  const path = win32.join('~', '.gemini', 'antigravity-cli', 'brain', '_turn', 'plot.png')
+  assert.deepEqual(extractLocalMarkdownImages(`![Plot](<${path}>)`).map(link => link.path), [path])
+})
+
+test('extractLocalMarkdownImages decodes escaped punctuation in Windows home-relative image names (#2405)', () => {
+  const path = win32.join('~', '1pics', 'plot(1)+.png')
+  const escaped = path.replace(/[()+]/g, char => '\\' + char)
+  assert.deepEqual(extractLocalMarkdownImages(`![Plot](${escaped})`).map(link => link.path), [path])
 })
 
 test('extractLocalMarkdownImages preserves loose/nested list images and respects fence quote depth (#1761)', () => {
@@ -472,13 +483,44 @@ test('IM outbound delivers private and group workspace images, blocks traversal/
   ])
   assert.deepEqual(events[1].bytes, PNG)
 
+  // Antigravity's group reply can attach its generated image outside the workspace.
+  events.length = 0
+  const artifactDir = join(root, '.gemini', 'antigravity-cli', 'brain', 'turn')
+  mkdirSync(artifactDir, { recursive: true })
+  writeFileSync(join(artifactDir, 'generated.png'), PNG)
+  const homeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const previousHome = process.env[homeKey]
+  process.env[homeKey] = root
+  t.after(() => {
+    if (previousHome === undefined) delete process.env[homeKey]
+    else process.env[homeKey] = previousHome
+  })
+  rt.state.bots.b.model = 'local-antigravity/default'
+  rt.logRoom(rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'Generated ![Plot](~/.gemini/antigravity-cli/brain/turn/generated.png)' })
+  await until(() => events.filter(e => e.chat === 'c-grp').length === 2)
+  assert.deepEqual(events.map(e => [e.kind, e.kind === 'text' ? e.text : e.name]), [
+    ['text', '**Writer**: Generated'],
+    ['image', 'generated.png'],
+  ])
+  assert.deepEqual(events[1].bytes, PNG)
+
+  events.length = 0
+  const homeLink = '~\\' + join('.gemini', 'antigravity-cli', 'brain', 'turn', 'generated.png')
+  rt.logRoom(rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: `Generated ![Plot](<${homeLink}>)` })
+  await until(() => events.filter(e => e.chat === 'c-grp').length === 2)
+  assert.deepEqual(events.map(e => [e.kind, e.kind === 'text' ? e.text : e.name]), [
+    ['text', '**Writer**: Generated'],
+    ['image', 'generated.png'],
+  ])
+  assert.deepEqual(events[1].bytes, PNG)
+
   // 4. Unpairing mid-staging blocks delivery of both text and images.
   events.length = 0
   let releaseRead
   const origMobile = rt.mobileEndpoint
-  rt.mobileEndpoint = async (endpoint, body) => {
+  rt.mobileEndpoint = async (endpoint, body, options) => {
     if (endpoint === 'markdown-image') await new Promise(resolve => { releaseRead = resolve })
-    return origMobile(endpoint, body)
+    return origMobile(endpoint, body, options)
   }
   await fake.handlers.onMessage({ chat: { key: 'c-dm', kind: 'direct', title: 'Fei' }, sender: { id: 'u1', name: 'Fei' }, text: 'hold', images: [], files: [], mentioned: false, messageId: 'm4' })
   const holdRpc = prompts.at(-1).requestId

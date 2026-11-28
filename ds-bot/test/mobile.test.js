@@ -1149,6 +1149,243 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   assert.equal(Buffer.from(readOnlyImg.value.bytes, 'base64').equals(updatedBytes), true)
 })
 
+test('markdown-image opens images from the chat and group author’s configured extra folders (#2405)', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-extras-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const [botDir, roomDir, otherDir, groupWorkDir] = ['bot', 'room', 'other', 'workspace'].map(name => join(root, name))
+  for (const dir of [botDir, roomDir, otherDir, groupWorkDir]) mkdirSync(dir)
+  const [botImage, roomImage, otherImage] = [botDir, roomDir, otherDir].map(dir => join(dir, 'plot.png'))
+  const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  for (const path of [botImage, roomImage, otherImage]) writeFileSync(path, bytes)
+  rt.state.bots[chief].extraDirs = [botDir]
+  rt.state.bots[writer.id].extraDirs = [otherDir]
+  rt.state.rooms[room.id].extraDirs = [roomDir]
+  const chatId = rt.chatOf(chief)
+  const groupId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  history[groupId] = [relayCall(1, 'round'), relayResult(2, 'round', [{ botId: chief, text: `![Plot](<${botImage}>)` }])]
+
+  const read = (sessionId, path, botId) => call('markdown-image', { sessionId, path, botId })
+  const results = await Promise.all([
+    read(chatId, botImage),
+    read(groupId, roomImage),
+    read(groupId, botImage, chief),
+  ])
+  assert.deepEqual(results.map(result => result.value?.bytes ?? result.error?.message), Array(3).fill(bytes.toString('base64')))
+  assert.equal((await read(chatId, otherImage, writer.id)).error?.code, 'bot/forbidden')
+  assert.equal((await read(groupId, otherImage, chief)).error?.code, 'bot/forbidden')
+  rt.state.rooms[room.id].workDir = groupWorkDir
+  assert.equal((await read(groupId, botImage, chief)).error?.code, 'bot/forbidden')
+  assert.equal((await read(groupId, roomImage, chief)).value?.bytes, bytes.toString('base64'))
+})
+
+test('markdown-image still opens workspace images from a nonmember Main Bot in a group', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-md-main-workspace-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const plot = join(root, 'plot.png')
+  writeFileSync(plot, 'main workspace')
+  rt.state.bots[chief].workDir = root
+  rt.state.rooms[room.id].members = [writer.id]
+  const sessionId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  for (const path of [plot, './plot.png']) {
+    const image = await call('markdown-image', { sessionId, botId: chief, path })
+    assert.equal(image.value?.bytes, Buffer.from('main workspace').toString('base64'))
+  }
+})
+
+test('markdown-image keeps configured extra-folder roots anchored after symlink replacement (#2405)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-extra-root-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const parent = join(root, 'approved-parent')
+  const extra = join(parent, 'extra')
+  const outside = join(root, 'outside')
+  mkdirSync(extra, { recursive: true })
+  mkdirSync(join(outside, 'extra'), { recursive: true })
+  writeFileSync(join(extra, 'plot.png'), 'approved')
+  writeFileSync(join(outside, 'plot.png'), 'outside')
+  writeFileSync(join(outside, 'extra', 'plot.png'), 'outside')
+  rt.state.bots[chief].extraDirs = [extra]
+  const read = path => call('markdown-image', { sessionId: rt.chatOf(chief), path })
+  assert.equal((await read(join(extra, 'plot.png'))).ok, true)
+
+  symlinkSync(join(outside, 'plot.png'), join(extra, 'escape.png'))
+  const childLink = await read(join(extra, 'escape.png'))
+  rmSync(extra, { recursive: true })
+  symlinkSync(outside, extra, 'junction')
+  const rootLink = await read(join(extra, 'plot.png'))
+  rmSync(parent, { recursive: true })
+  symlinkSync(outside, parent, 'junction')
+  const parentLink = await read(join(extra, 'plot.png'))
+  assert.deepEqual([childLink, rootLink, parentLink].map(result => result.error?.code), Array(3).fill('bot/forbidden'))
+})
+
+test('markdown-image only grants group author extra folders for attributed replies (#2405)', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const outsider = (await call('create-bot', { name: 'Outsider' })).value
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-authors-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const [outside, member] = ['outside', 'member'].map(name => join(root, name))
+  for (const dir of [outside, member]) {
+    mkdirSync(dir)
+    for (const name of ['plot.png', 'unlinked.png']) writeFileSync(join(dir, name), name)
+  }
+  rt.state.bots[outsider.id].extraDirs = [outside]
+  rt.state.bots[writer.id].extraDirs = [member]
+  const sessionId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  const read = (botId, path) => call('markdown-image', { sessionId, path, botId })
+  const plot = join(member, 'plot.png')
+  const unlinked = `![Unlinked](<${join(member, 'unlinked.png')}>)`
+  history[sessionId] = [
+    relayCall(1, 'round'),
+    relayResult(2, 'round', [{ botId: writer.id, text: `![Plot](<${plot}>)` }, { botId: chief, text: unlinked }]),
+    { ...relayCall(3, 'other'), data: { callId: 'other', name: 'shell' } },
+    relayResult(4, 'other', [{ botId: writer.id, text: unlinked }]),
+  ]
+  assert.deepEqual((await Promise.all([
+    read(outsider.id, join(outside, 'plot.png')),
+    read(writer.id, join(member, 'unlinked.png')),
+    read(writer.id, plot),
+  ])).map(result => result.error?.code ?? result.ok), ['bot/forbidden', 'bot/forbidden', true])
+
+  rt.state.rooms[room.id].members = [chief]
+  const archivedSession = 'archived-image-room'
+  rt.state.rooms[room.id].parts = [{ sessionId: archivedSession, endedAt: 2 }]
+  rt.pastOwners.set(archivedSession, { roomId: room.id })
+  history[archivedSession] = history[sessionId]
+  delete history[sessionId]
+  assert.equal((await call('markdown-image', { sessionId: archivedSession, path: plot, botId: writer.id })).ok, true)
+  assert.equal((await read(writer.id, plot)).error?.code, 'bot/forbidden')
+})
+
+test('markdown-image verifies group replies returned by the PTC relay wrapper', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-ptc-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  rt.state.bots[writer.id].extraDirs = [root]
+  const sessionId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  const [legacy, current, spoofed] = ['legacy.png', 'current.png', 'spoofed.png'].map(name => join(root, name))
+  for (const path of [legacy, current, spoofed]) writeFileSync(path, path)
+  const ptc = (seq, callId, code) => ({
+    seq, type: 'tool/call', data: { callId, name: 'run_code', arguments: JSON.stringify({ code }) },
+  })
+  const reply = path => ({ botId: writer.id, text: `![Plot](<${path}>)` })
+  rt.ledger.append(`group-${room.id}`, { event: 'anchor', id: 'anchor', from: 1, time: 1 })
+  rt.logRoom(rt.roomOf(room.id), { who: 'Writer', ...reply(current) })
+  history[sessionId] = [
+    ptc(1, 'legacy', 'return await tools.group_relay({})'),
+    relayResult(2, 'legacy', [reply(legacy)]),
+    ptc(3, 'current', 'return await tools.group_relay({ roundId: "1-abcdef" })'),
+    relayResult(4, 'current', JSON.stringify({ from: 1, anchor: 'anchor' })),
+    ptc(5, 'spoofed', 'return []; // group_relay'),
+    relayResult(6, 'spoofed', [reply(spoofed)]),
+  ]
+  const read = path => call('markdown-image', { sessionId, path, botId: writer.id })
+  assert.equal((await read(legacy)).ok, true)
+  assert.equal((await read(current)).ok, true)
+  assert.equal((await read(spoofed)).error?.code, 'bot/forbidden')
+})
+
+test('markdown-image requires a saved reply to use a group member Session’s Bot extra folders (#2405)', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-member-session-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const botExtra = join(root, 'bot')
+  const roomExtra = join(root, 'room')
+  mkdirSync(botExtra)
+  mkdirSync(roomExtra)
+  const replyImage = join(botExtra, 'linked.png')
+  const unlinkedImage = join(botExtra, 'unlinked.png')
+  const sharedImage = join(roomExtra, 'shared.png')
+  for (const path of [replyImage, unlinkedImage, sharedImage]) writeFileSync(path, 'image')
+  rt.state.bots[writer.id].extraDirs = [botExtra]
+  const entry = rt.state.rooms[room.id]
+  entry.extraDirs = [roomExtra]
+  const current = 'member-image-current'
+  const archived = 'member-image-archived'
+  entry.sessions = { [writer.id]: current }
+  entry.segments = { [writer.id]: [{ sessionId: archived, endedAt: 2 }] }
+  rt.groupOwners.set(current, { botId: writer.id, roomId: room.id })
+  rt.pastOwners.set(archived, { botId: writer.id, roomId: room.id })
+  const text = path => [{ type: 'text', text: `![Plot](<${path}>)` }]
+  for (const sessionId of [current, archived]) {
+    history[sessionId] = [
+      { seq: 1, type: 'assistant/message', data: { message: { content: text(replyImage) } } },
+      { seq: 2, type: 'user/message', data: { source: { kind: 'user' }, content: text(unlinkedImage) } },
+    ]
+  }
+  assert.ok((await call('state', {})).value.rooms.find(item => item.id === room.id).parts.includes(archived))
+  const read = (sessionId, path) => call('markdown-image', { sessionId, path, botId: writer.id, trustedAuthorId: writer.id })
+  assert.deepEqual((await Promise.all([current, archived].map(sessionId => read(sessionId, unlinkedImage))))
+    .map(result => result.error?.code), ['bot/forbidden', 'bot/forbidden'])
+  for (const sessionId of [current, archived]) {
+    assert.equal((await read(sessionId, replyImage)).ok, true)
+    assert.equal((await read(sessionId, sharedImage)).ok, true)
+  }
+  assert.equal((await read(rt.chatOf(writer.id), unlinkedImage)).ok, true)
+  const trusted = await rt.mobileEndpoint('markdown-image', { sessionId: current, path: unlinkedImage }, { trustedAuthorId: writer.id })
+  assert.equal(trusted.bytes, Buffer.from('image').toString('base64'))
+})
+
+test('markdown-image expands home links but limits default artifacts to the Antigravity author (#2405)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-md-home-'))
+  const homeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const previousHome = process.env[homeKey]
+  process.env[homeKey] = home
+  t.after(() => {
+    if (previousHome === undefined) delete process.env[homeKey]
+    else process.env[homeKey] = previousHome
+    rmSync(home, { recursive: true, force: true })
+  })
+  const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  const cli = '.gemini/antigravity-cli/brain/turn/plot.png'
+  const desktop = '.gemini/antigravity/brain/turn/plot.png'
+  for (const path of [cli, desktop]) {
+    mkdirSync(join(home, path, '..'), { recursive: true })
+    writeFileSync(join(home, path), bytes)
+  }
+  writeFileSync(join(home, 'unrelated.png'), bytes)
+  symlinkSync(join(home, 'unrelated.png'), join(home, cli, '..', 'escape.png'))
+  rt.state.bots[chief].model = 'local-antigravity/default'
+  const chatId = rt.chatOf(chief)
+  const groupId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  const read = (sessionId, path, botId) => rt.mobileEndpoint('markdown-image', { sessionId, path, botId }, { allowAgentArtifacts: true })
+  const results = await Promise.all([
+    read(chatId, `~/${cli}`),
+    read(chatId, `~\\${desktop}`),
+    read(groupId, join(home, cli), chief),
+  ])
+  assert.deepEqual(results.map(result => result.bytes), Array(3).fill(bytes.toString('base64')))
+  await assert.rejects(read(groupId, join(home, cli), writer.id), { code: 'bot/forbidden' })
+  await assert.rejects(read(rt.chatOf(writer.id), join(home, cli), chief), { code: 'bot/forbidden' })
+  await assert.rejects(read(chatId, '~/unrelated.png'), { code: 'bot/forbidden' })
+  await assert.rejects(read(chatId, '~/.gemini/antigravity-cli/brain/turn/escape.png'), { code: 'bot/forbidden' })
+
+  const extra = join(home, 'extra')
+  mkdirSync(extra)
+  writeFileSync(join(extra, 'plot.png'), bytes)
+  rt.state.bots[writer.id].extraDirs = [await rt.real(extra)]
+  for (const path of ['~/extra/plot.png', '~\\extra/plot.png']) {
+    assert.equal((await call('markdown-image', { sessionId: rt.chatOf(writer.id), path })).value?.bytes, bytes.toString('base64'))
+  }
+})
+
 test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {
   const { call, history, stop } = start()
   t.after(stop)

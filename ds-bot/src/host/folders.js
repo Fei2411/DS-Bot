@@ -17,7 +17,7 @@ export const within = (inner, outer) => {
   return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
 }
 
-const expandHome = text => (text === '~' ? homedir() : /^~[\\/]/.test(text) ? join(homedir(), text.slice(2)) : text)
+export const expandHome = text => (text === '~' ? homedir() : /^~[\\/]/.test(text) ? join(homedir(), text.slice(2)) : text)
 
 // Read as DSH reads it, so the team's data and the guarded folder are where DSH keeps
 // its own: a blank value counts as unset.

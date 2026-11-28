@@ -6,10 +6,12 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
-import { within } from './folders.js'
+import { expandHome, within } from './folders.js'
+import { extractLocalMarkdownImages } from './im/outbound-images.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { addressOf } from './session-follow.js'
 import { presentedFileName, presentedFiles, relayRange, stripRelayPrefix } from '../shared/group-replies.js'
@@ -906,7 +908,60 @@ export function install(rt) {
     ['.svg', 'image/svg+xml'],
   ])
 
-  async function markdownImage(body) {
+  function isRelayCall(event) {
+    if (event.type !== 'tool/call') return false
+    if (event.data?.name === 'group_relay') return true
+    if (event.data?.name !== 'run_code') return false
+    let args
+    try { args = JSON.parse(event.data.arguments) } catch { return false }
+    // Only the code that returns the relay itself can vouch for its result.
+    return typeof args?.code === 'string'
+      && /^return await tools\.group_relay\(\{(?: roundId: "[\da-f-]+" )?\}\)$/.test(args.code)
+  }
+
+  async function roomHasImageReply(roomId, sessionId, botId, path, memberSession) {
+    if (!memberSession && !rt.partsOf(undefined, roomId).some(part => part.sessionId === sessionId)) return false
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+    const hasImage = item => item.kind === 'bot' && extractLocalMarkdownImages(item.text).some(image => image.path === path)
+    const matches = item => item.botId === botId && hasImage(item)
+    const rowsOf = range => rt.groupRows?.(roomId, range.from, range.to, range.anchor) ?? []
+    const matchingResults = new Set()
+    let beforeSeq
+    do {
+      const page = await ctx.sessionController.page({
+        address: { kind: 'session', sessionId },
+        ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        maxMessages: ROOM_PAGE,
+      }, signal).catch(() => undefined)
+      const records = page?.records ?? []
+      for (const { event } of [...records].reverse()) {
+        if (memberSession) {
+          if (event.type === 'assistant/message' && rt.displayItems(sessionId, [event]).some(hasImage)) return true
+        } else if (isRelayCall(event)) {
+          const callId = event.data.callId
+          if (matchingResults.has(callId)) return true
+          const round = rt.roomProgress.get(callId)
+          if (round?.roomId === roomId) {
+            const rows = Number.isInteger(round.from) ? rowsOf(round) : round.replies ?? []
+            if (rows.some(row => {
+              const item = replyItem(row, '')
+              return item !== undefined && matches(item)
+            })) return true
+          }
+        } else if (event.type === 'tool/result' || event.type === 'user/message') {
+          if (!roomItems([event], rowsOf).items.some(matches)) continue
+          if (event.type === 'user/message') return true
+          const callId = event.data?.message?.toolCallId
+          if (typeof callId === 'string') matchingResults.add(callId)
+        }
+      }
+      if (!page?.hasMore || records.length === 0) return false
+      beforeSeq = records[0].event.seq
+    } while (!signal.aborted)
+    return false
+  }
+
+  async function markdownImage(body, { allowAgentArtifacts = false, trustedAuthorId } = {}) {
     const sessionId = String(body.sessionId ?? '')
     const raw = typeof body.path === 'string' ? body.path.trim() : ''
     if (raw === '') throw Object.assign(new Error('No image named'), { code: 'bot/invalid' })
@@ -924,15 +979,17 @@ export function install(rt) {
         throw Object.assign(new Error('Invalid image URL'), { code: 'bot/invalid' })
       }
     }
+    cleanPath = expandHome(cleanPath)
     const groupOwner = rt.groupOwners?.get(sessionId)
     const pastOwner = rt.pastOwners.get(sessionId)
     const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
     const botId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
       ?? (room === undefined ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id : undefined)
     if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
-    const authorId = room !== undefined && typeof body.botId === 'string' && rt.botOf(body.botId) !== undefined
-      && (room.members?.includes(body.botId) || rt.botOf(body.botId)?.private !== true)
-      ? body.botId
+    const requestedAuthorId = trustedAuthorId ?? body.botId
+    const authorId = room !== undefined && typeof requestedAuthorId === 'string' && rt.botOf(requestedAuthorId) !== undefined
+      && (room.members?.includes(requestedAuthorId) || rt.botOf(requestedAuthorId)?.private !== true)
+      ? requestedAuthorId
       : undefined
     const targetSessionId = room !== undefined
       ? (sessionId === room.id && rt.sessionOfRoom(room) !== sessionId && !(room.parts ?? []).some(part => part.sessionId === sessionId)
@@ -966,14 +1023,34 @@ export function install(rt) {
       }
     }
     if (!allowed && isAbsolute(cleanPath)) {
-      const extraDirs = [
+      const roomId = room?.id
+      const workDirs = [
         rt.teamFolder?.(),
         rt.defaultTeamFolder?.(),
-        rt.workDirOf?.({ botId, roomId: room?.id }),
-        ...(authorId !== undefined ? [rt.workDirOf?.({ botId: authorId, roomId: room?.id }), rt.workDirOf?.({ botId: authorId })] : []),
+        rt.workDirOf?.({ botId, roomId }),
+        ...(authorId !== undefined ? [
+          rt.workDirOf?.({ botId: authorId, roomId }),
+          rt.workDirOf?.({ botId: authorId }),
+        ] : []),
       ].filter(Boolean)
-      for (const dir of extraDirs) {
+      for (const dir of new Set(workDirs)) {
         if (within(realPath, await rt.real(dir))) { allowed = true; break }
+      }
+      if (!allowed) {
+        const containsImage = dir => within(realPath, resolve(dir))
+        const extraRoomId = roomId ?? groupOwner?.roomId ?? pastOwner?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
+        allowed = rt.extraDirsOf({ botId: extraRoomId === undefined ? botId : undefined, roomId: extraRoomId }).some(containsImage)
+        const extraAuthorId = botId ?? requestedAuthorId
+        // Owning a room Session does not prove the Bot linked a particular image.
+        if (!allowed && extraRoomId !== undefined && typeof extraAuthorId === 'string'
+          && rt.extraDirsOf({ botId: extraAuthorId, roomId: extraRoomId }).some(containsImage)) {
+          allowed = trustedAuthorId === extraAuthorId
+            || await roomHasImageReply(extraRoomId, targetSessionId, extraAuthorId, raw, botId !== undefined)
+        }
+      }
+      if (!allowed && allowAgentArtifacts && rt.engineOfBot(rt.botOf(authorId ?? botId)) === 'local-antigravity') {
+        const userHome = await rt.real(homedir())
+        allowed = ['antigravity-cli', 'antigravity'].some(dir => within(realPath, resolve(userHome, '.gemini', dir, 'brain')))
       }
       if (!allowed) {
         const partIds = new Set([
@@ -1011,7 +1088,7 @@ export function install(rt) {
     }
   }
 
-  async function mobileEndpoint(endpoint, body) {
+  async function mobileEndpoint(endpoint, body, options) {
     switch (endpoint) {
       case 'hello': return hello(body)
       case 'notices': return notices(body)
@@ -1019,7 +1096,7 @@ export function install(rt) {
       case 'room-chat': return roomChat(body)
       case 'image': return image(body)
       case 'file-download': return fileDownload(body)
-      case 'markdown-image': return markdownImage(body)
+      case 'markdown-image': return markdownImage(body, options)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })

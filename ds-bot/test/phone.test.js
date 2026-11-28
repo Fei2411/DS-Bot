@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
@@ -520,4 +520,45 @@ test('paired browsers cannot see or answer Classic Agent approvals in state, liv
 
   await browserLink.client.close()
   await phoneLink.client.close()
+})
+
+test('paired phones and browsers cannot opt into IM-only Antigravity artifacts (#2405)', async (t) => {
+  const relay = await startRelayServer()
+  const root = mkdtempSync(join(tmpdir(), 'dsb-phone-artifacts-'))
+  const home = join(root, 'data')
+  const artifactDir = join(root, '.gemini', 'antigravity-cli', 'brain', 'turn')
+  mkdirSync(home)
+  mkdirSync(artifactDir, { recursive: true })
+  writeFileSync(join(artifactDir, 'plot.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    ...TEAM,
+    bots: { m1: { ...TEAM.bots.m1, model: 'local-antigravity/default' } },
+  }))
+  const desk = open(home)
+  const homeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const previousHome = process.env[homeKey]
+  process.env[homeKey] = root
+  t.after(async () => {
+    if (previousHome === undefined) delete process.env[homeKey]
+    else process.env[homeKey] = previousHome
+    await desk.ctx.dispose()
+    await relay.close()
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  await desk.call('phone-set', { server: relay.url, on: true })
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+  for (const key of ['uri', 'browserUri']) {
+    const paired = await desk.call('phone-pair', {})
+    const offer = parsePairingUri(paired.value.pairing[key])
+    const { client } = phone(offer, { pairingCode: offer.code })
+    await client.connect()
+    const result = await client.rpc('bot', {
+      endpoint: 'markdown-image',
+      payload: { sessionId: 'm1', path: '~/.gemini/antigravity-cli/brain/turn/plot.png', allowAgentArtifacts: true },
+    })
+    assert.equal(result.error?.code, 'bot/forbidden', key)
+    assert.equal(result.error?.message, 'Image outside workspace', key)
+    await client.close()
+  }
 })
