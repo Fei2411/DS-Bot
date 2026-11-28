@@ -333,8 +333,25 @@ export function chunkMarkdown(markdown, limit, { unit = 'code-point' } = {}) {
       const space = rest.lastIndexOf(' ', at)
       if (space > half) at = space
     }
-    chunks.push(rest.slice(0, at))
-    rest = rest.slice(at).replace(/^\s+/, '')
+    let head = rest.slice(0, at)
+    // A cut inside a CRLF leaves the `\r` on this side of the boundary; a cut just after
+    // a run of blank lines leaves them here too. Neither is content, and a transport that
+    // posts each chunk would otherwise send a message made only of line breaks.
+    if (rest[at] === '\n' && head.endsWith('\r')) head = head.slice(0, -1)
+    head = head.replace(/(?:\r?\n[ \t]*)+$/, '')
+    chunks.push(head)
+    // Only the separator the cut landed on goes, plus any blank lines it left behind.
+    // Dropping every leading space also took the four spaces of an indented code block —
+    // and the indent of a nested list item — that happened to start the next chunk, so
+    // those lines arrived as prose and as a top-level item.
+    const next = rest.slice(at)
+    // A cut can land just before a run of blank lines, and Windows-originated messages
+    // use CRLF. Skip those whole lines (including their line break) without touching the
+    // indentation of the first line that carries content.
+    const blankLines = /^(?:[ \t]*\r?\n)+/
+    rest = blankLines.test(next)
+      ? next.replace(blankLines, '')
+      : next.startsWith(' ') ? next.slice(1) : next
   }
   return chunks
 }
