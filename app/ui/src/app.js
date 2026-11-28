@@ -199,6 +199,7 @@ export function App() {
       else actions.toggleLeftHidden()
     },
     openSettings: (...args) => { setDrawerOpen(false); return actions.openSettings(...args) },
+    selectPanel: (...args) => { setDrawerOpen(false); return actions.selectPanel(...args) },
     openNewChat: (...args) => { setDrawerOpen(false); return actions.openNewChat(...args) },
     openPalette: (...args) => { setDrawerOpen(false); return actions.openPalette(...args) },
   }), [actions, isNarrow])

@@ -123,16 +123,19 @@ function cleanBundle(bundle) {
 }
 
 function cleanPlugin(plugin) {
+  const id = plugin.entryId ?? plugin.id ?? ''
+  const status = plugin.status ?? (plugin.fiberPhase === 'failed' ? 'error' : plugin.fiberPhase ?? (plugin.enabled === false ? 'disabled' : 'inactive'))
+  const error = plugin.error ?? (typeof plugin.diagnostic === 'string' && plugin.diagnostic !== '' ? { diagnostic: plugin.diagnostic } : undefined)
   return {
-    id: String(plugin.id ?? ''),
+    id: String(id),
     moduleName: String(plugin.moduleName ?? ''),
     ...(plugin.name === undefined ? {} : { name: String(plugin.name) }),
     enabled: plugin.enabled !== false,
-    status: plugin.status ?? 'active',
+    status,
     ...(plugin.patchId === undefined ? {} : { patchId: String(plugin.patchId) }),
     ...(plugin.readOnlyReason === undefined ? {} : { readOnlyReason: plugin.readOnlyReason }),
     ...(plugin.meta === undefined ? {} : { meta: plugin.meta }),
-    ...(plugin.error === undefined ? {} : { error: plugin.error }),
+    ...(error === undefined ? {} : { error }),
   }
 }
 
