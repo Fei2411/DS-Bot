@@ -56,6 +56,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: ledger',
     'on agent/pre-step',
     'effect ds-bot: dsh adapter',
+    'on agent/pre-step (prepend)',
     'on agent/request-error (prepend)',
     'on llm/adapters-updated',
     'on credentials/reference-updated',
