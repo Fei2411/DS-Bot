@@ -15,6 +15,7 @@ import { CheckIcon, ChevronDownIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { ViewCard } from './widget-cell.js'
 import { lruSet } from './memo.js'
+import { clientFacts } from './diagnostics.js'
 
 export { GitHubMark } from './connector-marks.js'
 import { MARKS } from './connector-marks.js'
@@ -310,6 +311,30 @@ const guessProvider = (address) => {
   return ''
 }
 
+// The host's Gmail verification failures, by code. Copied diagnostics carry the code
+// and the client facts only, never the address, the password or the host's text.
+const GMAIL_FAILURES = {
+  'bot/mail-gmail-timeout': 'Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.',
+  'bot/mail-gmail-network': 'Could not reach Gmail. Check your network, firewall, or proxy, then try again.',
+  'bot/mail-gmail-tls': 'Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.',
+  'bot/mail-gmail-auth': 'Gmail refused the sign-in. Check your app password, then try again.',
+  'bot/mail-gmail-signin': 'Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.',
+  'bot/mail-gmail-verification': 'Could not verify Gmail. Try again, or copy the diagnostics for support.',
+}
+
+export function mailDiagnostics(code, provider) {
+  const facts = clientFacts()
+  return [
+    'DS Bot mailbox add diagnostics',
+    `Code: ${code}`,
+    `Provider: ${provider}`,
+    `Surface: ${facts.surface}`,
+    `Language: ${facts.language}`,
+    `User agent: ${facts.userAgent}`,
+    `Time: ${new Date().toISOString()}`,
+  ].join('\n')
+}
+
 // The add form opens under the Mailbox catalog row. While the host verifies the
 // login every field is disabled, so a second click cannot add twice; a good add
 // closes the form and drops what was typed.
@@ -317,6 +342,7 @@ function MailForm({ mail, actions, onClose }) {
   const [fields, setFields] = useState({ address: '', password: '', provider: '', imapHost: '', smtpHost: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [copies, setCopies] = useState(0)
   const busyRef = useRef(false)
   const set = (key, value) => setFields(current => ({ ...current, [key]: value }))
   const chosen = fields.provider || guessProvider(fields.address) || 'qq'
@@ -327,7 +353,15 @@ function MailForm({ mail, actions, onClose }) {
     busyRef.current = true
     setBusy(true)
     setError(null)
-    void Promise.resolve().then(task).then(done, (failure) => { setError(failure?.message ?? String(failure)) }).finally(() => { busyRef.current = false; setBusy(false) })
+    setCopies(0)
+    void Promise.resolve().then(task).then(done, (failure) => {
+      const code = typeof failure?.code === 'string' ? failure.code : undefined
+      setError({ message: failure?.message ?? String(failure), code, provider: chosen })
+    }).finally(() => { busyRef.current = false; setBusy(false) })
+  }
+  const gmailFailure = error && Object.hasOwn(GMAIL_FAILURES, error.code ?? '') ? GMAIL_FAILURES[error.code] : null
+  const copyDiagnostics = () => {
+    void navigator.clipboard?.writeText(mailDiagnostics(error.code, error.provider)).then(() => setCopies(n => n + 1), () => {})
   }
   const add = () => go(() => actions.mailAccountAdd({ address: fields.address.trim(), password: fields.password, provider: chosen, imapHost: fields.imapHost.trim(), smtpHost: fields.smtpHost.trim() }), onClose)
   const signInWithGoogle = () => {
@@ -351,7 +385,12 @@ function MailForm({ mail, actions, onClose }) {
     input('address', t('Email address'), { type: 'email' }),
     h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: fields.password, onChange: value => set('password', value), onEnter: add, label: t(guide?.label ?? 'Password or app password'), disabled: busy })),
     chosen === 'other' ? h('div', { className: 'bt-provider-pair' }, input('imapHost', t('IMAP host')), input('smtpHost', t('SMTP host'))) : null,
-    error ? h('div', { className: 'bt-mail-error', role: 'alert' }, hostText(error)) : null,
+    busy && chosen === 'gmail' ? h('div', { className: 'bt-set-hint', role: 'status' }, t('Checking Gmail. This can take up to 20 seconds.')) : null,
+    error ? h('div', { className: 'bt-mail-error', role: 'alert' }, gmailFailure ? t(gmailFailure) : hostText(error.message)) : null,
+    gmailFailure ? h('div', { className: 'bt-mail-links' },
+      h('button', { type: 'button', className: 'bt-connector-link', onClick: copyDiagnostics }, t('Copy diagnostics')),
+      h('span', { className: 'bt-connector-copied', role: 'status' },
+        copies > 0 ? h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard')) : null)) : null,
     h('div', { className: 'bt-secret-row-actions' },
       google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: signInWithGoogle }, t('Sign in with Google')) : null,
       h('span', { className: 'bt-set-hint' }),
