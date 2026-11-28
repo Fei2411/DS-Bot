@@ -1827,7 +1827,6 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
       const next = new Set(current)
       for (const row of group.rows) {
         if (allSelected) {
-          retainUnavailableIfNeeded(row.key)
           next.delete(row.key)
         } else {
           next.add(row.key)
