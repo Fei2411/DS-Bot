@@ -1,7 +1,7 @@
 // Local editor, terminal, and file-manager detection, launching, and per-directory
 // default preference storage for the desktop app's "Open in app" right-panel feature.
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve, sep as nativeSep, win32 as win32Path } from 'node:path'
 
@@ -17,119 +17,6 @@ export function withinRoot(inner, outer, platform = process.platform) {
   const a = norm(inner)
   const b = norm(outer)
   return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
-}
-
-/**
- * Collects active workspace roots (team workspace + Bot/Group configured workDirs/extraDirs)
- * and protected data directories (`dataDir`, `DSH_HOME`, `userDshHome`, `userData`).
- */
-export function collectWorkspaceRoots({ places, userDshHome = '', userData = '', env = process.env, readFileFn = readFileSync } = {}) {
-  const allowed = new Set()
-  const addAllowed = (p) => {
-    if (typeof p === 'string' && p.trim() !== '' && isAbsolute(p.trim())) allowed.add(p.trim())
-  }
-  addAllowed(places?.workspace)
-  addAllowed(env?.DS_BOT_WORKSPACE)
-  if (places?.dataDir) {
-    // Also include Bot/Group custom workDir and extraDirs persisted in `<dataDir>/bot/state.json`.
-    try {
-      const raw = JSON.parse(readFileFn(join(places.dataDir, 'bot', 'state.json'), 'utf8'))
-      if (raw && typeof raw === 'object') {
-        for (const group of [raw.bots, raw.rooms]) {
-          if (!group || typeof group !== 'object') continue
-          for (const entry of Object.values(group)) {
-            if (!entry || typeof entry !== 'object') continue
-            addAllowed(entry.workDir)
-            if (Array.isArray(entry.extraDirs)) {
-              for (const dir of entry.extraDirs) addAllowed(dir)
-            }
-            if (entry.memberDirs && typeof entry.memberDirs === 'object') {
-              for (const dir of Object.values(entry.memberDirs)) addAllowed(dir)
-            }
-          }
-        }
-      }
-    } catch { /* state.json missing or unreadable */ }
-  }
-
-  const protectedRoots = []
-  const addProtected = (p) => {
-    if (typeof p === 'string' && p.trim() !== '' && isAbsolute(p.trim())) protectedRoots.push(p.trim())
-  }
-  addProtected(places?.dataDir)
-  if (places?.dataDir) addProtected(join(places.dataDir, 'bot'))
-  addProtected(env?.DSH_HOME)
-  addProtected(userDshHome)
-  addProtected(userData)
-
-  return { allowedRoots: [...allowed], protectedRoots }
-}
-
-/**
- * Resolves `targetPath` via `realpath` and enforces that it lies inside one of `allowedRoots`
- * and never enters or encloses any protected data directory (`dataDir`, `DSH_HOME`, `userData`).
- * Mirrors `resolveSafeTarget` + `isProtectedData` in `ds-bot/src/host/workspace-panel.js`.
- */
-export function validateWorkspaceTarget(targetPath, {
-  allowedRoots = [],
-  protectedRoots = [],
-  realpathFn = realpathSync,
-  platform = process.platform,
-} = {}) {
-  if (typeof targetPath !== 'string' || targetPath.trim() === '' || targetPath.includes('\0') || !isAbsolute(targetPath)) {
-    throw new Error('Invalid file or folder path')
-  }
-  let realTarget
-  try {
-    realTarget = realpathFn(resolve(targetPath))
-  } catch {
-    throw new Error('File or folder not found')
-  }
-
-  const realAllowed = []
-  for (const root of allowedRoots) {
-    if (typeof root !== 'string' || !root || !isAbsolute(root)) continue
-    try {
-      realAllowed.push(realpathFn(resolve(root)))
-    } catch { /* skip missing root */ }
-  }
-  if (realAllowed.length === 0) {
-    throw new Error('Path is outside the active workspace')
-  }
-
-  const realProtected = []
-  for (const prot of protectedRoots) {
-    if (typeof prot !== 'string' || !prot || !isAbsolute(prot)) continue
-    try {
-      realProtected.push(realpathFn(resolve(prot)))
-    } catch {
-      realProtected.push(resolve(prot))
-    }
-  }
-
-  const containingRoots = realAllowed.filter(root => withinRoot(realTarget, root, platform))
-  if (containingRoots.length === 0) {
-    throw new Error('Path is outside the active workspace')
-  }
-
-  // Reject if `realTarget` encloses a protected root OR lies inside a protected root
-  // (except when contained inside an explicit workspace subfolder strictly inside that protected root,
-  // e.g. the plugin's default `<dataDir>/workspace`).
-  for (const prot of realProtected) {
-    if (withinRoot(prot, realTarget, platform)) {
-      throw new Error('Path is inside protected data')
-    }
-    if (withinRoot(realTarget, prot, platform)) {
-      const allowedWorkspaceInsideProt = containingRoots.some(
-        root => root !== prot && withinRoot(root, prot, platform),
-      )
-      if (!allowedWorkspaceInsideProt) {
-        throw new Error('Path is inside protected data')
-      }
-    }
-  }
-
-  return realTarget
 }
 
 function scrubbedLaunchEnv(env = process.env) {
@@ -427,8 +314,11 @@ export function buildLaunchSpec(app, targetPath, { platform = process.platform, 
 
 /**
  * Spawns the chosen external app cleanly without shell interpolation.
+ * Callers pass the Host-canonicalized `realpath` target to shrink the path TOCTOU window;
+ * OS launchers (`open`, `explorer.exe`, external editors) accept path strings rather than fds,
+ * so a residual race requires an actor that already holds write access inside the active workspace.
  */
-export function openInExternalApp(app, targetPath, { platform = process.platform, env = process.env, spawnFn = spawn, statFn = statSync } = {}) {
+export function openInExternalApp(app, targetPath, { platform = process.platform, env = process.env, spawnFn = spawn, statFn = statSync, isDirectory: knownIsDirectory } = {}) {
   const checkAbs = platform === 'win32' ? win32Path.isAbsolute : isAbsolute
   if (!app || typeof targetPath !== 'string' || !checkAbs(targetPath)) {
     throw new Error('Invalid app or target path')
@@ -436,8 +326,7 @@ export function openInExternalApp(app, targetPath, { platform = process.platform
   if (platform === 'win32' && typeof app.target === 'string' && WIN_BATCH_RE.test(app.target)) {
     throw new Error('Refusing to spawn batch wrapper without a shell')
   }
-  const info = statFn(targetPath)
-  const isDirectory = info.isDirectory()
+  const isDirectory = typeof knownIsDirectory === 'boolean' ? knownIsDirectory : statFn(targetPath).isDirectory()
   const spec = buildLaunchSpec(app, targetPath, { platform, isDirectory, env })
   return new Promise((resolveLaunch, rejectLaunch) => {
     let settled = false

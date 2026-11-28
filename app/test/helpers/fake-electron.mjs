@@ -126,6 +126,7 @@ export class FakeWindow extends EventEmitter {
   flashFrame() {}
   async loadURL(url) {
     this.url = url
+    this.webContents.mainFrame.url = url
     this.loaded.push(url)
     if (state.rejectLoads || this.rejectLoads) throw new Error(`the page ${url} did not load`)
     // The Host trades the token of the launch URL for a cookie of the browser's session.
@@ -185,6 +186,8 @@ class FakeWebContents extends EventEmitter {
     this.loadURL = async url => { await this.win.loadURL(url) }
     this.reloads = 0
     this.reload = () => { this.reloads += 1 }
+    this.drags = []
+    this.startDrag = (item) => { this.drags.push(item) }
   }
 }
 

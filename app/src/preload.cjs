@@ -103,16 +103,16 @@ if (startPage !== undefined) {
     },
     // Right-panel local integrations: open in external app, native file drag-out, image copy/save.
     openInApp: {
-      list: (dirPath) => ipcRenderer.invoke('ds-bot:open-in-app-list', typeof dirPath === 'string' ? dirPath : ''),
-      open: (appId, targetPath, dirPath) => ipcRenderer.invoke(
+      list: (target) => ipcRenderer.invoke('ds-bot:open-in-app-list', workspaceTargetOf(target)),
+      open: (appId, target, dirPath) => ipcRenderer.invoke(
         'ds-bot:open-in-app-open',
         String(appId ?? ''),
-        String(targetPath ?? ''),
-        typeof dirPath === 'string' ? dirPath : '',
+        workspaceTargetOf(target, dirPath),
       ),
     },
-    startDrag: (filePath) => {
-      if (typeof filePath === 'string' && filePath) ipcRenderer.send('ds-bot:start-drag', filePath)
+    startDrag: (target) => {
+      const req = workspaceTargetOf(target)
+      if (req.path || req.sessionId) ipcRenderer.send('ds-bot:start-drag', req)
     },
     copyImage: (base64, mime) => ipcRenderer.invoke('ds-bot:copy-image', String(base64 ?? ''), typeof mime === 'string' ? mime : ''),
     saveImage: (base64, name) => ipcRenderer.invoke('ds-bot:save-image', String(base64 ?? ''), typeof name === 'string' ? name : 'image.png'),
@@ -137,6 +137,22 @@ if (startPage !== undefined) {
   }
   // Cursor events carry the Bot's last point: finite numbers, an enum, booleans,
   // bounded strings, a hex color and an optional bounded avatar data URL.
+  const workspaceTargetOf = (target, dirPath) => {
+    if (target !== null && typeof target === 'object') {
+      return {
+        sessionId: typeof target.sessionId === 'string' ? target.sessionId : '',
+        path: typeof target.path === 'string' ? target.path : '',
+        dirPath: typeof target.dirPath === 'string' ? target.dirPath : (typeof dirPath === 'string' ? dirPath : ''),
+        expectedRoot: typeof target.expectedRoot === 'string' ? target.expectedRoot : '',
+      }
+    }
+    return {
+      sessionId: '',
+      path: typeof target === 'string' ? target : '',
+      dirPath: typeof dirPath === 'string' ? dirPath : '',
+      expectedRoot: '',
+    }
+  }
   const cursorEventOf = (value) => {
     if (value === null || typeof value !== 'object') return undefined
     const clean = {}

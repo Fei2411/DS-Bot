@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { buildLaunchSpec, collectWorkspaceRoots, detectInstalledApps, openInExternalApp, OpenInAppStore, validateWorkspaceTarget } from '../src/open-in-app.mjs'
+import { buildLaunchSpec, detectInstalledApps, openInExternalApp, OpenInAppStore, withinRoot } from '../src/open-in-app.mjs'
 
 test('detectInstalledApps detects macOS bundles/CLI, Windows programs/JetBrains/wt.exe, and Linux PATH binaries', () => {
   // 1. macOS
@@ -164,72 +164,11 @@ test('Windows detection resolves bin/*.cmd to native .exe and never spawns .cmd 
   )
 })
 
-test('validateWorkspaceTarget enforces realpath workspace containment, blocks symlink escapes and protected data directories', (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'dsb-oia-sec-'))
-  t.after(() => rmSync(base, { recursive: true, force: true }))
-
-  const dataDir = join(base, 'data')
-  const userData = join(base, 'userData')
-  const dshHome = join(base, 'dsh-home')
-  const workspace = join(base, 'workspace')
-  const botWorkDir = join(base, 'bot-extra-repo')
-  const outside = join(base, 'outside-secret')
-  mkdirSync(join(dataDir, 'bot'), { recursive: true })
-  mkdirSync(userData, { recursive: true })
-  mkdirSync(dshHome, { recursive: true })
-  mkdirSync(workspace, { recursive: true })
-  mkdirSync(botWorkDir, { recursive: true })
-  mkdirSync(outside, { recursive: true })
-
-  writeFileSync(join(workspace, 'hello.txt'), 'ok')
-  writeFileSync(join(botWorkDir, 'bot-file.txt'), 'ok')
-  writeFileSync(join(outside, 'id_rsa'), 'secret')
-  writeFileSync(join(dataDir, 'bot', 'state.json'), JSON.stringify({
-    bots: { b1: { workDir: botWorkDir } },
-    rooms: {},
-  }))
-  writeFileSync(join(dshHome, 'config.json'), '{}')
-
-  let hasSymlink = false
-  try {
-    symlinkSync(join(outside, 'id_rsa'), join(workspace, 'escape-link'))
-    symlinkSync(dataDir, join(workspace, 'data-link'))
-    hasSymlink = true
-  } catch { /* Windows without symlink privilege */ }
-
-  const roots = collectWorkspaceRoots({
-    places: { dataDir, workspace },
-    userDshHome: dshHome,
-    userData,
-    env: { DSH_HOME: dshHome },
-  })
-
-  // Legitimate workspace and configured Bot workDir targets succeed.
-  assert.ok(validateWorkspaceTarget(join(workspace, 'hello.txt'), roots).endsWith('hello.txt'))
-  assert.ok(validateWorkspaceTarget(join(botWorkDir, 'bot-file.txt'), roots).endsWith('bot-file.txt'))
-
-  // Outside paths and protected directories are rejected.
-  assert.throws(() => validateWorkspaceTarget(join(outside, 'id_rsa'), roots), /outside the active workspace/i)
-  assert.throws(() => validateWorkspaceTarget(join(dataDir, 'bot', 'state.json'), roots), /outside|protected/i)
-  assert.throws(() => validateWorkspaceTarget(join(dshHome, 'config.json'), roots), /outside|protected/i)
-  assert.throws(() => validateWorkspaceTarget(userData, roots), /outside|protected/i)
-
-  // Symlink inside workspace escaping to outside or protected dataDir is rejected via realpath.
-  if (hasSymlink) {
-    assert.throws(() => validateWorkspaceTarget(join(workspace, 'escape-link'), roots), /outside the active workspace/i)
-    assert.throws(() => validateWorkspaceTarget(join(workspace, 'data-link'), roots), /outside|protected/i)
-  }
-
-  // Default workspace lying inside dataDir (`<dataDir>/workspace`) is permitted while sibling dataDir files remain blocked.
-  const nestedWs = join(dataDir, 'workspace')
-  mkdirSync(nestedWs, { recursive: true })
-  writeFileSync(join(nestedWs, 'nested.txt'), 'ok')
-  const nestedRoots = collectWorkspaceRoots({
-    places: { dataDir, workspace: nestedWs },
-    userDshHome: dshHome,
-    userData,
-    env: {},
-  })
-  assert.ok(validateWorkspaceTarget(join(nestedWs, 'nested.txt'), nestedRoots).endsWith('nested.txt'))
-  assert.throws(() => validateWorkspaceTarget(join(dataDir, 'bot', 'state.json'), nestedRoots), /outside|protected/i)
+test('withinRoot enforces exact directory boundary matching across POSIX and Windows', () => {
+  assert.equal(withinRoot('/work/repo', '/work/repo', 'darwin'), true)
+  assert.equal(withinRoot('/work/repo/sub/a.txt', '/work/repo', 'darwin'), true)
+  assert.equal(withinRoot('/work/repo-evil/a.txt', '/work/repo', 'darwin'), false)
+  assert.equal(withinRoot('/etc/hosts', '/work/repo', 'darwin'), false)
+  assert.equal(withinRoot('C:\\Work\\Repo\\a.txt', 'c:/work/repo', 'win32'), true)
+  assert.equal(withinRoot('C:\\Work\\Repo2\\a.txt', 'C:\\Work\\Repo', 'win32'), false)
 })

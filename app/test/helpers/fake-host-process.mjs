@@ -21,6 +21,8 @@ export const state = {
   starts: 0,
   // The env of every Host that was started, in order.
   envs: [],
+  sent: [],
+  onSend: null,
   stops: 0,
   fail: false,
   // The Host waits for the test to let it answer.
@@ -53,7 +55,16 @@ export class HostProcess {
 
   onMessage(listener) { this.#messageListeners.add(listener); return () => this.#messageListeners.delete(listener) }
 
-  send() {}
+  send(message) {
+    state.sent.push(message)
+    if (typeof state.onSend === 'function') {
+      state.onSend(message, (reply) => {
+        setImmediate(() => {
+          for (const listener of [...this.#messageListeners]) listener(reply)
+        })
+      })
+    }
+  }
 
   async stop() { state.stops += 1 }
 }

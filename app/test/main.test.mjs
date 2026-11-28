@@ -66,6 +66,54 @@ test('the tray opens the window again', async () => {
   assert.equal(win.focused > 0, true, 'the window has the focus')
 })
 
+test('open-in-app and start-drag delegate containment to the Host IPC even after renderer spoofs team-workspace to /', async () => {
+  const win = window()
+  const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
+  // Renderer spoofs `places.workspace` to root `/`.
+  state.ipc.get('ds-bot:team-workspace')(event, '/')
+
+  const hostRequests = []
+  hostState.onSend = (msg, reply) => {
+    if (msg?.type !== 'ds-bot:workspace-resolve-target') return
+    hostRequests.push(msg)
+    if (msg.path === 'ok.txt') {
+      reply({
+        type: 'ds-bot:workspace-resolve-target-response',
+        id: msg.id,
+        result: { root: '/real-ws', target: '/real-ws/ok.txt', dir: '/real-ws', isDirectory: false },
+      })
+      return
+    }
+    reply({
+      type: 'ds-bot:workspace-resolve-target-response',
+      id: msg.id,
+      error: { message: 'Path is outside the active workspace', code: 'bot/refused' },
+    })
+  }
+  try {
+    // 1. Spoofed open-in-app-open to `/etc/hosts` MUST route to Host and reject.
+    const listRes = await state.ipc.get('ds-bot:open-in-app-list')(event, { sessionId: 'b1', path: '' })
+    const anyAppId = listRes.apps[0]?.id ?? 'finder'
+    await assert.rejects(
+      () => state.ipc.get('ds-bot:open-in-app-open')(event, anyAppId, { sessionId: '', path: '/etc/hosts', dirPath: '/' }),
+      /outside the active workspace/i,
+    )
+    assert.ok(hostRequests.some(r => r.path === '/etc/hosts'), 'open-in-app-open must ask Host over private IPC')
+
+    // 2. Spoofed start-drag to `/etc/hosts` MUST NOT start native drag; Host-approved target DOES start drag with Host canonical path.
+    win.webContents.drags.length = 0
+    state.ipc.get('ds-bot:start-drag')(event, { sessionId: '', path: '/etc/hosts' })
+    await new Promise(r => setTimeout(r, 30))
+    assert.equal(win.webContents.drags.length, 0, 'start-drag must refuse Host-rejected path even after team-workspace spoof')
+
+    state.ipc.get('ds-bot:start-drag')(event, { sessionId: 'b1', path: 'ok.txt' })
+    await waitFor(() => win.webContents.drags.length === 1, 'start-drag invokes webContents.startDrag with Host canonical path')
+    assert.equal(win.webContents.drags[0].file, '/real-ws/ok.txt')
+  } finally {
+    hostState.onSend = null
+  }
+})
+
 test('a runtime Host crash forgets the dead host before Retry so tray Open does not reconnect to it', async () => {
   const current = window()
   const beforeCount = teamWindows().length

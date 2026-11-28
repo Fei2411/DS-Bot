@@ -1897,7 +1897,7 @@ test('FileTree Open-in-App & drag-out, ImagePreview copy/save, Excel hints, and 
       assert.ok(openBtn, 'Open in app button renders when dsBotApp.openInApp bridge exists')
       openBtn.props.onClick()
       await tick()
-      assert.deepEqual(plain(openedApps[0]), { appId: 'cursor', targetPath: '/repo', dirPath: '/repo' })
+      assert.deepEqual(plain(openedApps[0]), { appId: 'cursor', targetPath: { sessionId: 'b1', path: '', dirPath: '', expectedRoot: '/repo' } })
 
       // Dropdown switches default to Ghostty and launches it.
       const caretBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-caret'))[0]
@@ -1907,15 +1907,15 @@ test('FileTree Open-in-App & drag-out, ImagePreview copy/save, Excel hints, and 
       assert.ok(ghosttyItem)
       ghosttyItem.props.onClick()
       await tick()
-      assert.deepEqual(plain(openedApps[1]), { appId: 'ghostty', targetPath: '/repo', dirPath: '/repo' })
+      assert.deepEqual(plain(openedApps[1]), { appId: 'ghostty', targetPath: { sessionId: 'b1', path: '', dirPath: '', expectedRoot: '/repo' } })
 
-      // Dragging file row triggers native Electron webContents.startDrag with full path.
+      // Dragging file row triggers native Electron webContents.startDrag with structured session/path target.
       const fileRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'notes.md')[0]
       assert.equal(fileRow.props.draggable, true)
       let dragPrevented = false
       fileRow.props.onDragStart({ preventDefault() { dragPrevented = true } })
       assert.equal(dragPrevented, true)
-      assert.deepEqual(plain(dragged), ['/repo/notes.md'])
+      assert.deepEqual(plain(dragged), [{ sessionId: 'b1', path: 'notes.md', expectedRoot: '/repo' }])
     } finally {
       treeInst.unmount()
     }
@@ -2056,11 +2056,32 @@ test('OpenInAppMenu uses portal clamping and ESCAPE_PRIORITY.MENU, context menu 
       assert.ok(top + maxHeight <= sandbox.window.innerHeight - 8 + 1, 'OpenInAppMenu clamps maxHeight within short viewport')
       assert.equal(all(menuNode, n => n.props?.role === 'menuitem').length, 8, 'OpenInAppMenu renders all 8 apps')
 
-      // Simulate Escape key through overlay-hooks window/document listeners -> menu closes cleanly with defaultPrevented.
-      const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
-      for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
-      for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
-      assert.equal(escEvt.defaultPrevented, true, 'OpenInAppMenu Escape must preventDefault via ESCAPE_PRIORITY.MENU')
+      // Simulate Escape key with a raw document capture listener (like composer.js:322) AND a lower-priority panel Escape listener.
+      // Because OpenInAppMenu uses { priority: ESCAPE_PRIORITY.MENU } (>= CAPTURE_ESCAPE_MIN_PRIORITY),
+      // document capture alone must close ONLY the menu and set defaultPrevented before subsequent capture/bubble listeners run.
+      let rawCaptureFired = false
+      const rawCaptureListener = (event) => {
+        if (event.defaultPrevented || event.key !== 'Escape') return
+        rawCaptureFired = true
+      }
+      sandbox.document.addEventListener('keydown', rawCaptureListener, true)
+      let panelEscapeFired = false
+      const panelBubbleListener = (event) => {
+        if (event.defaultPrevented || event.key !== 'Escape') return
+        panelEscapeFired = true
+      }
+      sandbox.window.addEventListener('keydown', panelBubbleListener)
+      try {
+        const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+        for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
+        assert.equal(escEvt.defaultPrevented, true, 'OpenInAppMenu Escape must handle during document capture via { priority: ESCAPE_PRIORITY.MENU }')
+        assert.equal(rawCaptureFired, false, 'subsequent document capture Escape listener must see defaultPrevented === true')
+        for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
+        assert.equal(panelEscapeFired, false, 'panel Escape listener must not close right panel while menu is open')
+      } finally {
+        sandbox.document.removeEventListener('keydown', rawCaptureListener, true)
+        sandbox.window.removeEventListener('keydown', panelBubbleListener)
+      }
       tree = treeInst.render()
       assert.equal(all(tree, n => n.props?.role === 'menu' && String(n.props?.className ?? '').includes('dsb-ft-openapp-menu') && n.props?.['data-leaving'] === undefined).length, 0)
 

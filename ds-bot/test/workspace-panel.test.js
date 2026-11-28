@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
@@ -1250,6 +1251,10 @@ test('parseXlsxBuffer reports formula and unsupported-feature hints and classify
   assert.equal(classifyOfficeError(Object.assign(new Error('too slow'), { code: 'ETIMEDOUT' })), 'timeout')
   assert.equal(classifyOfficeError(new Error('Office preview is busy')), 'busy')
   assert.equal(classifyOfficeError(new Error('Document is password protected / encrypted')), 'encrypted')
+  assert.equal(classifyOfficeError(new Error('DRM decryption failed')), 'encrypted')
+  assert.equal(classifyOfficeError(new Error('Document is write-protected')), 'unavailable', 'bare protected must not misclassify as encrypted')
+  assert.equal(classifyOfficeError(new Error('LibreOffice macro protection warning')), 'unavailable', 'macro protection must not misclassify as encrypted')
+  assert.equal(classifyOfficeError(new Error('Unexpected cipher suite mismatch')), 'unavailable', 'bare cipher must not misclassify as encrypted')
   assert.equal(classifyOfficeError(new Error('Fontconfig error: missing font Noto Sans')), 'missing-font')
   assert.equal(classifyOfficeError(new Error('Unexpected exit code 1')), 'unavailable')
 
@@ -1285,4 +1290,91 @@ test('parseXlsxBuffer reports formula and unsupported-feature hints and classify
   const oobParsed = await parseXlsxBuffer(oobZip, { maxRows: 5, maxCols: 5 })
   assert.equal(oobParsed.hints.hasFormulas, true, 'formula outside maxRows must still set hints.hasFormulas')
   assert.equal(oobParsed.hints.formulaCount, 1, 'formula outside maxRows must still be counted')
+})
+
+test('host-only ds-bot:workspace-resolve-target IPC honors moved session folders, rejects escapes/protected data, and is never exposed on workspaceEndpoint', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'dsb-wp-resolve-'))
+  const workDir = join(base, 'workspace')
+  const movedDir = join(base, 'moved-session-dir')
+  const outsideDir = join(base, 'outside')
+  const dshHome = join(base, 'dsh-home')
+  mkdirSync(join(workDir, 'sub'), { recursive: true })
+  mkdirSync(movedDir, { recursive: true })
+  mkdirSync(outsideDir, { recursive: true })
+  mkdirSync(join(dshHome, 'bot'), { recursive: true })
+  t.after(() => rmSync(base, { recursive: true, force: true }))
+
+  writeFileSync(join(workDir, 'sub', 'note.md'), '# hello')
+  writeFileSync(join(movedDir, 'moved.txt'), 'moved')
+  writeFileSync(join(outsideDir, 'secret.txt'), 'secret')
+  writeFileSync(join(dshHome, 'bot', 'state.json'), '{}')
+  let hasSymlink = false
+  try {
+    symlinkSync(join(outsideDir, 'secret.txt'), join(workDir, 'escape-link'))
+    symlinkSync(join(dshHome, 'bot', 'state.json'), join(workDir, 'data-link'))
+    hasSymlink = true
+  } catch { /* Windows without symlink privilege */ }
+
+  const ipc = new EventEmitter()
+  const replies = []
+  ipc.send = (msg) => { replies.push(msg) }
+
+  const movedSession = { id: 'sess-moved', header: { cwd: movedDir } }
+  const { rt } = createRuntime(workDir, {
+    dshHome,
+    extraRt: {
+      hostIpc: ipc,
+      sessionFolder: session => (session?.id === 'sess-moved' ? movedDir : workDir),
+    },
+  })
+  rt.ctx.sessions = new Map([['sess-moved', movedSession]])
+
+  const ask = async (payload) => {
+    const id = `req-${replies.length + 1}`
+    const before = replies.length
+    ipc.emit('message', { type: 'ds-bot:workspace-resolve-target', id, ...payload })
+    for (let i = 0; i < 40 && replies.length === before; i += 1) {
+      await new Promise(r => setTimeout(r, 5))
+    }
+    return replies.find(m => m?.type === 'ds-bot:workspace-resolve-target-response' && m.id === id)
+  }
+
+  // 1. Valid workspace file resolves to canonical realpath and containing directory.
+  const okFile = await ask({ sessionId: 'b1', path: 'sub/note.md' })
+  assert.ok(okFile?.result, 'valid workspace file resolves')
+  assert.equal(okFile.result.isDirectory, false)
+  assert.ok(okFile.result.target.endsWith(join('sub', 'note.md')))
+  assert.ok(okFile.result.dir.endsWith('sub'))
+
+  // 2. Session whose working_directory moved resolves files in the moved folder.
+  const okMoved = await ask({ sessionId: 'sess-moved', path: 'moved.txt' })
+  assert.ok(okMoved?.result, 'moved session folder file resolves via host sessionFolder')
+  assert.ok(okMoved.result.target.endsWith('moved.txt'))
+  assert.equal(okMoved.result.isDirectory, false)
+
+  // 3. Outside path, outside dirPath, protected data dir, and symlink escapes are rejected.
+  const badOutside = await ask({ sessionId: 'b1', path: join(outsideDir, 'secret.txt') })
+  assert.match(badOutside?.error?.message ?? '', /outside the active workspace/i)
+
+  const badDir = await ask({ sessionId: 'b1', path: 'sub/note.md', dirPath: outsideDir })
+  assert.match(badDir?.error?.message ?? '', /outside the active workspace/i)
+
+  const badData = await ask({ sessionId: 'b1', path: join(dshHome, 'bot', 'state.json') })
+  assert.match(badData?.error?.message ?? '', /outside the active workspace/i)
+
+  if (hasSymlink) {
+    const badEsc = await ask({ sessionId: 'b1', path: 'escape-link' })
+    assert.match(badEsc?.error?.message ?? '', /outside the active workspace/i)
+    const badDataLink = await ask({ sessionId: 'b1', path: 'data-link' })
+    assert.match(badDataLink?.error?.message ?? '', /outside the active workspace/i)
+  }
+
+  // 4. Endpoint is strictly main-process IPC only: never exposed on workspaceEndpoint (/api/bot / phone / remote / API).
+  await assert.rejects(
+    () => rt.workspaceEndpoint('resolve-target', { sessionId: 'b1', path: 'sub/note.md' }),
+    /Unknown endpoint workspace-resolve-target/i,
+  )
+
+  await rt.terminalDispose()
+  assert.equal(ipc.listenerCount('message'), 0, 'host IPC listener cleans up on dispose')
 })

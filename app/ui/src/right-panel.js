@@ -112,6 +112,7 @@ function TreeBranch({
   highlightedDir,
   menuPath,
   filter,
+  sessionId = '',
   rootPath = '',
   onToggleDir,
   onSelectFile,
@@ -124,7 +125,7 @@ function TreeBranch({
   const startDragPath = (event, relPath) => {
     if (!canDragOut) return
     event.preventDefault()
-    window.dsBotApp.startDrag(joinDisplayPath(rootPath, relPath))
+    window.dsBotApp.startDrag({ sessionId: sessionId ?? '', path: relPath, expectedRoot: rootPath })
   }
   const openKeyboardMenu = (event, entry) => {
     if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
@@ -156,6 +157,7 @@ function TreeBranch({
           highlightedDir,
           menuPath,
           filter,
+          sessionId,
           rootPath,
           onToggleDir,
           onSelectFile,
@@ -423,7 +425,7 @@ function OpenInAppMenu({ open, anchorRef, apps, defaultAppId, onSelect, onClose 
   const [place, setPlace] = useState({ left: 16, top: 16, maxHeight: 320 })
   const tick = useViewport(shown)
 
-  useEscape(onClose, open, ESCAPE_PRIORITY.MENU)
+  useEscape(onClose, open, { priority: ESCAPE_PRIORITY.MENU })
 
   useEffect(() => {
     if (!open || typeof document === 'undefined') return undefined
@@ -707,13 +709,13 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
       return undefined
     }
     let alive = true
-    void bridge.list(rootInfo.root).then((res) => {
+    void bridge.list({ sessionId: sessionId ?? '', path: '', expectedRoot: rootInfo.root }).then((res) => {
       if (!alive) return
       setOpenApps(Array.isArray(res?.apps) ? res.apps : [])
       setDefaultAppId(typeof res?.defaultId === 'string' ? res.defaultId : null)
     }).catch(() => {})
     return () => { alive = false }
-  }, [rootInfo.root])
+  }, [sessionId, rootInfo.root])
 
   // When returning from a hidden tab (e.g. Preview/Terminal), refresh once cleanly.
   useEffect(() => {
@@ -992,9 +994,8 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     if (!bridge || typeof bridge.open !== 'function') return
     const root = capturedRoot || rootPathRef.current
     if (!root) return
-    const target = relPath ? joinDisplayPath(root, relPath) : root
     setAppMenuOpen(false)
-    void bridge.open(appId, target, root).then((res) => {
+    void bridge.open(appId, { sessionId: sessionId ?? '', path: relPath || '', dirPath: '', expectedRoot: root }).then((res) => {
       if (typeof res?.defaultId === 'string') setDefaultAppId(res.defaultId)
       else setDefaultAppId(appId)
     }).catch((failure) => {
@@ -1002,7 +1003,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
       if (actions?.reportError) actions.reportError(failure, 'open-in-app')
       else setError(msg)
     })
-  }, [actions])
+  }, [sessionId, actions])
 
   const closeAppMenu = useCallback(() => setAppMenuOpen(false), [])
   const defaultApp = openApps.find(app => app.id === defaultAppId) ?? openApps[0] ?? null
@@ -1020,6 +1021,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     highlightedDir,
     menuPath: menu?.entry?.path ?? null,
     filter,
+    sessionId,
     rootPath: rootInfo.root,
     onToggleDir: toggleDir,
     onSelectFile: openFileTarget,

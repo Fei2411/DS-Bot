@@ -13,7 +13,7 @@ import { createWebFetchBridge } from './web-fetch.mjs'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -39,7 +39,7 @@ import { pickPreferredLanguageTag } from './locale-match.mjs'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
-import { collectWorkspaceRoots, detectInstalledApps, openInExternalApp, OpenInAppStore, validateWorkspaceTarget } from './open-in-app.mjs'
+import { detectInstalledApps, openInExternalApp, OpenInAppStore, withinRoot } from './open-in-app.mjs'
 
 installSocketTosGuard()
 
@@ -1319,15 +1319,86 @@ function handleIpc() {
   })
   // "Open in app", FileTree drag-out, and preview image copy / save-as.
   const openInAppStore = new OpenInAppStore(join(app.getPath('userData'), 'open-in-app-defaults.json'))
-  const resolveWorkspacePath = (candidatePath) => {
-    const roots = collectWorkspaceRoots({
-      places,
-      userDshHome: typeof userDshHome === 'function' ? userDshHome() : '',
-      userData: app.getPath('userData'),
-      env: process.env,
-    })
-    return validateWorkspaceTarget(candidatePath, roots)
+  let nextWorkspaceResolveId = 0
+  const normalizeWorkspaceTargetRequest = (target, dirPath) => {
+    if (target !== null && typeof target === 'object') {
+      return {
+        sessionId: typeof target.sessionId === 'string' ? target.sessionId : '',
+        path: typeof target.path === 'string' ? target.path : '',
+        dirPath: typeof target.dirPath === 'string' ? target.dirPath : (typeof dirPath === 'string' ? dirPath : ''),
+        expectedRoot: typeof target.expectedRoot === 'string' ? target.expectedRoot : '',
+      }
+    }
+    return {
+      sessionId: '',
+      path: typeof target === 'string' ? target : '',
+      dirPath: typeof dirPath === 'string' ? dirPath : '',
+      expectedRoot: '',
+    }
   }
+  const assertNotUserData = (candidate) => {
+    if (typeof candidate !== 'string' || !candidate) return
+    const rawUserData = app.getPath('userData')
+    if (!rawUserData) return
+    let realUserData
+    try { realUserData = realpathSync(resolve(rawUserData)) } catch { realUserData = resolve(rawUserData) }
+    if (withinRoot(candidate, realUserData) || withinRoot(realUserData, candidate)) {
+      throw new Error('Path is inside protected data')
+    }
+  }
+  // Delegate workspace containment and realpath resolution exclusively to the Host over the
+  // private parent-child Node IPC pipe so renderer-reported `places.workspace` is never trusted.
+  const resolveHostWorkspaceTarget = (payload) => new Promise((resolveReq, rejectReq) => {
+    const activeHost = host
+    if (!activeHost) {
+      rejectReq(new Error('Host is not ready'))
+      return
+    }
+    const id = `ws-resolve-${Date.now()}-${++nextWorkspaceResolveId}`
+    let settled = false
+    const cleanup = () => {
+      clearTimeout(timer)
+      off?.()
+    }
+    const off = activeHost.onMessage((message) => {
+      if (settled || message?.type !== 'ds-bot:workspace-resolve-target-response' || message.id !== id) return
+      settled = true
+      cleanup()
+      if (message.error) {
+        rejectReq(Object.assign(new Error(String(message.error.message || 'Path is outside the active workspace')), { code: message.error.code }))
+        return
+      }
+      const res = message.result
+      if (!res || typeof res.target !== 'string' || !isAbsolute(res.target) || typeof res.dir !== 'string' || !isAbsolute(res.dir)) {
+        rejectReq(new Error('Path is outside the active workspace'))
+        return
+      }
+      try {
+        assertNotUserData(res.target)
+        assertNotUserData(res.dir)
+      } catch (err) {
+        rejectReq(err)
+        return
+      }
+      resolveReq(res)
+    })
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      rejectReq(new Error('Timed out resolving workspace target'))
+    }, 5_000)
+    timer.unref?.()
+    try {
+      activeHost.send({ type: 'ds-bot:workspace-resolve-target', id, ...payload })
+    } catch (err) {
+      if (!settled) {
+        settled = true
+        cleanup()
+        rejectReq(err)
+      }
+    }
+  })
   const MAX_IMAGE_IPC_BYTES = 16 * 1024 * 1024
   const decodeImageBase64 = (raw) => {
     if (typeof raw !== 'string' || raw === '') return null
@@ -1337,12 +1408,18 @@ function handleIpc() {
     if (buf.length === 0 || buf.length > MAX_IMAGE_IPC_BYTES) return null
     return buf
   }
-  ipcMain.handle(IPC.openInAppList, (event, dirPath) => {
+  ipcMain.handle(IPC.openInAppList, async (event, target) => {
     assertWindow(event)
     const detected = detectInstalledApps()
+    const req = normalizeWorkspaceTargetRequest(target)
     let safeDir = null
-    if (typeof dirPath === 'string' && dirPath) {
-      try { safeDir = resolveWorkspacePath(dirPath) } catch { safeDir = null }
+    if (req.sessionId || req.path) {
+      try {
+        const resolved = await resolveHostWorkspaceTarget(req)
+        safeDir = resolved.dir
+      } catch {
+        safeDir = null
+      }
     }
     const defaultId = safeDir ? openInAppStore.getDefault(safeDir) : null
     const validDefault = detected.some(entry => entry.id === defaultId) ? defaultId : (detected[0]?.id ?? null)
@@ -1351,37 +1428,29 @@ function handleIpc() {
       defaultId: validDefault,
     }
   })
-  ipcMain.handle(IPC.openInAppOpen, async (event, appId, targetPath, dirPath) => {
+  ipcMain.handle(IPC.openInAppOpen, async (event, appId, target, dirPath) => {
     assertWindow(event)
-    if (typeof appId !== 'string' || !appId || typeof targetPath !== 'string' || !isAbsolute(targetPath)) {
+    const req = normalizeWorkspaceTargetRequest(target, dirPath)
+    if (typeof appId !== 'string' || !appId || (!req.path && !req.sessionId)) {
       throw new Error('Invalid app or target path')
     }
-    const resolvedTarget = resolveWorkspacePath(targetPath)
+    const resolved = await resolveHostWorkspaceTarget(req)
     const detected = detectInstalledApps()
     const chosen = detected.find(entry => entry.id === appId)
     if (!chosen) throw new Error(`App is not installed: ${appId}`)
-    await openInExternalApp(chosen, resolvedTarget)
-    let rememberDir = ''
-    if (typeof dirPath === 'string' && isAbsolute(dirPath)) {
-      try { rememberDir = resolveWorkspacePath(dirPath) } catch { rememberDir = '' }
-    }
-    if (rememberDir) openInAppStore.setDefault(rememberDir, chosen.id)
+    await openInExternalApp(chosen, resolved.target, { isDirectory: resolved.isDirectory })
+    if (resolved.dir) openInAppStore.setDefault(resolved.dir, chosen.id)
     return { ok: true, defaultId: chosen.id }
   })
-  ipcMain.on(IPC.startDrag, (event, filePath) => {
-    if (!fromWindow(event) || typeof filePath !== 'string' || !isAbsolute(filePath)) return
-    let resolved
-    try {
-      resolved = resolveWorkspacePath(filePath)
-    } catch {
-      return
-    }
-    try {
+  ipcMain.on(IPC.startDrag, (event, target) => {
+    if (!fromWindow(event)) return
+    const req = normalizeWorkspaceTargetRequest(target)
+    if (!req.path && !req.sessionId) return
+    void resolveHostWorkspaceTarget(req).then((resolved) => {
+      if (event.sender.isDestroyed()) return
       const icon = nativeImage.createFromPath(iconFile).resize({ width: 24, height: 24 })
-      event.sender.startDrag({ file: resolved, icon })
-    } catch (error) {
-      console.error('DS Bot: file drag failed', error)
-    }
+      event.sender.startDrag({ file: resolved.target, icon })
+    }).catch(() => {})
   })
   ipcMain.handle(IPC.copyImage, async (event, base64) => {
     assertWindow(event)
