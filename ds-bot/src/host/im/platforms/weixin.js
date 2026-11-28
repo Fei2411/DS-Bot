@@ -155,7 +155,7 @@ export default {
       setRuntime({ contextTokens: next })
     }
 
-    const deliver = async (msg) => {
+    const deliver = async (msg, msgIndex = 0, pollCursor = '') => {
       const userId = String(msg.from_user_id ?? '')
       if (userId === '') return
       remember(userId, msg.context_token)
@@ -190,11 +190,12 @@ export default {
           if (bytes !== undefined && bytes.length > 0) files.push({ name, data: bytes })
         }
       }
-      const rawMessageId = String(msg.client_id ?? msg.message_id ?? '')
+      const explicitId = [msg.client_id, msg.message_id, msg.msg_id, msg.msgid, msg.seq]
+        .find(value => (typeof value === 'string' && value.trim() !== '') || (typeof value === 'number' && Number.isFinite(value)))
       const joinedText = texts.join('\n').trim()
-      const messageId = rawMessageId !== ''
-        ? rawMessageId
-        : `wx:${createHash('sha256').update(JSON.stringify([userId, msg.create_time ?? msg.timestamp ?? '', joinedText, images.length, files.length])).digest('hex').slice(0, 24)}`
+      const messageId = explicitId !== undefined
+        ? String(explicitId)
+        : `wx:${createHash('sha256').update(JSON.stringify([userId, pollCursor, msgIndex, msg.create_time ?? msg.timestamp ?? '', joinedText, images.length, files.length])).digest('hex').slice(0, 24)}`
       await handlers.onMessage({
         chat: { key: userId, kind: 'direct', title: '' },
         sender: { id: userId, name: userId },
@@ -300,14 +301,16 @@ export default {
           pollAttempt = 0
           clearTransient()
           handlers.onStatus({ state: 'ready' })
-          for (const msg of answer.msgs ?? []) {
+          const pollCursor = runtime().cursor ?? ''
+          const msgs = answer.msgs ?? []
+          for (let msgIndex = 0; msgIndex < msgs.length; msgIndex += 1) {
             if (stopped || generation !== gen) return
-            await deliver(msg).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
+            await deliver(msgs[msgIndex], msgIndex, pollCursor).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
           }
           if (stopped || generation !== gen) return
-          const nextCursor = answer.get_updates_buf ?? answer.sync_buf
-          if (nextCursor !== undefined && String(nextCursor) !== runtime().cursor) {
-            setRuntime({ cursor: String(nextCursor) })
+          const nextCursor = [answer.get_updates_buf, answer.sync_buf].find(value => typeof value === 'string' && value.trim() !== '')
+          if (nextCursor !== undefined && nextCursor !== runtime().cursor) {
+            setRuntime({ cursor: nextCursor })
           }
         }
       } finally {

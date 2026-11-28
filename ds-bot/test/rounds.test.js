@@ -102,7 +102,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     await emit(sessionId, { type: 'user/message', data: message ?? { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
     if (workTool !== undefined) {
       await emit(sessionId, { type: 'tool/call', data: { callId: `tc-${turn}`, name: workTool, arguments: '{}' } })
-      await emit(sessionId, { type: 'tool/result', data: { callId: `tc-${turn}`, isError: false } })
+      await emit(sessionId, { type: 'tool/result', data: { turn, step: 1, message: { role: 'tool', toolCallId: `tc-${turn}`, content: [{ type: 'text', text: 'ok' }], isError: false } } })
     }
     await during?.()
     await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })

@@ -1266,17 +1266,22 @@ export function install(rt) {
         const callId = event.data?.callId
         const rawArgs = String(event.data?.arguments ?? '')
         startCall(id, entry, callId, name, rawArgs, event.seq)
-        // A program is as quick as the tools it runs, so its sub-calls decide.
-        if (name !== PROGRAM_TOOL) {
-          entry.toolCount = (entry.toolCount ?? 0) + 1
-          if (USER_UI_TOOLS.has(name)) entry.uiToolCount = (entry.uiToolCount ?? 0) + 1
+        // A program is as quick as the tools it runs, so its sub-calls decide `worked`;
+        // still track `run_code` in `pendingArgs` so repeated failing programs pause.
+        if (name === PROGRAM_TOOL) {
           if (callId !== undefined) {
-            guardOf(id).pendingArgs.set(callId, { name, sig: callSignatureOf(name, rawArgs) })
+            guardOf(id).pendingArgs.set(callId, { name, sig: callSignatureOf(name, rawArgs), program: true })
           }
-          // Starting a work tool only arms the 15s group grace timer; clearing idle streaks
-          // and marking worked wait until `tool/result` succeeds without error.
-          if (isWorkTool(name) && rt.groupOwners.has(id)) rt.touchRoomWorkGrace?.(id, name)
+          break
         }
+        entry.toolCount = (entry.toolCount ?? 0) + 1
+        if (USER_UI_TOOLS.has(name)) entry.uiToolCount = (entry.uiToolCount ?? 0) + 1
+        if (callId !== undefined) {
+          guardOf(id).pendingArgs.set(callId, { name, sig: callSignatureOf(name, rawArgs), program: false })
+        }
+        // Starting a work tool only arms the 15s group grace timer; clearing idle streaks
+        // and marking worked wait until `tool/result` succeeds without error.
+        if (isWorkTool(name) && rt.groupOwners.has(id)) rt.touchRoomWorkGrace?.(id, name)
         break
       }
       case 'tool/ptc-dispatch-start': {
@@ -1321,30 +1326,44 @@ export function install(rt) {
         break
       }
       case 'tool/result': {
-        const callId = event.data?.callId
-        endCall(id, entry, callId)
+        // Ignore compaction/pruning replacement records appended later for already-settled calls.
+        if (event.surfaceOp === 'replace' || event.surfaceOp?.op === 'replace') break
+        endCall(id, entry, event.data?.callId)
+        const message = event.data?.message
+        const callId = message?.toolCallId ?? message?.source?.callId ?? event.data?.callId
         const guard = runawayGuards.get(id)
         const meta = guard?.pendingArgs.get(callId)
         if (meta !== undefined) {
           guard.pendingArgs.delete(callId)
-          const isError = event.data?.isError === true
-          guard.stepTotal += 1
-          if (isError) guard.stepErrors += 1
-          else if (isWorkTool(meta.name)) {
-            entry.workToolCount = (entry.workToolCount ?? 0) + 1
-            const activeWork = rt.workOf?.(entry.info)
-            if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
-            const taskWork = rt.taskBySession?.(id)?.task?.workId
-            if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
-            if (rt.groupOwners.has(id)) {
-              rt.workRoomTurn?.(id, meta.name)
-              rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+          const isError = message?.isError === true || event.data?.isError === true || event.data?.error !== undefined
+          if (meta.program) {
+            // Only failed `run_code` executions (e.g. syntax/sandbox errors with no sub-calls)
+            // feed the runaway guard; successful programs are accounted for by their sub-calls.
+            if (isError) {
+              guard.stepTotal += 1
+              guard.stepErrors += 1
+              guard.recentCalls.push(meta.sig)
+              if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
             }
-            const taskOwner = rt.taskOwners?.get(id)
-            if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
+          } else {
+            guard.stepTotal += 1
+            if (isError) guard.stepErrors += 1
+            else if (isWorkTool(meta.name)) {
+              entry.workToolCount = (entry.workToolCount ?? 0) + 1
+              const activeWork = rt.workOf?.(entry.info)
+              if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
+              const taskWork = rt.taskBySession?.(id)?.task?.workId
+              if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
+              if (rt.groupOwners.has(id)) {
+                rt.workRoomTurn?.(id, meta.name)
+                rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+              }
+              const taskOwner = rt.taskOwners?.get(id)
+              if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
+            }
+            guard.recentCalls.push(meta.sig)
+            if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
           }
-          guard.recentCalls.push(meta.sig)
-          if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
         }
         break
       }
@@ -1844,6 +1863,7 @@ export function install(rt) {
         rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
         if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
+          runawayGuards.get(id)?.pendingArgs.clear()
           if (watched) rememberFailure(id, turn, failure, session)
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
           if (groupOwner !== undefined) rt.blockTasks?.(groupOwner.roomId, groupOwner.botId, { cause: 'failed', code: failure.code, ...(failure.status ? { status: failure.status } : {}) })
@@ -1860,6 +1880,15 @@ export function install(rt) {
           else if (groupOwner !== undefined && !explicitPassOnly) rt.unblockTasks?.(groupOwner.roomId, groupOwner.botId)
           // A turn the user opened, or the Retry that answers the user.
           if (owner !== undefined && !rt.taskOwners?.has(id) && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
+        } else {
+          const guard = runawayGuards.get(id)
+          if (guard !== undefined) {
+            guard.pendingArgs.clear()
+            if (reason?.kind === 'aborted') {
+              guard.stepTotal = 0
+              guard.stepErrors = 0
+            }
+          }
         }
         if (owner !== undefined && info?.role === 'kickoff') rt.clearSentKickoff?.(owner)
         // A model that writes its tool call as text ends the turn as if it were done,

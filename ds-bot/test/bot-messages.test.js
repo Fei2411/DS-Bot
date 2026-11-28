@@ -697,7 +697,7 @@ test('a Bot may take part in the same work again, but not delegate back to one t
   assert.deepEqual(callsOf(agents, 'a'), [])
   assert.equal(callsOf(agents, 'b').length, 1)
   emit('c', 'tool/call', { callId: 't1', name: 'read', arguments: '{}' })
-  emit('c', 'tool/result', { callId: 't1', isError: false })
+  emit('c', 'tool/result', { turn: 1, step: 1, message: { role: 'tool', toolCallId: 't1', content: [{ type: 'text', text: 'ok' }], isError: false } })
   end('c', 'it passes')
   await settled(() => callsOf(agents, 'b').length === 2)
   take('b')

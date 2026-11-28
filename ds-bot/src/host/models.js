@@ -16,13 +16,17 @@ const ADAPTERS_SYNC_MS = 100
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
-// Fatal or user-actionable failures that must never spin under `retryPolicy.mode === 'always'`.
+// Fatal or deterministic failures that must never spin under `retryPolicy.mode === 'always'`.
 const NON_RETRYABLE_ALWAYS_CODES = new Set([
   'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'INVALID_CREDENTIAL', 'MISSING_CREDENTIAL',
   'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID',
   'INVALID_REQUEST', 'CONTENT_POLICY', 'CONTENT_REFUSED', 'CONTEXT_WINDOW_EXCEEDED',
   'NO_ADAPTER', 'UNKNOWN_MODEL', 'HOSTED_ENGINE_ROUTE',
-  'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT', 'LOCAL_AGENT_ERROR',
+  'ABORTED', 'CLIENT_UPGRADE_REQUIRED', 'MODEL_UNSUPPORTED', 'UNSUPPORTED_CONTENT',
+  'UNSUPPORTED_OPTION', 'UNSUPPORTED_REASONING_EFFORT', 'INVALID_CONFIG',
+  'NO_CREDENTIAL_STORE', 'INVALID_REPLAY_STATE', 'IMAGE_OFFLOAD_REQUIRED',
+  'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA',
+  'LOCAL_AGENT_EXIT', 'LOCAL_AGENT_ERROR', 'LOCAL_AGENT_SESSION_LOST',
   'TURN_PAUSED_LOOP', 'TURN_PAUSED_SWITCH_LIMIT',
 ])
 // pi-ai's Google adapters end a Gemini stream that stops on a malformed tool call or response
@@ -160,24 +164,30 @@ export function install(rt) {
     const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
     // DSH's `retryPolicy.mode === 'always'` ignores both retryableCodes and maxRetries,
     // which turns fatal quota/auth errors or persistent provider failures into an endless
-    // loop. Short-circuit fatal codes and cap total retries per step for Bot sessions.
+    // loop. Short-circuit fatal codes and cap transient retries per step for Bot sessions,
+    // while handling `MALFORMED_RESPONSE` directly below so its independent cap and
+    // `singleToolRetries` hint always stay active.
+    let decided
     if (!signal?.aborted && rt.isBotSession(agent.id) && policy?.mode === 'always') {
       if (NON_RETRYABLE_ALWAYS_CODES.has(code)) return undefined
-      const cap = code === 'MALFORMED_RESPONSE' ? MALFORMED_RETRIES : ALWAYS_RETRY_MAX
-      let retries = alwaysRetries.get(agent)
-      if (retries?.turn !== turn || retries?.step !== step) {
-        retries = { turn, step, count: 0 }
-        alwaysRetries.set(agent, retries)
-      }
-      if (retries.count >= cap) {
-        if (code !== 'MALFORMED_RESPONSE') {
-          rt.warn(`Stopping retry loop for ${agent.id} after ${retries.count} attempts (turn ${turn}, step ${step}, code ${code ?? 'UNKNOWN'})`)
+      if (failure?.code === 'MALFORMED_RESPONSE') {
+        decided = undefined
+      } else {
+        let retries = alwaysRetries.get(agent)
+        if (retries?.turn !== turn || retries?.step !== step) {
+          retries = { turn, step, count: 0 }
+          alwaysRetries.set(agent, retries)
         }
-        return undefined
+        if (retries.count >= ALWAYS_RETRY_MAX) {
+          rt.warn(`Stopping retry loop for ${agent.id} after ${retries.count} attempts (turn ${turn}, step ${step}, code ${code ?? 'UNKNOWN'})`)
+          return undefined
+        }
+        retries.count += 1
+        decided = await next()
       }
-      retries.count += 1
+    } else {
+      decided = await next()
     }
-    const decided = await next()
     if (decided !== undefined || code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
     let retries = malformedRetries.get(agent)
     if (retries?.turn !== turn || retries?.step !== step) {

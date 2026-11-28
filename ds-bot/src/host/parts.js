@@ -3261,17 +3261,6 @@ export function install(rt) {
     const hasRuntimeLostUnread = job.runtimeLost === true && !job.bare && unreadRequestsForRuntimeLost(session, agent.id, job).length > 0
     const resume = job.resume || (job.overflow && !job.bare) || job.runtimeLost
     const handoffResume = resume && !hasRuntimeLostUnread
-    if (resume) {
-      const prevChain = autoSwitchChains.get(agent.id) ?? { resumeSwitches: 0, runtimeLostSwitches: 0 }
-      autoSwitchChains.delete(agent.id)
-      autoSwitchChains.set(freshId, {
-        resumeSwitches: job.runtimeLost ? prevChain.resumeSwitches : prevChain.resumeSwitches + 1,
-        runtimeLostSwitches: job.runtimeLost ? prevChain.runtimeLostSwitches + 1 : prevChain.runtimeLostSwitches,
-      })
-      rt.carryRunawayGuard?.(agent.id, freshId)
-    } else {
-      autoSwitchChains.delete(agent.id)
-    }
     // Mark handoffPending before flipping the current-part pointer so a crash between
     // rt.save() and flush #1 lets handOnHeld() reconstruct and deliver the same routable
     // handoff package (including reply routing & joined requests, without stale rpcId).
@@ -3309,6 +3298,19 @@ export function install(rt) {
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
+    // Transfer runaway-guard and auto-switch chain state only after the move commits so
+    // a rollback on save/route failure leaves the old part's counters intact.
+    if (resume) {
+      const prevChain = autoSwitchChains.get(agent.id) ?? { resumeSwitches: 0, runtimeLostSwitches: 0 }
+      autoSwitchChains.delete(agent.id)
+      autoSwitchChains.set(freshId, {
+        resumeSwitches: job.runtimeLost ? prevChain.resumeSwitches : prevChain.resumeSwitches + 1,
+        runtimeLostSwitches: job.runtimeLost ? prevChain.runtimeLostSwitches + 1 : prevChain.runtimeLostSwitches,
+      })
+      rt.carryRunawayGuard?.(agent.id, freshId)
+    } else {
+      autoSwitchChains.delete(agent.id)
+    }
     // Then what the old part held: the stopped turn's input (already persisted in the
     // old inbox), then whatever waited. It moves first; only after that does the old
     // inbox give it up, so a failure keeps it.
@@ -3506,13 +3508,13 @@ export function install(rt) {
       freshParts.delete(agent.id)
       partBase.set(agent.id, (sizeOf(agent.session) ?? 0) + fresh)
     }
+    // Check runaway tool loops before any folder/engine/context switch so a stuck loop
+    // pauses immediately instead of spending extra handoff or switch work.
+    if (place.botId !== undefined) rt.checkRunawayBeforeStep?.(agent, payload)
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
     if (place.botId === undefined) return next()
-    // Check runaway tool loops before pruning or mid-turn switching so a stuck loop pauses
-    // immediately instead of spending extra full-context handoff summary calls.
-    rt.checkRunawayBeforeStep?.(agent, payload)
     if (!readOnly() && engineMoved(agent, place, payload.modelSelection)) return switchBeforeStep(agent, payload, { engine: true })
     if (offEngine(agent, place, payload.modelSelection)) return holdStep(agent, payload)
     // A local agent CLI condenses on its own inside a running turn, and DS Bot cannot
@@ -3774,8 +3776,8 @@ export function install(rt) {
     if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure)) return next()
     if ((autoSwitchChains.get(agent.id)?.resumeSwitches ?? 0) >= AUTO_SWITCH_RESUME_LIMIT) {
       autoSwitchChains.delete(agent.id)
-      rt.warn('ds-bot: stopping overflow auto-switch for %s after %d consecutive switches', agent.id, AUTO_SWITCH_RESUME_LIMIT)
-      return next()
+      rt.warn('ds-bot: pausing %s after %d consecutive overflow auto-switches', agent.id, AUTO_SWITCH_RESUME_LIMIT)
+      throw new LlmError(`Paused after ${AUTO_SWITCH_RESUME_LIMIT} consecutive automatic part switches without user input. Reply with guidance or click Continue to resume.`, 'TURN_PAUSED_SWITCH_LIMIT')
     }
     if (!await canMakeRoom(agent, [], { activeTurn: true })) {
       const entry = rt.liveOf(agent.id)
@@ -3962,7 +3964,7 @@ export function install(rt) {
   function wakeFailedTurnInbox(agent, end) {
     if (agent.status !== 'idle' || lastTurnEnd(agent) !== end || readOnly() || ctx.fiber?.uid === null) return
     const failCode = end?.data?.reason?.error?.code ?? end?.data?.reason?.failure?.code
-    if (failCode !== undefined && (BLOCKING_CODES.has(failCode) || PAUSED_CODES.has(failCode) || failCode === 'LOCAL_AGENT_SESSION_LOST')) return
+    if (failCode !== undefined && (BLOCKING_CODES.has(failCode) || PAUSED_CODES.has(failCode) || failCode === 'LOCAL_AGENT_SESSION_LOST' || failCode === 'CONTEXT_WINDOW_EXCEEDED')) return
     const id = agent.id
     if (!rt.isBotSession(id) || switches.has(id) || rt.live.get(id)?.lastSwitched || rt.isHandingOff?.(id)) return
     const nextTurn = agent.inbox?.nextTurn ?? []
@@ -4852,6 +4854,7 @@ export function install(rt) {
     engineRetry.delete(sessionId)
     clearTimeout(engineWakes.get(sessionId))
     engineWakes.delete(sessionId)
+    autoSwitchChains.delete(sessionId)
   }
   ctx.on?.('agent/disposed', ({ agent }) => {
     const id = agent?.id

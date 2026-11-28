@@ -340,6 +340,7 @@ export function reworkGoal(room, input, by, memberOf, memberNames, now = Date.no
     const pauseReason = `Paused after ${stage.reworksSinceResume} consecutive reworks on stage ${goal.current + 1} ("${stage.title}"). Review progress or resume to continue.`
     goal.status = 'paused'
     goal.pausedBy = 'system'
+    goal.pauseCause = 'rework-limit'
     touchGoal(goal, { kind: 'pause', by: 'system', stage: stage.id, text: headOf(pauseReason, EVENT_TEXT_MAX) }, now)
     return {
       goal,
@@ -386,8 +387,12 @@ export function resumeGoal(room, by, now = Date.now()) {
   const goal = room.goal
   if (goal === undefined) return { error: noGoal(room) }
   if (goal.status !== 'paused') return { error: wrongState(room, goal, 'resume', 'paused') }
+  if (by !== 'user' && (goal.pauseCause === 'rework-limit' || goal.pausedBy === 'user')) {
+    return { error: `The goal of "${room.name}" is paused and must be resumed by the user.` }
+  }
   goal.status = 'active'
   delete goal.pausedBy
+  delete goal.pauseCause
   const stage = goal.stages[goal.current]
   if (stage !== undefined) stage.reworksSinceResume = 0
   touchGoal(goal, { kind: 'resume', by }, now)
@@ -438,7 +443,10 @@ export function markTasks(room, botId, from, to, note, now = Date.now()) {
 const DUTY_ACTIVE = 'You run this goal. Hand each task of the current stage to its member with @Name; members you call in one message start together. When they report back, check the results against the stage\'s "done when" yourself or have a reviewing member check them. Then call group_goal pass with the evidence and hand out the next stage in the same reply, or call group_goal rework with what is missing and call the members again. Keep all work inside the objective and the rules. When the user corrects the direction, call group_goal revise first. Ask the user only for decisions you cannot make.'
 const DUTY_PASSED = 'Every stage passed. Check the overall "done when", then call group_goal complete with the evidence and a summary for the user.'
 const DUTY_PAUSED = 'The user paused this goal. Do not hand out stage work or pass stages. Talk with the user, and write their corrections into the goal with group_goal revise. The user resumes it.'
-const dutyOf = goal => (goal.status === 'paused' ? DUTY_PAUSED : goal.stages[goal.current] === undefined ? DUTY_PASSED : DUTY_ACTIVE)
+const DUTY_PAUSED_SYSTEM = 'DS Bot automatically paused this goal after repeated reworks or missing admin. Do not hand out stage work, pass stages, or resume it yourself. Wait for the user to review and resume it.'
+const dutyOf = goal => (goal.status === 'paused'
+  ? (goal.pausedBy === 'system' ? DUTY_PAUSED_SYSTEM : DUTY_PAUSED)
+  : goal.stages[goal.current] === undefined ? DUTY_PASSED : DUTY_ACTIVE)
 
 const DUTY_DRAFT = [
   'Align with the user before you write it, following the goal-grill skill:',
