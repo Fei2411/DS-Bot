@@ -522,3 +522,34 @@ test('keyless editable providers still expose a writable key editor and attach a
   assert.equal(after.providers.find(p => p.id === 'moonshotai').key?.configured, true)
   assert.equal(after.providers.find(p => p.id === 'moonshotai').key?.optional, undefined)
 })
+
+test('providersView hydrates inherited defaultMode for hand-edited retryPolicy omitting mode, and addProviderConfig keyless catalog route allows adding key later', async () => {
+  const handEdited = createRealSchemaHost({
+    piUser: {
+      providers: {
+        moonshotai: { retryPolicy: { maxRetries: 3 } },
+      },
+    },
+  })
+  const view = await handEdited.rt.providersView()
+  const moonshot = view.providers.find(p => p.id === 'moonshotai')
+  assert.ok(moonshot)
+  assert.equal(moonshot.retryPolicy?.mode, 'normal', 'hand-edited retryPolicy without mode hydrates inherited defaultMode')
+  assert.equal(moonshot.retryPolicy?.maxRetries, 3)
+
+  // Saving the hydrated retryPolicy heals the stored route so PiAiConfig accepts it
+  const healed = await handEdited.rt.saveProviderConfig({
+    provider: 'moonshotai',
+    revision: moonshot.revision,
+    retryPolicy: moonshot.retryPolicy,
+  })
+  assert.equal(healed.providers.find(p => p.id === 'moonshotai')?.retryPolicy?.mode, 'normal')
+
+  const fresh = createRealSchemaHost()
+  const afterAdd = await fresh.rt.addProviderConfig({ provider: 'anthropic' })
+  const anthropic = afterAdd.providers.find(p => p.id === 'anthropic')
+  assert.equal(anthropic?.key?.writable, true)
+  assert.equal(anthropic?.key?.optional, true)
+  await fresh.rt.setProviderKey('anthropic', 'sk-ant-later')
+  assert.equal(fresh.store.ANTHROPIC_API_KEY, 'sk-ant-later')
+})

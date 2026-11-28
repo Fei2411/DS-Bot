@@ -713,6 +713,8 @@ export function ProviderConfigEditor({
         : t(modelError.key)) : null,
     provider.retryDefaults
       ? h(RetryPolicyEditor, {
+          key: resetEpoch,
+          resetEpoch,
           policy: retryPolicy,
           retryDefaults: provider.retryDefaults,
           disabled,
@@ -952,13 +954,14 @@ export function KeyEditor({ provider, apply, actions, compact = false, disabled 
       h(ApiKeyField, { value, onChange: edit, onEnter: save, label, disabled }),
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save')))
   }
+  const hasLocalKey = provider.key?.configured === true && provider.key?.source !== 'env'
   return h('div', { className: 'bt-secret-edit-block' },
-    h('div', { className: 'bt-secret-edit-label' }, provider.key.configured ? t('Replace the API key') : t('API key')),
+    h('div', { className: 'bt-secret-edit-label' }, hasLocalKey ? t('Replace the API key') : t('API key')),
     h(CredentialHint, { provider }),
     h('div', { className: 'bt-secret-inline' },
       h(ApiKeyField, { value, onChange: edit, onEnter: save, label, disabled }),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: save }, t('Save')),
-      provider.key.configured ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled, onClick: () => apply(actions.setProviderKey(provider.id, null)) }, t('Remove key')) : null),
+      hasLocalKey ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled, onClick: () => apply(actions.setProviderKey(provider.id, null)) }, t('Remove key')) : null),
     keyError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(keyError)) : null,
     saved ? h('div', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Saved.')) : null)
 }
@@ -1022,19 +1025,20 @@ export function KnownForm({ view, apply, actions, onDone }) {
 
   const add = () => {
     if (!ready) return
-    const hasRich = baseURL.trim() !== '' || models.length > 0 || retryPolicy !== undefined
-    if (typeof actions.addProviderConfig === 'function' && hasRich) {
+    const rev = view.revision !== undefined ? { revision: view.revision } : {}
+    if (typeof actions.addProviderConfig === 'function') {
       const cleanedRetry = cleanRetryPolicyForSave(retryPolicy)
       void apply(actions.addProviderConfig({
         provider,
         key,
+        ...rev,
         ...(baseURL.trim() !== '' ? { baseURL: baseURL.trim() } : {}),
         ...(models.length > 0 ? { models } : {}),
         ...(cleanedRetry !== undefined ? { retryPolicy: cleanedRetry } : {}),
       })).then((ok) => { if (ok) onDone() })
       return
     }
-    void apply((actions.addProviderConfig ?? actions.addProvider)({ provider, key })).then((ok) => { if (ok) onDone() })
+    void apply(actions.addProvider({ provider, key })).then((ok) => { if (ok) onDone() })
   }
 
   const fetchBtn = (actions.discoverProviderModels || actions.providerModels) && provider !== ''
@@ -1105,7 +1109,7 @@ export function KnownForm({ view, apply, actions, onDone }) {
                     ? t('Model {index}: {error}', { index: modelError.index + 1, error: t(modelError.key) })
                     : t(modelError.key)) : null,
                 view.retryDefaults
-                  ? h(RetryPolicyEditor, { policy: retryPolicy, retryDefaults: view.retryDefaults, onChange: setRetryPolicy })
+                  ? h(RetryPolicyEditor, { key: provider, resetEpoch: provider, policy: retryPolicy, retryDefaults: view.retryDefaults, onChange: setRetryPolicy })
                   : null,
                 retryError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(retryError)) : null)
             : null)
@@ -1122,6 +1126,7 @@ export function CustomForm({ view, apply, actions, onDone }) {
   const [retryPolicy, setRetryPolicy] = useState(undefined)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [asking, setAsking] = useState(false)
+  const [fetchError, setFetchError] = useState('')
   const set = (field, value) => setDraft(current => ({ ...current, [field]: value }))
   const typed = draft.typed.split(/[\s,]+/).map(id => id.trim()).filter(Boolean)
   const configuredIds = new Set(configuredModels.map(m => (typeof m?.id === 'string' ? m.id.trim() : '')).filter(Boolean))
@@ -1156,9 +1161,12 @@ export function CustomForm({ view, apply, actions, onDone }) {
     }))
   const fetchModels = () => {
     const discover = actions.discoverProviderModels ?? actions.providerModels
-    if (typeof discover !== 'function') return
+    if (typeof discover !== 'function' || asking) return
     setAsking(true)
-    void apply(Promise.resolve(discover({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => { setFound(Array.isArray(list) ? list : []) }))
+    setFetchError('')
+    void translated(discover({ baseURL: draft.baseURL, api: draft.api, key: draft.key }))
+      .then((list) => { setFound(Array.isArray(list) ? list : []) })
+      .catch(error => setFetchError(error?.message ?? String(error)))
       .finally(() => setAsking(false))
   }
   const add = () => {
@@ -1173,6 +1181,7 @@ export function CustomForm({ view, apply, actions, onDone }) {
       api: draft.api,
       key: draft.key,
       models,
+      ...(view.revision !== undefined ? { revision: view.revision } : {}),
       ...(cleanedRetry !== undefined ? { retryPolicy: cleanedRetry } : {}),
     })).then((ok) => { if (ok) onDone() })
   }
@@ -1207,6 +1216,7 @@ export function CustomForm({ view, apply, actions, onDone }) {
             onApply: (nextModels) => { setConfiguredModels(nextModels); setFound(null); setShowAdvanced(true) },
           })
         : null,
+      fetchError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, fetchError) : null,
       input('typed', t('Model ids'), t('Model ids, separated by commas'))),
     h('button', {
       type: 'button',

@@ -1,7 +1,7 @@
 // Schema-driven retry policy editor matching DSH's RetryPolicySchema:
 // mode (default / normal / always), maxRetries, retryableCodes (schema presets + custom),
 // and collapsible backoff (initialDelayMs, maxDelayMs, jitterRatio).
-import { createElement as h, Fragment, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from './icons.js'
 import { SelectMenu } from './select-menu.js'
 import { t } from './i18n.js'
@@ -31,7 +31,7 @@ function parseNumberText(text, meta) {
   if (trimmed === '') return undefined
   const num = Number(trimmed)
   if (!Number.isFinite(num)) return Number.NaN
-  if (meta?.integer && !Number.isInteger(num)) return Number.NaN
+  if ((meta?.integer === true || meta?.step === 1) && !Number.isInteger(num)) return Number.NaN
   return num
 }
 
@@ -46,8 +46,14 @@ export function validateRetryPolicy(policy, retryDefaults) {
   if (policy.mode === 'normal') {
     if (policy.maxRetries !== undefined) {
       const m = branch.maxRetries
-      if (typeof policy.maxRetries !== 'number' || !Number.isInteger(policy.maxRetries) || policy.maxRetries < (m?.minimum ?? 0)) {
+      const min = m?.min ?? m?.minimum ?? 0
+      const max = m?.max ?? m?.maximum
+      const intOnly = m?.step === 1 || m?.integer === true || m === undefined
+      if (typeof policy.maxRetries !== 'number' || !Number.isFinite(policy.maxRetries) || (intOnly && !Number.isInteger(policy.maxRetries)) || policy.maxRetries < 0) {
         return 'Max retries must be a non-negative whole number'
+      }
+      if (policy.maxRetries < min || (typeof max === 'number' && policy.maxRetries > max)) {
+        return 'Value is out of range'
       }
     }
     if (policy.retryableCodes !== undefined) {
@@ -68,19 +74,43 @@ export function validateRetryPolicy(policy, retryDefaults) {
     const init = policy.backoff.initialDelayMs
     const max = policy.backoff.maxDelayMs
     const jitter = policy.backoff.jitterRatio
-    if (init !== undefined && (typeof init !== 'number' || !Number.isFinite(init) || init <= 0)) {
-      return 'Initial delay must be a positive number'
+    if (init !== undefined) {
+      const m = bFields.initialDelayMs
+      const minBound = m?.min ?? m?.minimum
+      const maxBound = m?.max ?? m?.maximum
+      if (typeof init !== 'number' || !Number.isFinite(init) || init <= 0 || ((m?.step === 1 || m?.integer === true) && !Number.isInteger(init))) {
+        return 'Initial delay must be a positive number'
+      }
+      if ((typeof minBound === 'number' && init < minBound) || (typeof maxBound === 'number' && init > maxBound)) {
+        return 'Value is out of range'
+      }
     }
-    if (max !== undefined && (typeof max !== 'number' || !Number.isFinite(max) || max <= 0)) {
-      return 'Max delay must be a positive number'
+    if (max !== undefined) {
+      const m = bFields.maxDelayMs
+      const minBound = m?.min ?? m?.minimum
+      const maxBound = m?.max ?? m?.maximum
+      if (typeof max !== 'number' || !Number.isFinite(max) || max <= 0 || ((m?.step === 1 || m?.integer === true) && !Number.isInteger(max))) {
+        return 'Max delay must be a positive number'
+      }
+      if ((typeof minBound === 'number' && max < minBound) || (typeof maxBound === 'number' && max > maxBound)) {
+        return 'Value is out of range'
+      }
     }
     const effInit = init ?? bFields.initialDelayMs?.default ?? 500
     const effMax = max ?? bFields.maxDelayMs?.default ?? 10000
     if (typeof effInit === 'number' && typeof effMax === 'number' && effInit > effMax) {
       return 'Initial delay cannot exceed max delay'
     }
-    if (jitter !== undefined && (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > 1)) {
-      return 'Jitter ratio must be between 0 and 1'
+    if (jitter !== undefined) {
+      const m = bFields.jitterRatio
+      const minBound = m?.min ?? m?.minimum ?? 0
+      const maxBound = m?.max ?? m?.maximum ?? 1
+      if (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > 1) {
+        return 'Jitter ratio must be between 0 and 1'
+      }
+      if (jitter < minBound || jitter > maxBound) {
+        return 'Value is out of range'
+      }
     }
   }
   return undefined
@@ -106,10 +136,19 @@ export function cleanRetryPolicyForSave(policy) {
   return out
 }
 
-export function RetryPolicyEditor({ policy, retryDefaults, disabled = false, onChange }) {
-  const [openBackoff, setOpenBackoff] = useState(false)
+export function RetryPolicyEditor({ policy, retryDefaults, disabled = false, resetEpoch = 0, onChange }) {
+  const [openBackoff, setOpenBackoff] = useState(() => isRecord(policy?.backoff) && Object.keys(policy.backoff).length > 0)
   const [customCode, setCustomCode] = useState('')
   const [editing, setEditing] = useState(() => ({}))
+  const lastReset = useRef(resetEpoch)
+
+  useEffect(() => {
+    if (lastReset.current === resetEpoch) return
+    lastReset.current = resetEpoch
+    setEditing({})
+    setCustomCode('')
+    setOpenBackoff(isRecord(policy?.backoff) && Object.keys(policy.backoff).length > 0)
+  }, [resetEpoch])
 
   if (!retryDefaults || !Array.isArray(retryDefaults.modes) || retryDefaults.modes.length === 0) {
     return null
@@ -212,9 +251,6 @@ export function RetryPolicyEditor({ policy, retryDefaults, disabled = false, onC
     ...retryDefaults.modes.map(m => ({ value: m, label: MODE_LABELS[m] ? t(MODE_LABELS[m]) : m })),
   ]
 
-  const hasBackoffOverrides = isRecord(policy?.backoff) && Object.keys(policy.backoff).length > 0
-  const backoffExpanded = openBackoff || hasBackoffOverrides
-
   return h('div', { className: 'bt-retry-editor' },
     h('div', { className: 'bt-retry-head' },
       h('span', { className: 'bt-secret-edit-label' }, t('Retry policy')),
@@ -297,10 +333,10 @@ export function RetryPolicyEditor({ policy, retryDefaults, disabled = false, onC
           h('button', {
             type: 'button',
             className: 'bt-retry-fold-btn',
-            'aria-expanded': backoffExpanded,
+            'aria-expanded': openBackoff,
             onClick: () => setOpenBackoff(open => !open),
-          }, backoffExpanded ? h(ChevronDownIcon) : h(ChevronRightIcon), t('Backoff')),
-          backoffExpanded
+          }, openBackoff ? h(ChevronDownIcon) : h(ChevronRightIcon), t('Backoff')),
+          openBackoff
             ? h('div', { className: 'bt-retry-backoff-grid' },
                 [
                   ['initialDelayMs', t('Initial delay (ms)'), backoffFields.initialDelayMs],

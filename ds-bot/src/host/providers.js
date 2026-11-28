@@ -655,6 +655,15 @@ export function install(rt) {
             ...(info?.masked !== undefined ? { masked: info.masked } : {}),
           }
       const retryDefaults = editable ? retryDefaultsOf(section, entry.settingsPath, baseProfile?.retryPolicy) : undefined
+      const hydratedRetryPolicy = isRecord(userProfile?.retryPolicy)
+        ? (() => {
+            const cloned = structuredClone(userProfile.retryPolicy)
+            if ((typeof cloned.mode !== 'string' || cloned.mode === '') && retryDefaults?.defaultMode) {
+              cloned.mode = retryDefaults.defaultMode
+            }
+            return cloned
+          })()
+        : undefined
       providers.push({
         id: entry.provider,
         ...(isChatGPT ? { auth: 'chatgpt' } : {}),
@@ -688,7 +697,7 @@ export function install(rt) {
         ...(family === 'deepseek' && typeof profile?.maxTokens === 'number' ? { defaultMaxTokens: profile.maxTokens }
           : typeof profile?.defaultMaxTokens === 'number' ? { defaultMaxTokens: profile.defaultMaxTokens } : {}),
         ...(Array.isArray(profile?.defaultInput) ? { defaultInput: [...profile.defaultInput] } : {}),
-        ...(isRecord(userProfile?.retryPolicy) ? { retryPolicy: structuredClone(userProfile.retryPolicy) } : {}),
+        ...(hydratedRetryPolicy !== undefined ? { retryPolicy: hydratedRetryPolicy } : {}),
         ...(retryDefaults !== undefined ? { retryDefaults } : {}),
       })
     }

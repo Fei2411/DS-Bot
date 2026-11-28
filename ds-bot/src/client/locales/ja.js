@@ -3009,6 +3009,7 @@ export const JA = {
   "Max delay must be a positive number": "最大待機時間は正の数である必要があります",
   "Initial delay cannot exceed max delay": "初期待機時間は最大待機時間を超えられません",
   "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
+  "Value is out of range": "値が許容範囲外です",
   "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
   "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
   "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。",
