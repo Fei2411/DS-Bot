@@ -8,6 +8,8 @@ import { createRuntime } from '../index.js'
 import { afterRound } from './relay-rows.js'
 import { fakeContext } from './fake-ctx.js'
 import { isAckLikeText, isSilentTurnText, isWorkTool, SOURCE_KIND } from '../src/host/constants.js'
+import { FORWARDED_UNKNOWN_SOURCE_KIND } from '../src/host/context-messages.js'
+import { restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import { isRelayContext, stripHeader } from '../src/client/text.js'
 import { BROWSER_ALLOWED } from '../src/shared/browser-endpoints.js'
 import { roomItems } from '../src/host/mobile.js'
@@ -547,6 +549,52 @@ test('part-switch forward preserves zero-wake agent.inject for silent notes and 
   assert.equal(byId['ex-note'], 'inject', 'silent note must forward via inject (zero-wake)')
   assert.equal(byId['ex-cancel'], 'inject', 'silent cancellation must forward via inject (zero-wake)')
   assert.equal(byId['ex-req'], 'followup', 'normal work request must forward via followup (waking)')
+})
+
+test('part-switch forward always supplies a valid non-user producer-owned source.kind for DSH v4', async (t) => {
+  const { agentOf, emit, fire, stop } = await start()
+  t.after(stop)
+
+  const oldAgent = agentOf('b')
+  oldAgent.inbox.nextStep.push(
+    { id: 'm-nosrc', role: 'user', content: textBlock('legacy message without source') },
+    { id: 'm-nokind', role: 'user', content: textBlock('legacy message without kind'), source: { rpcId: 'rpc-nokind' } },
+    { id: 'm-blank', role: 'user', content: textBlock('legacy message with blank kind'), source: { kind: '   ', rpcId: 'rpc-blank' } },
+    { id: 'm-plugin', role: 'user', content: textBlock('legacy retired plugin kind'), source: { kind: 'plugin', plugin: 'old-ext', rpcId: 'rpc-plugin' } },
+  )
+  oldAgent.inbox.nextTurn.push(
+    { id: 'm-req-tail', role: 'user', content: textBlock('[Work #W9 from Chief]\n收尾'), source: { kind: SOURCE_KIND, role: 'request', exchangeId: 'ex-tail', senderSessionId: 'a', senderName: 'Chief' } },
+  )
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('earlier task'), source: { kind: 'user' } })
+  emit('b', 'assistant/message', assistantText('halfway'))
+  await fire('agent/request-error', { failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000), agent: oldAgent })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'CONTEXT_WINDOW_EXCEEDED' } } })
+
+  await settled(() => (agentOf('s1').calls.some(([, m]) => m.source?.exchangeId === 'ex-tail')))
+  const cases = [
+    ['sourceless', agentOf('s1').calls.find(([, m]) => m.source?.transferId === 'm-nosrc')],
+    ['kindless', agentOf('s1').calls.find(([, m]) => m.source?.rpcId === 'rpc-nokind')],
+    ['blank-kind', agentOf('s1').calls.find(([, m]) => m.source?.rpcId === 'rpc-blank')],
+    ['retired-plugin', agentOf('s1').calls.find(([, m]) => m.source?.rpcId === 'rpc-plugin')],
+  ]
+  const at = Date.now()
+  const knownEventTypes = new Set(['turn/start', 'user/message'])
+  for (const [label, entry] of cases) {
+    assert.ok(entry, `${label} message must be forwarded`)
+    assert.equal(entry[0], 'inject', `${label} message must keep non-waking inject delivery`)
+    assert.equal(entry[1].source?.kind, FORWARDED_UNKNOWN_SOURCE_KIND, `${label} message must receive non-user DS Bot forwarded kind`)
+    assert.notEqual(entry[1].source?.kind, 'user', `${label} message must never be escalated to user`)
+    assert.doesNotThrow(() => restoreReleasedV4Artifact({
+      header: { version: 4, id: 's1', createdAt: at, isSeeded: false, delegationDepth: 0 },
+      inheritedEventCount: 0,
+      events: [
+        { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+        { type: 'user/message', seq: 1, time: at, surfaceOp: 'append', data: entry[1] },
+      ],
+    }, knownEventTypes), `${label} forwarded message must satisfy DSH v4 source contract`)
+  }
+  assert.equal(cases[1][1][1].source?.rpcId, 'rpc-nokind', 'existing source fields stay preserved')
 })
 
 test('P0 #1: note_bot on a running Bot stores silently in SQLite inbox without waking mid-turn or polluting unreadOf, and attaches on next waking pre-step', async (t) => {

@@ -142,6 +142,7 @@ const lateOnce = task => (task.kind === 'at' || task.kind === 'after') && Date.p
 const canPauseTask = task => (task.status === 'active' || task.status === 'paused') && !lateOnce(task)
 
 function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -151,12 +152,14 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     return () => clearTimeout(timer)
   }, [confirming])
   const remove = () => {
+    if (readOnly) return
     if (!confirming) { setConfirming(true); return }
     setBusy(true)
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false))
   }
   const [failed, setFailed] = useState('')
   const toggle = () => {
+    if (readOnly) return
     setBusy(true)
     setFailed('')
     void actions.schedulePause(task.sessionId, task.id, task.status !== 'active').then((next) => { setBusy(false); onView(next) }, (failure) => {
@@ -178,11 +181,11 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
       task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null),
     h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
     pausable ? h('button', {
-      type: 'button', className: 'bt-mini bt-task-remove bt-task-pause', disabled: busy,
+      type: 'button', className: 'bt-mini bt-task-remove bt-task-pause', disabled: busy || readOnly,
       'aria-label': task.status === 'active' ? t('Pause task') : t('Resume task'), title: task.status === 'active' ? t('Pause task') : t('Resume task'), onClick: toggle,
     }, task.status === 'active' ? h(PauseIcon) : h(ResumeIcon)) : null,
     h('button', {
-      type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
+      type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy || readOnly,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
     }, confirming ? t('Delete') : h(TrashIcon))),
   failed ? h('div', { className: 'bt-set-row bt-task-failed', role: 'alert' }, h('span', { className: 'bt-danger bt-set-hint' }, failed)) : null)
@@ -347,6 +350,7 @@ function AutomationOff({ view, actions, readOnly, onEnabled, onRetry }) {
 // `bot:<id>`/`room:<id>` form asks for just that owner's tasks, which is how a
 // Bot's own view gets here.
 export function SchedulesPage({ roster, actions, start }) {
+  const readOnly = Boolean(roster?.readOnly)
   const { view, error: loadError, retry } = useSchedulesState(actions)
   // "Show all" lifts the owner filter here: Settings keeps one Scheduled tasks page per
   // visit, so a route back to the same page would not reach it.
@@ -354,7 +358,7 @@ export function SchedulesPage({ roster, actions, start }) {
   // `start` is either a Bot or group chat id (open the form for it) or a `bot:` / `room:`
   // filter; the form only ever gets a plain id, so a lifted filter leaves it unset.
   const filter = start?.startsWith('bot:') || start?.startsWith('room:')
-  const [adding, setAdding] = useState(Boolean(start) && !filter)
+  const [adding, setAdding] = useState(Boolean(start) && !filter && !readOnly)
   if (view === null) {
     if (loadError) {
       return h('div', { className: 'bt-set-card bt-task-off' },
@@ -366,7 +370,7 @@ export function SchedulesPage({ roster, actions, start }) {
   }
   if (!view.available) {
     if (view.pending === true) return h('div', { className: 'bt-set-hint' }, t('Starting scheduled tasks…'))
-    return h(AutomationOff, { view, actions, readOnly: Boolean(roster?.readOnly), onEnabled: publish, onRetry: retry })
+    return h(AutomationOff, { view, actions, readOnly, onEnabled: publish, onRetry: retry })
   }
   const shown = next => { publish(next); setAdding(false) }
   const byChat = [
@@ -374,10 +378,10 @@ export function SchedulesPage({ roster, actions, start }) {
     ...roster.rooms.map(room => [room.id, h(RoomAvatar, { room, roster, size: 18 }), room.name, view.tasks.filter(task => task.botId === undefined && task.roomId === room.id)]),
   ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner))
   const addBar = adding ? null : h('div', { className: 'bt-actions' },
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-task', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-task', disabled: readOnly, onClick: () => { if (!readOnly) setAdding(true) } }, h(PlusIcon), t('New task')),
     owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setOwner(null) }, t('Show all')) : null)
   return [
-    adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? (filter ? undefined : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
+    adding && !readOnly ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? (filter ? undefined : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0
       ? (!adding ? h('section', { key: 'none', className: 'bt-set-section' },
           h('div', { className: 'bt-la-sec-head' }, h('h3', null, t('Scheduled tasks · {count}', { count: 0 })), addBar),
@@ -439,7 +443,7 @@ export function BotSchedules({ bot, roster, actions }) {
           ]
         : [
             ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
-            h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon), t('New task')),
+            h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', disabled: readOnly, onClick: () => { if (!readOnly) actions.openSettings('schedules', bot.id) } }, h(PlusIcon), t('New task')),
           ]))
 }
 

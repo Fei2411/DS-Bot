@@ -57,6 +57,7 @@ const providerWorks = provider => provider.state === 'ready' || provider.state =
 // Settings → Computer use. The switch, where the provider stands, the macOS
 // permission rows, and every Bot's level.
 export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
+  const readOnly = Boolean(roster?.readOnly)
   const computer = roster.computer ?? { enabled: false }
   const [system, setSystem] = useState(null)
   const provider = computer.provider ?? { state: computer.enabled ? 'loading' : 'off' }
@@ -72,16 +73,16 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
     const granted = state === 'granted' || state === true
     return h(Row, { key, label: t(label) },
       h('span', { className: 'bt-perm-state', 'data-on': granted || undefined }, granted ? t('Allowed') : t('Not allowed')),
-      granted ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(Promise.resolve(actions.computerPermission(key)).then(refresh)) }, t('Grant')))
+      granted ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => { if (!readOnly) void run(Promise.resolve(actions.computerPermission(key)).then(refresh)) } }, t('Grant')))
   }
   return [
     h(Section, { key: 'switch', tour: 'comp-switch' },
       h(Row, { label: t('Let Bots use the computer') },
-        Switch === undefined ? null : h(Switch, { label: t('Let Bots use the computer'), on: computer.enabled === true, onChange: on => run(actions.computerSetEnabled(on)) }))),
+        Switch === undefined ? null : h(Switch, { label: t('Let Bots use the computer'), on: computer.enabled === true, disabled: readOnly, onChange: on => run(actions.computerSetEnabled(on)) }))),
     computer.enabled ? h(Section, { key: 'provider', title: t('Computer provider') },
       h(Row, { label: t(PROVIDER_TEXT[provider.state]?.[0] ?? PROVIDER_TEXT.error[0]), hint: provider.message },
         ['error', 'missing', 'occupied'].includes(provider.state) && actions.computerProviderRetry
-          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerProviderRetry()) }, t('Retry')) : null),
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => { if (!readOnly) void run(actions.computerProviderRetry()) } }, t('Retry')) : null),
       provider.state === 'missing' && provider.install?.command ? h(InstallRow, { install: provider.install, Row }) : null,
       computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
     h(Section, { key: 'bots', title: t('Bots'), tour: 'comp-bots' },
@@ -89,12 +90,12 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       roster.bots.map(bot => h(Row, {
         key: bot.id,
         label: h('span', { className: 'bt-comp-bot' }, h(BotAvatar, { bot, size: 22, badge: false, live: false }), h('span', null, bot.name)),
-      }, h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
+      }, h(LevelPicker, { bot, actions, run, disabled: readOnly || !computer.enabled })))),
   ]
 }
 
 // The Bot's own card in its settings: its level and the apps the user Always allows.
-export function BotComputerCard({ bot, roster, actions, run, Card, Row }) {
+export function BotComputerCard({ bot, roster, actions, run, Card, Row, disabled = false }) {
   const computer = roster.computer ?? { enabled: false }
   const apps = Object.entries(bot.computer?.apps ?? {})
   return h(Card, { title: t('Control') },
@@ -104,9 +105,9 @@ export function BotComputerCard({ bot, roster, actions, run, Card, Row }) {
             ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('computer') }, t('Turn on'))
             : null)
       : [
-          h(Row, { key: 'level', label: t('Computer use'), hint: providerWorks(computer.provider ?? { state: 'loading' }) ? undefined : t('Bots get no computer tools until the provider is ready.') }, h(LevelPicker, { bot, actions, run })),
+          h(Row, { key: 'level', label: t('Computer use'), hint: providerWorks(computer.provider ?? { state: 'loading' }) ? undefined : t('Bots get no computer tools until the provider is ready.') }, h(LevelPicker, { bot, actions, run, disabled })),
           apps.map(([key, app]) => h(Row, { key, label: app.name },
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerRevokeApp(bot.id, key)) }, t('Revoke')))),
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: () => { if (!disabled) void run(actions.computerRevokeApp(bot.id, key)) } }, t('Revoke')))),
         ])
 }
 

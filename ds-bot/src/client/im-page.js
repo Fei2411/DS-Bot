@@ -238,15 +238,15 @@ function Initial({ name }) {
   return h('span', { className: 'bt-im-initial', 'aria-hidden': true }, String(name || '?').replace(/^@/, '').slice(0, 1).toUpperCase())
 }
 
-function Requests({ conn, run, busy, actions, withSource = false }) {
+function Requests({ conn, run, busy, actions, withSource = false, readOnly = false }) {
   return conn.requests.map(request => h('div', { key: `${conn.id}:${request.id}`, className: 'bt-set-row bt-im-request' },
     h(Initial, { name: request.name }),
     h('span', { className: 'bt-set-copy' },
       h('span', { className: 'bt-im-name' }, request.name),
       withSource ? h('span', { className: 'bt-set-hint' }, t('Wants to talk through {bot}', { bot: t(conn.account?.name ?? platformOf(conn.platform).name) })) : null),
     h('span', { className: 'bt-set-control' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => run(actions.imPair(conn.id, request.id, false)) }, t('Deny')),
-      h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => run(actions.imPair(conn.id, request.id, true)) }, t('Allow')))))
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: () => { if (!readOnly) void run(actions.imPair(conn.id, request.id, false)) } }, t('Deny')),
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || readOnly, onClick: () => { if (!readOnly) void run(actions.imPair(conn.id, request.id, true)) } }, t('Allow')))))
 }
 
 function useRun() {
@@ -260,11 +260,13 @@ function useRun() {
 }
 
 function DetailView({ conn, status, roster, actions, onBack }) {
+  const readOnly = Boolean(roster?.readOnly)
   const shown = platformOf(conn.platform)
   const { busy, error, run } = useRun()
   const [confirm, setConfirm] = useState(null)
   const state = stateOf(conn, status)
   const ask = (key, task) => {
+    if (readOnly) return
     if (confirm !== key) { setConfirm(key); return }
     setConfirm(null)
     void run(task())
@@ -279,12 +281,12 @@ function DetailView({ conn, status, roster, actions, onBack }) {
           h('span', { className: 'bt-im-title' }, t(conn.account?.name ?? shown.name)),
           h('span', { className: 'bt-im-status' }, h(Dot, { state }), `${t(shown.name)} · ${stateText(conn, status)}`)),
         h('span', { className: 'bt-set-control' },
-          state === 'error' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => run(actions.imRetry(conn.id)) }, t('Try again')) : null,
-          h(Switch, { on: conn.enabled, label: t('Enabled'), disabled: busy, onChange: on => run(actions.imUpdate(conn.id, { enabled: on })) }))),
-      h(Row, { label: t('Talks to') }, h(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t('Talks to'), disabled: busy, onPick: next => next?.botId && run(actions.imUpdate(conn.id, { botId: next.botId })) }))),
+          state === 'error' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: () => run(actions.imRetry(conn.id)) }, t('Try again')) : null,
+          h(Switch, { on: conn.enabled, label: t('Enabled'), disabled: busy || readOnly, onChange: on => run(actions.imUpdate(conn.id, { enabled: on })) }))),
+      h(Row, { label: t('Talks to') }, h(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t('Talks to'), disabled: busy || readOnly, onPick: next => next?.botId && run(actions.imUpdate(conn.id, { botId: next.botId })) }))),
     conn.requests.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Waiting for approval')),
-      h('div', { className: 'bt-set-card bt-im-attn' }, h(Requests, { conn, run, busy, actions }))) : null,
+      h('div', { className: 'bt-set-card bt-im-attn' }, h(Requests, { conn, run, busy, actions, readOnly }))) : null,
     h('section', { className: 'bt-set-section' },
       h('h3', null, t('Accounts')),
       h('div', { className: 'bt-set-card' },
@@ -293,7 +295,7 @@ function DetailView({ conn, status, roster, actions, onBack }) {
           : conn.paired.map(entry => h('div', { key: entry.id, className: 'bt-set-row' },
             h(Initial, { name: entry.name }),
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-im-name' }, entry.name)),
-            h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `p:${entry.id}` || undefined, disabled: busy, onClick: () => ask(`p:${entry.id}`, () => actions.imUnpair(conn.id, entry.id)) }, confirm === `p:${entry.id}` ? t('Remove?') : t('Remove')))))),
+            h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `p:${entry.id}` || undefined, disabled: busy || readOnly, onClick: () => ask(`p:${entry.id}`, () => actions.imUnpair(conn.id, entry.id)) }, confirm === `p:${entry.id}` ? t('Remove?') : t('Remove')))))),
     chats.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Chats')),
       h('div', { className: 'bt-set-card' },
@@ -303,11 +305,11 @@ function DetailView({ conn, status, roster, actions, onBack }) {
             h('span', { className: 'bt-tag' }, chat.kind === 'group' ? t('Group') : t('Direct'))),
           h('span', { className: 'bt-set-control' },
             chat.kind === 'group'
-              ? h(TargetMenu, { value: chat.target ?? null, roster, rooms: true, label: t('Bound to'), disabled: busy, onPick: target => run(actions.imChat(conn.id, { chatKey: key, target })) })
+              ? h(TargetMenu, { value: chat.target ?? null, roster, rooms: true, label: t('Bound to'), disabled: busy || readOnly, onPick: target => run(actions.imChat(conn.id, { chatKey: key, target })) })
               : null,
-            h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `c:${key}` || undefined, disabled: busy, onClick: () => ask(`c:${key}`, () => actions.imChat(conn.id, { chatKey: key, remove: true })) }, confirm === `c:${key}` ? t('Remove?') : t('Remove'))))))) : null,
+            h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `c:${key}` || undefined, disabled: busy || readOnly, onClick: () => ask(`c:${key}`, () => actions.imChat(conn.id, { chatKey: key, remove: true })) }, confirm === `c:${key}` ? t('Remove?') : t('Remove'))))))) : null,
     h('div', { className: 'bt-set-card' },
-      h('button', { type: 'button', className: 'bt-set-row bt-im-remove', 'data-confirm': confirm === 'conn' || undefined, disabled: busy, onClick: () => ask('conn', () => Promise.resolve(actions.imRemove(conn.id)).then(onBack)) },
+      h('button', { type: 'button', className: 'bt-set-row bt-im-remove', 'data-confirm': confirm === 'conn' || undefined, disabled: busy || readOnly, onClick: () => ask('conn', () => Promise.resolve(actions.imRemove(conn.id)).then(onBack)) },
         confirm === 'conn' ? t('Remove this IM bot? Its accounts and chats are removed too.') : t('Remove IM bot'))))
 }
 
@@ -325,17 +327,18 @@ function BotRow({ conn, status, roster, onOpen }) {
     h('span', { className: 'bt-chevron' }, h(ChevronRightIcon)))
 }
 
-function PlatformTile({ platform, count, onOpen }) {
+function PlatformTile({ platform, count, onOpen, disabled = false }) {
   return h('div', { className: 'bt-app', 'data-state': count > 0 ? 'ready' : 'off' },
-    h('button', { type: 'button', className: 'bt-app-main', onClick: onOpen },
+    h('button', { type: 'button', className: 'bt-app-main', disabled, onClick: onOpen },
       h(ImMark, { id: platform.id }),
       h('span', { className: 'bt-app-text' },
         h('span', { className: 'bt-app-name' }, t(platform.name)),
         count > 0 ? h('span', { className: 'bt-app-status' }, t('{count} added', { count })) : null)),
-    h('button', { type: 'button', className: 'bt-app-btn', onClick: onOpen }, t('Connect')))
+    h('button', { type: 'button', className: 'bt-app-btn', disabled, onClick: onOpen }, t('Connect')))
 }
 
 export function ImPage({ roster, actions }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [view, setView] = useState(null)
   const { busy, error, run } = useRun()
   const list = roster.im?.connections ?? []
@@ -343,7 +346,7 @@ export function ImPage({ roster, actions }) {
   const platforms = (roster.im?.platforms ?? []).map(platformOf)
   const back = () => setView(null)
 
-  if (view?.add) return h(AddView, { key: view.add, platform: view.add, roster, actions, onBack: back })
+  if (view?.add && !readOnly) return h(AddView, { key: view.add, platform: view.add, roster, actions, onBack: back })
   const open = view?.conn ? list.find(conn => conn.id === view.conn) : undefined
   if (open) return h(DetailView, { conn: open, status: statuses[open.id], roster, actions, onBack: back })
 
@@ -352,14 +355,14 @@ export function ImPage({ roster, actions }) {
     error ? h('div', { className: 'bt-im-banner', role: 'alert' }, hostText(error)) : null,
     waiting.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Waiting for approval')),
-      h('div', { className: 'bt-set-card bt-im-attn' }, waiting.map(conn => h(Requests, { key: conn.id, conn, run, busy, actions, withSource: true })))) : null,
+      h('div', { className: 'bt-set-card bt-im-attn' }, waiting.map(conn => h(Requests, { key: conn.id, conn, run, busy, actions, readOnly, withSource: true })))) : null,
     list.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Your IM bots')),
       h('div', { className: 'bt-set-card' }, list.map(conn => h(BotRow, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))) : null,
     h('section', { className: 'bt-app-section', 'data-tour': 'im-platforms' },
       h('div', { className: 'bt-app-section-head' }, h('h3', null, list.length > 0 ? t('Add an IM bot') : t('Choose a platform'))),
       h('div', { className: 'bt-app-grid' }, platforms.map(platform => h(PlatformTile, {
-        key: platform.id, platform, count: list.filter(conn => conn.platform === platform.id).length, onOpen: () => setView({ add: platform.id }),
+        key: platform.id, platform, count: list.filter(conn => conn.platform === platform.id).length, disabled: readOnly, onOpen: () => { if (!readOnly) setView({ add: platform.id }) },
       })))))
 }
 

@@ -122,7 +122,7 @@ export function AgentSignInRow({ agent }) {
       canSignIn ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', title: t('Copies the sign-in command'), onClick: copy }, t('Sign in')) : null) : null)
 }
 
-function ProfileRow({ profile, armed, onEdit, onRemove, onBlurRemove }) {
+function ProfileRow({ profile, armed, disabled = false, onEdit, onRemove, onBlurRemove }) {
   const { copy, message } = useCopySignIn(profile.signIn)
   const version = shortVersion(profile.version)
   const canSignIn = profile.available !== false && Boolean(profile.signIn) && profile.signedIn !== true
@@ -141,9 +141,10 @@ function ProfileRow({ profile, armed, onEdit, onRemove, onBlurRemove }) {
       status !== null ? h('span', { className: 'bt-la-state', 'data-state': String(profile.available === false ? false : profile.signedIn) },
         h('i', { className: 'bt-cli-dot', 'aria-hidden': true }), status) : null,
       canSignIn ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', title: t('Copies the sign-in command'), onClick: copy }, t('Sign in')) : null,
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onEdit }, t('Edit')),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: onEdit }, t('Edit')),
       h('button', {
         type: 'button',
+        disabled,
         className: armed ? 'bt-soft bt-soft-sm bt-danger bt-la-armed' : 'bt-soft bt-soft-sm bt-danger',
         'aria-label': armed ? t('Click again to remove') : t('Remove'),
         onClick: onRemove,
@@ -151,7 +152,7 @@ function ProfileRow({ profile, armed, onEdit, onRemove, onBlurRemove }) {
       }, armed ? t('Remove?') : h(TrashIcon))))
 }
 
-export function LocalAgentsPage({ run, Row }) {
+export function LocalAgentsPage({ run, Row, readOnly = false }) {
   const [view, setView] = useState(null)
   const [editing, setEditing] = useState(null) // 'new' | custom.id | 'profile:new' | 'profile:' + route
   const [armedRemove, setArmedRemove] = useState(null)
@@ -191,13 +192,13 @@ export function LocalAgentsPage({ run, Row }) {
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Profiles')),
         canAddProfile && editing !== 'profile:new'
-          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'aria-label': t('Add profile'), onClick: () => { setArmedRemove(null); setEditing('profile:new') } }, h(PlusIcon), t('Add profile'))
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', disabled: readOnly, 'aria-label': t('Add profile'), onClick: () => { if (!readOnly) { setArmedRemove(null); setEditing('profile:new') } } }, h(PlusIcon), t('Add profile'))
           : null),
       h('div', { className: 'bt-set-card' },
         profiles.length === 0 && editing !== 'profile:new'
           ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No profiles added')))
           : null,
-        profiles.map(profile => (editing === `profile:${profile.route}`
+        profiles.map(profile => (editing === `profile:${profile.route}` && !readOnly
           ? h(ProfileForm, {
             key: profile.route,
             initial: profile,
@@ -208,9 +209,11 @@ export function LocalAgentsPage({ run, Row }) {
           : h(ProfileRow, {
             key: profile.route,
             profile,
+            disabled: readOnly,
             armed: armedRemove === `profile:${profile.route}`,
-            onEdit: () => { setArmedRemove(null); setEditing(`profile:${profile.route}`) },
+            onEdit: () => { if (!readOnly) { setArmedRemove(null); setEditing(`profile:${profile.route}`) } },
             onRemove: () => {
+              if (readOnly) return
               const key = `profile:${profile.route}`
               if (armedRemove !== key) { setArmedRemove(key); return }
               setArmedRemove(null)
@@ -218,7 +221,7 @@ export function LocalAgentsPage({ run, Row }) {
             },
             onBlurRemove: () => { if (armedRemove === `profile:${profile.route}`) setArmedRemove(null) },
           }))),
-        editing === 'profile:new'
+        editing === 'profile:new' && !readOnly
           ? h(ProfileForm, {
             key: 'profile:new',
             detected: profileCapable,
@@ -229,12 +232,12 @@ export function LocalAgentsPage({ run, Row }) {
     h('section', { key: 'custom', className: 'bt-set-section' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Custom agents')),
-        editing === 'new' ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'aria-label': t('Add agent'), 'data-tour': 'la-add', onClick: () => { setArmedRemove(null); setEditing('new') } }, h(PlusIcon), t('Add agent'))),
+        editing === 'new' ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', disabled: readOnly, 'aria-label': t('Add agent'), 'data-tour': 'la-add', onClick: () => { if (!readOnly) { setArmedRemove(null); setEditing('new') } } }, h(PlusIcon), t('Add agent'))),
       h('div', { className: 'bt-set-card' },
         view.custom.length === 0 && editing !== 'new'
           ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No custom agents yet.')))
           : null,
-        view.custom.map(agent => (editing === agent.id
+        view.custom.map(agent => (editing === agent.id && !readOnly
           ? h(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: payload => call('local-agent-update', { id: agent.id, ...payload }).then(() => load('local-agents')) })
           : h('div', { key: agent.id, className: 'bt-set-row bt-la-row' },
             h(AgentLogo, { route: agent.route, name: agent.name, size: 32, className: 'bt-cli-logo bt-la-logo' }),
@@ -242,12 +245,14 @@ export function LocalAgentsPage({ run, Row }) {
               h('span', { className: 'bt-la-head' }, h('span', { className: 'bt-la-name' }, agent.name)),
               h('span', { className: 'bt-la-path' }, [agent.command, ...(agent.args ?? [])].join(' '))),
             h('div', { className: 'bt-set-control bt-la-actions' },
-              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setArmedRemove(null); setEditing(agent.id) } }, t('Edit')),
+              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => { if (!readOnly) { setArmedRemove(null); setEditing(agent.id) } } }, t('Edit')),
               h('button', {
                 type: 'button',
+                disabled: readOnly,
                 className: armedRemove === agent.id ? 'bt-soft bt-soft-sm bt-danger bt-la-armed' : 'bt-soft bt-soft-sm bt-danger',
                 'aria-label': armedRemove === agent.id ? t('Click again to remove') : t('Remove'),
                 onClick: () => {
+                  if (readOnly) return
                   if (armedRemove !== agent.id) { setArmedRemove(agent.id); return }
                   setArmedRemove(null)
                   void run(call('local-agent-remove', { id: agent.id })).then(() => load('local-agents'))
