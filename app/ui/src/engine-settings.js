@@ -39,10 +39,23 @@ import { writeClipboard } from './primitives.js'
 import { reloadExternalUiPlugins } from './ui-plugin-loader.js'
 
 // Module-level stale-while-revalidate caches so reopening Engine settings tabs never flashes "Loading…".
+function mergeAccountState(prev, next) {
+  if (!next) return next
+  if (
+    next.view?.status === 'credential-stored'
+    && prev?.view?.status === 'credential-stored'
+    && next.profile == null
+    && next.balance == null
+  ) {
+    return { ...next, profile: prev.profile ?? null, balance: prev.balance ?? null }
+  }
+  return next
+}
+
 let accountCache = null
 subscribeDesktopAccountState((reply, meta) => {
   if (meta?.source === 'settings') return
-  accountCache = reply
+  accountCache = mergeAccountState(accountCache, reply)
 })
 let pluginsCache = null
 let inventoryCache = null
@@ -50,8 +63,17 @@ let settingsCache = null
 let presetsCache = null
 let archivedCache = null
 
-const SAFE_EXTERNAL_URL = /^https?:\/\//i
-const safeExternalUrl = (value) => (typeof value === 'string' && SAFE_EXTERNAL_URL.test(value.trim()) ? value.trim() : null)
+function safeExternalUrl(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null
+  } catch {
+    return null
+  }
+}
 
 const SAFE_PLUGIN_ICON_URI = /^data:image\/(svg\+xml|png|webp);base64,/i
 export const safePluginIconUri = (value) => (typeof value === 'string' && SAFE_PLUGIN_ICON_URI.test(value.trim()) ? value.trim() : null)
@@ -551,13 +573,30 @@ function StatusAlert({ error, notice }) {
 function parseExactDecimal(raw) {
   if (typeof raw !== 'string') return null
   const trimmed = raw.trim()
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed)
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(trimmed)
   if (!match) return null
-  return {
-    neg: match[1] === '-',
-    intPart: match[2].replace(/^0+(?=\d)/, ''),
-    fracPart: match[3] ?? '',
+  const neg = match[1] === '-'
+  const rawInt = match[2] ?? ''
+  const rawFrac = match[3] ?? match[4] ?? ''
+  const exp = match[5] !== undefined ? Number(match[5]) : 0
+  if (!Number.isSafeInteger(exp) || Math.abs(exp) > 10000) return null
+  const digits = rawInt + rawFrac
+  if (!/[1-9]/.test(digits)) return { neg: false, intPart: '0', fracPart: '' }
+  const pointPos = rawInt.length + exp
+  let intPart
+  let fracPart
+  if (pointPos <= 0) {
+    intPart = '0'
+    fracPart = '0'.repeat(-pointPos) + digits
+  } else if (pointPos >= digits.length) {
+    intPart = digits + '0'.repeat(pointPos - digits.length)
+    fracPart = ''
+  } else {
+    intPart = digits.slice(0, pointPos)
+    fracPart = digits.slice(pointPos)
   }
+  intPart = intPart.replace(/^0+(?=\d)/, '') || '0'
+  return { neg, intPart, fracPart }
 }
 
 function addDigitCommas(intStr) {
@@ -605,7 +644,13 @@ function formatWallets(wallets) {
 function safeHttpsUrl(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
-  return /^https:\/\//i.test(trimmed) ? trimmed : null
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol === 'https:' ? parsed.href : null
+  } catch {
+    return null
+  }
 }
 
 function derivePlatformUrl(usageUrl, pathname) {
@@ -663,20 +708,25 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
 
   useEffect(() => subscribeDesktopAccountState((reply, meta) => {
     if (meta?.source === 'settings') return
-    accountCache = reply
+    accountCache = mergeAccountState(accountCache, reply)
     if (mounted.current) {
-      setData(reply)
+      setData(prev => mergeAccountState(prev, reply))
       setLoading(false)
     }
-    if (reply?.view?.status === 'credential-stored' && !reply.profile && !reply.balance) {
+    if (reply?.view?.status === 'credential-stored' && reply.profile == null && reply.balance == null) {
       void load()
     }
   }), [load])
 
+  const signedIn = data?.view?.status === 'credential-stored'
   const attempt = data?.view?.attempt ?? null
   const attemptPhase = attempt?.phase
   const signingIn = attemptPhase === 'initializing' || attemptPhase === 'waiting-browser' || attemptPhase === 'exchanging' || attemptPhase === 'committing'
   const committing = attemptPhase === 'committing'
+
+  useEffect(() => {
+    if (!signedIn) setSignOutPrompt(null)
+  }, [signedIn])
 
   useEffect(() => { setCopyState('') }, [attempt?.id, attempt?.authorizeUrl])
 
@@ -781,7 +831,6 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
     return h('div', { className: 'dsb-engine-empty' }, t('Account management is not available on this host.'))
   }
 
-  const signedIn = data?.view?.status === 'credential-stored'
   const profile = data?.profile?.status === 'ready' ? data.profile.value : null
   const balanceReady = data?.balance?.status === 'ready'
   const balanceText = balanceReady ? formatWallets(data.balance.value) : null
@@ -840,6 +889,7 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
     h(ReadOnlyBanner, { readOnly }),
     h(StatusAlert, { error: error || attemptErrorText }),
     h(EngineSection, {
+      title: t('Account'),
       action: signedIn ? h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
@@ -884,7 +934,7 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
         : (data?.balance === undefined || data?.balance === null
           ? h('span', { className: 'bt-set-hint' }, t('Loading…'))
           : balanceUnavailableNode)) : null),
-    (usageUrl || topUpUrl || apiKeysUrl || typeof openModels === 'function') ? h(EngineSection, { title: t('Billing') },
+    signedIn && (usageUrl || topUpUrl || apiKeysUrl || typeof openModels === 'function') ? h(EngineSection, { title: t('Billing') },
       usageUrl ? h(EngineRow, { label: t('Usage details') },
         h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: usageUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open'))) : null,
       topUpUrl ? h(EngineRow, { label: t('Top up') },

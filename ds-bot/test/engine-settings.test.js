@@ -1014,9 +1014,27 @@ test('engine-account-running-tasks inspects deepseekAccount and active workView 
   throwOnCheck = true
   assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false, unknown: true })
 
-  // Fallback to rt.workView() catches active Bot work even when account service returns false.
+  // Fallback inspects real host work views (workView, roomWorkView, agentWorkView, turnsView) directly.
   throwOnCheck = false
-  rt.workView = () => ({ bots: { b1: { kind: 'turn' } }, rooms: {}, agents: {}, turns: {} })
+  rt.workView = () => ({})
+  rt.roomWorkView = () => ({})
+  rt.agentWorkView = () => ({})
+  rt.turnsView = () => ({})
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false })
+
+  rt.workView = () => ({ b1: { since: 1000, tool: 'bash' } })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.workView = () => ({})
+  rt.roomWorkView = () => ({ r1: [{ botId: 'b1', since: 1000 }] })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.roomWorkView = () => ({})
+  rt.agentWorkView = () => ({ a1: { since: 1000 } })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.agentWorkView = () => ({})
+  rt.turnsView = () => ({ s1: 1000 })
   assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
 
   // Read-only host allows engine-account-running-tasks (in READS), while remote/phone callers are refused.

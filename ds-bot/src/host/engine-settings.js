@@ -654,19 +654,18 @@ export function install(rt) {
             unknown = true
           }
         }
-        if (!running && typeof rt.workView === 'function') {
-          try {
-            const snap = rt.workView() ?? {}
-            if (
-              Object.keys(snap.bots ?? {}).length > 0
-              || Object.keys(snap.rooms ?? {}).length > 0
-              || Object.keys(snap.agents ?? {}).length > 0
-              || Object.keys(snap.turns ?? {}).length > 0
-            ) {
-              running = true
+        if (!running) {
+          for (const viewFn of [rt.workView, rt.roomWorkView, rt.agentWorkView, rt.turnsView]) {
+            if (typeof viewFn !== 'function') continue
+            try {
+              const map = viewFn()
+              if (map && typeof map === 'object' && Object.keys(map).length > 0) {
+                running = true
+                break
+              }
+            } catch {
+              unknown = true
             }
-          } catch {
-            unknown = true
           }
         }
         return { available: true, running, ...(unknown ? { unknown: true } : {}) }
