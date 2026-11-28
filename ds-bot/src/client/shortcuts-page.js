@@ -171,7 +171,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
       .filter(group => group.items.length > 0)
   }, [visibleDefs])
 
-  const hasCustom = Object.keys(overrides).length > 0
+  const hasCustom = store.hasCustomizations()
   const modCap = mac ? '⌘' : 'Ctrl'
   const shiftCap = mac ? '⇧' : 'Shift'
   const fixedRows = useMemo(() => {
@@ -257,7 +257,8 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides)
         const caps = formatBindingCaps(binding, mac)
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id)
+        const customized = store.isCustomized(def.id)
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id)
         const isRecording = recordingId === def.id
         const rowNotice = notice?.id === def.id ? notice : null
         const label = labelForDef(def, classic)
@@ -268,7 +269,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
               customized ? h('span', { className: 'bt-sc-dot', 'aria-label': t('Customized') }) : null),
           },
           h('div', { className: 'bt-sc-controls' },
-            customized
+            customized || suppressed
               ? h('button', {
                 type: 'button',
                 className: 'bt-mini bt-sc-reset',

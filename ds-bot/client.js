@@ -62509,6 +62509,27 @@ function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform(), 
 function platformBucket(mac = isMacPlatform()) {
   return mac ? "mac" : "other";
 }
+function isDesktopDef(def) {
+  return Boolean(def && Array.isArray(def.hosts) && def.hosts.includes("desktop"));
+}
+function resolveEffectiveOverrides(explicit = {}, mac = isMacPlatform(), host = "desktop") {
+  const effective = { ...explicit };
+  const usedByExplicit = /* @__PURE__ */ new Set();
+  for (const [id, binding] of Object.entries(explicit)) {
+    if (!binding) continue;
+    const def = SHORTCUT_BY_ID[id];
+    if (!def || !Array.isArray(def.hosts) || !def.hosts.includes(host)) continue;
+    const key = bindingKey(binding, mac);
+    if (key) usedByExplicit.add(key);
+  }
+  for (const def of shortcutsForHost(host)) {
+    if (Object.prototype.hasOwnProperty.call(explicit, def.id)) continue;
+    if (!def.defaultBinding) continue;
+    const key = bindingKey(def.defaultBinding, mac);
+    if (key && usedByExplicit.has(key)) effective[def.id] = null;
+  }
+  return effective;
+}
 function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? null : localStorage, mac = isMacPlatform()) {
   if (!storage) return {};
   try {
@@ -62520,24 +62541,16 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
     if (!bucket || typeof bucket !== "object") return {};
     const clean = {};
     for (const [id, value] of Object.entries(bucket)) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
-    }
-    const usedByOverrides = /* @__PURE__ */ new Set();
-    for (const binding of Object.values(clean)) {
-      if (!binding) continue;
-      const key = bindingKey(binding, mac);
-      if (key) usedByOverrides.add(key);
-    }
-    for (const def of shortcutsForHost("desktop")) {
-      if (Object.prototype.hasOwnProperty.call(clean, def.id)) continue;
-      if (!def.defaultBinding) continue;
-      const key = bindingKey(def.defaultBinding, mac);
-      if (key && usedByOverrides.has(key)) clean[def.id] = null;
     }
     return clean;
   } catch {
@@ -62555,11 +62568,15 @@ function saveShortcutOverrides(overrides, storage = typeof localStorage === "und
     }
     const clean = {};
     for (const [id, value] of Object.entries(overrides ?? {})) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     parsed[platformBucket(mac)] = clean;
@@ -62576,65 +62593,71 @@ function isShortcutRecording() {
 }
 function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
   const resolveStorage = () => storage !== void 0 ? storage : typeof localStorage === "undefined" ? null : localStorage;
-  let overrides = loadShortcutOverrides(resolveStorage(), mac);
+  let explicit = loadShortcutOverrides(resolveStorage(), mac);
+  let effective = resolveEffectiveOverrides(explicit, mac, "desktop");
   const listeners3 = /* @__PURE__ */ new Set();
   const notify = () => {
     for (const fn of listeners3) fn();
   };
-  const commit = (next) => {
-    overrides = next;
-    saveShortcutOverrides(overrides, resolveStorage(), mac);
+  const commit = (nextExplicit) => {
+    explicit = nextExplicit;
+    effective = resolveEffectiveOverrides(explicit, mac, "desktop");
+    saveShortcutOverrides(explicit, resolveStorage(), mac);
     notify();
   };
   return {
-    getSnapshot: () => overrides,
+    getSnapshot: () => effective,
     subscribe(listener) {
       listeners3.add(listener);
       return () => listeners3.delete(listener);
     },
-    bindingOf: (id) => effectiveBinding(id, overrides),
-    isCustomized: (id) => Object.prototype.hasOwnProperty.call(overrides, id),
-    hasCustomizations: () => Object.keys(overrides).length > 0,
+    bindingOf: (id) => effectiveBinding(id, effective),
+    isCustomized: (id) => Object.prototype.hasOwnProperty.call(explicit, id),
+    hasCustomizations: () => Object.keys(explicit).length > 0,
     setBinding(id, binding, { replaceConflict = false } = {}) {
-      if (!SHORTCUT_BY_ID[id]) return { ok: false, reason: "unknown" };
-      const next = { ...overrides };
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) return { ok: false, reason: "unknown" };
+      const nextExplicit = { ...explicit };
       if (binding === null) {
-        if (SHORTCUT_BY_ID[id].defaultBinding === null) delete next[id];
-        else next[id] = null;
-        commit(next);
+        if (def.defaultBinding === null) delete nextExplicit[id];
+        else nextExplicit[id] = null;
+        commit(nextExplicit);
         return { ok: true };
       }
       const normalized = normalizeBinding(binding);
       const check = validateBinding(normalized, mac);
       if (!check.ok) return check;
-      const conflict = findConflict(id, normalized, next, mac);
+      const conflict = findConflict(id, normalized, effective, mac);
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      if (bindingsEqual(normalized, SHORTCUT_BY_ID[id].defaultBinding, mac)) {
-        delete next[id];
+      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+        delete nextExplicit[id];
       } else {
-        next[id] = normalized;
+        nextExplicit[id] = normalized;
       }
-      commit(next);
+      commit(nextExplicit);
       return { ok: true };
     },
     resetBinding(id, { replaceConflict = false } = {}) {
       const def = SHORTCUT_BY_ID[id];
-      if (!def || !Object.prototype.hasOwnProperty.call(overrides, id)) return { ok: true };
-      const next = { ...overrides };
-      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, next, mac) : null;
+      if (!isDesktopDef(def)) return { ok: true };
+      if (!Object.prototype.hasOwnProperty.call(effective, id) && !Object.prototype.hasOwnProperty.call(explicit, id)) {
+        return { ok: true };
+      }
+      const nextExplicit = { ...explicit };
+      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, effective, mac) : null;
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict, binding: def.defaultBinding };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      delete next[id];
-      commit(next);
+      delete nextExplicit[id];
+      commit(nextExplicit);
       return { ok: true };
     },
     resetAll() {
-      if (Object.keys(overrides).length === 0) return;
+      if (Object.keys(explicit).length === 0) return;
       commit({});
     },
     /**
@@ -62644,7 +62667,7 @@ function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
       const list = [];
       for (const def of shortcutsForHost("desktop")) {
         if (!isCommandAvailable(def, capabilities)) continue;
-        const binding = effectiveBinding(def.id, overrides);
+        const binding = effectiveBinding(def.id, effective);
         if (!binding) continue;
         list.push({ id: def.id, ...binding });
       }
@@ -62893,7 +62916,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
     }
     return SHORTCUT_GROUPS.map((group) => ({ ...group, items: byGroup.get(group.id) ?? [] })).filter((group) => group.items.length > 0);
   }, [visibleDefs]);
-  const hasCustom = Object.keys(overrides).length > 0;
+  const hasCustom = store.hasCustomizations();
   const modCap = mac ? "⌘" : "Ctrl";
   const shiftCap = mac ? "⇧" : "Shift";
   const fixedRows = (0, import_react73.useMemo)(() => {
@@ -62983,7 +63006,8 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides);
         const caps = formatBindingCaps(binding, mac);
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
+        const customized = store.isCustomized(def.id);
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
         const label = labelForDef(def, classic);
@@ -63003,7 +63027,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
             (0, import_react73.createElement)(
               "div",
               { className: "bt-sc-controls" },
-              customized ? (0, import_react73.createElement)("button", {
+              customized || suppressed ? (0, import_react73.createElement)("button", {
                 type: "button",
                 className: "bt-mini bt-sc-reset",
                 onClick: () => resetOne(def.id)

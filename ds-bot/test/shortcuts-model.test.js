@@ -11,8 +11,10 @@ import {
   formatBindingAria,
   formatBindingCaps,
   isReservedZoomKeyEvent,
+  loadShortcutOverrides,
   matchShortcutEvent,
   pluginShortcutDefaults,
+  saveShortcutOverrides,
   setShortcutRecording,
   shortcutsForHost,
   validateBinding,
@@ -315,24 +317,28 @@ test('unified shortcut table filters by host and keeps desktop/plugin defaults a
   })
 })
 
-test('saved user overrides win over changed defaults on upgrade', () => {
-  // Seed storage as if an earlier version (where browser defaulted to Mod+B) let the user bind
-  // Toggle details to Mod+Shift+B without touching browser.
-  const bag = new Map([[
-    'ds-bot.shortcuts.v1',
-    JSON.stringify({
-      mac: {
-        details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
-      },
-    }),
-  ]])
-  const storage = {
-    getItem: key => (bag.has(key) ? bag.get(key) : null),
-    setItem: (key, value) => { bag.set(key, String(value)) },
+test('saved user overrides win over changed defaults on upgrade without leaking derived unbinds', () => {
+  const makeStorage = (initial) => {
+    const bag = new Map(initial ? [['ds-bot.shortcuts.v1', JSON.stringify(initial)]] : [])
+    return {
+      bag,
+      getItem: key => (bag.has(key) ? bag.get(key) : null),
+      setItem: (key, value) => { bag.set(key, String(value)) },
+    }
   }
+
+  // 1. Seed storage as if an earlier version (where browser defaulted to Mod+B) let the user bind
+  // Toggle details to Mod+Shift+B without touching browser.
+  const storage = makeStorage({
+    mac: {
+      details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
+    },
+  })
   const store = createShortcutStore({ storage, mac: true })
   assert.deepEqual(store.bindingOf('details'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
   assert.equal(store.bindingOf('browser'), null, 'uncustomized browser default yields to saved user override')
+  assert.equal(store.isCustomized('details'), true)
+  assert.equal(store.isCustomized('browser'), false, 'derived suppression is not marked as user customization')
   assert.equal(
     matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyB' }, { mac: true, overrides: store.getSnapshot() }),
     'details',
@@ -341,4 +347,80 @@ test('saved user overrides win over changed defaults on upgrade', () => {
   assert.equal(forwarded.filter(entry => entry.code === 'KeyB' && entry.mod && entry.shift).length, 1)
   assert.equal(forwarded.find(entry => entry.id === 'details')?.code, 'KeyB')
   assert.equal(forwarded.find(entry => entry.id === 'browser'), undefined)
+
+  // Editing an unrelated shortcut must NOT persist derived `browser: null` to storage.
+  assert.deepEqual(store.setBinding('inbox', { code: 'KeyI', mod: true, shift: true }), { ok: true })
+  const savedAfterInbox = JSON.parse(storage.getItem('ds-bot.shortcuts.v1'))
+  assert.equal(Object.prototype.hasOwnProperty.call(savedAfterInbox.mac, 'browser'), false)
+  assert.equal(store.bindingOf('browser'), null)
+
+  // Resetting the conflicting shortcut (`details`) automatically restores `browser` to Mod+Shift+B
+  // both immediately and after reloading the store from storage.
+  assert.deepEqual(store.resetBinding('details'), { ok: true })
+  assert.deepEqual(store.bindingOf('details'), { code: 'KeyD', mod: true, ctrl: false, alt: false, shift: true })
+  assert.deepEqual(store.bindingOf('browser'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+  const savedAfterReset = JSON.parse(storage.getItem('ds-bot.shortcuts.v1'))
+  assert.equal(Object.prototype.hasOwnProperty.call(savedAfterReset.mac, 'browser'), false)
+
+  const reloaded = createShortcutStore({ storage, mac: true })
+  assert.deepEqual(reloaded.bindingOf('browser'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+  assert.equal(reloaded.isCustomized('browser'), false)
+
+  // 2. Rebinding the conflicting shortcut (`details`) to a non-conflicting key also restores `browser`.
+  const storage2 = makeStorage({
+    mac: {
+      details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
+    },
+  })
+  const store2 = createShortcutStore({ storage: storage2, mac: true })
+  assert.deepEqual(store2.setBinding('details', { code: 'KeyY', mod: true, shift: true }), { ok: true })
+  assert.deepEqual(store2.bindingOf('browser'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+  const reloaded2 = createShortcutStore({ storage: storage2, mac: true })
+  assert.deepEqual(reloaded2.bindingOf('browser'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+
+  // 3. Resetting the suppressed `browser` itself reports conflict with `details`, and replaceConflict reclaims it.
+  const storage3 = makeStorage({
+    mac: {
+      details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
+    },
+  })
+  const store3 = createShortcutStore({ storage: storage3, mac: true })
+  const resetConflict = store3.resetBinding('browser')
+  assert.equal(resetConflict.ok, false)
+  assert.equal(resetConflict.reason, 'conflict')
+  assert.equal(resetConflict.conflict?.id, 'details')
+  assert.deepEqual(store3.resetBinding('browser', { replaceConflict: true }), { ok: true })
+  assert.deepEqual(store3.bindingOf('browser'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+  assert.equal(store3.bindingOf('details'), null)
+  assert.equal(store3.isCustomized('browser'), false)
+  assert.equal(store3.isCustomized('details'), true)
+})
+
+test('loadShortcutOverrides strips saved overrides that now equal the current default', () => {
+  const bag = new Map([[
+    'ds-bot.shortcuts.v1',
+    JSON.stringify({
+      mac: {
+        // User previously customized browser to Mod+Shift+B before it became the default.
+        browser: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
+      },
+    }),
+  ]])
+  const storage = {
+    getItem: key => (bag.has(key) ? bag.get(key) : null),
+    setItem: (key, value) => { bag.set(key, String(value)) },
+  }
+  const loaded = loadShortcutOverrides(storage, true)
+  assert.deepEqual(loaded, {})
+  const store = createShortcutStore({ storage, mac: true })
+  assert.equal(store.isCustomized('browser'), false)
+  assert.equal(store.hasCustomizations(), false)
+  assert.deepEqual(store.bindingOf('browser'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+
+  // saveShortcutOverrides likewise strips default-equal overrides and rejects unknown IDs.
+  saveShortcutOverrides({
+    browser: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
+    'non-desktop-unknown': { code: 'KeyZ', mod: true, ctrl: false, alt: false, shift: true },
+  }, storage, true)
+  assert.deepEqual(JSON.parse(storage.getItem('ds-bot.shortcuts.v1')).mac, {})
 })

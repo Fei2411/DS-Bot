@@ -477,6 +477,35 @@ function platformBucket(mac = isMacPlatform()) {
   return mac ? 'mac' : 'other'
 }
 
+function isDesktopDef(def) {
+  return Boolean(def && Array.isArray(def.hosts) && def.hosts.includes('desktop'))
+}
+
+/**
+ * Projects explicit persisted user overrides into the effective overrides map used for
+ * display, dispatch, and Electron forwarding. When a command's default binding changes across
+ * versions and now collides with a saved user override on another command, the uncustomized
+ * default is dynamically suppressed (`null`) without mutating persisted user overrides.
+ */
+export function resolveEffectiveOverrides(explicit = {}, mac = isMacPlatform(), host = 'desktop') {
+  const effective = { ...explicit }
+  const usedByExplicit = new Set()
+  for (const [id, binding] of Object.entries(explicit)) {
+    if (!binding) continue
+    const def = SHORTCUT_BY_ID[id]
+    if (!def || !Array.isArray(def.hosts) || !def.hosts.includes(host)) continue
+    const key = bindingKey(binding, mac)
+    if (key) usedByExplicit.add(key)
+  }
+  for (const def of shortcutsForHost(host)) {
+    if (Object.prototype.hasOwnProperty.call(explicit, def.id)) continue
+    if (!def.defaultBinding) continue
+    const key = bindingKey(def.defaultBinding, mac)
+    if (key && usedByExplicit.has(key)) effective[def.id] = null
+  }
+  return effective
+}
+
 export function loadShortcutOverrides(storage = typeof localStorage === 'undefined' ? null : localStorage, mac = isMacPlatform()) {
   if (!storage) return {}
   try {
@@ -488,27 +517,16 @@ export function loadShortcutOverrides(storage = typeof localStorage === 'undefin
     if (!bucket || typeof bucket !== 'object') return {}
     const clean = {}
     for (const [id, value] of Object.entries(bucket)) {
-      if (!SHORTCUT_BY_ID[id]) continue
-      if (value === null) clean[id] = null
-      else {
+      const def = SHORTCUT_BY_ID[id]
+      if (!isDesktopDef(def)) continue
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null
+      } else {
         const normalized = normalizeBinding(value)
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized
+        }
       }
-    }
-    // Preserve saved user overrides when a command's default binding changes across versions:
-    // if an explicit saved binding collides with another uncustomized command's default, unbind
-    // the uncustomized default so display, dispatch, and forwarding stay conflict-free.
-    const usedByOverrides = new Set()
-    for (const binding of Object.values(clean)) {
-      if (!binding) continue
-      const key = bindingKey(binding, mac)
-      if (key) usedByOverrides.add(key)
-    }
-    for (const def of shortcutsForHost('desktop')) {
-      if (Object.prototype.hasOwnProperty.call(clean, def.id)) continue
-      if (!def.defaultBinding) continue
-      const key = bindingKey(def.defaultBinding, mac)
-      if (key && usedByOverrides.has(key)) clean[def.id] = null
     }
     return clean
   } catch {
@@ -527,11 +545,15 @@ export function saveShortcutOverrides(overrides, storage = typeof localStorage =
     }
     const clean = {}
     for (const [id, value] of Object.entries(overrides ?? {})) {
-      if (!SHORTCUT_BY_ID[id]) continue
-      if (value === null) clean[id] = null
-      else {
+      const def = SHORTCUT_BY_ID[id]
+      if (!isDesktopDef(def)) continue
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null
+      } else {
         const normalized = normalizeBinding(value)
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized
+        }
       }
     }
     parsed[platformBucket(mac)] = clean
@@ -552,68 +574,75 @@ export function isShortcutRecording() {
 
 /**
  * Reactive store for user shortcut overrides, compatible with `useSyncExternalStore`.
+ * Keeps explicit persisted overrides separate from derived upgrade-conflict suppressions.
  */
 export function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
   const resolveStorage = () => (storage !== undefined ? storage : (typeof localStorage === 'undefined' ? null : localStorage))
-  let overrides = loadShortcutOverrides(resolveStorage(), mac)
+  let explicit = loadShortcutOverrides(resolveStorage(), mac)
+  let effective = resolveEffectiveOverrides(explicit, mac, 'desktop')
   const listeners = new Set()
   const notify = () => { for (const fn of listeners) fn() }
 
-  const commit = (next) => {
-    overrides = next
-    saveShortcutOverrides(overrides, resolveStorage(), mac)
+  const commit = (nextExplicit) => {
+    explicit = nextExplicit
+    effective = resolveEffectiveOverrides(explicit, mac, 'desktop')
+    saveShortcutOverrides(explicit, resolveStorage(), mac)
     notify()
   }
 
   return {
-    getSnapshot: () => overrides,
+    getSnapshot: () => effective,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    bindingOf: (id) => effectiveBinding(id, overrides),
-    isCustomized: (id) => Object.prototype.hasOwnProperty.call(overrides, id),
-    hasCustomizations: () => Object.keys(overrides).length > 0,
+    bindingOf: (id) => effectiveBinding(id, effective),
+    isCustomized: (id) => Object.prototype.hasOwnProperty.call(explicit, id),
+    hasCustomizations: () => Object.keys(explicit).length > 0,
     setBinding(id, binding, { replaceConflict = false } = {}) {
-      if (!SHORTCUT_BY_ID[id]) return { ok: false, reason: 'unknown' }
-      const next = { ...overrides }
+      const def = SHORTCUT_BY_ID[id]
+      if (!isDesktopDef(def)) return { ok: false, reason: 'unknown' }
+      const nextExplicit = { ...explicit }
       if (binding === null) {
-        if (SHORTCUT_BY_ID[id].defaultBinding === null) delete next[id]
-        else next[id] = null
-        commit(next)
+        if (def.defaultBinding === null) delete nextExplicit[id]
+        else nextExplicit[id] = null
+        commit(nextExplicit)
         return { ok: true }
       }
       const normalized = normalizeBinding(binding)
       const check = validateBinding(normalized, mac)
       if (!check.ok) return check
-      const conflict = findConflict(id, normalized, next, mac)
+      const conflict = findConflict(id, normalized, effective, mac)
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: 'conflict', conflict }
-        next[conflict.id] = null
+        nextExplicit[conflict.id] = null
       }
-      if (bindingsEqual(normalized, SHORTCUT_BY_ID[id].defaultBinding, mac)) {
-        delete next[id]
+      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+        delete nextExplicit[id]
       } else {
-        next[id] = normalized
+        nextExplicit[id] = normalized
       }
-      commit(next)
+      commit(nextExplicit)
       return { ok: true }
     },
     resetBinding(id, { replaceConflict = false } = {}) {
       const def = SHORTCUT_BY_ID[id]
-      if (!def || !Object.prototype.hasOwnProperty.call(overrides, id)) return { ok: true }
-      const next = { ...overrides }
-      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, next, mac) : null
+      if (!isDesktopDef(def)) return { ok: true }
+      if (!Object.prototype.hasOwnProperty.call(effective, id) && !Object.prototype.hasOwnProperty.call(explicit, id)) {
+        return { ok: true }
+      }
+      const nextExplicit = { ...explicit }
+      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, effective, mac) : null
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: 'conflict', conflict, binding: def.defaultBinding }
-        next[conflict.id] = null
+        nextExplicit[conflict.id] = null
       }
-      delete next[id]
-      commit(next)
+      delete nextExplicit[id]
+      commit(nextExplicit)
       return { ok: true }
     },
     resetAll() {
-      if (Object.keys(overrides).length === 0) return
+      if (Object.keys(explicit).length === 0) return
       commit({})
     },
     /**
@@ -623,7 +652,7 @@ export function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
       const list = []
       for (const def of shortcutsForHost('desktop')) {
         if (!isCommandAvailable(def, capabilities)) continue
-        const binding = effectiveBinding(def.id, overrides)
+        const binding = effectiveBinding(def.id, effective)
         if (!binding) continue
         list.push({ id: def.id, ...binding })
       }
