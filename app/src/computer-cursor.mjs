@@ -51,12 +51,14 @@ export function createComputerCursor({ BrowserWindow, screen, platform, ownPid =
       frame: false, transparent: true, alwaysOnTop: true, focusable: false,
       resizable: false, movable: false, minimizable: false, maximizable: false,
       skipTaskbar: true, hasShadow: false, show: false,
+      ...(platform === 'darwin' ? { type: 'panel' } : {}),
       webPreferences: { sandbox: true },
     })
     // Floats over full-screen apps too, not just the regular window level.
     try { win.setAlwaysOnTop(true, 'screen-saver') } catch {}
     try { win.setIgnoreMouseEvents(true, { forward: true }) } catch {}
-    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
+    // Keep the main app's Dock icon while the panel joins fullscreen spaces.
+    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true }) } catch {}
     // macOS cua captures a single window, so the Bot never screenshots its own
     // cursor and the user's recordings may show it — no protection here. The
     // driver may capture the whole screen on Windows, so it is hidden there.

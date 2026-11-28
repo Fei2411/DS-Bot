@@ -16,7 +16,7 @@ function fakeElectron() {
     }
     setContentProtection(on) { this.protection = on }
     setBounds(bounds) { this.bounds = bounds }
-    setVisibleOnAllWorkspaces(on) { this.workspaces = on }
+    setVisibleOnAllWorkspaces(on, options) { this.workspaces = { on, ...options } }
     showInactive() { this.shown = true }
     close() { this.closed = true; this.listeners.get('closed')?.() }
     loadURL(url) { this.url = url; return Promise.resolve() }
@@ -28,9 +28,9 @@ function fakeElectron() {
   }
 }
 
-test('the indicator window is frameless, unfocusable, protected and centered', () => {
+test('the macOS indicator is a protected panel that leaves the app in the Dock', () => {
   const { BrowserWindow, screen, windows } = fakeElectron()
-  const indicator = createComputerIndicator({ BrowserWindow, screen, html: indicatorHtml, log: { warn: () => {} } })
+  const indicator = createComputerIndicator({ BrowserWindow, screen, platform: 'darwin', html: indicatorHtml, log: { warn: () => {} } })
   indicator.update({ rows: [{ label: 'River · Notes', botId: 'w1' }], labels: {} })
   assert.equal(windows.length, 1)
   const [win] = windows
@@ -38,8 +38,9 @@ test('the indicator window is frameless, unfocusable, protected and centered', (
   assert.equal(win.options.transparent, true)
   assert.equal(win.options.alwaysOnTop, true)
   assert.equal(win.options.focusable, false)
+  assert.equal(win.options.type, 'panel')
   assert.equal(win.protection, true)
-  assert.equal(win.workspaces, true)
+  assert.deepEqual(win.workspaces, { on: true, visibleOnFullScreen: true, skipTransformProcessType: true })
   // top center of the primary display
   assert.equal(win.options.width, 1440 - 64)
   assert.equal(win.options.x, Math.round((1440 - (1440 - 64)) / 2))
@@ -53,9 +54,10 @@ test('empty entries hide the window; button clicks reach onAction', async () => 
   const actions = []
   const listeners = {}
   const ipcMain = { on: (channel, fn) => { listeners[channel] = fn } }
-  const indicator = createComputerIndicator({ BrowserWindow, screen, html: indicatorHtml, ipcMain, onAction: (kind, botId) => actions.push([kind, botId]), log: { warn: () => {} } })
+  const indicator = createComputerIndicator({ BrowserWindow, screen, platform: 'win32', html: indicatorHtml, ipcMain, onAction: (kind, botId) => actions.push([kind, botId]), log: { warn: () => {} } })
   indicator.update({ rows: [{ label: 'River · Notes', botId: 'w1' }], labels: {} })
   const [win] = windows
+  assert.equal(win.options.type, undefined)
   const act = listeners['ds-bot:computer-indicator:act']
   act({ sender: win.webContents }, 'stop', 'w1')
   act({ sender: win.webContents }, 'stopall', '')

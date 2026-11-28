@@ -21,7 +21,7 @@ function fakeWindow() {
   win.setAlwaysOnTop = (on, level) => { win.alwaysOnTopLevel = level }
   win.setIgnoreMouseEvents = (on, opts) => { win.ignored = on }
   win.setContentProtection = (on) => { win.protected = on }
-  win.setVisibleOnAllWorkspaces = () => {}
+  win.setVisibleOnAllWorkspaces = (on, options) => { win.workspaces = { on, ...options } }
   win.close = () => { win.closed = true; win.emit('closed') }
   win.webContents = { executeJavaScript: async code => win.js.push(code) }
   return win
@@ -53,6 +53,8 @@ test('the cursor window is transparent, click-through and floats above apps', as
   assert.equal(win.options.frame, false)
   assert.equal(win.options.focusable, false)
   assert.equal(win.options.skipTaskbar, true)
+  assert.equal(win.options.type, 'panel')
+  assert.deepEqual(win.workspaces, { on: true, visibleOnFullScreen: true, skipTransformProcessType: true })
   assert.equal(win.alwaysOnTopLevel, 'screen-saver')
   assert.equal(win.ignored, true)
   assert.equal(win.protected, undefined)
@@ -86,6 +88,7 @@ test('darwin draws unprotected; win32 hides the cursor from captures', async () 
   const { windows, BrowserWindow } = fakeElectron()
   const cursor = createComputerCursor({ BrowserWindow, screen, platform: 'win32', spawn: fakeSpawn(), log: { warn: () => {} } })
   await update(cursor)
+  assert.equal(windows[0].options.type, undefined)
   assert.equal(windows[0].protected, true)
   cursor.dispose()
 })
