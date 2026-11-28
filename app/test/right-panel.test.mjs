@@ -1818,3 +1818,157 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     uiProbe5.unmount()
   }
 })
+
+test('FileTree Open-in-App & drag-out, ImagePreview copy/save, Excel hints, and categorized Office error messages work cleanly', async () => {
+  const dragged = []
+  const openedApps = []
+  const copiedImgs = []
+  const savedImgs = []
+  const prevBridge = sandbox.window.dsBotApp
+  sandbox.window.dsBotApp = {
+    openInApp: {
+      list: async () => ({
+        apps: [
+          { id: 'cursor', name: 'Cursor', category: 'editor' },
+          { id: 'ghostty', name: 'Ghostty', category: 'terminal' },
+        ],
+        defaultId: 'cursor',
+      }),
+      open: async (appId, targetPath, dirPath) => {
+        openedApps.push({ appId, targetPath, dirPath })
+        return { ok: true, defaultId: appId }
+      },
+    },
+    startDrag: (filePath) => { dragged.push(filePath) },
+    copyImage: async (b64, mime) => { copiedImgs.push({ b64, mime }); return { ok: true } },
+    saveImage: async (b64, name) => { savedImgs.push({ b64, name }); return { ok: true, path: `/tmp/${name}` } },
+  }
+
+  try {
+    // 1. FileTree Open-in-App split button remembers chosen app and drag-out calls startDrag.
+    sandbox.__testCall = async (endpoint) => {
+      if (endpoint === 'workspace-list') {
+        return {
+          root: '/repo', rootName: 'repo', path: '', truncated: false,
+          entries: [{ name: 'notes.md', path: 'notes.md', kind: 'file', size: 12, ext: '.md' }],
+        }
+      }
+      if (endpoint === 'workspace-watch') return { watchId: 'w1', root: '/repo', recursive: true }
+      return {}
+    }
+    const team = createTeam()
+    const treeInst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+    try {
+      treeInst.render()
+      await tick()
+      treeInst.render()
+      await tick()
+      let tree = treeInst.render()
+      // Primary Open-in-App button opens workspace root in remembered default (Cursor).
+      const openBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-btn'))[0]
+      assert.ok(openBtn, 'Open in app button renders when dsBotApp.openInApp bridge exists')
+      openBtn.props.onClick()
+      await tick()
+      assert.deepEqual(plain(openedApps[0]), { appId: 'cursor', targetPath: '/repo', dirPath: '/repo' })
+
+      // Dropdown switches default to Ghostty and launches it.
+      const caretBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-caret'))[0]
+      caretBtn.props.onClick()
+      tree = treeInst.render()
+      const ghosttyItem = all(tree, n => n.type === 'button' && n.props?.['data-app-id'] === 'ghostty')[0]
+      assert.ok(ghosttyItem)
+      ghosttyItem.props.onClick()
+      await tick()
+      assert.deepEqual(plain(openedApps[1]), { appId: 'ghostty', targetPath: '/repo', dirPath: '/repo' })
+
+      // Dragging file row triggers native Electron webContents.startDrag with full path.
+      const fileRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'notes.md')[0]
+      assert.equal(fileRow.props.draggable, true)
+      let dragPrevented = false
+      fileRow.props.onDragStart({ preventDefault() { dragPrevented = true } })
+      assert.equal(dragPrevented, true)
+      assert.deepEqual(plain(dragged), ['/repo/notes.md'])
+    } finally {
+      treeInst.unmount()
+    }
+
+    // 2. ImagePreview Copy image and Save as buttons call dsBotApp bridge.
+    const imgInst = mount(FilePreview, {
+      file: { kind: 'image', name: 'chart.png', path: 'assets/chart.png', size: 16, mime: 'image/png', base64: 'iVBORw0KGgo=' },
+    })
+    try {
+      const tree = imgInst.render()
+      const copyBtn = all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n)))[0]
+      const saveBtn = all(tree, n => n.type === 'button' && /Save as/.test(textOf(n)))[0]
+      assert.ok(copyBtn && saveBtn)
+      copyBtn.props.onClick()
+      saveBtn.props.onClick()
+      await tick()
+      assert.equal(copiedImgs.length, 1)
+      assert.equal(copiedImgs[0].b64, 'iVBORw0KGgo=')
+      assert.equal(savedImgs.length, 1)
+      assert.equal(savedImgs[0].name, 'chart.png')
+    } finally {
+      imgInst.unmount()
+    }
+
+    // 3. SpreadsheetPreview displays formula and unsupported-element hints.
+    const xlsxInst = mount(FilePreview, {
+      file: {
+        kind: 'spreadsheet',
+        ext: '.xlsx',
+        name: 'budget.xlsx',
+        path: 'budget.xlsx',
+        size: 1024,
+        totalSheets: 1,
+        truncatedSheets: false,
+        truncatedText: false,
+        hints: { hasFormulas: true, formulaCount: 2, unsupported: ['charts', 'conditionalFormatting'] },
+        sheets: [{
+          name: 'Q1',
+          state: 'visible',
+          rows: [[{ v: '20', f: '=SUM(A1:A2)', num: true }]],
+          rowCount: 1,
+          colCount: 1,
+          totalRows: 1,
+          totalCols: 1,
+          truncatedRows: false,
+          truncatedCols: false,
+          truncatedText: false,
+          truncatedBySize: false,
+          merges: [],
+          formulaCount: 2,
+          unsupported: ['conditionalFormatting'],
+        }],
+      },
+    })
+    try {
+      const text = textOf(xlsxInst.render())
+      assert.match(text, /Formulas show cached values only/)
+      assert.match(text, /Charts/)
+      assert.match(text, /Conditional formatting/)
+    } finally {
+      xlsxInst.unmount()
+    }
+
+    // 4. Categorized Office conversion failure copy (timeout, busy, encrypted, missing-font).
+    const cases = [
+      ['timeout', /timed out/i],
+      ['busy', /busy with another document/i],
+      ['encrypted', /password-protected or encrypted/i],
+      ['missing-font', /missing system fonts/i],
+    ]
+    for (const [reason, pattern] of cases) {
+      const offInst = mount(FilePreview, {
+        file: { kind: 'office-unavailable', ext: '.docx', name: 'doc.docx', path: 'doc.docx', size: 100, reason },
+      })
+      try {
+        assert.match(textOf(offInst.render()), pattern)
+      } finally {
+        offInst.unmount()
+      }
+    }
+  } finally {
+    sandbox.window.dsBotApp = prevBridge
+  }
+})

@@ -5,7 +5,7 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { createChatGPTSignIn } from './chatgpt-signin.mjs'
 import { createChatGPTRelay } from './chatgpt-relay.mjs'
 import { createChatGPTBridge } from './chatgpt-bridge.mjs'
@@ -14,7 +14,7 @@ import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -37,6 +37,7 @@ import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, mate
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
+import { detectInstalledApps, openInExternalApp, OpenInAppStore } from './open-in-app.mjs'
 
 installSocketTosGuard()
 
@@ -66,6 +67,8 @@ const IPC = {
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
   syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
+  openInAppList: 'ds-bot:open-in-app-list', openInAppOpen: 'ds-bot:open-in-app-open',
+  startDrag: 'ds-bot:start-drag', copyImage: 'ds-bot:copy-image', saveImage: 'ds-bot:save-image',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -1195,6 +1198,81 @@ function handleIpc() {
     if (fixed || !fromWindow(event) || typeof path !== 'string' || !isAbsolute(path)) return
     places = { ...places, workspace: path }
     saveLocations(places)
+  })
+  // "Open in app", FileTree drag-out, and preview image copy / save-as.
+  const openInAppStore = new OpenInAppStore(join(app.getPath('userData'), 'open-in-app-defaults.json'))
+  const MAX_IMAGE_IPC_BYTES = 16 * 1024 * 1024
+  const decodeImageBase64 = (raw) => {
+    if (typeof raw !== 'string' || raw === '') return null
+    const maxLen = Math.ceil(MAX_IMAGE_IPC_BYTES / 3) * 4 + 4
+    if (raw.length > maxLen) return null
+    const buf = Buffer.from(raw, 'base64')
+    if (buf.length === 0 || buf.length > MAX_IMAGE_IPC_BYTES) return null
+    return buf
+  }
+  ipcMain.handle(IPC.openInAppList, (event, dirPath) => {
+    assertWindow(event)
+    const detected = detectInstalledApps()
+    const defaultId = typeof dirPath === 'string' && dirPath ? openInAppStore.getDefault(dirPath) : null
+    const validDefault = detected.some(entry => entry.id === defaultId) ? defaultId : (detected[0]?.id ?? null)
+    return {
+      apps: detected.map(({ id, name, category }) => ({ id, name, category })),
+      defaultId: validDefault,
+    }
+  })
+  ipcMain.handle(IPC.openInAppOpen, async (event, appId, targetPath, dirPath) => {
+    assertWindow(event)
+    if (typeof appId !== 'string' || !appId || typeof targetPath !== 'string' || !isAbsolute(targetPath)) {
+      throw new Error('Invalid app or target path')
+    }
+    const resolvedTarget = resolve(targetPath)
+    if (!existsSync(resolvedTarget)) throw new Error('File or folder not found')
+    const detected = detectInstalledApps()
+    const chosen = detected.find(entry => entry.id === appId)
+    if (!chosen) throw new Error(`App is not installed: ${appId}`)
+    await openInExternalApp(chosen, resolvedTarget)
+    const rememberDir = typeof dirPath === 'string' && isAbsolute(dirPath) ? dirPath : ''
+    if (rememberDir) openInAppStore.setDefault(rememberDir, chosen.id)
+    return { ok: true, defaultId: chosen.id }
+  })
+  ipcMain.on(IPC.startDrag, (event, filePath) => {
+    if (!fromWindow(event) || typeof filePath !== 'string' || !isAbsolute(filePath)) return
+    const resolved = resolve(filePath)
+    if (!existsSync(resolved)) return
+    try {
+      const icon = nativeImage.createFromPath(iconFile).resize({ width: 24, height: 24 })
+      event.sender.startDrag({ file: resolved, icon })
+    } catch (error) {
+      console.error('DS Bot: file drag failed', error)
+    }
+  })
+  ipcMain.handle(IPC.copyImage, async (event, base64) => {
+    assertWindow(event)
+    const buf = decodeImageBase64(base64)
+    if (!buf) return { ok: false, error: 'invalid-image' }
+    const img = nativeImage.createFromBuffer(buf)
+    if (img.isEmpty()) return { ok: false, error: 'unsupported-image' }
+    if (typeof clipboard.write === 'function' && typeof ClipboardItem === 'function') {
+      const png = img.toPNG()
+      const blob = new Blob([png], { type: 'image/png' })
+      await clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      return { ok: true }
+    }
+    if (typeof clipboard.writeImage === 'function') {
+      clipboard.writeImage(img)
+      return { ok: true }
+    }
+    return { ok: false, error: 'unsupported-clipboard' }
+  })
+  ipcMain.handle(IPC.saveImage, async (event, base64, name) => {
+    assertWindow(event)
+    const buf = decodeImageBase64(base64)
+    if (!buf) return { ok: false, error: 'invalid-image' }
+    const safeName = basename(String(name || 'image.png')).replace(/[\x00-\x1f\x7f]/g, '').trim() || 'image.png'
+    const picked = await askPicker(mainWindow, { mode: 'save', title: tx('dialog.saveAs'), start: knownFolder('downloads'), name: safeName })
+    if (picked === undefined) return { ok: false, canceled: true }
+    await writeFile(picked, buf)
+    return { ok: true, path: picked }
   })
   if (process.platform === 'win32') {
     // Windows ignores the alpha of the caption buttons' color, so they take the opaque color

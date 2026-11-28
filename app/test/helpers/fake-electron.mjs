@@ -230,8 +230,16 @@ export const nativeImage = {
     isEmpty: () => false,
     getSize: () => ({ width: 32, height: 32 }),
     toPNG: () => Buffer.alloc(8),
+    resize() { return this },
     addRepresentation() {},
     setTemplateImage() {},
+  }),
+  createFromBuffer: (buf) => ({
+    empty: !buf || buf.length === 0,
+    isEmpty: () => !buf || buf.length === 0,
+    getSize: () => ({ width: 32, height: 32 }),
+    toPNG: () => Buffer.isBuffer(buf) ? buf : Buffer.alloc(8),
+    resize() { return this },
   }),
 }
 
@@ -261,7 +269,18 @@ export const Notification = class extends EventEmitter {
   close() { this.closed = true; this.emit('close') }
 }
 
-export const clipboard = { writeText: () => {} }
+export class ClipboardItem {
+  constructor(items = {}) {
+    this.items = items
+    this.types = Object.keys(items)
+  }
+  async getType(type) { return this.items[type] }
+}
+
+export const clipboard = {
+  writeText: async () => {},
+  write: async (items) => { state.clipboardItems = items },
+}
 
 export const powerMonitor = new EventEmitter()
 

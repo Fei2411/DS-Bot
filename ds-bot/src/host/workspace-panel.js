@@ -153,18 +153,32 @@ function clampDim(value, fallback, min, max) {
 
 let activeOfficeConversions = 0
 
+/**
+ * Classifies LibreOffice / Office-to-PDF conversion failures into actionable categories.
+ * @returns {'busy' | 'timeout' | 'encrypted' | 'missing-font' | 'unavailable'}
+ */
+export function classifyOfficeError(error) {
+  const code = String(error?.code ?? '').toLowerCase()
+  const msg = String(error?.message ?? error ?? '').toLowerCase()
+  if (code === 'office/busy' || /\bbusy\b|too many concurrent|queue full/.test(msg)) return 'busy'
+  if (code === 'etimedout' || code === 'timeout' || code === 'office/timeout' || /timed?\s*out|deadline exceeded/.test(msg)) return 'timeout'
+  if (code === 'office/encrypted' || /password|encrypt|protected|cipher|drm|decryption/.test(msg)) return 'encrypted'
+  if (code === 'office/missing-font' || /missing font|fontconfig|no font|font.*not found|typeface/.test(msg)) return 'missing-font'
+  return 'unavailable'
+}
+
 async function convertOfficeToPdf(inputRealPath, ext, signal) {
   if (signal?.aborted) throw Object.assign(new Error('Conversion cancelled'), { code: 'bot/aborted' })
   if (activeOfficeConversions >= MAX_OFFICE_CONVERSIONS) {
-    return { status: 'unavailable', error: 'Office preview is busy' }
+    return { status: 'unavailable', reason: 'busy', error: 'Office preview is busy' }
   }
   let kit
   try {
     kit = await import('@deepseek-ai/libreoffice-kit')
   } catch {
-    return { status: 'unavailable' }
+    return { status: 'unavailable', reason: 'unavailable' }
   }
-  if (typeof kit?.createConverter !== 'function') return { status: 'unavailable' }
+  if (typeof kit?.createConverter !== 'function') return { status: 'unavailable', reason: 'unavailable' }
   activeOfficeConversions += 1
   let workDir = null
   let converter = null
@@ -1052,7 +1066,8 @@ export function install(rt) {
           }
         }
         try {
-          const converted = await convertOfficeToPdf(target, ext, signal)
+          const convertFn = typeof rt.convertOfficeToPdf === 'function' ? rt.convertOfficeToPdf : convertOfficeToPdf
+          const converted = await convertFn(target, ext, signal)
           if (converted.status === 'ok') {
             return {
               kind: 'pdf',
@@ -1067,10 +1082,12 @@ export function install(rt) {
           if (converted.status === 'too-large') {
             return { kind: 'too-large', convertedFrom: ext, name: fileName, path: relPath, size: converted.size, maxBytes: converted.maxBytes }
           }
-          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, ...(converted.error ? { error: converted.error } : {}) }
+          const reason = converted.reason ?? classifyOfficeError(converted.error)
+          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, reason, ...(converted.error ? { error: converted.error } : {}) }
         } catch (error) {
           if (error?.code === 'bot/aborted') throw error
-          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, error: error?.message ?? String(error) }
+          const reason = classifyOfficeError(error)
+          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, reason, error: error?.message ?? String(error) }
         }
       }
 

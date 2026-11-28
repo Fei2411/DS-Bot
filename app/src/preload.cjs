@@ -101,6 +101,21 @@ if (startPage !== undefined) {
       ipcRenderer.on('ds-bot:shortcut', handler)
       return () => { ipcRenderer.removeListener('ds-bot:shortcut', handler) }
     },
+    // Right-panel local integrations: open in external app, native file drag-out, image copy/save.
+    openInApp: {
+      list: (dirPath) => ipcRenderer.invoke('ds-bot:open-in-app-list', typeof dirPath === 'string' ? dirPath : ''),
+      open: (appId, targetPath, dirPath) => ipcRenderer.invoke(
+        'ds-bot:open-in-app-open',
+        String(appId ?? ''),
+        String(targetPath ?? ''),
+        typeof dirPath === 'string' ? dirPath : '',
+      ),
+    },
+    startDrag: (filePath) => {
+      if (typeof filePath === 'string' && filePath) ipcRenderer.send('ds-bot:start-drag', filePath)
+    },
+    copyImage: (base64, mime) => ipcRenderer.invoke('ds-bot:copy-image', String(base64 ?? ''), typeof mime === 'string' ? mime : ''),
+    saveImage: (base64, name) => ipcRenderer.invoke('ds-bot:save-image', String(base64 ?? ''), typeof name === 'string' ? name : 'image.png'),
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
   const placeOf = (value) => {

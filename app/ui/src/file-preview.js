@@ -172,6 +172,26 @@ export function colIndexToLetters(index) {
   return out
 }
 
+const UNSUPPORTED_XLSX_LABELS = {
+  charts: 'Charts',
+  conditionalFormatting: 'Conditional formatting',
+  pivotTables: 'Pivot tables',
+  drawings: 'Drawings',
+  macros: 'Macros',
+  comments: 'Comments',
+  sparklines: 'Sparklines',
+}
+
+function officeUnavailableMessage(reason) {
+  switch (reason) {
+    case 'timeout': return t('Document conversion timed out. Try opening it in a local app.')
+    case 'busy': return t('Office preview is busy with another document. Try again in a moment.')
+    case 'encrypted': return t('This document is password-protected or encrypted and cannot be previewed.')
+    case 'missing-font': return t('Document conversion failed due to missing system fonts.')
+    default: return t('Office preview is unavailable on this host')
+  }
+}
+
 function SpreadsheetPreview({ file }) {
   const sheets = useMemo(() => (Array.isArray(file.sheets) ? file.sheets : []), [file.sheets])
   const initialIndex = useMemo(() => {
@@ -229,6 +249,20 @@ function SpreadsheetPreview({ file }) {
     (sheet.truncatedText || sheet.truncatedBySize || file.truncatedText) ? t('Preview truncated for size') : null,
   ].filter(Boolean)
 
+  const hasFormulas = (sheet.formulaCount ?? 0) > 0 || file.hints?.hasFormulas === true
+  const unsupportedKeys = Array.from(new Set([
+    ...(Array.isArray(file.hints?.unsupported) ? file.hints.unsupported : []),
+    ...(Array.isArray(sheet.unsupported) ? sheet.unsupported : []),
+  ]))
+  const hintParts = [
+    hasFormulas ? t('Formulas show cached values only and are not recalculated') : null,
+    unsupportedKeys.length > 0
+      ? t('Some elements are not shown in preview: {items}', {
+        items: unsupportedKeys.map(key => t(UNSUPPORTED_XLSX_LABELS[key] ?? key)).join(', '),
+      })
+      : null,
+  ].filter(Boolean)
+
   const activeCell = selected && rows[selected.r] ? rows[selected.r][selected.c] ?? null : null
   const activeRef = selected ? `${colIndexToLetters(selected.c)}${selected.r + 1}` : ''
   const activeText = activeCell ? (activeCell.f ? `${activeCell.f}  →  ${activeCell.v}` : activeCell.v) : ''
@@ -276,6 +310,9 @@ function SpreadsheetPreview({ file }) {
       }, copiedCell ? h(CheckIcon) : h(CopyIcon)) : null),
     truncationParts.length > 0
       ? h('div', { className: 'dsb-pv-banner' }, truncationParts.join(' · '))
+      : null,
+    hintParts.length > 0
+      ? h('div', { className: 'dsb-pv-banner dsb-pv-xlsx-hints', role: 'note' }, hintParts.join(' · '))
       : null,
     rows.length === 0 || colCount === 0
       ? h('div', { className: 'dsb-rp-empty' }, t('Empty sheet'))
@@ -350,10 +387,69 @@ function PdfPreview({ file }) {
 
 function ImagePreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime)
+  const [copiedImg, setCopiedImg] = useState(false)
+  const copyTimer = useRef(0)
+  useEffect(() => { setCopiedImg(false) }, [file?.path, file?.base64])
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
+
   const src = blobUrl ?? (file.base64 ? `data:${file.mime};base64,${file.base64}` : '')
   if (!src) return h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment'))
-  return h('div', { className: 'dsb-pv-image-wrap' },
-    h('img', { className: 'dsb-pv-image', src, alt: file.name }))
+
+  const copyImage = async () => {
+    let ok = false
+    const bridge = typeof window !== 'undefined' ? window.dsBotApp : null
+    if (typeof bridge?.copyImage === 'function' && file.base64) {
+      try {
+        const res = await bridge.copyImage(file.base64, file.mime)
+        ok = res?.ok === true
+      } catch { ok = false }
+    } else if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.write === 'function' && typeof ClipboardItem === 'function' && file.base64) {
+      try {
+        const bytes = decodeBase64(file.base64)
+        const blob = new Blob([bytes], { type: file.mime || 'image/png' })
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+        ok = true
+      } catch { ok = false }
+    }
+    if (ok) {
+      setCopiedImg(true)
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => { copyTimer.current = 0; setCopiedImg(false) }, 1200)
+    }
+  }
+
+  const saveImage = async () => {
+    const bridge = typeof window !== 'undefined' ? window.dsBotApp : null
+    if (typeof bridge?.saveImage === 'function' && file.base64) {
+      try {
+        await bridge.saveImage(file.base64, file.name || 'image.png')
+        return
+      } catch { /* fall through to browser download */ }
+    }
+    if (typeof document !== 'undefined' && src) {
+      const link = document.createElement('a')
+      link.href = src
+      link.download = file.name || 'image.png'
+      link.click()
+    }
+  }
+
+  return h('div', { className: 'dsb-pv-img-pane' },
+    h('div', { className: 'dsb-pv-banner dsb-pv-img-bar' },
+      h('span', null, file.name),
+      h('div', { className: 'dsb-pv-img-actions' },
+        h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm',
+          onClick: () => { void copyImage() },
+        }, copiedImg ? h(CheckIcon) : h(CopyIcon), copiedImg ? t('Copied') : t('Copy image')),
+        h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm',
+          onClick: () => { void saveImage() },
+        }, h(DownloadIcon), t('Save as…')))),
+    h('div', { className: 'dsb-pv-image-wrap' },
+      h('img', { className: 'dsb-pv-image', src, alt: file.name })))
 }
 
 
@@ -470,6 +566,6 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
                         file.kind === 'too-large'
                           ? t('File too large (max {size})', { size: fileSizeText(file.maxBytes) })
                           : file.kind === 'office-unavailable'
-                            ? t('Office preview is unavailable on this host')
+                            ? officeUnavailableMessage(file.reason)
                             : t('Binary file cannot be previewed as text')))))
 }
