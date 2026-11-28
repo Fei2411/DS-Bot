@@ -155,7 +155,11 @@ async function start({ platform = 'telegram', adapter, seed, home, services = {}
   return { ctx, rt, home, fake, prompts, agents, agentOf, emitEvent, fireApprovals, imTurn, close, stop, flush, platform }
 }
 
-const FIELDS = { telegram: { token: 'tok-1234' }, dingtalk: { clientId: 'cli-1', clientSecret: 'sec-1234' } }
+const FIELDS = {
+  telegram: { token: 'tok-1234' },
+  dingtalk: { clientId: 'cli-1', clientSecret: 'sec-1234' },
+  feishu: { domain: 'feishu', appId: 'app-1', appSecret: 'sec-1' },
+}
 const add = (s, fields = FIELDS[s.platform]) => s.rt.imEndpoint('im-add', { platform: s.platform, botId: 'a', fields })
 const dm = (s, senderId, text, extra = {}) => s.fake.handlers.onMessage({
   chat: { key: `dm-${senderId}`, kind: 'direct', title: senderId }, sender: { id: senderId, name: `User ${senderId}` }, text, ...extra,
@@ -2284,6 +2288,68 @@ test('reply origin: a Web turn does not reach IM', async (t) => {
   assert.equal(s.fake.sent.length, 0)
 })
 
+test('reply origin: alternating desktop and Feishu private turns only sends Feishu replies', async (t) => {
+  const s = await start({ platform: 'feishu' })
+  t.after(s.stop)
+  await pairedConn(s)
+  const warnings = []
+  s.rt.warn = (...args) => warnings.push(args)
+  for (const turn of [1, 2, 3, 4]) {
+    const desktop = turn % 2 === 1
+    if (!desktop) await dm(s, 'u1', 'Feishu prompt', { messageId: `feishu-${turn}` })
+    const rpcId = desktop ? String(1_790_000_000_000 + turn) : s.prompts.at(-1).requestId
+    s.emitEvent('a', 'turn/start', { turn })
+    s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId } })
+    s.emitEvent('a', 'assistant/message', { turn, message: { content: [{ type: 'text', text: `reply ${turn}` }] } })
+    s.emitEvent('a', 'turn/end', { turn, reason: { kind: 'completed' } })
+  }
+  await s.rt.imWhenIdle()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'reply 2'], ['dm-u1', 'reply 4']])
+  assert.deepEqual(warnings, [])
+})
+
+test('reply origin: an unregistered Feishu request after a desktop turn is withheld and diagnosed once', async (t) => {
+  const s = await start({ platform: 'feishu' })
+  t.after(s.stop)
+  await pairedConn(s)
+  const warnings = []
+  s.rt.warn = (...args) => warnings.push(args)
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: '1790000000001' } })
+  s.emitEvent('a', 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'desktop answer' }] } })
+  s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.deepEqual(warnings, [], 'desktop output has no expected IM destination')
+
+  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'im:feishu:private-transport-id' } })
+  assert.deepEqual(warnings, [], 'warn only when there is output to withhold')
+  for (const text of ['private body one', 'private body two']) {
+    s.emitEvent('a', 'assistant/message', { turn: 2, message: { content: [{ type: 'text', text }] } })
+  }
+  await s.rt.imWhenIdle()
+  assert.deepEqual(s.fake.sent, [], 'never guess a chat from an unregistered request')
+  assert.deepEqual(warnings, [
+    ['ds-bot: IM reply withheld: %s (session=%s turn=%s source=%s)', 'unknown IM request', 'a', 2, 'feishu'],
+  ])
+})
+
+test('reply origin: an unpaired Feishu origin is diagnosed without sending', async (t) => {
+  const s = await start({ platform: 'feishu' })
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  const warnings = []
+  s.rt.warn = (...args) => warnings.push(args)
+  await dm(s, 'u1', 'Feishu prompt')
+  s.imTurn('a')
+  one.paired = []
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'private reply' }] } })
+  await s.rt.imWhenIdle()
+  assert.deepEqual(s.fake.sent, [])
+  assert.deepEqual(warnings, [
+    ['ds-bot: IM reply withheld: %s (session=%s turn=%s source=%s)', 'IM origin is no longer routable', 'a', 1, 'feishu'],
+  ])
+})
+
 test('API turns cannot acquire an IM origin from input arriving during their output', async t => {
   const s = await start()
   t.after(s.stop)
@@ -2732,8 +2798,8 @@ test('reply origin: withheld mixed output warns once per turn without message co
   assert.deepEqual(warnings, [], 'ordinary non-IM output does not warn')
   for (let turn = 0; turn < 2; turn++) {
     await dm(s, 'u1', 'hi')
-    if (turn === 0) s.imTurn('a')
-    else s.emitEvent('a', 'turn/start', {})
+    s.emitEvent('a', 'turn/start', { turn: turn + 1 })
+    if (turn === 0) s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
     s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'im:telegram:unknown' } })
     if (turn === 1) s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
     assert.equal(warnings.length, turn, 'no warning before output is withheld')
@@ -2750,10 +2816,8 @@ test('reply origin: withheld mixed output warns once per turn without message co
     s.emitEvent('a', 'turn/end', {})
   }
   assert.equal(s.fake.sent.length, 0)
-  assert.deepEqual(warnings, [
-    ['ds-bot: IM reply withheld: turn origin was dropped or mixed'],
-    ['ds-bot: IM reply withheld: turn origin was dropped or mixed'],
-  ])
+  assert.deepEqual(warnings, [1, 2].map(turn =>
+    ['ds-bot: IM reply withheld: %s (session=%s turn=%s source=%s)', 'unknown IM request', 'a', turn, 'telegram']))
 })
 
 test('reply origin: an unknown IM rpcId still withdraws a live origin and warns on output', async (t) => {
@@ -2768,7 +2832,9 @@ test('reply origin: an unknown IM rpcId still withdraws a live origin and warns 
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'withheld' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
-  assert.deepEqual(warnings, [['ds-bot: IM reply withheld: turn origin was dropped or mixed']])
+  assert.deepEqual(warnings, [
+    ['ds-bot: IM reply withheld: %s (session=%s turn=%s source=%s)', 'unknown IM request', 'a', 1, 'telegram'],
+  ])
 })
 
 test('reply origin: group redelivery keeps the chat and mixed group output warns once', async (t) => {
@@ -2791,7 +2857,9 @@ test('reply origin: group redelivery keeps the chat and mixed group output warns
   for (let reply = 0; reply < 2; reply++) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'withheld' })
   await s.flush()
   assert.equal(s.fake.sent.length, 1)
-  assert.deepEqual(warnings, [['ds-bot: IM reply withheld: turn origin was dropped or mixed']])
+  assert.deepEqual(warnings, [
+    ['ds-bot: IM reply withheld: %s (session=%s turn=%s source=%s)', 'unknown IM request', 'r1', 1, 'telegram'],
+  ])
 })
 
 test('reply origin: consumed IM rpcIds are bounded and an evicted id fails closed', async (t) => {

@@ -879,6 +879,10 @@ export function install(rt) {
     withheldOrigins.set(sessionId, value)
     while (withheldOrigins.size > WITHHELD_ORIGINS_MAX) withheldOrigins.delete(withheldOrigins.keys().next().value)
   }
+  const platformOfOrigin = connId => fresh(connId)?.platform
+  const markWithheldOrigin = (sessionId, reason, platform) => {
+    if (!withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, { reason, platform })
+  }
   const holdImOrigin = (sessionId) => {
     if (sessionId === undefined || mixed.has(sessionId)) return undefined
     const entry = origins.get(sessionId)
@@ -917,9 +921,12 @@ export function install(rt) {
   }
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
-    if (apiOrigins.has(sessionId)) return
+    if (apiOrigins.has(sessionId)) {
+      markWithheldOrigin(sessionId, 'API turn cannot claim an IM origin', platformOfOrigin(connId))
+      return
+    }
     if (mixed.has(sessionId)) {
-      if (!withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
+      markWithheldOrigin(sessionId, 'turn origin was dropped or mixed', platformOfOrigin(connId))
       return
     }
     const previous = origins.get(sessionId)
@@ -944,8 +951,10 @@ export function install(rt) {
   const forgetHeldOrigins = (sessionId) => {
     for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
   }
-  const dropOrigin = (sessionId) => {
-    if (origins.has(sessionId) && !withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
+  const dropOrigin = (sessionId, missingRequestPlatform) => {
+    const origin = origins.get(sessionId)
+    if (missingRequestPlatform !== undefined) markWithheldOrigin(sessionId, 'unknown IM request', missingRequestPlatform)
+    else if (origin !== undefined) markWithheldOrigin(sessionId, 'turn origin was dropped or mixed', platformOfOrigin(origin.connId))
     origins.delete(sessionId)
     mixed.add(sessionId)
     forgetHeldOrigins(sessionId)
@@ -960,10 +969,16 @@ export function install(rt) {
     nonImTurn.delete(sessionId)
     withheldOrigins.delete(sessionId)
   }
-  const warnWithheldOrigin = (sessionId) => {
-    if (withheldOrigins.get(sessionId) !== false) return
-    setWithheldOrigin(sessionId, true)
-    rt.warn('ds-bot: IM reply withheld: turn origin was dropped or mixed')
+  const warnWithheldOrigin = (sessionId, turn) => {
+    const withheld = withheldOrigins.get(sessionId)
+    if (withheld === null) return
+    const origin = origins.get(sessionId)
+    if (withheld === undefined && origin === undefined) return
+    const reason = withheld?.reason ?? 'IM origin is no longer routable'
+    const platform = withheld?.platform ?? platformOfOrigin(origin?.connId)
+    setWithheldOrigin(sessionId, null)
+    rt.warn('ds-bot: IM reply withheld: %s (session=%s turn=%s source=%s)', reason, sessionId,
+      Number.isInteger(turn) ? turn : 'unknown', imPlatform(platform)?.id ?? 'unknown')
   }
   const clearImOrigin = (sessionId) => {
     resetOrigin(sessionId)
@@ -2557,9 +2572,10 @@ export function install(rt) {
     claimOrigin(sessionId, saved.connId, saved.chatKey, saved.senderId, saved.binding)
   }
   const admitImRpc = (sessionId, rpcId, savedRequest, eventSeq) => {
+    const platform = rpcId.split(':', 2)[1]
     if (Number.isInteger(eventSeq)) {
       for (const sid of imVia.keys()) if (sid !== sessionId && !rt.chatOwners.has(sid)) imVia.delete(sid)
-      const seqs = { ...imVia.get(sessionId), [eventSeq]: rpcId.split(':')[1] }
+      const seqs = { ...imVia.get(sessionId), [eventSeq]: platform }
       const keys = Object.keys(seqs)
       if (keys.length > IM_VIA_SEQS_MAX) {
         keys.sort((a, b) => Number(a) - Number(b))
@@ -2576,7 +2592,7 @@ export function install(rt) {
       entry.consumedOn = sessionId
       void rt.save().catch(() => {})
       claimOrigin(sessionId, conn.id, entry.chatKey, entry.senderId, entry.binding)
-    } else if (asked === undefined) dropOrigin(sessionId)
+    } else if (asked === undefined) dropOrigin(sessionId, platform)
     else {
       consumedRequests.add(rpcId)
       if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
@@ -2609,7 +2625,7 @@ export function install(rt) {
   // ----------------------------------------------------------------- outbound
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
-      turnWork.set(session.id, { jobs: new Map(), children: new Map() })
+      turnWork.set(session.id, { turn: event.data?.turn, jobs: new Map(), children: new Map() })
       nonImTurn.delete(session.id)
       const room = rt.roomOf(session.id)
       if (room === undefined) {
@@ -2762,7 +2778,7 @@ export function install(rt) {
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && (item.kind !== 'view' || item.pending === true)) continue
       if (origin === undefined) {
-        warnWithheldOrigin(session.id)
+        warnWithheldOrigin(session.id, event.data?.turn ?? turnWork.get(session.id)?.turn)
         continue
       }
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
@@ -2777,7 +2793,7 @@ export function install(rt) {
     const roomSessionId = room.sessionId ?? room.id
     const origin = originOf(roomSessionId)
     if (origin === undefined) {
-      warnWithheldOrigin(roomSessionId)
+      warnWithheldOrigin(roomSessionId, turnWork.get(roomSessionId)?.turn)
       return
     }
     sendReply(origin, line.text, { sessionId: roomSessionId, botId: line.botId, prefix: `**${line.who}**: ` })
