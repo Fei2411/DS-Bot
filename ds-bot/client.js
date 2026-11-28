@@ -24410,11 +24410,19 @@ function diffLiveRosterFields(value, base) {
 }
 function collectRemovedChatIds(prevRoster, nextRoster) {
   if (!prevRoster?.ready) return [];
-  return [
-    ...Object.keys(prevRoster.byId ?? {}).filter((id) => nextRoster.byId[id] === void 0),
-    ...Object.keys(prevRoster.roomsById ?? {}).filter((id) => nextRoster.roomsById[id] === void 0),
-    ...Object.keys(prevRoster.agentOf ?? {}).filter((id) => nextRoster.agentOf?.[id] === void 0)
-  ];
+  const removed = [];
+  for (const [id, bot] of Object.entries(prevRoster.byId ?? {})) {
+    const stableId = bot?.id ?? id;
+    if (nextRoster.byId?.[stableId] === void 0) removed.push(id);
+  }
+  for (const [id, room2] of Object.entries(prevRoster.roomsById ?? {})) {
+    const stableId = room2?.id ?? id;
+    if (nextRoster.roomsById?.[stableId] === void 0) removed.push(id);
+  }
+  for (const id of Object.keys(prevRoster.agentOf ?? {})) {
+    if (nextRoster.agentOf?.[id] === void 0) removed.push(id);
+  }
+  return removed;
 }
 function createTeamPull({
   call: call2,
