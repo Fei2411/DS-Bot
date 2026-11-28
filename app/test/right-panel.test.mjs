@@ -119,6 +119,16 @@ class TestComponent {
 const react = {
   Component: TestComponent,
   Fragment: 'fragment',
+  Suspense: ({ children }) => children,
+  lazy(loader) {
+    let resolved = null
+    let pending = null
+    return function Lazy(props) {
+      if (resolved) return react.createElement(resolved, props)
+      if (!pending) pending = Promise.resolve().then(loader).then((mod) => { resolved = mod?.default ?? mod })
+      return null
+    }
+  },
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
   useState(initial) {
     const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial }))

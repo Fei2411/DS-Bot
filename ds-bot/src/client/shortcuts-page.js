@@ -333,11 +333,8 @@ export const SHORTCUTS_PAGE_CSS = `
 .bt-sc-keybtn[data-empty]{border-style:dashed}
 .bt-sc-prompt{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-accent);white-space:nowrap}
 .bt-sc-unset{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-kbd-group{display:inline-flex;align-items:center;gap:4px;flex:none}
-.bt-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1;color:var(--bt-ink)}
 .bt-sc-alert{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 10px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,var(--bt-card));color:var(--bt-danger);font-size:12px;line-height:16px}
 .bt-sc-alert-text{min-width:0}
 .bt-sc-alert-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 .bt-sc-replace{background:color-mix(in srgb,var(--bt-danger) 16%,var(--bt-card));color:var(--bt-danger);font-weight:600}
-.bt-palette-kbd{margin-left:auto;padding-left:8px;flex:none}
 `
