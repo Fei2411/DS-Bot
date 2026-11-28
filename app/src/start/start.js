@@ -87,7 +87,10 @@ function varsOf(snap) {
   const card = snap.card ?? {}
   const update = snap.update ?? {}
   const vars = { ...card }
-  if (snap.view === 'failed' || snap.view === 'viewFailed') vars.reason = snap.failure?.reason ?? 'other'
+  if (snap.view === 'failed' || snap.view === 'viewFailed') {
+    vars.reason = snap.failure?.reason ?? 'other'
+    vars.lead = snap.failure?.running && vars.reason === 'engine' ? 'stopped' : vars.reason
+  }
   if ((card.kind === 'importFailed' || card.kind === 'moveFailed') && card.reason) vars.reason = say(`reason.copy.${card.reason}`)
   if (card.kind === 'newerUpdating') vars.p = card.percent ?? 0
   if (update.version) Object.assign(vars, { version: update.version, p: update.percent ?? 0, a: update.received ?? 0, b: update.total ?? 0 })
@@ -105,6 +108,7 @@ const FADE_MS = 160
 // key/text: the line chosen (on screen, or coming in once the old one has faded out).
 const v = { key: '', text: '', swap: 0 }
 function voiceWant() {
+  if (s.view === 'failed' && s.failure?.running) return 'voice.stopped'
   return VOICES[s.view] ?? ''
 }
 function speak() {
@@ -124,7 +128,7 @@ function put() {
   v.swap = 0
   voiceText.textContent = v.text
   voiceEl.toggleAttribute('data-on', Boolean(v.text))
-  if (v.key === 'voice.failed' || v.key === 'voice.viewFailed') announce(v.text)
+  if (v.key === 'voice.failed' || v.key === 'voice.stopped' || v.key === 'voice.viewFailed') announce(v.text)
 }
 
 // ---- the hint row ----
