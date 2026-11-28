@@ -1,6 +1,10 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Reconnecting…': 'Verbindung wird wiederhergestellt…',
+  'Reconnect': 'Neu verbinden',
+  'Waiting to confirm…': 'Warte auf Bestätigung…',
+  'Live updates paused: message too large': 'Live-Updates pausiert: Nachricht zu groß',
   'Auto review': 'Automatische Prüfung',
   'Session only': 'Nur diese Sitzung',
   'Permission preset': 'Berechtigungsprofil',

@@ -131,6 +131,10 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Reconnecting…": "再接続中…",
+  "Reconnect": "再接続",
+  "Waiting to confirm…": "確認待ち…",
+  "Live updates paused: message too large": "ライブ更新が一時停止されました：メッセージが大きすぎます",
   "Auto review": "自動審査",
   "Session only": "このセッションのみ",
   "Permission preset": "権限プリセット",
@@ -3773,6 +3777,10 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Reconnecting…": "다시 연결하는 중…",
+  "Reconnect": "다시 연결",
+  "Waiting to confirm…": "확인 대기 중…",
+  "Live updates paused: message too large": "실시간 업데이트 일시 중지됨: 메시지가 너무 큽니다",
   "Auto review": "자동 검토",
   "Session only": "이 세션만",
   "Permission preset": "권한 프리셋",
@@ -7460,6 +7468,10 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Reconnecting…": "Reconectando…",
+  "Reconnect": "Reconectar",
+  "Waiting to confirm…": "Esperando confirmación…",
+  "Live updates paused: message too large": "Actualizaciones en vivo en pausa: mensaje demasiado grande",
   "Auto review": "Revisión automática",
   "Session only": "Solo esta sesión",
   "Permission preset": "Preajuste de permisos",
@@ -11147,6 +11159,10 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Reconnecting…": "Reconnexion…",
+  "Reconnect": "Reconnecter",
+  "Waiting to confirm…": "En attente de confirmation…",
+  "Live updates paused: message too large": "Mises à jour en direct en pause : message trop volumineux",
   "Auto review": "Validation automatique",
   "Session only": "Cette session uniquement",
   "Permission preset": "Préréglage de permissions",
@@ -14789,6 +14805,10 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Reconnecting…": "Verbindung wird wiederhergestellt…",
+  "Reconnect": "Neu verbinden",
+  "Waiting to confirm…": "Warte auf Bestätigung…",
+  "Live updates paused: message too large": "Live-Updates pausiert: Nachricht zu groß",
   "Auto review": "Automatische Prüfung",
   "Session only": "Nur diese Sitzung",
   "Permission preset": "Berechtigungsprofil",
@@ -18477,6 +18497,10 @@ var DSH_DE = {
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Reconnecting…": "正在重新连接…",
+  "Reconnect": "重新连接",
+  "Waiting to confirm…": "等待确认…",
+  "Live updates paused: message too large": "实时推送已暂停：单条消息超过上限",
   "Auto review": "自动审批",
   "Session only": "仅本次会话",
   "Permission preset": "权限模式",

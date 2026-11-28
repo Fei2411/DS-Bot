@@ -11,6 +11,10 @@ import { DSH_DE, HOST_ERRORS_DE, DE } from './locales/de.js'
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Reconnecting…': '正在重新连接…',
+  'Reconnect': '重新连接',
+  'Waiting to confirm…': '等待确认…',
+  'Live updates paused: message too large': '实时推送已暂停：单条消息超过上限',
   'Auto review': '自动审批',
   'Session only': '仅本次会话',
   'Permission preset': '权限模式',

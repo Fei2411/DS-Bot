@@ -1,6 +1,10 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  'Reconnecting…': 'Reconnexion…',
+  'Reconnect': 'Reconnecter',
+  'Waiting to confirm…': 'En attente de confirmation…',
+  'Live updates paused: message too large': 'Mises à jour en direct en pause : message trop volumineux',
   'Auto review': 'Validation automatique',
   'Session only': 'Cette session uniquement',
   'Permission preset': 'Préréglage de permissions',
