@@ -8,6 +8,8 @@ Thank you for helping. This file explains how the team works, how to set up the 
 
 Collaborators of this repository push branches here and open pull requests into `dev` (see [How we work](#how-we-work)). For now, only collaborators can open pull requests. If you are not a collaborator, please open an issue for a bug (see [Report a problem](#report-a-problem)) or use [Discussions](https://github.com/Fei-Craft/DS-Bot/discussions) for a question or an idea.
 
+A clear bug report, root-cause trace, or accepted feature idea is as valuable as a pull request. When an external issue or idea directly leads to a shipped fix or feature, the maintainer may credit its author with `Co-authored-by` (see [Issue co-author credit](#issue-co-author-credit)).
+
 ## The rules that matter most
 
 1. **Build on DSH; never patch it.** The Bot features are a DSH plugin: use the plugin APIs that DSH documents (Cordis services, the plugin client entry, profile patches). The desktop app starts DSH only through the entry points that DSH documents (`@deepseek-ai/dsh/profile-boot`, the `dsh` command). Do not patch DeepSeek Harness, and do not depend on files inside a DSH install. When a feature needs something that DSH does not offer, open an issue here first; the fix can belong in DSH.
@@ -64,6 +66,30 @@ An issue that spans several areas, or none, gets no area label.
 4. A fix that is merged into `dev` does not close its issue: `Fixes #<number>` acts only on the default branch. The issue stays open until the release, which means "fixed in `dev`, not released yet".
 
 Keep one pull request to one issue. Split a large change into several pull requests.
+
+### Issue co-author credit
+
+A clear bug report, root-cause trace, or well-reasoned idea is often as valuable as a pull request. When an external issue or accepted Discussion idea directly leads to a shipped fix or feature, the maintainer may credit its author with a `Co-authored-by` trailer on the implementing commit—or on the merge commit into `dev` if the branch is already pushed (do not rebase or force-push just to add a trailer):
+
+- **Scope**: Granted at the maintainer's discretion for substantive contributions (clear reproduction, root-cause analysis, or an accepted design/feature proposal). Brief one-line wishes or duplicate/low-effort reports are not credited, and commit authors do not credit themselves.
+- **Format & privacy**: Always use the author's GitHub noreply address—never a personal email—by looking up their numeric user ID:
+
+  ```sh
+  gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
+  ```
+
+  Add the trailer at the end of the commit message after a blank line, putting the command's output inside `<...>` alongside `Fixes #<number>` and `Reported-by: @<login>` (or `Idea-by: @<login>`) so Git history clearly distinguishes issue/idea credit from code authorship:
+
+  ```text
+  Fixes #<number>
+  Reported-by: @<login>
+  Co-authored-by: <login> <123456+login@users.noreply.github.com>
+  ```
+
+  (For legacy GitHub accounts created before July 2017 whose noreply omits the numeric ID, `<login>@users.noreply.github.com` can be used if the ID form does not link.)
+
+- **Opt-out**: Mention the planned credit in the issue before merging when practical. If the author prefers not to be listed in Git history, omit `Co-authored-by` (and thank them in the release notes instead if they prefer).
+- **No AI co-authors**: This credit is for human issue and idea authors only. Never add an AI tool or bot as author, committer, or `Co-authored-by`.
 
 ### Merge conflicts
 
@@ -181,7 +207,7 @@ For a change to the Bot browser, check it in DSH Desktop. On Linux, the scripts 
 - In `src/client/`, take colors from the `--bt-*` variables, corner radii from the steps 4, 6, 8, 10, 12, 16, 18, 20, 22, 999px and 50%, and springs from `motion.js`. A unit test checks this. The places written before the test are listed in `test/style-debt.json`; that list only gets shorter. When you remove one, run `node scripts/style-debt.mjs --write` to update it.
 - Follow the style of the code around your change. Write a comment only when the reason for the code is not clear from the code itself.
 - Write commit messages in English. Use a short subject in the imperative mood ("Keep group replies visible") and explain the reason in the body.
-- The author of a commit is the person who made the change. When an AI tool helped, do not add it as an author or with a `Co-authored-by` line; turn that setting off in the tool.
+- The author of a commit is the person who made the change. When an AI tool helped, do not add it as an author or with a `Co-authored-by` line; turn that setting off in the tool. Human authors of substantive external issues or accepted ideas may still be credited as co-authors (see [Issue co-author credit](#issue-co-author-credit)).
 - Do not edit [CHANGELOG.md](CHANGELOG.md). Write the user-visible change in the Changelog field of the pull request instead.
 
 ## Report a problem
