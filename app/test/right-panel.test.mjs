@@ -63,7 +63,7 @@ const stubs = {
 
 const entryCode = `
   export { parseDelimitedTable, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
-  export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
+  export { createLocalLineEditor, createTerminalKeyHandler, estimateTerminalDimensions, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
   export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
   export { createPluginRuntime } from './ui/src/plugin-runtime.js'
@@ -233,6 +233,7 @@ const {
   HtmlPreviewNotice,
   createLocalLineEditor,
   createTerminalKeyHandler,
+  estimateTerminalDimensions,
   parseAnsiSpans,
   readXtermTheme,
   WorkspaceTerminal,
@@ -1844,5 +1845,450 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     sandbox.document.activeElement = prevActive5
     remountAuto.unmount()
     uiProbe5.unmount()
+  }
+})
+
+test('WorkspaceTerminal prunes stale tabs on host restart, computes initial size from container, clears server scrollback, follows appearance fontSize, renames tabs, and picks shells', async () => {
+  // 1. Container-based initial size calculation (no hardcoded 96x28).
+  const small = estimateTerminalDimensions({ clientWidth: 480, clientHeight: 320 }, 13)
+  assert.notEqual(small.cols, 96)
+  assert.notEqual(small.rows, 28)
+  assert.ok(small.cols >= 50 && small.cols <= 70, `expected cols from 480px container, got ${small.cols}`)
+  assert.ok(small.rows >= 12 && small.rows <= 20, `expected rows from 320px container, got ${small.rows}`)
+  const wide = estimateTerminalDimensions({ clientWidth: 1000, clientHeight: 600 }, 13)
+  assert.ok(wide.cols > small.cols && wide.rows > small.rows)
+
+  // 2. Font size follows appearance CSS variables instead of hardcoded 12.5.
+  const prevCreateEl = sandbox.document.createElement
+  const prevGetComputedStyle = sandbox.getComputedStyle
+  const cssVars = new Map([
+    ['--bt-mono', '"JetBrains Mono", monospace'],
+    ['--bt-content-fs', '18px'],
+  ])
+  sandbox.document.body.appendChild = () => {}
+  sandbox.document.createElement = () => ({ style: {}, remove() {} })
+  sandbox.getComputedStyle = (el) => {
+    if (el === sandbox.document.body) {
+      return { getPropertyValue: prop => cssVars.get(prop) ?? '' }
+    }
+    return { color: '#ffffff' }
+  }
+  try {
+    const themed = readXtermTheme()
+    assert.equal(themed.fontSize, 16.5, 'content fontSize 18px scales terminal fontSize proportionally')
+    cssVars.set('--bt-code-font-size', '15px')
+    assert.equal(readXtermTheme().fontSize, 15, 'explicit code fontSize overrides scaled content fontSize')
+    cssVars.set('--bt-terminal-font-size', '16px')
+    assert.equal(readXtermTheme().fontSize, 16, 'explicit terminal fontSize takes top priority')
+    cssVars.delete('--bt-terminal-font-size')
+    cssVars.delete('--bt-code-font-size')
+    cssVars.delete('--bt-content-fs')
+    cssVars.set('--bt-fs', '1.25')
+    assert.equal(readXtermTheme().fontSize, 16.5, '--bt-fs scale fallback adjusts default terminal fontSize')
+  } finally {
+    sandbox.document.createElement = prevCreateEl
+    sandbox.getComputedStyle = prevGetComputedStyle
+  }
+
+  // 3. Full component flow: initial computed cols/rows, shell picker, inline rename, server clear, and restart pruning.
+  const calls = []
+  let listAnswer = [
+    { id: 't-old-1', cwd: '/repo', title: 'repo', customTitle: false, pty: true, start: 1, end: 1, parts: [{ seq: 1, text: 'before-clear\n' }], truncated: false, exited: false, exitCode: null },
+    { id: 't-old-2', cwd: '/repo', title: 'repo', customTitle: false, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null },
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'terminal-list') return listAnswer
+    if (endpoint === 'terminal-shells') {
+      return {
+        defaultId: '/bin/zsh',
+        shells: [
+          { id: '/bin/zsh', name: 'zsh', path: '/bin/zsh', isDefault: true },
+          { id: '/bin/bash', name: 'bash', path: '/bin/bash', isDefault: false },
+        ],
+      }
+    }
+    if (endpoint === 'terminal-clear') return { ok: true, id: body.id, start: 2, end: 1 }
+    if (endpoint === 'terminal-rename') return { ok: true, id: body.id, title: body.title, customTitle: true }
+    if (endpoint === 'terminal-open') {
+      return { id: 't-bash', cwd: '/repo', title: 'repo', customTitle: false, shell: 'bash', cols: body.cols, rows: body.rows, pty: true }
+    }
+    return true
+  }
+
+  const team = createTeam()
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    let tree = inst.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 2)
+    assert.equal(sandbox.__xterms[0].options.fontSize, 13, 'terminal initializes with dynamic default fontSize (not hardcoded 12.5)')
+
+    // Clear calls terminal-clear on host so scrollback does not return on reconnect.
+    const clearBtn = all(tree, n => n.type === 'button' && /Clear/.test(textOf(n)))[0]
+    clearBtn.props.onClick()
+    await tick()
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-clear' && b.id === 't-old-1'), true)
+
+    // Double-click tab label -> inline edit input -> Enter commits terminal-rename and shows custom title without #idx.
+    const tabBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-term-tab-btn')[0]
+    tabBtn.props.onDoubleClick()
+    tree = inst.render()
+    const editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+    assert.ok(editInput, 'double-clicking terminal tab opens inline rename input')
+    editInput.props.onChange({ target: { value: 'Build Watch' } })
+    editInput.props.onKeyDown({ key: 'Enter', preventDefault() {}, currentTarget: { value: 'Build Watch' } })
+    await tick()
+    tree = inst.render()
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-rename' && b.id === 't-old-1' && b.title === 'Build Watch'), true)
+    assert.match(textOf(tree), /Build Watch/)
+    assert.doesNotMatch(textOf(tree), /Build Watch #1/)
+
+    // Shell picker opens dropdown with available shells and launches chosen shell with container-computed dimensions.
+    const shellBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-term-shell-btn'))[0]
+    assert.ok(shellBtn, 'shell dropdown button renders when shells are discovered')
+    shellBtn.props.onClick()
+    tree = inst.render()
+    const bashItem = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem' && /bash/.test(textOf(n)))[0]
+    assert.ok(bashItem, 'shell dropdown lists discovered shells')
+    bashItem.props.onClick()
+    await tick()
+    tree = inst.render()
+    const openCall = calls.find(([ep]) => ep === 'terminal-open')
+    assert.ok(openCall, 'clicking shell menu item calls terminal-open')
+    assert.equal(openCall[1].shell, '/bin/bash')
+    assert.notEqual(openCall[1].cols, 96, 'terminal-open uses container-computed cols instead of hardcoded 96')
+    assert.notEqual(openCall[1].rows, 28, 'terminal-open uses container-computed rows instead of hardcoded 28')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 3)
+
+    // Engine restart: host emits `hello` and `terminal-list` now returns only `t-restarted` -> all 3 old tabs are pruned and disposed!
+    listAnswer = [
+      { id: 't-restarted', cwd: '/repo', title: 'fresh', customTitle: false, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null },
+    ]
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    tree = inst.render()
+    const tabsAfterRestart = all(tree, n => n.props?.className === 'dsb-term-tab')
+    assert.equal(tabsAfterRestart.length, 1, 'tabs missing from host after restart must be pruned')
+    assert.match(textOf(tabsAfterRestart[0]), /fresh #1/)
+    assert.equal(sandbox.__xterms[0].disposed, true, 'pruned xterm instance is disposed')
+    assert.equal(sandbox.__xterms[1].disposed, true, 'pruned xterm instance is disposed')
+    assert.equal(sandbox.__xterms[2].disposed, true, 'pruned xterm instance is disposed')
+  } finally {
+    inst.unmount()
+  }
+})
+
+test('WorkspaceTerminal preserves post-clear output across close/reopen, never jumps cursor across gaps, and clamps shell menu in short viewports', async () => {
+  // 1. Sequence: initial output -> Clear -> new output -> close & reopen -> new output displays completely,
+  //    cleared old output does NOT return, and no false truncation marker appears.
+  const listPositionsSeen = []
+  let serverClearedAt = 0
+  let serverParts = [
+    { seq: 1, text: 'secret-old-1\n' },
+    { seq: 2, text: 'secret-old-2\n' },
+  ]
+  let serverEnd = 2
+  let serverStart = 1
+
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'terminal-list') {
+      listPositionsSeen.push(body?.positions ?? null)
+      const after = body?.positions?.['term-clr'] ?? 0
+      const effectiveAfter = Math.max(after, serverClearedAt)
+      const truncated = effectiveAfter + 1 < serverStart
+      const from = Math.max(effectiveAfter, serverStart - 1)
+      const parts = serverParts.filter(p => p.seq > from)
+      return [{
+        id: 'term-clr',
+        cwd: '/repo',
+        title: 'repo',
+        customTitle: false,
+        pty: true,
+        start: serverStart,
+        end: serverEnd,
+        clearedAt: serverClearedAt,
+        truncated,
+        parts,
+        exited: false,
+        exitCode: null,
+      }]
+    }
+    if (endpoint === 'terminal-clear') {
+      serverParts = []
+      serverClearedAt = serverEnd
+      serverStart = serverEnd + 1
+      return { ok: true, id: body.id, start: serverStart, end: serverEnd, clearedAt: serverClearedAt }
+    }
+    if (endpoint === 'terminal-shells') {
+      return {
+        defaultId: '/bin/zsh',
+        shells: [
+          { id: '/bin/zsh', name: 'zsh', path: '/bin/zsh', isDefault: true },
+          { id: '/bin/bash', name: 'bash', path: '/bin/bash', isDefault: false },
+          { id: '/usr/local/bin/fish', name: 'fish', path: '/usr/local/bin/fish', isDefault: false },
+          { id: '/bin/sh', name: 'sh', path: '/bin/sh', isDefault: false },
+        ],
+      }
+    }
+    return true
+  }
+
+  const team = createTeam()
+  const firstMount = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    firstMount.render()
+    await tick()
+    await tick()
+    const tree = firstMount.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    assert.equal(sandbox.__xterms[0].written.join(''), 'secret-old-1\nsecret-old-2\n')
+
+    // Click Clear -> server scrollback cleared at seq 2.
+    const clearBtn = all(tree, n => n.type === 'button' && /Clear/.test(textOf(n)))[0]
+    clearBtn.props.onClick()
+    await tick()
+    assert.equal(serverClearedAt, 2)
+  } finally {
+    firstMount.unmount()
+  }
+
+  // New output arrives while terminal panel is closed (seq 3 and seq 4).
+  serverParts = [
+    { seq: 3, text: 'fresh-after-clear-1\n' },
+    { seq: 4, text: 'fresh-after-clear-2\n' },
+  ]
+  serverStart = 3
+  serverEnd = 4
+
+  // Reopen terminal panel (fresh WorkspaceTerminal mount -> positionsRef starts at 0).
+  sandbox.__xterms.length = 0
+  const reopened = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    reopened.render()
+    await tick()
+    await tick()
+    reopened.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    const reopenedOutput = sandbox.__xterms[0].written.join('')
+    assert.equal(reopenedOutput, 'fresh-after-clear-1\nfresh-after-clear-2\n', 'new post-clear output must display completely on reopen')
+    assert.doesNotMatch(reopenedOutput, /secret-old/, 'cleared old output must not come back')
+    assert.doesNotMatch(reopenedOutput, /Earlier output was trimmed/, 'clear-then-reopen must not show a false truncation marker')
+
+    // Subsequent live output (seq 5) continues seamlessly without gap or extra sync.
+    team.chat.emit('terminal', { id: 'term-clr', chunk: 'live-5\n', start: 5, end: 5, parts: [{ seq: 5, text: 'live-5\n' }] })
+    assert.equal(sandbox.__xterms[0].written.join(''), 'fresh-after-clear-1\nfresh-after-clear-2\nlive-5\n')
+  } finally {
+    reopened.unmount()
+  }
+
+  // 2. Gap without clear: if noteParts hits a non-contiguous gap (part.seq > held + 1, truncated: false),
+  //    positionsRef must NOT jump to item.end, so the follow-up sync recovers every missing part.
+  const gapRequests = []
+  let gapListCount = 0
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'terminal-list') {
+      gapListCount += 1
+      gapRequests.push(body?.positions ?? null)
+      if (gapListCount === 1) {
+        return [{
+          id: 'term-gap',
+          cwd: '/repo',
+          title: 'repo',
+          customTitle: false,
+          pty: true,
+          start: 1,
+          end: 4,
+          clearedAt: 0,
+          truncated: false,
+          parts: [{ seq: 3, text: 'part-3\n' }, { seq: 4, text: 'part-4\n' }],
+          exited: false,
+          exitCode: null,
+        }]
+      }
+      return [{
+        id: 'term-gap',
+        cwd: '/repo',
+        title: 'repo',
+        customTitle: false,
+        pty: true,
+        start: 1,
+        end: 4,
+        clearedAt: 0,
+        truncated: false,
+        parts: [
+          { seq: 1, text: 'part-1\n' },
+          { seq: 2, text: 'part-2\n' },
+          { seq: 3, text: 'part-3\n' },
+          { seq: 4, text: 'part-4\n' },
+        ],
+        exited: false,
+        exitCode: null,
+      }]
+    }
+    if (endpoint === 'terminal-shells') return { defaultId: '', shells: [] }
+    return true
+  }
+
+  const gapInst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    gapInst.render()
+    await tick()
+    await tick()
+    await tick()
+    gapInst.render()
+    assert.ok(gapRequests.length >= 2, 'non-contiguous gap triggers follow-up catch-up sync')
+    assert.equal(gapRequests[1]?.['term-gap'] ?? 0, 0, 'positionsRef must NOT jump to item.end across an undisplayed gap')
+    assert.equal(sandbox.__xterms[0].written.join(''), 'part-1\npart-2\npart-3\npart-4\n', 'follow-up sync displays all missing parts in order')
+  } finally {
+    gapInst.unmount()
+  }
+
+  // 3. Shell picker menu clamps inside a short viewport (portal + fixed positioning + maxHeight) and closes on Escape.
+  const prevInnerHeight = sandbox.window.innerHeight
+  sandbox.window.innerHeight = 200
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'terminal-list') {
+      return [{ id: 'term-menu', cwd: '/repo', title: 'repo', pty: true, start: 1, end: 0, clearedAt: 0, parts: [], truncated: false, exited: false, exitCode: null }]
+    }
+    if (endpoint === 'terminal-shells') {
+      return {
+        defaultId: '/bin/zsh',
+        shells: [
+          { id: '/bin/zsh', name: 'zsh', path: '/bin/zsh', isDefault: true },
+          { id: '/bin/bash', name: 'bash', path: '/bin/bash', isDefault: false },
+          { id: '/usr/local/bin/fish', name: 'fish', path: '/usr/local/bin/fish', isDefault: false },
+          { id: '/bin/sh', name: 'sh', path: '/bin/sh', isDefault: false },
+        ],
+      }
+    }
+    return true
+  }
+
+  const menuInst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    menuInst.render()
+    await tick()
+    await tick()
+    let tree = menuInst.render()
+    const shellBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-term-shell-btn'))[0]
+    assert.ok(shellBtn)
+    shellBtn.props.ref.current.getBoundingClientRect = () => ({ left: 1220, right: 1244, top: 84, bottom: 112, width: 24, height: 28 })
+    shellBtn.props.onClick()
+    tree = menuInst.render()
+    // Re-render once more after layout effect updates measured placement.
+    tree = menuInst.render()
+    const menuNode = all(tree, n => n.props?.role === 'menu' && String(n.props?.className ?? '').includes('dsb-term-shell-menu'))[0]
+    assert.ok(menuNode, 'shell picker menu renders')
+    const { top, left, maxHeight } = menuNode.props.style
+    assert.ok(Number.isFinite(top) && top >= 8, `menu top stays inside viewport, got ${top}`)
+    assert.ok(Number.isFinite(left) && left >= 8 && left <= sandbox.window.innerWidth - 8, `menu left stays inside viewport, got ${left}`)
+    assert.ok(Number.isFinite(maxHeight) && top + maxHeight <= sandbox.window.innerHeight - 8 + 1, `menu bottom (${top + maxHeight}) must not clip past short viewport (${sandbox.window.innerHeight})`)
+
+    const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+    for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
+    tree = menuInst.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses shell picker menu')
+  } finally {
+    sandbox.window.innerHeight = prevInnerHeight
+    menuInst.unmount()
+  }
+})
+
+test('WorkspaceTerminal prunes stale tabs cleanly without setState side effects, resets editingId, guards IME rename, closes shell menu on rename, and deduplicates Enter+blur rename RPCs', async () => {
+  const team = createTeam()
+  const renameCalls = []
+  let serverTerms = [
+    { id: 'term-prune-1', cwd: '/repo', title: 'repo', customTitle: false, pty: true, start: 1, end: 0, clearedAt: 0, parts: [], truncated: false, exited: false, exitCode: null },
+    { id: 'term-keep-2', cwd: '/repo', title: 'other', customTitle: false, pty: true, start: 1, end: 0, clearedAt: 0, parts: [], truncated: false, exited: false, exitCode: null },
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'terminal-list') return serverTerms
+    if (endpoint === 'terminal-shells') {
+      return {
+        defaultId: '/bin/zsh',
+        shells: [
+          { id: '/bin/zsh', name: 'zsh', path: '/bin/zsh', isDefault: true },
+          { id: '/bin/bash', name: 'bash', path: '/bin/bash', isDefault: false },
+        ],
+      }
+    }
+    if (endpoint === 'terminal-rename') {
+      renameCalls.push(body)
+      return { id: body.id, title: body.title, customTitle: true }
+    }
+    return true
+  }
+
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    let tree = inst.render()
+    assert.equal(sandbox.__xterms.length, 2)
+
+    // 1. Open shell menu, then double-click tab to start rename -> shell menu closes.
+    const shellBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-term-shell-btn'))[0]
+    shellBtn.props.ref.current.getBoundingClientRect = () => ({ left: 400, right: 424, top: 84, bottom: 112, width: 24, height: 28 })
+    shellBtn.props.onClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 1)
+
+    const firstTabBtn = all(tree, n => n.type === 'button' && n.props?.role === 'tab')[0]
+    firstTabBtn.props.onDoubleClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'startRename must close shell picker menu')
+
+    // 2. IME composition Enter (isComposing: true) and Chromium keyCode 229 must NOT commit or cancel rename.
+    let editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+    assert.ok(editInput)
+    editInput.props.onChange({ target: { value: '开发服务器' } })
+    tree = inst.render()
+    editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+
+    let prevented = false
+    editInput.props.onKeyDown({ key: 'Enter', isComposing: true, keyCode: 13, currentTarget: { value: '开发服务器' }, preventDefault() { prevented = true } })
+    editInput.props.onKeyDown({ key: 'Enter', isComposing: false, keyCode: 229, currentTarget: { value: '开发服务器' }, preventDefault() { prevented = true } })
+    editInput.props.onKeyDown({ key: 'Escape', isComposing: true, keyCode: 27, currentTarget: { value: '开发服务器' }, preventDefault() { prevented = true } })
+    tree = inst.render()
+    assert.equal(prevented, false, 'IME keystrokes must not be intercepted')
+    assert.equal(renameCalls.length, 0, 'IME Enter must not commit terminal-rename')
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit').length, 1, 'rename input stays open during IME composition')
+
+    // 3. Real Enter commits once, and immediate onBlur does NOT fire a duplicate terminal-rename.
+    editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+    editInput.props.onKeyDown({ key: 'Enter', isComposing: false, keyCode: 13, currentTarget: { value: '开发服务器' }, preventDefault() {} })
+    editInput.props.onBlur({ target: { value: '开发服务器' } })
+    await tick()
+    tree = inst.render()
+    assert.equal(renameCalls.length, 1, 'Enter followed by onBlur must send terminal-rename only once')
+    assert.equal(renameCalls[0].title, '开发服务器')
+
+    // 4. Start rename on tab 1, then host restarts and drops tab 1 -> pruning disposes xterm AND clears editingId.
+    all(tree, n => n.type === 'button' && n.props?.role === 'tab')[0].props.onDoubleClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit').length, 1)
+
+    const prunedXterm = sandbox.__xterms[0]
+    serverTerms = [serverTerms[1]]
+    team.chat.emit('hello', { resumed: false })
+    await tick()
+    await tick()
+    tree = inst.render()
+    assert.equal(prunedXterm.disposed, true, 'pruned stale terminal xterm writer must be disposed synchronously outside setState')
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit').length, 0, 'pruning a tab being renamed must clear editingId')
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.role === 'tab').length, 1)
+  } finally {
+    inst.unmount()
   }
 })

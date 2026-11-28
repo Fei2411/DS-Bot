@@ -509,6 +509,12 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .d
 .dsb-term-tab-x:hover{background:var(--bt-active);color:var(--bt-ink)}
 .dsb-term-tab-x:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .dsb-term-tab-x svg{width:11px;height:11px}
+.dsb-term-tab-edit{width:112px;height:24px;margin:2px 4px;padding:0 6px;border:1px solid var(--bt-accent);border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;outline:none;box-sizing:border-box}
+.dsb-term-shell-wrap{position:relative;display:inline-flex}
+.dsb-term-shell-btn{width:24px;min-width:24px}
+.bt-menu.dsb-term-shell-menu{min-width:168px;max-width:min(280px,calc(100vw - 16px))}
+.dsb-term-shell-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-term-shell-badge{flex:none;margin-left:8px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .dsb-term-exit{padding:0 5px;border-radius:6px;background:var(--bt-card);font-family:var(--bt-mono);font-size:11px;color:var(--bt-ink-3)}
 .dsb-term-actions{display:inline-flex;align-items:center;gap:4px;flex:none}
 .dsb-term-act-btn{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border:1px solid var(--bt-line);border-radius:6px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
