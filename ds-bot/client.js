@@ -62527,6 +62527,18 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
         if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
       }
     }
+    const usedByOverrides = /* @__PURE__ */ new Set();
+    for (const binding of Object.values(clean)) {
+      if (!binding) continue;
+      const key = bindingKey(binding, mac);
+      if (key) usedByOverrides.add(key);
+    }
+    for (const def of shortcutsForHost("desktop")) {
+      if (Object.prototype.hasOwnProperty.call(clean, def.id)) continue;
+      if (!def.defaultBinding) continue;
+      const key = bindingKey(def.defaultBinding, mac);
+      if (key && usedByOverrides.has(key)) clean[def.id] = null;
+    }
     return clean;
   } catch {
     return {};

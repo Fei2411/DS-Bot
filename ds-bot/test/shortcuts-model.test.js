@@ -314,3 +314,31 @@ test('unified shortcut table filters by host and keeps desktop/plugin defaults a
     'web:windows': { code: 'KeyB', modifiers: ['primary', 'alt', 'shift'] },
   })
 })
+
+test('saved user overrides win over changed defaults on upgrade', () => {
+  // Seed storage as if an earlier version (where browser defaulted to Mod+B) let the user bind
+  // Toggle details to Mod+Shift+B without touching browser.
+  const bag = new Map([[
+    'ds-bot.shortcuts.v1',
+    JSON.stringify({
+      mac: {
+        details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true },
+      },
+    }),
+  ]])
+  const storage = {
+    getItem: key => (bag.has(key) ? bag.get(key) : null),
+    setItem: (key, value) => { bag.set(key, String(value)) },
+  }
+  const store = createShortcutStore({ storage, mac: true })
+  assert.deepEqual(store.bindingOf('details'), { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+  assert.equal(store.bindingOf('browser'), null, 'uncustomized browser default yields to saved user override')
+  assert.equal(
+    matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyB' }, { mac: true, overrides: store.getSnapshot() }),
+    'details',
+  )
+  const forwarded = store.activeBindings()
+  assert.equal(forwarded.filter(entry => entry.code === 'KeyB' && entry.mod && entry.shift).length, 1)
+  assert.equal(forwarded.find(entry => entry.id === 'details')?.code, 'KeyB')
+  assert.equal(forwarded.find(entry => entry.id === 'browser'), undefined)
+})

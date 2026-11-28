@@ -495,6 +495,21 @@ export function loadShortcutOverrides(storage = typeof localStorage === 'undefin
         if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized
       }
     }
+    // Preserve saved user overrides when a command's default binding changes across versions:
+    // if an explicit saved binding collides with another uncustomized command's default, unbind
+    // the uncustomized default so display, dispatch, and forwarding stay conflict-free.
+    const usedByOverrides = new Set()
+    for (const binding of Object.values(clean)) {
+      if (!binding) continue
+      const key = bindingKey(binding, mac)
+      if (key) usedByOverrides.add(key)
+    }
+    for (const def of shortcutsForHost('desktop')) {
+      if (Object.prototype.hasOwnProperty.call(clean, def.id)) continue
+      if (!def.defaultBinding) continue
+      const key = bindingKey(def.defaultBinding, mac)
+      if (key && usedByOverrides.has(key)) clean[def.id] = null
+    }
     return clean
   } catch {
     return {}
