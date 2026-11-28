@@ -67,6 +67,7 @@ const IPC = {
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
   syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
+  systemLanguage: 'ds-bot:system-language',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -896,6 +897,10 @@ function handleIpc() {
     computerIndicator.dispose()
     computerCursor.dispose()
   })
+  ipcMain.handle(IPC.systemLanguage, (event) => {
+    if (!fromWindow(event)) return ''
+    return app.getPreferredSystemLanguages?.()?.[0] || app.getLocale?.() || ''
+  })
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // It has drawn the whale the start window hands over: the windows cross-fade.
   ipcMain.on(IPC.handoffReady, (event) => { if (fromWindow(event)) startWindow.teamReady() })
@@ -1676,6 +1681,13 @@ function createWindow() {
       getPath: name => app.getPath(name),
     }))
   }
+  const sendSystemLanguage = () => {
+    if (mainWindow === undefined || win.isDestroyed()) return
+    const tag = app.getPreferredSystemLanguages?.()?.[0] || app.getLocale?.() || ''
+    if (tag) contents.send(IPC.systemLanguage, tag)
+  }
+  win.on('focus', sendSystemLanguage)
+  contents.on('did-finish-load', sendSystemLanguage)
   if (frameless) {
     // Fullscreen hides the window controls, and the page drops its band meanwhile. A reload
     // registers the page's listener again, so the state goes out after every load too.

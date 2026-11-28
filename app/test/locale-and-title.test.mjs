@@ -83,12 +83,21 @@ test('createLocale follows system languagechange events in auto mode and updates
     assert.deepEqual(locale.getLocale(), { active: 'en', preference: 'auto' })
     assert.equal(t('hi'), 'Hello')
 
+    // Switching back to auto reads getSystemTag() freshly even without a languagechange event,
+    // and syncSystemTag() pushes live OS language updates from Electron main.
+    locale.setLocale('ja')
+    sysLang = 'fr-FR'
+    locale.setLocale('auto')
+    assert.deepEqual(locale.getLocale(), { active: 'fr', preference: 'auto' })
+    locale.syncSystemTag('de-DE')
+    assert.deepEqual(locale.getLocale(), { active: 'de', preference: 'auto' })
+
     // Dispose detaches listener cleanly.
     locale.dispose()
     assert.equal(target.count('languagechange'), 0)
     sysLang = 'zh-CN'
     target.dispatch('languagechange')
-    assert.deepEqual(locale.getLocale(), { active: 'en', preference: 'auto' })
+    assert.deepEqual(locale.getLocale(), { active: 'de', preference: 'auto' })
   } finally {
     globalThis.document = prevDoc
   }

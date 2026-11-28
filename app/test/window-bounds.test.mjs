@@ -131,3 +131,77 @@ test('watchWindowBounds ignores hidden startup placement, debounces move/resize,
 
   win.destroy()
 })
+
+test('minimized start hand-off defers saved maximized state until the main window is restored', async (t) => {
+  const { StartWindow } = await import('../src/start-window.mjs')
+  const main = makeFakeWin({ x: 100, y: 100, width: 1100, height: 740 })
+  main.maximize = () => { main.setMaximized(true) }
+  main.minimize = () => { main.setMinimized(true) }
+  main.show = () => { main.setVisible(true) }
+  main.showInactive = () => { main.setVisible(true) }
+  main.hide = () => { main.setVisible(false) }
+  main.setBounds = (r) => { main.setRect(r) }
+  main.setOpacity = () => {}
+  main.setSkipTaskbar = () => {}
+  main.flashFrame = () => {}
+  main.focus = () => {}
+
+  const startWin = makeFakeWin({ x: 200, y: 200, width: 720, height: 540 })
+  startWin.setMinimized(true)
+  startWin.isFocused = () => false
+  startWin.setContentBounds = () => {}
+  startWin.setOpacity = () => {}
+  startWin.setSkipTaskbar = () => {}
+  startWin.moveTop = () => {}
+  startWin.getMediaSourceId = () => 'window:1:0'
+  startWin.loadURL = async () => {}
+  startWin.webContents = Object.assign(new EventEmitter(), {
+    send: () => {},
+    setWindowOpenHandler: () => {},
+    insertCSS: async () => {},
+    reload: () => {},
+    mainFrame: {},
+  })
+
+  const display = { workArea: { x: 0, y: 0, width: 1920, height: 1040 } }
+  const start = new StartWindow({
+    electron: {
+      BrowserWindow: class { constructor() { return startWin } },
+      ipcMain: { handle: () => {} },
+      screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => display, getDisplayMatching: () => display, getPrimaryDisplay: () => display },
+      shell: {},
+      clipboard: { writeText: () => {} },
+      nativeTheme: Object.assign(new EventEmitter(), { shouldUseDarkColors: false }),
+      systemPreferences: {},
+    },
+    page: '/tmp/start.html',
+    preload: '/tmp/preload.cjs',
+    icon: '/tmp/icon.png',
+    devTools: false,
+    lang: () => 'en',
+    motion: 'normal',
+    effects: 'off',
+    version: '0.4.1',
+    program: [],
+    log: { dir: '/tmp', tail: () => [] },
+    mainWindow: () => main,
+    savedBounds: () => ({ x: 100, y: 100, width: 1100, height: 740, maximized: true }),
+    onRetry: () => {},
+    onReload: () => {},
+    onClose: () => {},
+  })
+
+  start.open('later')
+  start.done('data')
+  start.done('engine')
+  start.ready()
+  await start.teamShown
+  assert.equal(main.isMinimized(), true, 'hand-off keeps the team window minimized')
+  assert.equal(main.isMaximized(), false, 'does not maximize while minimized')
+
+  main.setMinimized(false)
+  main.emit('restore')
+  assert.equal(main.isMaximized(), true, 'restoring applies the deferred maximized state')
+  startWin.destroy()
+  main.destroy()
+})

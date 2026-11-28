@@ -45,6 +45,11 @@ test('page-title-updated allows DS Bot conversation titles and blocks arbitrary 
   prevented = false
   win.emit('page-title-updated', { preventDefault: () => { prevented = true } }, 'http://127.0.0.1:41234/')
   assert.equal(prevented, true, 'raw URL title is still prevented')
+
+  // Focus pushes live system language to the renderer so Auto locale tracks OS changes in Electron.
+  win.emit('focus')
+  const langMsg = win.webContents.sent.filter(([ch]) => ch === 'ds-bot:system-language').at(-1)
+  assert.deepEqual(langMsg, ['ds-bot:system-language', 'en-US'])
 })
 
 test('moving and resizing persists window-bounds.json and rebuilding the window restores it', async () => {

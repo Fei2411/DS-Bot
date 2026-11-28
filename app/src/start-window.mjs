@@ -914,6 +914,11 @@ export class StartWindow {
       main.focus()
     } else if (how === 'minimized') {
       main.minimize()
+      if (this.#o.savedBounds?.()?.maximized === true) {
+        main.once('restore', () => {
+          if (!main.isDestroyed() && !main.isFullScreen?.()) main.maximize?.()
+        })
+      }
     } else {
       main.showInactive()
       if (this.#o.savedBounds?.()?.maximized === true) main.maximize?.()

@@ -57,7 +57,20 @@ import './message-parity.css'
 
 registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
-const appLocale = createLocale(navigator.language)
+let liveSystemTag = navigator.language
+const appLocale = createLocale(liveSystemTag, {
+  getSystemTag: () => liveSystemTag || navigator.language,
+})
+globalThis.dsBotApp?.onSystemLanguage?.((tag) => {
+  if (typeof tag !== 'string' || tag === '') return
+  liveSystemTag = tag
+  appLocale.syncSystemTag(tag)
+})
+void Promise.resolve(globalThis.dsBotApp?.systemLanguage?.()).then((tag) => {
+  if (typeof tag !== 'string' || tag === '') return
+  liveSystemTag = tag
+  appLocale.syncSystemTag(tag)
+}).catch(() => {})
 setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()

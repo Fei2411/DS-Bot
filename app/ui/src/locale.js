@@ -77,8 +77,8 @@ export function createLocale(tag, options = {}) {
     }
   }
 
-  const onLanguageChange = () => {
-    const nextSystem = resolveLocale(getSystemTag())
+  const applySystemTag = (rawTag) => {
+    const nextSystem = resolveLocale(rawTag)
     if (nextSystem === systemActive) return
     systemActive = nextSystem
     if (preference !== 'auto' || systemActive === active) return
@@ -87,14 +87,23 @@ export function createLocale(tag, options = {}) {
     notify()
   }
 
+  const onLanguageChange = () => {
+    applySystemTag(getSystemTag())
+  }
+
   if (typeof target?.addEventListener === 'function') {
     target.addEventListener('languagechange', onLanguageChange)
   }
 
   return {
     getLocale: () => ({ active, preference }),
+    syncSystemTag(nextTag) {
+      applySystemTag(nextTag !== undefined ? nextTag : getSystemTag())
+      return { active, preference }
+    },
     setLocale(nextPreference) {
       const clean = VALID_PREFERENCES.has(nextPreference) ? nextPreference : 'auto'
+      if (clean === 'auto') systemActive = resolveLocale(getSystemTag())
       const nextActive = clean === 'auto' ? systemActive : resolveLocale(clean)
       if (clean === preference && nextActive === active) return { active, preference }
       preference = clean
