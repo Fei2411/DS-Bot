@@ -797,11 +797,11 @@ export function install(rt) {
       && /^return await tools\.group_relay\(\{(?: roundId: "[\da-f-]+" )?\}\)$/.test(args.code)
   }
 
-  async function roomHasImageReply(roomId, sessionId, botId, path) {
-    if (!rt.partsOf(undefined, roomId).some(part => part.sessionId === sessionId)) return false
+  async function roomHasImageReply(roomId, sessionId, botId, path, memberSession) {
+    if (!memberSession && !rt.partsOf(undefined, roomId).some(part => part.sessionId === sessionId)) return false
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
-    const matches = item => item.kind === 'bot' && item.botId === botId
-      && extractLocalMarkdownImages(item.text).some(image => image.path === path)
+    const hasImage = item => item.kind === 'bot' && extractLocalMarkdownImages(item.text).some(image => image.path === path)
+    const matches = item => item.botId === botId && hasImage(item)
     const rowsOf = range => rt.groupRows?.(roomId, range.from, range.to, range.anchor) ?? []
     const matchingResults = new Set()
     let beforeSeq
@@ -813,7 +813,9 @@ export function install(rt) {
       }, signal).catch(() => undefined)
       const records = page?.records ?? []
       for (const { event } of [...records].reverse()) {
-        if (isRelayCall(event)) {
+        if (memberSession) {
+          if (event.type === 'assistant/message' && rt.displayItems(sessionId, [event]).some(hasImage)) return true
+        } else if (isRelayCall(event)) {
           const callId = event.data.callId
           if (matchingResults.has(callId)) return true
           const round = rt.roomProgress.get(callId)
@@ -914,12 +916,14 @@ export function install(rt) {
       }
       if (!allowed) {
         const containsImage = dir => within(realPath, resolve(dir))
-        allowed = rt.extraDirsOf({ botId, roomId }).some(containsImage)
-        // A room's shared Session does not prove which Bot supplied a link.
-        if (!allowed && roomId !== undefined && botId === undefined && typeof requestedAuthorId === 'string'
-          && rt.extraDirsOf({ botId: requestedAuthorId, roomId }).some(containsImage)) {
-          allowed = trustedAuthorId === requestedAuthorId
-            || await roomHasImageReply(roomId, targetSessionId, requestedAuthorId, raw)
+        const extraRoomId = roomId ?? groupOwner?.roomId ?? pastOwner?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
+        allowed = rt.extraDirsOf({ botId: extraRoomId === undefined ? botId : undefined, roomId: extraRoomId }).some(containsImage)
+        const extraAuthorId = botId ?? requestedAuthorId
+        // Owning a room Session does not prove the Bot linked a particular image.
+        if (!allowed && extraRoomId !== undefined && typeof extraAuthorId === 'string'
+          && rt.extraDirsOf({ botId: extraAuthorId, roomId: extraRoomId }).some(containsImage)) {
+          allowed = trustedAuthorId === extraAuthorId
+            || await roomHasImageReply(extraRoomId, targetSessionId, extraAuthorId, raw, botId !== undefined)
         }
       }
       if (!allowed && allowAgentArtifacts && rt.engineOfBot(rt.botOf(authorId ?? botId)) === 'local-antigravity') {

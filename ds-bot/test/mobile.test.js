@@ -1297,6 +1297,49 @@ test('markdown-image verifies group replies returned by the PTC relay wrapper', 
   assert.equal((await read(spoofed)).error?.code, 'bot/forbidden')
 })
 
+test('markdown-image requires a saved reply to use a group member Session’s Bot extra folders (#2405)', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-member-session-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const botExtra = join(root, 'bot')
+  const roomExtra = join(root, 'room')
+  mkdirSync(botExtra)
+  mkdirSync(roomExtra)
+  const replyImage = join(botExtra, 'linked.png')
+  const unlinkedImage = join(botExtra, 'unlinked.png')
+  const sharedImage = join(roomExtra, 'shared.png')
+  for (const path of [replyImage, unlinkedImage, sharedImage]) writeFileSync(path, 'image')
+  rt.state.bots[writer.id].extraDirs = [botExtra]
+  const entry = rt.state.rooms[room.id]
+  entry.extraDirs = [roomExtra]
+  const current = 'member-image-current'
+  const archived = 'member-image-archived'
+  entry.sessions = { [writer.id]: current }
+  entry.segments = { [writer.id]: [{ sessionId: archived, endedAt: 2 }] }
+  rt.groupOwners.set(current, { botId: writer.id, roomId: room.id })
+  rt.pastOwners.set(archived, { botId: writer.id, roomId: room.id })
+  const text = path => [{ type: 'text', text: `![Plot](<${path}>)` }]
+  for (const sessionId of [current, archived]) {
+    history[sessionId] = [
+      { seq: 1, type: 'assistant/message', data: { message: { content: text(replyImage) } } },
+      { seq: 2, type: 'user/message', data: { source: { kind: 'user' }, content: text(unlinkedImage) } },
+    ]
+  }
+  assert.ok((await call('state', {})).value.rooms.find(item => item.id === room.id).parts.includes(archived))
+  const read = (sessionId, path) => call('markdown-image', { sessionId, path, botId: writer.id, trustedAuthorId: writer.id })
+  assert.deepEqual((await Promise.all([current, archived].map(sessionId => read(sessionId, unlinkedImage))))
+    .map(result => result.error?.code), ['bot/forbidden', 'bot/forbidden'])
+  for (const sessionId of [current, archived]) {
+    assert.equal((await read(sessionId, replyImage)).ok, true)
+    assert.equal((await read(sessionId, sharedImage)).ok, true)
+  }
+  assert.equal((await read(rt.chatOf(writer.id), unlinkedImage)).ok, true)
+  const trusted = await rt.mobileEndpoint('markdown-image', { sessionId: current, path: unlinkedImage }, { trustedAuthorId: writer.id })
+  assert.equal(trusted.bytes, Buffer.from('image').toString('base64'))
+})
+
 test('markdown-image expands home links but limits default artifacts to the Antigravity author (#2405)', async (t) => {
   const { call, rt, stop } = start()
   t.after(stop)
