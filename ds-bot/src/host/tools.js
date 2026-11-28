@@ -1715,11 +1715,13 @@ export function install(rt) {
     isGroup: rt.groupOwners?.has(id) === true,
     isTask: rt.taskOwners?.has(id) === true,
     hasTaskRoom: rt.taskOwners?.get(id)?.roomId !== undefined,
+    preserveTaskPrefix: rt.taskOwners?.get(id)?.preservePrefix === true,
     hasPacks: (rt.botOf(rt.selfOf(id))?.packs?.length ?? 0) > 0 || rt.hasLoadedPacks?.(id) === true,
   }
   const scopeKeyOf = (id) => {
     const s = scopeOf(id)
-    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${s.isGroup ? 1 : 0}:${s.isTask ? 1 : 0}:${s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
+    const hideTaskTools = s.isTask && !s.preserveTaskPrefix
+    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${s.isGroup ? 1 : 0}:${hideTaskTools ? 1 : 0}:${hideTaskTools && s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
   }
 
   // Team tools that have zero valid actions in this Bot Session's current role/context.
@@ -1743,7 +1745,7 @@ export function install(rt) {
     if (s.isGroup) {
       hidden.add('prepare_ds_bot_issue')
     }
-    if (s.isTask) {
+    if (s.isTask && !s.preserveTaskPrefix) {
       for (const name of TASK_HIDDEN_TEAM_TOOLS) hidden.add(name)
       if (s.hasTaskRoom) hidden.add('delegate_work')
     }
@@ -1756,7 +1758,8 @@ export function install(rt) {
     const hidden = hiddenTeamToolsFor(id)
     if (!rt.isBotSession(id)) return hidden
     for (const name of rt.hiddenBuiltinTools(id)) hidden.add(name)
-    if (scopeOf(id).isTask) {
+    const s = scopeOf(id)
+    if (s.isTask && !s.preserveTaskPrefix) {
       for (const name of TASK_HIDDEN_GLOBAL_TOOLS) hidden.add(name)
     }
     return hidden
@@ -2222,7 +2225,8 @@ export function install(rt) {
     if (maskingTaskGlobals.has(agent)) return
     if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
     const id = agent.session?.id
-    const isTask = rt.isBotSession(id) && scopeOf(id).isTask
+    const s = scopeOf(id)
+    const isTask = rt.isBotSession(id) && s.isTask && !s.preserveTaskPrefix
     if (!isTask && (held.taskGlobalLifts?.length ?? 0) === 0 && (held.taskGlobalDenied?.size ?? 0) === 0) return
     maskingTaskGlobals.add(agent)
     try {

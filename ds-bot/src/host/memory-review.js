@@ -476,7 +476,7 @@ export function installReview(rt, memory) {
       key: seen.key, since, batch: await chatBatch(seen.sessionId, bot, since, { taskId: seen.taskId }),
       keeper: bot, name: bot.name, home: ownScope(bot.id), teamWrites: () => writesTeam(bot.id),
       who: `The Bot: ${inlineUntrusted(bot.name)}${bot.role ? `, ${inlineUntrusted(bot.role)}` : ''}.`,
-      tag: { sessionId: rt.chatOf(bot.id), kind: 'memory' },
+      tag: { sessionId: rt.chatOf(bot.id), kind: 'memory', cacheKey: `mem-review:${bot.id}` },
       alive: () => rt.botOf(bot.id) !== undefined,
       next: () => queueReview(seen),
       retrySeen: seen,

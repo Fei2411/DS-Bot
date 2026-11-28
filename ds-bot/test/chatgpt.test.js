@@ -388,6 +388,31 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
   assert.deepEqual(step2Req.body.input[2], reasoningItem)
   assert.deepEqual(step2Req.body.input[3], callItem)
   assert.deepEqual(step2Req.body.input[4], { type: 'function_call_output', call_id: 'call_step1', output: '22C sunny' })
+
+  // Forked sessions mapped to a parent cache affinity root route onto the parent's
+  // prompt_cache_key and affinity headers while auxiliary/own requests stay isolated.
+  const affinityMap = new Map([['sess-fork-child', 'sess-chatgpt-cache-1']])
+  rt.cacheAffinityOf = id => affinityMap.get(id)
+  rt.ownRequest = opts => opts?.messages?.[0]?.source?.kind === 'memory-own'
+  rt.isLocalAgentRoute = provider => provider === 'local-codex'
+
+  await runTurn('gpt-6.2-sol', undefined, { sessionId: 'sess-fork-child', tools: [toolDef], messages: [userMsg] })
+  const forkReq = requests.at(-1)
+  assert.equal(forkReq.body.prompt_cache_key, 'sess-chatgpt-cache-1')
+  assert.equal(forkReq.headers['session-id'], 'sess-chatgpt-cache-1')
+  assert.equal(forkReq.headers['x-client-request-id'], 'sess-chatgpt-cache-1')
+  assert.deepEqual(forkReq.body.tools, step1Req.body.tools)
+  assert.deepEqual(forkReq.body.input, step1Req.body.input)
+
+  // Purpose-tagged calls and DS Bot's own tagged requests (e.g. memory) must NOT be rewritten.
+  await runTurn('gpt-6.2-sol', undefined, { sessionId: 'sess-fork-child', purpose: 'title' })
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'sess-fork-child')
+  await runTurn('gpt-6.2-sol', undefined, {
+    sessionId: 'mem-review:b1',
+    messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'review' }], source: { kind: 'memory-own' } })],
+  })
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'mem-review:b1')
+  assert.equal(requests.at(-1).headers['session-id'], 'mem-review:b1')
 })
 
 test('first ChatGPT sign-in falls back for omitted reasoning levels with or without an openai route and ignores custom openai gateways', async t => {

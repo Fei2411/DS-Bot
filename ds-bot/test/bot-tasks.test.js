@@ -275,6 +275,11 @@ test('pruning a task moved from the first Bot chat archives the old Session, not
   const [task] = bot.tasks
   assert.equal(task.sessionId, firstChat)
   assert.notEqual(newChat, firstChat)
+  assert.equal(task.forkedPrefixSessionId, firstChat)
+  assert.equal(env.rt.taskOwners.get(firstChat)?.preservePrefix, true)
+  assert.equal(bot.cacheAffinitySessionId, newChat)
+  assert.equal(bot.cacheAffinityId, firstChat)
+  assert.equal(env.rt.cacheAffinityOf(newChat), firstChat)
   bot.tasks.push(...settledTasks(50))
 
   assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: task.id })).ok, true)
@@ -552,6 +557,10 @@ test('task_start forks foreground chat, delivers via rt.deliver, and settles com
   const task = bot.tasks[0]
   assert.equal(task.status, 'running')
   assert.equal(env.rt.taskOwners.get(task.sessionId)?.taskId, task.id)
+  assert.equal(env.rt.taskOwners.get(task.sessionId)?.preservePrefix, true)
+  assert.equal(task.forkedPrefixSessionId, task.sessionId)
+  assert.equal(task.cacheAffinityId, 'dm-a')
+  assert.equal(env.rt.cacheAffinityOf(task.sessionId), 'dm-a')
   assert.equal(env.rt.chatOwners.get(task.sessionId), 'a')
   assert.equal(env.deliveries.length, 1)
   assert.equal(env.deliveries[0].role, 'task')
@@ -566,6 +575,7 @@ test('task_start forks foreground chat, delivers via rt.deliver, and settles com
   assert.equal(task.status, 'completed')
   assert.equal(env.rt.taskOwners.has(task.sessionId), false, 'settled task must leave taskOwners')
   assert.equal(env.rt.chatOwners.has(task.sessionId), false, 'settled task must leave chatOwners')
+  assert.equal(env.rt.cacheAffinityOf(task.sessionId), undefined, 'settled task must leave cacheAffinityRoots')
   assert.equal(env.rt.pastOwners.get(task.sessionId)?.botId, 'a')
   assert.equal(ownChatSessions(bot).includes(task.sessionId), false, 'settled task must leave ownChatSessions')
 

@@ -471,7 +471,7 @@ export function install(rt) {
       language: writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.()),
       limit: settings.learnedMax,
     })
-    const reply = await rt.botShot(bot, skillSystem(), text, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
+    const reply = await rt.botShot(bot, skillSystem(), text, { sessionId: rt.chatOf(bot.id), kind: 'memory', cacheKey: `mem-learn:${bot.id}` })
     const proposal = parseJson(reply)
     if (['description', 'content', 'why'].some(key => {
       const value = proposal?.[key]
@@ -508,7 +508,7 @@ export function install(rt) {
   async function reviewAgents(bot, folder, current, lines) {
     const language = writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.())
     const request = agentsRequest({ folder, current, lines, declined: data().declined, language })
-    const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
+    const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory', cacheKey: `mem-learn:${bot.id}` })
     const answer = agentsAnswer(reply, current)
     if (answer === undefined || answer === null || typeof answer !== 'object') throw new Error('the answer is not a JSON object')
     if (Array.isArray(answer.edits) && answer.edits.some(edit => [edit?.text, edit?.why].some(value => typeof value === 'string' && rt.redactSecrets(value) !== value))) {

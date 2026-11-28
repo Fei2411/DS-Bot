@@ -32,6 +32,22 @@ function shouldIncludeEncryptedReasoning(body, reasoningModel) {
   return isKnownReasoningModel(body.model)
 }
 
+function namespaceTools(rawTools) {
+  if (!Array.isArray(rawTools)) throw invalid()
+  const tools = rawTools.filter(localTool)
+  const nextTools = rawTools.filter(tool => !localTool(tool))
+  if (tools.length) {
+    const existing = nextTools.findIndex(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE)
+    if (existing < 0) nextTools.push({ type: 'namespace', name: TOOL_NAMESPACE, description: 'DS Bot tools.', tools })
+    else {
+      const namespace = nextTools[existing]
+      if (!Array.isArray(namespace.tools)) throw invalid()
+      nextTools[existing] = { ...namespace, tools: [...namespace.tools, ...tools] }
+    }
+  }
+  return nextTools
+}
+
 function normalizeInputItem(item) {
   // Keep system prompts inside `input` as `developer` messages instead of hoisting them
   // to top-level `instructions`, which GPT-6.2+ appends uncached on every request.
@@ -47,6 +63,9 @@ function normalizeInputItem(item) {
     throw invalid()
   }
   if (toolCall(item) && item.namespace == null) return { ...item, namespace: TOOL_NAMESPACE }
+  if ((item?.type === 'additional_tools' || item?.type === 'tool_search_output') && item.tools !== undefined) {
+    return { ...item, tools: namespaceTools(item.tools) }
+  }
   return item
 }
 
@@ -65,10 +84,20 @@ function affinityHeaders(reqHeaders, parsedBody) {
 }
 
 function plainCall(item) {
-  if (!toolCall(item) || item.namespace !== TOOL_NAMESPACE) return item
-  const next = { ...item }
-  delete next.namespace
-  return next
+  if (toolCall(item) && item.namespace === TOOL_NAMESPACE) {
+    const next = { ...item }
+    delete next.namespace
+    return next
+  }
+  if ((item?.type === 'additional_tools' || item?.type === 'tool_search_output')
+    && Array.isArray(item.tools)
+    && item.tools.some(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools))) {
+    return {
+      ...item,
+      tools: item.tools.flatMap(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools) ? tool.tools : [tool]),
+    }
+  }
+  return item
 }
 
 function plainEvent(frame) {
@@ -149,18 +178,7 @@ export function previewRequest(body, { reasoningModel } = {}) {
   if (body.include !== undefined && (!Array.isArray(body.include) || body.include.some(entry => typeof entry !== 'string'))) throw invalid()
   next.input = input.map(normalizeInputItem)
   if (body.tools !== undefined) {
-    if (!Array.isArray(body.tools)) throw invalid()
-    const tools = body.tools.filter(localTool)
-    next.tools = body.tools.filter(tool => !localTool(tool))
-    if (tools.length) {
-      const existing = next.tools.findIndex(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE)
-      if (existing < 0) next.tools.push({ type: 'namespace', name: TOOL_NAMESPACE, description: 'DS Bot tools.', tools })
-      else {
-        const namespace = next.tools[existing]
-        if (!Array.isArray(namespace.tools)) throw invalid()
-        next.tools[existing] = { ...namespace, tools: [...namespace.tools, ...tools] }
-      }
-    }
+    next.tools = namespaceTools(body.tools)
   }
   if (shouldIncludeEncryptedReasoning(body, reasoningModel)) {
     const include = body.include ?? []

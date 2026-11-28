@@ -307,6 +307,11 @@ export function install(rt) {
   let scanAbort
   // Metered calls that finish before the ledger opens.
   const early = []
+  const TURN_SYNC_DELAY_MS = 250
+  const turnSyncDelayMs = rt.config?.usageTurnSyncDelayMs ?? TURN_SYNC_DELAY_MS
+  const turnSyncTimers = new Map()
+  const turnSyncing = new Set()
+  let turnSyncAbort = new AbortController()
   // Active metered streams that already observed a usage chunk before finalizing.
   const activeMeters = new Set()
   function openLedger() {
@@ -361,6 +366,10 @@ export function install(rt) {
     }
     activeMeters.clear()
     disposed = true
+    for (const timer of turnSyncTimers.values()) clearTimeout(timer)
+    turnSyncTimers.clear()
+    turnSyncing.clear()
+    turnSyncAbort.abort()
     scanAbort?.abort()
     scanAbort = undefined
     const pending = opening
@@ -483,7 +492,7 @@ export function install(rt) {
       if (!page.hasMore || got.length === 0) break
       beforeSeq = got[0].seq
     }
-    if (disposed || book !== ledger) return
+    if (disposed || book !== ledger || signal?.aborted) return
     events.reverse()
     if (events.length > 0 && events[0].seq !== from + 1) throw new Error(`the history of ${sessionId} came back with a gap`)
     const fold = foldCalls(events, mark?.fold)
@@ -500,6 +509,8 @@ export function install(rt) {
     if (disposed) return Promise.resolve()
     if (scanning !== undefined) return scanning
     if (Date.now() - scannedAt < RESCAN_AFTER_MS) return Promise.resolve()
+    turnSyncAbort.abort()
+    turnSyncAbort = new AbortController()
     const abort = new AbortController()
     scanAbort = abort
     const job = (async () => {
@@ -765,8 +776,9 @@ export function install(rt) {
   // A Session's own requests are in its log; every other request is metered here.
   ctx.on('llm/stream', (options, next) => {
     const tag = tags.get(options.messages)
-    if (tag === undefined && options.sessionId !== undefined && options.purpose === undefined) {
-      noteSession(options.sessionId)
+    const logicalSessionId = rt.originalSessionId?.(options) ?? options.sessionId
+    if (tag === undefined && logicalSessionId !== undefined && options.purpose === undefined) {
+      noteSession(logicalSessionId)
       return next()
     }
     return (async function* meter() {
@@ -778,7 +790,7 @@ export function install(rt) {
           flushed = true
           const row = {
             key: `live:${randomUUID()}`,
-            session: tag?.sessionId ?? options.sessionId ?? '',
+            session: tag?.sessionId ?? logicalSessionId ?? '',
             time: Date.now(),
             provider: options.provider ?? '',
             model: options.model ?? '',
@@ -801,10 +813,46 @@ export function install(rt) {
         activeMeters.delete(entry)
         if (!flushed && usage !== undefined) {
           flushed = true
-          record({ sessionId: tag?.sessionId ?? options.sessionId, kind: tag?.kind ?? options.purpose ?? 'other', provider: options.provider, model: options.model, usage })
+          record({ sessionId: tag?.sessionId ?? logicalSessionId, kind: tag?.kind ?? options.purpose ?? 'other', provider: options.provider, model: options.model, usage })
         }
       }
     })()
+  })
+
+  // Incrementally sync each completed turn into usage.sqlite so live views and
+  // diagnostics are not skewed by real-time `memory` rows waiting on a manual scan.
+  const scheduleTurnSync = (sessionId) => {
+    if (disposed || rt.readOnly?.() !== undefined || typeof sessionId !== 'string' || sessionId === '') return
+    if (typeof ctx.sessionController?.projections !== 'function' || typeof ctx.sessionController?.page !== 'function') return
+    if (unreadable.has(sessionId)) return
+    const existing = turnSyncTimers.get(sessionId)
+    if (existing !== undefined) clearTimeout(existing)
+    const run = async () => {
+      turnSyncTimers.delete(sessionId)
+      if (disposed || rt.readOnly?.() !== undefined || scanning !== undefined || turnSyncing.has(sessionId) || unreadable.has(sessionId)) return
+      turnSyncing.add(sessionId)
+      try {
+        await rt.load()
+        if (disposed || rt.readOnly?.() !== undefined || scanning !== undefined) return
+        const book = await openLedger().catch(() => undefined)
+        if (disposed || scanning !== undefined || book === undefined || book !== ledger) return
+        try { journal(book, sessionId) } catch { /* best-effort owner journaling */ }
+        const signal = AbortSignal.any([AbortSignal.timeout(PAGE_TIMEOUT_MS), turnSyncAbort.signal])
+        await scanSession(book, { kind: 'session', sessionId }, undefined, undefined, signal)
+      } catch {
+        // Transient read/lock race while the session flushes; the next turn or full scan catches up.
+      } finally {
+        turnSyncing.delete(sessionId)
+      }
+    }
+    const timer = setTimeout(() => { void run() }, turnSyncDelayMs)
+    timer.unref?.()
+    turnSyncTimers.set(sessionId, timer)
+  }
+  ctx.on?.('session/event', (session, event) => {
+    if (event?.type === 'turn/end' && typeof session?.id === 'string' && session.id !== '') {
+      scheduleTurnSync(session.id)
+    }
   })
 
   // A request DS Bot makes of a local agent CLI outside the model stream.

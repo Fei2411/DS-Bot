@@ -1029,6 +1029,9 @@ test('real DSH ReactLoopAgent: background tasks prune task-blocked tools (team +
   rt.state.bots.b.tasks = [
     { id: 'k_own', title: 'Own task', status: 'running', sessionId: 'b-task', segments: [], startedAt: 2, updatedAt: 2 },
     { id: 'k_grp', title: 'Group task', roomId: 'r-temp', status: 'running', sessionId: 'b-gtask', segments: [], startedAt: 3, updatedAt: 3 },
+    { id: 'k_fork', title: 'Forked task', status: 'running', sessionId: 'b-fork-task', forkedPrefixSessionId: 'b-fork-task', cacheAffinityId: 'b', segments: [], startedAt: 4, updatedAt: 4 },
+    { id: 'k_handoff', title: 'Handoff task', origin: 'fg-handoff', status: 'running', sessionId: 'b-handoff-task', segments: [], startedAt: 5, updatedAt: 5 },
+    { id: 'k_rotated', title: 'Rotated forked task', status: 'running', sessionId: 'b-fork-seg2', forkedPrefixSessionId: 'b-fork-seg1', cacheAffinityId: 'b', segments: [{ sessionId: 'b-fork-seg1', endedAt: 5 }], startedAt: 6, updatedAt: 6 },
   ]
   await rt.save()
 
@@ -1076,7 +1079,7 @@ test('real DSH ReactLoopAgent: background tasks prune task-blocked tools (team +
   const created = host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))
 
   // 1) Own-chat background task & group background task on real ReactLoopAgent.
-  for (const sid of ['b-task', 'b-gtask']) {
+  for (const sid of ['b-task', 'b-gtask', 'b-fork-task', 'b-handoff-task', 'b-fork-seg2']) {
     const agent = await root.agentLoop.create(SessionId(sid), { provider: 'prune-test', model: 'test' })
     await created({ agent })
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'run task' }] }))
@@ -1084,13 +1087,30 @@ test('real DSH ReactLoopAgent: background tasks prune task-blocked tools (team +
   }
   const ownTaskTools = seenBySession.get('b-task')[0]
   const grpTaskTools = seenBySession.get('b-gtask')[0]
+  const forkedTaskTools = seenBySession.get('b-fork-task')[0]
+  const handoffTaskTools = seenBySession.get('b-handoff-task')[0]
+  const rotatedTaskTools = seenBySession.get('b-fork-seg2')[0]
   for (const blocked of [...TASK_HIDDEN_TEAM_TOOLS, 'schedule_create', 'schedule_edit', 'group_relay', ...CATALOG_PACK_TOOLS]) {
     assert.equal(ownTaskTools.includes(blocked), false, `own-chat task must prune ${blocked}`)
     assert.equal(grpTaskTools.includes(blocked), false, `group task must prune ${blocked}`)
+    assert.equal(rotatedTaskTools.includes(blocked), false, `rotated segment must prune ${blocked}`)
   }
   assert.equal(ownTaskTools.includes('delegate_work'), true, 'own-chat task keeps delegate_work')
   assert.equal(grpTaskTools.includes('delegate_work'), false, 'group task prunes delegate_work')
   assert.equal(ownTaskTools.includes('read_own_chat'), true, 'own-chat task keeps read_own_chat')
+
+  // Forked and foreground-handoff tasks preserve the parent's tool prefix (no tool-removal KV reset)
+  // while still blocking execution of foreground-only tools via defense-in-depth guards.
+  for (const kept of [...TASK_HIDDEN_TEAM_TOOLS, 'schedule_create', 'schedule_edit', 'browser_handoff']) {
+    assert.equal(forkedTaskTools.includes(kept), true, `forked task must preserve ${kept} for KV cache prefix`)
+    assert.equal(handoffTaskTools.includes(kept), true, `fg-handoff task must preserve ${kept} for KV cache prefix`)
+  }
+  assert.equal(rt.cacheAffinityOf('b-fork-task'), 'b')
+  assert.equal(rt.cacheAffinityOf('b-fork-seg2'), undefined, 'rotated segment must drop stale cache affinity')
+  const forkSchedGuards = host.ctx.guards.map(fn => fn({ agent: { id: 'b-fork-task' }, name: 'schedule_create', arguments: {} })).filter(Boolean)
+  assert.ok(forkSchedGuards.some(msg => /Background tasks cannot create or change schedules/.test(msg)))
+  const forkBhGuards = host.ctx.guards.map(fn => fn({ agent: { id: 'b-fork-task' }, name: 'browser_handoff', arguments: {} })).filter(Boolean)
+  assert.ok(forkBhGuards.some(msg => /Background tasks cannot hand the browser/.test(msg)))
 
   // Defense-in-depth: guard & execute() refusals remain intact even though schemas are pruned.
   const taskGuards = host.ctx.guards.map(fn => fn({ agent: { id: 'b-task' }, name: 'schedule_create', arguments: {} })).filter(Boolean)
