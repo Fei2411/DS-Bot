@@ -11,13 +11,19 @@ function macro(name) {
   return body
 }
 
-test('a silent Windows update must publish a complete backup before the old uninstaller runs', () => {
+test('a silent Windows update prepares a complete backup before the old uninstaller runs', () => {
   // electron-builder calls customInit from .onInit, before the install section runs.
   const body = macro('customInit')
   assert.match(body, /\$\{Silent\}[\s\S]*\$\{isUpdated\}/)
   assert.match(body, /\$\{IfNot\} \$\{FileExists\} "\$\{DSB_ROLLBACK\}\\resources\\app\.asar"/)
   assert.match(body, /CopyFiles \/SILENT "\$INSTDIR\\\*" "\$\{DSB_ROLLBACK_STAGING\}"\s+IfErrors rollbackBackupFailed/)
-  assert.match(body, /Rename "\$\{DSB_ROLLBACK_STAGING\}" "\$\{DSB_ROLLBACK\}"\s+IfErrors rollbackBackupFailed[\s\S]*rollbackBackupFailed:\s+SetErrorLevel 2\s+Abort/)
+  assert.match(body, /RMDir \/r "\$\{DSB_ROLLBACK\}"\s+ClearErrors\s+Rename "\$\{DSB_ROLLBACK_STAGING\}" "\$\{DSB_ROLLBACK\}"\s+IfErrors rollbackBackupFailed/)
+})
+
+test('a failed rollback backup cleans up staging and lets the silent update continue', () => {
+  const body = macro('customInit')
+  assert.doesNotMatch(body, /^\s*(?:Abort|Quit|SetErrorLevel)\b/im)
+  assert.match(body, /rollbackBackupFailed:[\s\S]*?RMDir \/r "\$\{DSB_ROLLBACK_STAGING\}"\s+rollbackBackupDone:\s+ClearErrors\s*$/)
 })
 
 test('a silent update backs up the legacy executable in the registered installation directory', () => {
@@ -30,7 +36,7 @@ test('a silent update backs up the legacy executable in the registered installat
 
 test('the old copy is retired only after the installed application files are in place', () => {
   // electron-builder calls customInstall after installing files and writing registry entries.
-  assert.doesNotMatch(macro('customInit'), /RMDir \/r "\$\{DSB_ROLLBACK\}"/)
+  assert.doesNotMatch(macro('customInit'), /Rename "\$\{DSB_ROLLBACK\}" "\$\{DSB_ROLLBACK_STAGING\}"/)
   const body = macro('customInstall')
   assert.match(body, /IfFileExists "\$\{DSB_ROLLBACK\}\\resources\\app\.asar" 0 rollbackCleanupDone/)
   assert.match(body, /Rename "\$\{DSB_ROLLBACK\}" "\$\{DSB_ROLLBACK_STAGING\}"\s+IfErrors rollbackCleanupDone\s+RMDir \/r "\$\{DSB_ROLLBACK_STAGING\}"/)

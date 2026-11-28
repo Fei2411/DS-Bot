@@ -31,15 +31,18 @@
       IfErrors rollbackBackupFailed
       IfFileExists "${DSB_ROLLBACK_STAGING}\$R8" 0 rollbackBackupFailed
       IfFileExists "${DSB_ROLLBACK_STAGING}\resources\app.asar" 0 rollbackBackupFailed
+      RMDir /r "${DSB_ROLLBACK}"
+      ClearErrors
       Rename "${DSB_ROLLBACK_STAGING}" "${DSB_ROLLBACK}"
       IfErrors rollbackBackupFailed
     ${EndIf}
   ${EndIf}
   Goto rollbackBackupDone
   rollbackBackupFailed:
-    SetErrorLevel 2
-    Abort
+    DetailPrint "Could not save a rollback copy. Continuing the update."
+    RMDir /r "${DSB_ROLLBACK_STAGING}"
   rollbackBackupDone:
+    ClearErrors
 !macroend
 
 !macro customInstall
