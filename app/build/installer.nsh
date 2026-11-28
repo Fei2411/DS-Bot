@@ -12,9 +12,14 @@
 !macro customInit
   ${If} ${Silent}
   ${AndIf} ${isUpdated}
-    ${If} ${FileExists} "${DSB_ROLLBACK}\${APP_EXECUTABLE_FILENAME}"
-      ; A retry must not replace the fallback with a partially installed version.
-    ${ElseIf} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    StrCpy $R8 "${APP_EXECUTABLE_FILENAME}"
+    ${IfNot} ${FileExists} "$INSTDIR\$R8"
+      StrCpy $R8 "DeepSeek Bot.exe"
+    ${EndIf}
+
+    ; A retry must not replace the fallback with a partially installed version.
+    ${IfNot} ${FileExists} "${DSB_ROLLBACK}\resources\app.asar"
+    ${AndIf} ${FileExists} "$INSTDIR\$R8"
     ${AndIf} ${FileExists} "$INSTDIR\resources\app.asar"
       RMDir /r "${DSB_ROLLBACK_STAGING}"
       IfFileExists "${DSB_ROLLBACK_STAGING}" rollbackBackupFailed
@@ -23,7 +28,7 @@
       IfErrors rollbackBackupFailed
       CopyFiles /SILENT "$INSTDIR\*" "${DSB_ROLLBACK_STAGING}"
       IfErrors rollbackBackupFailed
-      IfFileExists "${DSB_ROLLBACK_STAGING}\${APP_EXECUTABLE_FILENAME}" 0 rollbackBackupFailed
+      IfFileExists "${DSB_ROLLBACK_STAGING}\$R8" 0 rollbackBackupFailed
       IfFileExists "${DSB_ROLLBACK_STAGING}\resources\app.asar" 0 rollbackBackupFailed
       Rename "${DSB_ROLLBACK_STAGING}" "${DSB_ROLLBACK}"
       IfErrors rollbackBackupFailed
@@ -37,7 +42,7 @@
 !macroend
 
 !macro customInstall
-  IfFileExists "${DSB_ROLLBACK}\${APP_EXECUTABLE_FILENAME}" 0 rollbackCleanupDone
+  IfFileExists "${DSB_ROLLBACK}\resources\app.asar" 0 rollbackCleanupDone
   IfFileExists "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 rollbackCleanupDone
   IfFileExists "$INSTDIR\resources\app.asar" 0 rollbackCleanupDone
   ClearErrors
