@@ -301,6 +301,15 @@ class ElementMini extends NodeMini {
   set src(value) { this.setAttribute('src', value) }
   get title() { return this._attrs.get('title') ?? '' }
   set title(value) { this.setAttribute('title', value) }
+  get tabIndex() {
+    if (this._attrs.has('tabindex')) {
+      const parsed = Number.parseInt(this._attrs.get('tabindex'), 10)
+      return Number.isNaN(parsed) ? -1 : parsed
+    }
+    if (this.localName === 'button' || this.localName === 'input' || this.localName === 'select' || this.localName === 'textarea' || (this.localName === 'a' && this._attrs.has('href'))) return 0
+    return -1
+  }
+  set tabIndex(value) { this.setAttribute('tabindex', String(value)) }
   get hidden() { return this._attrs.has('hidden') }
   set hidden(value) { if (value) this._attrs.set('hidden', ''); else this._attrs.delete('hidden') }
   get disabled() { return this._attrs.has('disabled') }
