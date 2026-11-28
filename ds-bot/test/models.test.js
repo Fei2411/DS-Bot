@@ -68,6 +68,31 @@ test('a Bot runs on its own model, else the one it last ran on, else the default
   assert.equal(await rt.desiredModel({ model: 'gone/model' }), 'ollama/kimi-k3')
 })
 
+test('a Bot keeps its model while its provider\'s models cannot be listed', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  const bot = { model: 'deepseek/deepseek-v4-pro', appliedModel: 'deepseek/deepseek-v4-pro' }
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+  assert.equal(await rt.desiredModel({ model: 'deepseek/deepseek-v4-pro' }), 'deepseek/deepseek-v4-pro')
+  // A provider that is not there at all is still a model no longer served.
+  assert.equal(await rt.desiredModel({ model: 'gone/model' }), 'ollama/kimi-k3')
+  // Every read that could not list the provider says so.
+  assert.equal(warnings.length, 1)
+  assert.match(String(warnings[0]), /deepseek/)
+  await rt.catalog({ fresh: true })
+  assert.equal(warnings.length, 2)
+  // Listed again without the model, the model is no longer served.
+  rt.ctx.llm.listModels = async id => (id === 'deepseek' ? [{ id: 'deepseek-v4.1-flash' }] : listModels(id))
+  await rt.catalog({ fresh: true })
+  assert.equal(await rt.desiredModel({ model: 'deepseek/deepseek-v4-pro' }), 'ollama/kimi-k3')
+})
+
 test('choosing a Bot model leaves the user\'s DSH default model as it was', async () => {
   const writes = []
   let current = { provider: 'ollama', model: 'kimi-k3' }
@@ -669,6 +694,90 @@ test('a group\'s own Session follows the team default when it changes, and a fai
   rt.state.prefs.defaultBotModel = 'stepfun/step-5'
   await rt.syncRoomSessions()
   assert.deepEqual(selected.slice(1), ['r1:stepfun/step-5'])
+})
+
+// A listing that fails and one that succeeds without the model serve the same models
+// to everyone else, but ask for different selections of that Bot.
+test('a Bot whose provider is listed again without its model is moved at the next sync', async () => {
+  const { rt, selected, providers } = bench({ providers: { custom: ['x'], stepfun: ['step-5'] } })
+  rt.state.bots = { b1: { id: 'b1', model: 'custom/x', appliedModel: 'custom/x' } }
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'custom') throw new Error('timed out')
+    return listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), [])
+  rt.ctx.llm.listModels = listModels
+  providers.custom = []
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), ['b1:stepfun/step-5'])
+})
+
+test('a Bot on a fallback is moved back at the next sync once its provider cannot be listed', async () => {
+  const { rt, selected } = bench({ providers: { custom: [], stepfun: ['step-5'] } })
+  rt.state.bots = { b1: { id: 'b1', model: 'custom/x', appliedModel: 'stepfun/step-5' } }
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), [])
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'custom') throw new Error('timed out')
+    return listModels(id)
+  }
+  await rt.catalog({ fresh: true })
+  await rt.syncModels()
+  assert.deepEqual(selected.filter(entry => entry.startsWith('b1:')), ['b1:custom/x'])
+})
+
+// A catalog read whose listing of deepseek is held until `fail` rejects it.
+function heldListing(rt, start = () => rt.catalog({ fresh: true })) {
+  const listModels = rt.ctx.llm.listModels
+  let fail
+  let listing
+  const asked = new Promise((resolve) => { listing = resolve })
+  rt.ctx.llm.listModels = (id) => {
+    if (id !== 'deepseek') return listModels(id)
+    rt.ctx.llm.listModels = listModels
+    listing()
+    return new Promise((resolve, reject) => { fail = () => reject(new Error('timed out')) })
+  }
+  const read = start()
+  return { read, asked, fail: () => fail(), listModels }
+}
+
+test('a Bot keeps the model a newer read found when the listing its own read waits on fails late', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const older = heldListing(rt, () => rt.desiredModel({ model: 'deepseek/deepseek-v4-pro' }))
+  await older.asked
+  await rt.catalog({ fresh: true })
+  older.fail()
+  assert.equal(await older.read, 'deepseek/deepseek-v4-pro')
+})
+
+test('a Bot keeps its model while a catalog that lists its provider again is still being read', async () => {
+  const rt = runtime({ provider: 'ollama', model: 'kimi-k3' })
+  const listModels = rt.ctx.llm.listModels
+  rt.ctx.llm.listModels = async (id) => {
+    if (id === 'deepseek') throw new Error('timed out')
+    return listModels(id)
+  }
+  const bot = { model: 'deepseek/deepseek-v4-pro' }
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+  rt.ctx.llm.listModels = listModels
+  let release
+  let reading
+  const read = new Promise((resolve) => { reading = resolve })
+  rt.missingKeys = () => { reading(); return new Promise((resolve) => { release = () => resolve(new Set()) }) }
+  const fresh = rt.catalog({ fresh: true })
+  await read
+  // The cached catalog still lacks the provider's models: its failure stands with it.
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
+  release()
+  await fresh
+  assert.equal(await rt.desiredModel(bot), 'deepseek/deepseek-v4-pro')
 })
 
 test('a group Session whose selection failed is retried at the next sync, though the models are the same', async () => {
