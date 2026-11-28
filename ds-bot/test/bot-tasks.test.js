@@ -1839,3 +1839,122 @@ test('handoffForeground handoffCutSeq edge cases: Turn 1 without turn/end cuts a
   const taskNullSeq = await envE.rt.startTask('dm-a', { title: 'Null seq task', brief: 'Check coercion' }, execOf(dmE), { taskForkMaxEvents: 0 })
   assert.deepEqual(taskNullSeq.inheritedSegments, [{ sessionId: 'dm-a', throughSeq: 1 }], 'null session.seq must fall back to snapshotEvents instead of coercing to 0 (-1)')
 })
+
+test('settled fg-handoff tasks archive their old foreground Session without losing task metadata (#2374)', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const bot = env.rt.botOf('a')
+
+  // Three successive foreground handoffs: completed, stopped-while-running (archived after idle), and failed.
+  const firstSid = env.rt.chatOf(bot.id)
+  const firstAgent = env.agentMap.get(firstSid)
+  firstAgent.status = 'running'
+  env.rt.state.closedCards[firstSid] = { card1: 'answered' }
+  await env.emit(firstSid, 'turn/start', { turn: 1 })
+  const secondSid = await env.rt.handoffForeground(bot, firstSid, [])
+  const task1 = bot.tasks.find(item => item.sessionId === firstSid)
+  assert.equal(task1?.origin, 'fg-handoff')
+  assert.equal(env.archivedSessions.length, 0, 'active fg-handoff session must not archive before settling')
+
+  // Complete task 1 while idle -> archives firstSid immediately while keeping task1 + metadata in bot.tasks[].
+  firstAgent.session.events.push({ type: 'assistant/message', seq: 1, time: 10, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'First handoff done.' }] } } })
+  firstAgent.status = 'idle'
+  await env.emit(firstSid, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => task1.status === 'completed' && env.archivedSessions.some(item => item.sid === firstSid))
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
+  assert.equal(env.archivedSessions[0].opts, undefined, 'fg-handoff archival must let DSH enforce session-activity checks without stopActivity')
+  assert.equal(bot.tasks.some(item => item.id === task1.id), true, 'settled fg-handoff task stays in bot.tasks[]')
+  assert.deepEqual(env.rt.state.closedCards[firstSid], { card1: 'answered' }, 'settled fg-handoff archival preserves task metadata until pruning')
+
+  // Second handoff: stopped while still running -> defers until idle, then archives once.
+  const secondAgent = env.agentMap.get(secondSid)
+  secondAgent.status = 'running'
+  await env.emit(secondSid, 'turn/start', { turn: 1 })
+  for (const msg of secondAgent.followups.splice(0)) {
+    await env.emit(secondSid, 'user/message', { source: msg.source, content: msg.content })
+  }
+  const thirdSid = await env.rt.handoffForeground(bot, secondSid, [])
+  const task2 = bot.tasks.find(item => item.sessionId === secondSid)
+  assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: task2.id })).ok, true)
+  assert.equal(env.archivedSessions.some(item => item.sid === secondSid), false, 'running stopped fg-handoff must wait until idle before archiving')
+  await env.emit(secondSid, 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: secondAgent.cancelled[0] } })
+  secondAgent.status = 'idle'
+  env.ctx.emit('agent/status', { agent: secondAgent, status: 'idle' })
+  await waitFor(() => env.archivedSessions.some(item => item.sid === secondSid))
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid, secondSid])
+
+  // Third handoff: fails while a transient archive error occurs -> retries and archives, leaving latest foreground unarchived.
+  const thirdAgent = env.agentMap.get(thirdSid)
+  thirdAgent.status = 'running'
+  await env.emit(thirdSid, 'turn/start', { turn: 1 })
+  for (const msg of thirdAgent.followups.splice(0)) {
+    await env.emit(thirdSid, 'user/message', { source: msg.source, content: msg.content })
+  }
+  const fourthSid = await env.rt.handoffForeground(bot, thirdSid, [])
+  const task3 = bot.tasks.find(item => item.sessionId === thirdSid)
+  const origArchive = env.ctx.workspaceRegistry.archiveSession
+  let failedOnce = false
+  env.ctx.workspaceRegistry.archiveSession = async (id, opts) => {
+    if (id === thirdSid && !failedOnce) {
+      failedOnce = true
+      throw new Error('Temporary archive error')
+    }
+    return origArchive(id, opts)
+  }
+  thirdAgent.status = 'idle'
+  await env.emit(thirdSid, 'turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom' } } })
+  await waitFor(() => task3.status === 'failed' && env.archivedSessions.some(item => item.sid === thirdSid), 5000)
+  assert.equal(failedOnce, true)
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid, secondSid, thirdSid])
+  assert.equal(env.rt.chatOf(bot.id), fourthSid)
+  assert.equal(env.archivedSessions.some(item => item.sid === fourthSid), false, 'current foreground session stays unarchived')
+
+  // Later pruning past MAX_SETTLED_TASKS cleans metadata/report without archiving firstSid a second time.
+  bot.tasks.push(...settledTasks(50))
+  const trigger = await env.rt.startTask(fourthSid, { title: 'Trigger prune', brief: 'Prune old task' }, execOf(env.agentMap.get(fourthSid)))
+  assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: trigger.id })).ok, true)
+  await waitFor(() => !bot.tasks.some(item => item.id === task1.id))
+  assert.equal(env.archivedSessions.filter(item => item.sid === firstSid).length, 1, 'already-archived fg-handoff session is not archived twice on prune')
+  assert.equal(env.rt.state.closedCards[firstSid], undefined, 'pruning still cleans up closedCards of an already-archived fg-handoff session')
+})
+
+test('fg-handoff that settles while another handoff is in flight archives once the handoff completes (#2374)', async (t) => {
+  let releaseSecondFork
+  let forkCount = 0
+  const env = await startEnv({
+    forkImpl: async (_opts, next) => {
+      forkCount += 1
+      if (forkCount === 2) {
+        await new Promise((resolve) => { releaseSecondFork = resolve })
+      }
+      return next()
+    },
+  })
+  t.after(env.stop)
+  const bot = env.rt.botOf('a')
+  const firstSid = env.rt.chatOf(bot.id)
+  const firstAgent = env.agentMap.get(firstSid)
+  firstAgent.status = 'running'
+  await env.emit(firstSid, 'turn/start', { turn: 1 })
+  const secondSid = await env.rt.handoffForeground(bot, firstSid, [])
+  const task1 = bot.tasks.find(item => item.sessionId === firstSid)
+
+  // Start second handoff and pause it mid-fork so handoffing.has(bot.id) is true.
+  const secondAgent = env.agentMap.get(secondSid)
+  secondAgent.status = 'running'
+  await env.emit(secondSid, 'turn/start', { turn: 1 })
+  const secondHandoff = env.rt.handoffForeground(bot, secondSid, [])
+  await waitFor(() => typeof releaseSecondFork === 'function')
+
+  // Settle task 1 while handoff 2 is in flight -> archival must defer.
+  firstAgent.status = 'idle'
+  await env.emit(firstSid, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => task1.status === 'completed')
+  assert.equal(env.archivedSessions.some(item => item.sid === firstSid), false, 'archival defers while another handoff is in flight')
+
+  // Release handoff 2 -> task 1's old session archives automatically once handoff 2 finishes.
+  releaseSecondFork()
+  await secondHandoff
+  await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
+})
