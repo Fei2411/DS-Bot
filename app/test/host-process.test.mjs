@@ -65,6 +65,33 @@ test('hostStoppedMessage includes the termination signal when the Host is killed
   assert.equal(host.hostStoppedMessage(null, 'SIGTERM'), 'The DSH Host stopped (exit null, signal SIGTERM)')
 })
 
+test('HostProcess reports a non-zero exit with stderr tail when a running Host exits', async (t) => {
+  const work = mkdtempSync(join(tmpdir(), 'ds-bot-host-exit-'))
+  t.after(() => { rmSync(work, { recursive: true, force: true }) })
+  const entry = join(work, 'exit-after-ready-host.mjs')
+  writeFileSync(entry, [
+    'process.send({ type: "ready", url: "http://127.0.0.1:0", injections: [] })',
+    'setTimeout(() => { process.stderr.write("fatal: engine crashed\\n"); process.exit(1) }, 20)',
+  ].join('\n'))
+  let failed
+  const onFail = new Promise((resolve) => { failed = resolve })
+  const child = new host.HostProcess({
+    entry,
+    cwd: work,
+    env: { ...process.env, DS_BOT_RUNTIME_DIR: work },
+    pnpm: '',
+    onFailure: error => failed(error),
+    output: () => {},
+  }, process.platform === 'linux' ? 'darwin' : process.platform)
+  try {
+    await child.start()
+    const error = await onFail
+    assert.equal(error.message, 'The DSH Host stopped (exit 1):\nfatal: engine crashed')
+  } finally {
+    await child.stop({ now: true })
+  }
+})
+
 test('HostProcess reports the termination signal when a running Host is killed', { skip: process.platform === 'win32' }, async (t) => {
   const work = mkdtempSync(join(tmpdir(), 'ds-bot-host-signal-'))
   t.after(() => { rmSync(work, { recursive: true, force: true }) })

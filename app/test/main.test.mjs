@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { before, test } from 'node:test'
 import { paths, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
-import { handOff, startApp, startWindows, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
+import { handOff, startApp, startState, startWindows, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -64,6 +64,25 @@ test('the tray opens the window again', async () => {
   trayMenu()[0].click()
   await waitFor(() => win.visible === true, 'show the window')
   assert.equal(win.focused > 0, true, 'the window has the focus')
+})
+
+test('a runtime Host crash forgets the dead host before Retry so tray Open does not reconnect to it', async () => {
+  const current = window()
+  const beforeCount = teamWindows().length
+  hostState.crash(new Error('The DSH Host stopped (exit null, signal SIGKILL)'))
+  await waitFor(() => startState()?.view === 'failed', 'show the runtime failure page')
+  assert.equal(startState().failure.reason, 'engine')
+  assert.equal(startState().failure.running, true)
+  assert.equal(startState().phase, 'engine')
+  assert.deepEqual(startState().done, ['data'])
+  assert.equal(current.visible, false, 'the team window hides on runtime stop')
+  // Destroy the hidden team window and click tray Open before clicking Retry:
+  // forgetHost() cleared bootstrap/hostReady immediately in fail(), so no new
+  // team window is rebuilt or connected against the dead Host.
+  current.destroy()
+  trayMenu()[0].click()
+  await new Promise(resolve => { setTimeout(resolve, 50) })
+  assert.equal(teamWindows().length, beforeCount, 'must not rebuild a team window against a dead Host')
 })
 
 test('the tray quit ends the app and stops the Host', async () => {
