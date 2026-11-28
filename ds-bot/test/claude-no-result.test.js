@@ -419,7 +419,7 @@ process.stdin.on('data', (chunk) => {
   const adapter = makeClaudeAdapter({ claude: fixture })
   t.after(() => adapter.dispose())
 
-  const out = await collect(adapter.stream(options('s-old', [user('m1', 'hi')])))
+  const out = await collect(adapter.stream(options('s-old', [user('m1', 'x'.repeat(200_000))])))
   assert.equal(out.finish?.kind, 'stop')
   assert.equal(out.text, 'old-cli-ok')
   assert.equal(adapter.engines.get('local-claude-code').noPartialMessages, true)

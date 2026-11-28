@@ -216,8 +216,34 @@ class ClaudeSession {
     // stderr is not part of the protocol, but it is where a CLI that cannot
     // start says why; its tail goes into the error the turn shows.
     let stderr = ''
+    const detectStderrFlags = () => {
+      if (this.cliSessionId !== undefined) return
+      // Older Claude CLI builds without `--append-system-prompt-file` reject it before init.
+      if (this.usedPromptFile === true && /unknown option.*append-system-prompt-file|unrecognized option.*append-system-prompt-file/i.test(stderr)) {
+        this.engine.noPromptFile = true
+        this.promptFileUnsupported = true
+      }
+      if (this.usedPartialMessages === true && /unknown option.*include-partial-messages|unrecognized option.*include-partial-messages/i.test(stderr)) {
+        this.engine.noPartialMessages = true
+        this.cliFlagUnsupported = true
+      }
+      if (this.usedHookEvents === true && /unknown option.*include-hook-events|unrecognized option.*include-hook-events/i.test(stderr)) {
+        this.engine.noHookEvents = true
+        this.cliFlagUnsupported = true
+      }
+      if (this.usedForkSession === true && /unknown option.*fork-session|unrecognized option.*fork-session/i.test(stderr)) {
+        this.engine.forkSupported = false
+        this.forkUnsupported = true
+      }
+      // Claude Code deletes old conversations; resuming one that is gone exits
+      // before init with this line on stderr.
+      if (this.resumeId !== undefined && /no conversation found/i.test(stderr)) this.resumeMissing = true
+    }
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4_000) })
+    child.stderr.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-4_000)
+      detectStderrFlags()
+    })
     const fail = (message) => Object.assign(
       new Error(stderr.trim() === '' ? message : `${message}: ${stderr.trim().split('\n').slice(-5).join(' ')}`),
       { code: 'LOCAL_AGENT_EXIT' },
@@ -229,6 +255,7 @@ class ClaudeSession {
     // stream error. The failure goes into the session queue instead.
     child.stdin.on('error', (error) => {
       if (this.retired) return
+      detectStderrFlags()
       this.cancelResultTimer()
       this.dead = true
       const failure = fail(`${this.engine.engine.name} stopped reading input: ${error.message}`)
@@ -247,12 +274,14 @@ class ClaudeSession {
       this.emit({ type: 'error', error: failure })
     })
     child.on('exit', () => {
+      detectStderrFlags()
       this.cancelResultTimer()
       this.dead = true
     })
     // Wait for `close` (after stdout/stderr drain) before deciding whether to
     // synthesize completion or fail, so a buffered `result` line is never raced.
     child.on('close', (code, signal) => {
+      detectStderrFlags()
       this.cancelResultTimer()
       this.dead = true
       this.cleanupSystemFile()
@@ -260,26 +289,6 @@ class ClaudeSession {
         for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         return
       }
-      // Older Claude CLI builds without `--append-system-prompt-file` reject it before init.
-      if (this.usedPromptFile === true && this.cliSessionId === undefined && /unknown option.*append-system-prompt-file|unrecognized option.*append-system-prompt-file/i.test(stderr)) {
-        this.engine.noPromptFile = true
-        this.promptFileUnsupported = true
-      }
-      if (this.usedPartialMessages === true && this.cliSessionId === undefined && /unknown option.*include-partial-messages|unrecognized option.*include-partial-messages/i.test(stderr)) {
-        this.engine.noPartialMessages = true
-        this.cliFlagUnsupported = true
-      }
-      if (this.usedHookEvents === true && this.cliSessionId === undefined && /unknown option.*include-hook-events|unrecognized option.*include-hook-events/i.test(stderr)) {
-        this.engine.noHookEvents = true
-        this.cliFlagUnsupported = true
-      }
-      if (this.usedForkSession === true && this.cliSessionId === undefined && /unknown option.*fork-session|unrecognized option.*fork-session/i.test(stderr)) {
-        this.engine.forkSupported = false
-        this.forkUnsupported = true
-      }
-      // Claude Code deletes old conversations; resuming one that is gone exits
-      // before init with this line on stderr.
-      if (this.resumeId !== undefined && this.cliSessionId === undefined && /no conversation found/i.test(stderr)) this.resumeMissing = true
       if (code === 0 && signal === null && !this.turnFinished && this.canFinishWithoutResult()) {
         for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         this.finishWithoutResult({ retireChild: false })
