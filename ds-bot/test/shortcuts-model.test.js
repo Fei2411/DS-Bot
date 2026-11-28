@@ -424,3 +424,22 @@ test('loadShortcutOverrides strips saved overrides that now equal the current de
   }, storage, true)
   assert.deepEqual(JSON.parse(storage.getItem('ds-bot.shortcuts.v1')).mac, {})
 })
+
+test('visibleSidebarTargets keeps a Bot in place when its open row has no time yet', () => {
+  const roster = {
+    mainBotId: 'bot-main',
+    bots: [
+      { id: 'bot-main', name: 'Main', createdAt: 1 },
+      { id: 'bot-new', name: 'New', createdAt: 300 },
+      { id: 'bot-old', name: 'Old', createdAt: 100 },
+    ],
+    rooms: [],
+  }
+  roster.byId = Object.fromEntries(roster.bots.map(bot => [bot.id, bot]))
+  // Opening a conversation can add its row before any message gives it a time.
+  const targets = visibleSidebarTargets(roster, {
+    'bot-new': { retainedBy: { mainView: 1 } },
+    'bot-old': { updatedAt: 200 },
+  })
+  assert.deepEqual(targets.map(item => item.id), ['bot-main', 'bot-new', 'bot-old'])
+})

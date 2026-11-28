@@ -700,10 +700,33 @@ export function WorkspaceTerminal({
         sync()
       }
     }
-    const observer = new MutationObserver(schedule)
-    if (document.documentElement) observer.observe(document.documentElement, { attributes: true })
+    const isStyleNode = node => node?.nodeName === 'STYLE' || (node?.nodeName === 'LINK' && node?.rel === 'stylesheet')
+    const onMutation = (records) => {
+      if (!Array.isArray(records) || records.length === 0) {
+        schedule()
+        return
+      }
+      for (const record of records) {
+        if (record.type === 'attributes') {
+          schedule()
+          return
+        }
+        if (record.type === 'childList') {
+          for (const node of record.addedNodes ?? []) {
+            if (isStyleNode(node)) { schedule(); return }
+          }
+          for (const node of record.removedNodes ?? []) {
+            if (isStyleNode(node)) { schedule(); return }
+          }
+        }
+      }
+    }
+    const observer = new MutationObserver(onMutation)
+    if (document.documentElement) observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'class', 'style'] })
     if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'class', 'style'] })
-    if (document.head) observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    // Direct childList only: `useTheme` mounts/unmounts its `<style>` directly under `<head>`.
+    // Avoid `subtree: true` / `characterData: true` so unrelated head/title/script edits never fire.
+    if (document.head) observer.observe(document.head, { childList: true })
     return () => {
       observer.disconnect()
       if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)

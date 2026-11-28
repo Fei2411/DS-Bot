@@ -2131,6 +2131,14 @@ var init_zh = __esm({
       "SMTP host": "SMTP 服务器",
       "Sign in with Google": "使用 Google 登录",
       "Verifying…": "正在验证…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail 在 20 秒内没有响应。请检查你的网络或代理能否访问 Gmail，然后重试。",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "无法连接 Gmail。请检查网络、防火墙或代理，然后重试。",
+      "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "无法与 Gmail 建立安全连接。请检查网络或代理设置，然后重试。",
+      "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail 需要在浏览器中登录。请在浏览器中登录 Google 并完成安全验证，然后再点添加。",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail 拒绝了登录。请检查应用专用密码，然后重试。",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "无法验证 Gmail。请重试，或复制诊断信息发给支持人员。",
+      "Checking Gmail. This can take up to 20 seconds.": "正在检查 Gmail，最长可能需要 20 秒。",
+      "Copy diagnostics": "复制诊断信息",
       "Import from other apps": "从其他应用导入",
       "Server address": "服务器地址",
       "Command, e.g. npx -y some-mcp": "命令,例如 npx -y some-mcp",
@@ -5233,6 +5241,14 @@ var init_ja = __esm({
       "SMTP host": "SMTP サーバー",
       "Sign in with Google": "Google でサインイン",
       "Verifying…": "確認中…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail から 20 秒以内に応答がありませんでした。ネットワークまたはプロキシから Gmail に接続できるか確認して、もう一度お試しください。",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Gmail に接続できませんでした。ネットワーク、ファイアウォール、またはプロキシを確認して、もう一度お試しください。",
+      "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "Gmail と安全な接続を確立できませんでした。ネットワークまたはプロキシの設定を確認して、もう一度お試しください。",
+      "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail はブラウザでのサインインを求めています。ブラウザで Google にサインインしてセキュリティ確認を済ませてから、もう一度「追加」を押してください。",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail がサインインを拒否しました。アプリ パスワードを確認して、もう一度お試しください。",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Gmail を確認できませんでした。もう一度お試しいただくか、診断情報をコピーしてサポートに送ってください。",
+      "Checking Gmail. This can take up to 20 seconds.": "Gmail を確認しています。最大 20 秒かかることがあります。",
+      "Copy diagnostics": "診断情報をコピー",
       "Import from other apps": "他のアプリからインポート",
       "Server address": "サーバーアドレス",
       "Command, e.g. npx -y some-mcp": "コマンド（例: npx -y some-mcp）",
@@ -8969,6 +8985,14 @@ var init_ko = __esm({
       "SMTP host": "SMTP 서버",
       "Sign in with Google": "Google로 로그인",
       "Verifying…": "확인 중…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail이 20초 안에 응답하지 않았습니다. 네트워크나 프록시에서 Gmail에 연결할 수 있는지 확인한 뒤 다시 시도하세요.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Gmail에 연결할 수 없습니다. 네트워크, 방화벽 또는 프록시를 확인한 뒤 다시 시도하세요.",
+      "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "Gmail과 보안 연결을 만들 수 없습니다. 네트워크 또는 프록시 설정을 확인한 뒤 다시 시도하세요.",
+      "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail에 브라우저 로그인이 필요합니다. 브라우저에서 Google에 로그인하고 보안 확인을 마친 뒤 다시 추가하세요.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail이 로그인을 거부했습니다. 앱 비밀번호를 확인한 뒤 다시 시도하세요.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Gmail을 확인할 수 없습니다. 다시 시도하거나 진단 정보를 복사해 지원팀에 보내세요.",
+      "Checking Gmail. This can take up to 20 seconds.": "Gmail을 확인하는 중입니다. 최대 20초가 걸릴 수 있습니다.",
+      "Copy diagnostics": "진단 정보 복사",
       "Import from other apps": "다른 앱에서 가져오기",
       "Server address": "서버 주소",
       "Command, e.g. npx -y some-mcp": "명령어 (예: npx -y some-mcp)",
@@ -12708,6 +12732,14 @@ var init_es = __esm({
       "SMTP host": "Servidor SMTP",
       "Sign in with Google": "Iniciar sesión con Google",
       "Verifying…": "Verificando…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail no respondió en 20 segundos. Comprueba que tu red o proxy puede llegar a Gmail y vuelve a intentarlo.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "No se pudo conectar con Gmail. Revisa tu red, cortafuegos o proxy y vuelve a intentarlo.",
+      "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "No se pudo abrir una conexión segura con Gmail. Revisa la configuración de red o del proxy y vuelve a intentarlo.",
+      "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail necesita que inicies sesión en el navegador. Inicia sesión en Google en tu navegador, completa las comprobaciones de seguridad y vuelve a pulsar Añadir.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail rechazó el inicio de sesión. Revisa tu contraseña de aplicación y vuelve a intentarlo.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "No se pudo verificar Gmail. Vuelve a intentarlo o copia el diagnóstico para el soporte.",
+      "Checking Gmail. This can take up to 20 seconds.": "Comprobando Gmail. Puede tardar hasta 20 segundos.",
+      "Copy diagnostics": "Copiar diagnóstico",
       "Import from other apps": "Importar desde otras aplicaciones",
       "Server address": "Dirección del servidor",
       "Command, e.g. npx -y some-mcp": "Comando, p. ej., npx -y some-mcp",
@@ -16405,6 +16437,14 @@ var init_fr = __esm({
       "SMTP host": "Serveur SMTP",
       "Sign in with Google": "Se connecter avec Google",
       "Verifying…": "Vérification…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail n'a pas répondu en 20 secondes. Vérifiez que votre réseau ou proxy peut joindre Gmail, puis réessayez.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Impossible de joindre Gmail. Vérifiez votre réseau, pare-feu ou proxy, puis réessayez.",
+      "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "Impossible d'ouvrir une connexion sécurisée avec Gmail. Vérifiez vos paramètres réseau ou proxy, puis réessayez.",
+      "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail demande une connexion dans le navigateur. Connectez-vous à Google dans votre navigateur, terminez les vérifications de sécurité, puis réessayez Ajouter.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail a refusé la connexion. Vérifiez votre mot de passe d'application, puis réessayez.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Impossible de vérifier Gmail. Réessayez ou copiez le diagnostic pour l'assistance.",
+      "Checking Gmail. This can take up to 20 seconds.": "Vérification de Gmail. Cela peut prendre jusqu'à 20 secondes.",
+      "Copy diagnostics": "Copier le diagnostic",
       "Import from other apps": "Importer depuis d’autres applications",
       "Server address": "Adresse du serveur",
       "Command, e.g. npx -y some-mcp": "Commande, ex. npx -y some-mcp",
@@ -20141,6 +20181,14 @@ var init_de = __esm({
       "SMTP host": "SMTP-Server",
       "Sign in with Google": "Mit Google anmelden",
       "Verifying…": "Wird überprüft…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail hat nicht innerhalb von 20 Sekunden geantwortet. Prüfe, ob dein Netzwerk oder Proxy Gmail erreicht, und versuche es erneut.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Gmail ist nicht erreichbar. Prüfe Netzwerk, Firewall oder Proxy und versuche es erneut.",
+      "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "Es konnte keine sichere Verbindung zu Gmail hergestellt werden. Prüfe deine Netzwerk- oder Proxy-Einstellungen und versuche es erneut.",
+      "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail verlangt eine Anmeldung im Browser. Melde dich im Browser bei Google an, schließe die Sicherheitsprüfungen ab und tippe dann erneut auf Hinzufügen.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail hat die Anmeldung abgelehnt. Prüfe dein App-Passwort und versuche es erneut.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Gmail konnte nicht überprüft werden. Versuche es erneut oder kopiere die Diagnose für den Support.",
+      "Checking Gmail. This can take up to 20 seconds.": "Gmail wird geprüft. Das kann bis zu 20 Sekunden dauern.",
+      "Copy diagnostics": "Diagnose kopieren",
       "Import from other apps": "Aus anderen Apps importieren",
       "Server address": "Serveradresse",
       "Command, e.g. npx -y some-mcp": "Befehl, z. B. npx -y some-mcp",
@@ -22211,6 +22259,11 @@ function hostText(message) {
 function language() {
   const active = service?.getLocale?.().active;
   return typeof active === "string" ? active : "en";
+}
+function localeKey() {
+  const active = language();
+  const rev = service?.getSnapshot?.()?.revision ?? 0;
+  return `${active}:${rev}:${loadedPacks.size}`;
 }
 var dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? "en-US";
 var labels = null;
@@ -25077,23 +25130,67 @@ function painted({ appearance, background, pictureUrl: pictureUrl2 = () => void 
   return { shown, paint: shown === void 0 ? void 0 : backgroundPaint(shown, pictureUrl2) };
 }
 var backgroundShown = (options) => painted(options).paint !== void 0;
+function dataUrlToBlob(url, fallbackMime = "") {
+  if (typeof url !== "string" || url.slice(0, 5).toLowerCase() !== "data:") return null;
+  const comma = url.indexOf(",");
+  if (comma === -1) return null;
+  const meta = url.slice(5, comma);
+  const isBase64 = /;base64$/i.test(meta);
+  const mime = (isBase64 ? meta.slice(0, -7) : meta).split(";")[0] || fallbackMime;
+  const payload = url.slice(comma + 1);
+  try {
+    let bytes;
+    if (isBase64) {
+      if (typeof Uint8Array.fromBase64 === "function") {
+        bytes = Uint8Array.fromBase64(payload);
+      } else {
+        const binary2 = atob(payload);
+        bytes = new Uint8Array(binary2.length);
+        for (let i = 0; i < binary2.length; i += 1) bytes[i] = binary2.charCodeAt(i);
+      }
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(payload));
+    }
+    return new Blob([bytes], { type: mime });
+  } catch {
+    return null;
+  }
+}
 var pictures = /* @__PURE__ */ new Map();
 var RETRY_MS = 6e4;
 function pictureUrl(id, call2, loaded) {
   const known = pictures.get(id);
   if (typeof known === "string") return known;
+  if (known instanceof Set) {
+    if (typeof loaded === "function") known.add(loaded);
+    return void 0;
+  }
   if (known === void 0 || typeof known === "number" && Date.now() - known > RETRY_MS) {
-    pictures.set(id, null);
+    const waiters = /* @__PURE__ */ new Set();
+    if (typeof loaded === "function") waiters.add(loaded);
+    pictures.set(id, waiters);
     const failed = () => pictures.set(id, Date.now());
-    void call2("background-picture", { id }).then(async (picture) => {
-      if (picture?.image === void 0) {
+    void call2("background-picture", { id }).then((picture) => {
+      const blob = dataUrlToBlob(picture?.image, picture?.mime);
+      if (blob === null) {
         failed();
         return;
       }
-      const blob = await (await fetch(picture.image)).blob();
-      pictures.set(id, URL.createObjectURL(blob));
-      loaded();
-    }).catch(failed);
+      let objectUrl;
+      try {
+        objectUrl = URL.createObjectURL(blob);
+      } catch {
+        failed();
+        return;
+      }
+      pictures.set(id, objectUrl);
+      for (const notify of waiters) {
+        try {
+          notify();
+        } catch {
+        }
+      }
+    }, failed);
   }
   return void 0;
 }
@@ -44169,10 +44266,31 @@ var guessProvider = (address) => {
   if (["icloud.com", "me.com", "mac.com"].includes(domain)) return "icloud";
   return "";
 };
+var GMAIL_FAILURES = {
+  "bot/mail-gmail-timeout": "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.",
+  "bot/mail-gmail-network": "Could not reach Gmail. Check your network, firewall, or proxy, then try again.",
+  "bot/mail-gmail-tls": "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.",
+  "bot/mail-gmail-auth": "Gmail refused the sign-in. Check your app password, then try again.",
+  "bot/mail-gmail-signin": "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.",
+  "bot/mail-gmail-verification": "Could not verify Gmail. Try again, or copy the diagnostics for support."
+};
+function mailDiagnostics(code, provider) {
+  const facts = clientFacts();
+  return [
+    "DS Bot mailbox add diagnostics",
+    `Code: ${code}`,
+    `Provider: ${provider}`,
+    `Surface: ${facts.surface}`,
+    `Language: ${facts.language}`,
+    `User agent: ${facts.userAgent}`,
+    `Time: ${(/* @__PURE__ */ new Date()).toISOString()}`
+  ].join("\n");
+}
 function MailForm({ mail, actions, onClose }) {
   const [fields, setFields] = (0, import_react34.useState)({ address: "", password: "", provider: "", imapHost: "", smtpHost: "" });
   const [busy, setBusy] = (0, import_react34.useState)(false);
   const [error, setError] = (0, import_react34.useState)(null);
+  const [copies, setCopies] = (0, import_react34.useState)(0);
   const busyRef = (0, import_react34.useRef)(false);
   const set = (key, value) => setFields((current2) => ({ ...current2, [key]: value }));
   const chosen = fields.provider || guessProvider(fields.address) || "qq";
@@ -44183,11 +44301,18 @@ function MailForm({ mail, actions, onClose }) {
     busyRef.current = true;
     setBusy(true);
     setError(null);
+    setCopies(0);
     void Promise.resolve().then(task).then(done, (failure) => {
-      setError(failure?.message ?? String(failure));
+      const code = typeof failure?.code === "string" ? failure.code : void 0;
+      setError({ message: failure?.message ?? String(failure), code, provider: chosen });
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
+    });
+  };
+  const gmailFailure = error && Object.hasOwn(GMAIL_FAILURES, error.code ?? "") ? GMAIL_FAILURES[error.code] : null;
+  const copyDiagnostics = () => {
+    void navigator.clipboard?.writeText(mailDiagnostics(error.code, error.provider)).then(() => setCopies((n) => n + 1), () => {
     });
   };
   const add = () => go(() => actions.mailAccountAdd({ address: fields.address.trim(), password: fields.password, provider: chosen, imapHost: fields.imapHost.trim(), smtpHost: fields.smtpHost.trim() }), onClose);
@@ -44226,7 +44351,18 @@ function MailForm({ mail, actions, onClose }) {
     input("address", t("Email address"), { type: "email" }),
     (0, import_react34.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react34.createElement)(MaskedInput, { value: fields.password, onChange: (value) => set("password", value), onEnter: add, label: t(guide?.label ?? "Password or app password"), disabled: busy })),
     chosen === "other" ? (0, import_react34.createElement)("div", { className: "bt-provider-pair" }, input("imapHost", t("IMAP host")), input("smtpHost", t("SMTP host"))) : null,
-    error ? (0, import_react34.createElement)("div", { className: "bt-mail-error", role: "alert" }, hostText(error)) : null,
+    busy && chosen === "gmail" ? (0, import_react34.createElement)("div", { className: "bt-set-hint", role: "status" }, t("Checking Gmail. This can take up to 20 seconds.")) : null,
+    error ? (0, import_react34.createElement)("div", { className: "bt-mail-error", role: "alert" }, gmailFailure ? t(gmailFailure) : hostText(error.message)) : null,
+    gmailFailure ? (0, import_react34.createElement)(
+      "div",
+      { className: "bt-mail-links" },
+      (0, import_react34.createElement)("button", { type: "button", className: "bt-connector-link", onClick: copyDiagnostics }, t("Copy diagnostics")),
+      (0, import_react34.createElement)(
+        "span",
+        { className: "bt-connector-copied", role: "status" },
+        copies > 0 ? (0, import_react34.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react34.createElement)(CheckIcon), t("Copied to clipboard")) : null
+      )
+    ) : null,
     (0, import_react34.createElement)(
       "div",
       { className: "bt-secret-row-actions" },
@@ -46629,7 +46765,7 @@ function earlierItems(pages, { cursor, loading } = {}) {
   }
   return { items, hasContent: items.some((item) => item.kind !== "divider") };
 }
-function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
+function EarlierParts({ sessionId, roster, actions, openFile, renderUserText, wrapBotReply }) {
   const [view, setView] = (0, import_react39.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react39.useRef)(null);
   const busy = (0, import_react39.useRef)(false);
@@ -46685,10 +46821,10 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
     observer2.observe(node);
     return () => observer2.disconnect();
   }, [view.cursor, view.loading, view.failed]);
-  const removeBtw = (cardId) => setView((current2) => ({
+  const removeBtw = (0, import_react39.useCallback)((cardId) => setView((current2) => ({
     ...current2,
     pages: current2.pages.map((page) => ({ ...page, btw: page.btw.filter((card) => card?.id !== cardId) }))
-  }));
+  })), []);
   const { items, hasContent } = earlierItems(view.pages, view);
   return (0, import_react39.createElement)(
     "div",
@@ -46698,58 +46834,105 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
       { ref: top, className: "bt-earlier-top" },
       view.loading ? (0, import_react39.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
-    (0, import_react39.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
+    (0, import_react39.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText, wrapBotReply }),
     hasContent ? (0, import_react39.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
 var NOOP_UI = () => void 0;
-function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
-  const selfId = roster.byId[sessionId]?.id;
-  const visit = useUi((state) => state?.visits?.[sessionId]);
-  const rows2 = [];
-  for (const item of items) {
-    const last = rows2.at(-1);
-    if (item.kind === "divider" && last?.kind === "divider") {
-      rows2[rows2.length - 1] = item;
-    } else if (item.kind === "bot" && last?.kind === "bot") {
-      last.texts.push(item.text);
-      last.end = item.time;
-    } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time } : item);
+function stableChatRowBaseKey(row) {
+  const seg = row.sessionId !== void 0 && row.sessionId !== null ? `${row.sessionId}:` : "";
+  if (row.id !== void 0 && row.id !== null) return `${seg}${row.kind}:id:${row.id}`;
+  switch (row.kind) {
+    case "post":
+      return `${seg}post:${row.seq ?? row.time ?? ""}:${row.botId ?? ""}`;
+    case "view":
+      return `${seg}view:${row.callId ?? row.time ?? ""}`;
+    case "btw":
+      return `${seg}btw:${row.card?.id ?? row.time ?? ""}`;
+    case "divider":
+      return `${seg}divider:${row.time ?? ""}`;
+    case "bot":
+      return `${seg}bot:${row.time ?? ""}`;
+    case "relay":
+      return `${seg}relay:${row.reply?.botId ?? ""}:${row.reply?.kind ?? ""}:${row.time ?? row.reply?.time ?? ""}`;
+    case "event":
+      return `${seg}event:${row.role ?? ""}:${row.botId ?? row.roomId ?? ""}:${row.time ?? ""}`;
+    case "user":
+      return `${seg}user:${row.seq ?? row.time ?? ""}`;
+    default:
+      return `${seg}${row.kind ?? "row"}:${row.seq ?? row.time ?? ""}`;
   }
-  (0, import_react39.useEffect)(() => {
-    if (!clock5 || typeof actions?.noteTurnTime !== "function") return;
-    rows2.forEach((row, index) => {
-      if (row.kind !== "divider" && Number.isFinite(row.time)) {
-        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, "first", row.time);
-      }
-    });
-  }, [clock5, sessionId, items, actions]);
-  let before;
-  let newShown = false;
-  return rows2.flatMap((row, index) => {
-    const key = rows2.length - index;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText });
-    if (row.kind === "divider") {
-      before = void 0;
-      return [shown];
-    }
-    const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
-    if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
-    const showNew = clock5 && !newShown && unseenSince(visit, row.time);
-    if (showNew) newShown = true;
-    const out = [];
-    if (showNew) out.push((0, import_react39.createElement)(NewDivider, { key: `${key}:new` }));
-    if (pause) out.push((0, import_react39.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)));
-    out.push(shown);
-    return out;
-  });
 }
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+var MemoEarlierUser = memo(EarlierUser, void 0, "EarlierUser");
+var MemoGroupMessage = memo(GroupMessage, void 0, "GroupMessage");
+var MemoPartLine = memo(PartLine, void 0, "PartLine");
+var MemoEventLine = memo(EventLine, void 0, "EventLine");
+var MemoGroupEvent = memo(GroupEvent, void 0, "GroupEvent");
+var MemoBubbles = memo(Bubbles, void 0, "Bubbles");
+var MemoRelayEvent = memo(RelayEvent, void 0, "RelayEvent");
+var fallbackBotCache = /* @__PURE__ */ new WeakMap();
+var wholeLoaderCache = /* @__PURE__ */ new WeakMap();
+var viewArgsCache = /* @__PURE__ */ new WeakMap();
+function stableFallbackBot(row, id, name, color) {
+  let cached = fallbackBotCache.get(row);
+  if (!cached || cached.id !== id || cached.name !== name || cached.color !== color) {
+    cached = { id, name, color };
+    fallbackBotCache.set(row, cached);
+  }
+  return cached;
+}
+function stableWhole(row, actions) {
+  if (!row.file) return void 0;
+  let cached = wholeLoaderCache.get(row);
+  if (!cached || cached.file !== row.file || cached.length !== row.length || cached.actions !== actions) {
+    cached = {
+      file: row.file,
+      length: row.length,
+      actions,
+      value: { length: row.length, load: () => actions.fileText(row.file) }
+    };
+    wholeLoaderCache.set(row, cached);
+  }
+  return cached.value;
+}
+function stableViewArgs(row) {
+  let cached = viewArgsCache.get(row);
+  if (!cached || cached.title !== row.title || cached.view !== row.view) {
+    cached = {
+      title: row.title,
+      view: row.view,
+      value: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }
+    };
+    viewArgsCache.set(row, cached);
+  }
+  return cached.value;
+}
+var eventBotsCache = /* @__PURE__ */ new WeakMap();
+var stableEventBots = (row, other) => {
+  let cached = eventBotsCache.get(row);
+  if (!cached || cached.other !== other) {
+    cached = { other, value: [other] };
+    eventBotsCache.set(row, cached);
+  }
+  return cached.value;
+};
+var eventOpenCache = /* @__PURE__ */ new WeakMap();
+var stableEventOpen = (row, selfId, otherId, actions) => {
+  let cached = eventOpenCache.get(row);
+  if (!cached || cached.selfId !== selfId || cached.otherId !== otherId || cached.actions !== actions) {
+    cached = { selfId, otherId, actions, value: () => {
+      if (selfId && otherId) actions.openExchange(selfId, otherId);
+    } };
+    eventOpenCache.set(row, cached);
+  }
+  return cached.value;
+};
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply, locale }) {
   switch (row.kind) {
     case "divider":
-      return (0, import_react39.createElement)(PartLine, { key, time: row.time });
+      return (0, import_react39.createElement)(MemoPartLine, { key, time: row.time, locale });
     case "user":
-      return (0, import_react39.createElement)(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText });
+      return (0, import_react39.createElement)(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText, locale });
     case "answer":
       return (0, import_react39.createElement)(AnsweredReply, { key, node: { data: row } });
     // A question or view card closed without an answer on it.
@@ -46757,17 +46940,18 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       return row.view === void 0 ? (0, import_react39.createElement)("div", { key, className: "bt-q-inline" }, (0, import_react39.createElement)(SettledQuestion, { question: row.question, closed: row.closed })) : (0, import_react39.createElement)(ClosedView, { key, title: row.title, view: row.view, closed: row.closed });
     // A display-only view replays from the blueprint the host kept on the call.
     case "view":
-      return (0, import_react39.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
+      return (0, import_react39.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react39.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true });
+      const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
-      return speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
+      const reply = speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
+      return wrapBotReply ? wrapBotReply(reply, row.sessionId, key) : reply;
     }
     case "btw":
       return (0, import_react39.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
     case "post": {
-      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: row.color ?? "gray" };
-      return (0, import_react39.createElement)(GroupMessage, {
+      const poster = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t("a Bot"), row.color ?? "gray");
+      return (0, import_react39.createElement)(MemoGroupMessage, {
         key,
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
@@ -46784,17 +46968,18 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         claims: row.claims,
         changes: row.changes,
         useUi,
-        whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
+        whole: stableWhole(row, actions),
+        locale
       });
     }
     case "relay": {
       const reply = row.reply;
-      const speaker = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name ?? t("a Bot"), color: reply.color ?? "gray" };
-      return (0, import_react39.createElement)(RelayEvent, { key, reply, bot: speaker, sessionId, actions });
+      const speaker = roster.byId[reply.botId] ?? stableFallbackBot(row, reply.botId, reply.name ?? t("a Bot"), reply.color ?? "gray");
+      return (0, import_react39.createElement)(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions, locale });
     }
     case "event": {
-      if (row.role === "report") return (0, import_react39.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
-      const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
+      if (row.role === "report") return (0, import_react39.createElement)(MemoGroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions, locale });
+      const other = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t("a Bot"), "gray");
       const prefix = {
         stopped: t("Stopped by"),
         cancelled: t("Cancelled by"),
@@ -46803,13 +46988,78 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         answer: t("Answer from"),
         reply: t("Reply from")
       }[row.role] ?? t("Message from");
-      return (0, import_react39.createElement)(EventLine, { key, prefix, bots: [other], onOpen: () => {
-        if (selfId && other.id) actions.openExchange(selfId, other.id);
-      }, whole: true });
+      return (0, import_react39.createElement)(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true, locale });
     }
     default:
       return null;
   }
+}
+function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply }) {
+  const selfId = roster.byId[sessionId]?.id;
+  const visit = useUi((state) => state?.visits?.[sessionId]);
+  const locale = localeKey();
+  const botRunCacheRef = (0, import_react39.useRef)(/* @__PURE__ */ new Map());
+  const rows2 = (0, import_react39.useMemo)(() => {
+    const prevCache = botRunCacheRef.current;
+    const nextCache = /* @__PURE__ */ new Map();
+    const out = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const last = out.at(-1);
+      if (item.kind === "divider" && last?.kind === "divider") {
+        out[out.length - 1] = item;
+      } else if (item.kind === "bot") {
+        const texts2 = [item.text];
+        let end = item.time;
+        while (i + 1 < items.length && items[i + 1].kind === "bot" && (items[i + 1].sessionId ?? null) === (item.sessionId ?? null)) {
+          i += 1;
+          texts2.push(items[i].text);
+          end = items[i].time;
+        }
+        const runKey = `${item.sessionId ?? ""}:${item.id ?? ""}:${item.time ?? ""}:${end ?? ""}:${texts2.length}`;
+        const cached = prevCache.get(runKey);
+        const same = cached && cached.texts.length === texts2.length && cached.texts.every((value, idx) => value === texts2[idx]);
+        const merged = same ? cached : { ...item.sessionId !== void 0 ? { sessionId: item.sessionId } : {}, ...item.id !== void 0 ? { id: item.id } : {}, kind: "bot", texts: texts2, time: item.time, end };
+        nextCache.set(runKey, merged);
+        out.push(merged);
+      } else {
+        out.push(item);
+      }
+    }
+    botRunCacheRef.current = nextCache;
+    return out;
+  }, [items]);
+  (0, import_react39.useEffect)(() => {
+    if (!clock5 || typeof actions?.noteTurnTime !== "function") return;
+    rows2.forEach((row, index) => {
+      if (row.kind !== "divider" && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, "first", row.time);
+      }
+    });
+  }, [clock5, sessionId, rows2, actions]);
+  let before;
+  let newShown = false;
+  const seenKeys = /* @__PURE__ */ new Map();
+  return rows2.flatMap((row) => {
+    const baseKey = stableChatRowBaseKey(row);
+    const count = seenKeys.get(baseKey) ?? 0;
+    seenKeys.set(baseKey, count + 1);
+    const key = count === 0 ? baseKey : `${baseKey}#${count}`;
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply, locale });
+    if (row.kind === "divider") {
+      before = void 0;
+      return [shown];
+    }
+    const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
+    if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
+    const showNew = clock5 && !newShown && unseenSince(visit, row.time);
+    if (showNew) newShown = true;
+    const out = [];
+    if (showNew) out.push((0, import_react39.createElement)(NewDivider, { key: `${key}:new` }));
+    if (pause) out.push((0, import_react39.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)));
+    out.push(shown);
+    return out;
+  });
 }
 function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
   const roster = useRosterPick(useRoster, TRIGGER_ROSTER_FIELDS);
@@ -50887,7 +51137,10 @@ function TeamSidebar(props) {
   const wideContent = shown !== "rail";
   const updated = useSessions((list) => {
     const stamps = {};
-    for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0;
+    for (const id of list.ids) {
+      const at2 = list.byId[id]?.updatedAt;
+      if (Number.isFinite(at2)) stamps[id] = at2;
+    }
     return JSON.stringify(stamps);
   });
   const order = (0, import_react47.useMemo)(() => {
@@ -51368,13 +51621,14 @@ function TeamSidebar(props) {
     main ? (0, import_react47.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react47.createElement)(BootFailed, { actions }) : (0, import_react47.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
     (0, import_react47.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react47.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react47.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react47.createElement)(PluginsButton, { actions })) : (0, import_react47.createElement)(
+  const foot = wideContent ? (0, import_react47.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react47.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react47.createElement)(PluginsButton, { actions }), props.renderFooterActions?.(wideContent)) : (0, import_react47.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react47.createElement)(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
     (0, import_react47.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react47.createElement)(PlusIcon)),
     (0, import_react47.createElement)(AccountLauncher, { seat: false, actions }),
-    (0, import_react47.createElement)(PluginsButton, { actions })
+    (0, import_react47.createElement)(PluginsButton, { actions }),
+    props.renderFooterActions?.(wideContent)
   );
   const content = (0, import_react47.createElement)(
     "div",
@@ -51396,6 +51650,7 @@ function TeamSidebar(props) {
           if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null);
         }
       },
+      props.renderPluginRows?.(wideContent),
       wideContent ? main ? (0, import_react47.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react47.createElement)(BootFailed, { actions }) : (0, import_react47.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")) : null,
       sections.length > 0 && wideContent ? (0, import_react47.createElement)("div", {
         className: "bt-sec-ungrouped",
@@ -53650,7 +53905,7 @@ function visibleSidebarTargets(roster, sessionsById = {}, activeId = null, secti
   if (!roster) return [];
   const stamps = {};
   for (const [id, entry] of Object.entries(sessionsById ?? {})) {
-    stamps[id] = entry?.updatedAt ?? 0;
+    if (Number.isFinite(entry?.updatedAt)) stamps[id] = entry.updatedAt;
   }
   const stampOf2 = (item, kind) => {
     if (kind === "agent") {
@@ -76611,6 +76866,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconci
     const statusMap = statuses?.getSnapshot();
     const uiSnap = ui?.getSnapshot?.();
     const inboxOpen = uiSnap?.inbox === true;
+    const covered = inboxOpen || uiSnap?.chatCovered === true;
     const rawTarget = typeof uiSnap?.inboxTarget === "string" && uiSnap.inboxTarget !== "" ? uiSnap.inboxTarget : null;
     if (inboxOpen) {
       lastTarget = null;
@@ -76627,7 +76883,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconci
       const id = currentPart(bot);
       parts.add(id);
       const row = list.byId[id];
-      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen && (pendingTarget === null || pendingTarget === id);
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !covered && (pendingTarget === null || pendingTarget === id);
       const status = statusMap?.get(id);
       const hidden = team.exchangeTurns?.[id] ?? [];
       const outline2 = turnOutlineOf(list, id);

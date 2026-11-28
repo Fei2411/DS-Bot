@@ -612,7 +612,11 @@ export function TeamSidebar(props) {
   const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
-    for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
+    for (const id of list.ids) {
+      // A row opened before its first message has no time yet; the Bot keeps its place.
+      const at = list.byId[id]?.updatedAt
+      if (Number.isFinite(at)) stamps[id] = at
+    }
     return JSON.stringify(stamps)
   })
   const order = useMemo(() => {
@@ -1129,12 +1133,13 @@ export function TeamSidebar(props) {
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the inbox and new-chat buttons above it.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }), props.renderFooterActions?.(wideContent))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
-        h(PluginsButton, { actions }))
+        h(PluginsButton, { actions }),
+        props.renderFooterActions?.(wideContent))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -1143,6 +1148,7 @@ export function TeamSidebar(props) {
       onDragEnd: () => { setDragId(null); setDropTarget(null) },
       onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
     },
+      props.renderPluginRows?.(wideContent),
       wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))) : null,
       sections.length > 0 && wideContent
         ? h('div', {

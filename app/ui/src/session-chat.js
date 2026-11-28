@@ -29,6 +29,7 @@ import { ComputerToolView, isComputerToolName } from './browser-computer-tool-vi
 import { ClassicFeedbackActions, ClassicFeedbackDialog, useSessionFeedback } from './classic-feedback.js'
 import { ImageLightbox } from './image-lightbox.js'
 import { getAppLocale } from './locale.js'
+import { MarkdownImageSession } from './markdown-image.js'
 import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 import { resolveSubagentCatalog } from './subagent-job-tool-views.js'
@@ -51,11 +52,13 @@ function useUiLanguage() {
   }, [])
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
+import { buildImageUrl, computeImageCacheBudgetBytes, createImageCache, decodeBase64ToBytes, previewImageCache } from './image-cache.js'
 import { GenericToolCard, ToolCallCard } from './tool-card.js'
+
+export { computeImageCacheBudgetBytes, createImageCache, decodeBase64ToBytes }
 
 const PAGE_SIZE = 40
 const SEPARATOR_GAP_MS = 30 * 60 * 1000
-const IMAGE_CACHE_MAX = 120
 const EMPTY_OBJ = {}
 const EMPTY_WORK = { bots: {}, approvals: [] }
 const NO_UI_HOOK = () => false
@@ -63,28 +66,16 @@ const NO_OBJECT_HOOK = selector => selector(EMPTY_OBJ)
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_HELD_CARDS_HOOK = () => undefined
 
-const imageCache = new Map()
+const imageCache = previewImageCache
 const imageInflight = new Map()
 
-function rememberImage(key, value) {
-  imageCache.delete(key)
-  imageCache.set(key, value)
-  while (imageCache.size > IMAGE_CACHE_MAX) {
-    const oldest = imageCache.keys().next().value
-    if (oldest === undefined) break
-    imageCache.delete(oldest)
-  }
-}
-
-function loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview = true } = {}) {
+export function loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview = true } = {}) {
   const ancKey = Array.isArray(ancestors) && ancestors.length > 0 ? ancestors.map(a => a.sessionId).join('>') : ''
   const key = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${ancKey}:${attachmentId}:${preview ? 'p' : 'f'}`
-  if (imageCache.has(key)) {
-    const cached = imageCache.get(key)
-    rememberImage(key, cached)
-    return Promise.resolve(cached)
+  if (preview && imageCache.has(key)) {
+    return Promise.resolve(imageCache.get(key))
   }
-  const existing = imageInflight.get(key)
+  const existing = preview ? imageInflight.get(key) : null
   if (existing) return existing
   const params = {
     sessionId,
@@ -96,13 +87,16 @@ function loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors,
   }
   const promise = Promise.resolve(call('image', params))
     .then((res) => {
-      const src = res?.mime && res?.data ? `data:${res.mime};base64,${res.data}` : null
-      if (src) rememberImage(key, src)
-      return src
+      if (!res?.mime || !res?.data) return null
+      // Full-size images (`preview: false`) use a dedicated blob URL owned and revoked by
+      // `ImageLightbox` on close/unmount; compact previews stay in the byte-budgeted LRU cache.
+      const built = buildImageUrl(res.mime, res.data, { blob: !preview })
+      if (!preview) return built.url
+      return imageCache.set(key, built)
     })
     .catch(() => null)
-    .finally(() => { imageInflight.delete(key) })
-  imageInflight.set(key, promise)
+    .finally(() => { if (preview) imageInflight.delete(key) })
+  if (preview) imageInflight.set(key, promise)
   return promise
 }
 
@@ -593,22 +587,29 @@ function UserImageThumb({ sessionId, parent, mode, ancestors, attachment }) {
   const attachmentId = attachment?.attachmentId
   const ancKey = Array.isArray(ancestors) && ancestors.length > 0 ? ancestors.map(a => a.sessionId).join('>') : ''
   const cacheKey = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${ancKey}:${attachmentId}:p`
-  const cached = !direct && sessionId && attachmentId ? imageCache.get(cacheKey) ?? null : null
+  const cached = !direct && sessionId && attachmentId ? imageCache.peek(cacheKey) : null
   const [loaded, setLoaded] = useState(cached)
   const [zoomed, setZoomed] = useState(false)
   const src = direct ?? loaded
 
   useEffect(() => {
     if (direct || !sessionId || !attachmentId) return undefined
-    if (imageCache.has(cacheKey)) {
-      setLoaded(imageCache.get(cacheKey))
-      return undefined
-    }
     let alive = true
+    let release = () => {}
+    const bind = (url) => {
+      release()
+      release = imageCache.acquire(cacheKey, url)
+      setLoaded(url)
+    }
+    const hit = imageCache.get(cacheKey)
+    if (hit) {
+      bind(hit)
+      return () => { alive = false; release() }
+    }
     void loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: true }).then((url) => {
-      if (alive && url) setLoaded(url)
+      if (alive && url) bind(url)
     })
-    return () => { alive = false }
+    return () => { alive = false; release() }
   }, [direct, sessionId, parent, mode, ancestors, attachmentId, cacheKey])
 
   if (!src) {
@@ -870,7 +871,7 @@ const AssistantRow = memo(function AssistantRow({
       textInteractionSource: !row.streaming,
       ...(row.thinkingLive ? { at: liveAt } : { ms: row.reasoningMs }),
     }) : null,
-    hasTexts ? h(Bubbles, {
+    hasTexts ? h(MarkdownImageSession.Provider, { value: sessionId }, h(Bubbles, {
       texts: row.texts,
       roster,
       selfId,
@@ -884,7 +885,7 @@ const AssistantRow = memo(function AssistantRow({
       fold: FOLD_HUGE,
       time: flat || row.streaming ? undefined : row.time,
       textInteractionSource: !row.streaming,
-    }) : null)
+    })) : null)
 })
 
 const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
@@ -1099,6 +1100,10 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 
 const EMPTY_SPEAKERS = new Set()
 
+function wrapEarlierBotReply(reply, sessionId, key) {
+  return h(MarkdownImageSession.Provider, { value: sessionId, key }, reply)
+}
+
 function renderTranscriptRows({
   rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts, firstUnreadKey = null,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
@@ -1117,7 +1122,7 @@ function renderTranscriptRows({
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText, wrapBotReply: classic ? undefined : wrapEarlierBotReply })
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
@@ -1517,7 +1522,7 @@ export function SessionTranscript({
   }) : null
 
   return [
-    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText })] : []),
+    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText, wrapBotReply: classic ? undefined : wrapEarlierBotReply })] : []),
     ...projected,
     ...(feedbackDialog ? [feedbackDialog] : []),
   ]

@@ -5,8 +5,8 @@
 // No state.works / closedWorks / pairLoops / abandonedWorks / imReplyOrigins / workSeq,
 // and no hardcoded WORK_ASK_BACK_LIMIT or WORK_REWORK_CHECKPOINT counters.
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { readdir, rm } from 'node:fs/promises'
+import { mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { CoordinationError } from './coordination-db.js'
@@ -99,12 +99,11 @@ export function install(rt) {
     return /^[A-Za-z0-9_-]+\.txt$/.test(base) ? base : undefined
   }
   let startupSweepDone = typeof ctx?.effect !== 'function'
-  // Files written by this process before the one-shot startup orphan sweep finishes
-  // belong to live keepResult() writes, not to a prior crashed host.
-  const createdBeforeStartupSweep = new Set()
+  // A new file is not a crash orphan while its result is still being committed.
+  const uncommittedStartupResults = new Set()
   const finishStartupSweep = () => {
     startupSweepDone = true
-    createdBeforeStartupSweep.clear()
+    uncommittedStartupResults.clear()
   }
 
   function keepResult(id, text) {
@@ -118,7 +117,7 @@ export function install(rt) {
       writeFileSync(temp, body, 'utf8')
       renameSync(temp, path)
       whole.set(id, body)
-      if (!startupSweepDone) createdBeforeStartupSweep.add(name)
+      if (!startupSweepDone) uncommittedStartupResults.add(name)
       return name
     } catch (error) {
       rt.warn?.('ds-bot: result of work %s not kept whole: %s', id, error)
@@ -190,11 +189,12 @@ export function install(rt) {
           return
         }
       }
+      // Do not yield after reading the references: a retry can replace a file at the same path.
       for (const file of entries) {
         if (disposed || !writes()) return
         const name = keptName(file)
-        if (name === undefined || used.has(name) || createdBeforeStartupSweep.has(name)) continue
-        await rm(resultPath(name), { force: true }).catch(() => {})
+        if (name === undefined || used.has(name) || uncommittedStartupResults.has(name)) continue
+        try { unlinkSync(resultPath(name)) } catch {}
       }
     })()
     activePrunes.add(run)
@@ -203,6 +203,10 @@ export function install(rt) {
       () => activePrunes.delete(run),
     )
     return run
+  }
+
+  async function waitForResultPrunes() {
+    if (activePrunes.size > 0) await Promise.allSettled(activePrunes)
   }
 
   // --- Coordination DB helpers ---
@@ -832,6 +836,7 @@ export function install(rt) {
       ...(extra?.error ? { error: extra.error } : {}),
       ...(extra?.deliverDirect === true ? { notifyParents: false } : {}),
     })
+    if (res.settled && file !== undefined) uncommittedStartupResults.delete(file)
     if (extra?.deliverDirect !== true && (res.wokenParents?.length > 0 || res.wokenAskers?.length > 0)) {
       void rt.kickScheduler?.().catch(() => {})
     }
@@ -1392,7 +1397,11 @@ export function install(rt) {
   }
 
   const offWorkSettled = rt.onWorkSettled?.(({ work, outcome, settledCalls, summary, error } = {}) => {
-    if (work) void pruneOrphanResultFiles().catch(() => {})
+    if (work) {
+      const name = keptName(work.resultRef)
+      if (name !== undefined) uncommittedStartupResults.delete(name)
+      void pruneOrphanResultFiles().catch(() => {})
+    }
     if (!work || !Array.isArray(settledCalls) || settledCalls.length === 0) return
     const replyText = summary
       || work.resultSummary
@@ -1439,7 +1448,7 @@ export function install(rt) {
       finishStartupSweep()
       offWorkSettled?.()
       offAdopted?.()
-      if (activePrunes.size > 0) await Promise.allSettled(activePrunes)
+      await waitForResultPrunes()
       whole.clear()
       heldAnswers.clear()
       transientImOrigins.clear()
@@ -1500,6 +1509,7 @@ export function install(rt) {
     resetPairLoop,
     resetBotLoops,
     keepResultFile: keepResult,
+    waitForResultPrunes,
     readResultFile,
     ...(typeof rt.recordPairExchange === 'function' ? {} : { recordPairExchange }),
   })

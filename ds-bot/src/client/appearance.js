@@ -121,6 +121,35 @@ function painted({ appearance, background, pictureUrl = () => undefined, safe = 
 /** Whether a background is painted now, so the panes should let it through. */
 export const backgroundShown = options => painted(options).paint !== undefined
 
+// Decode a data: URL directly into a Blob instead of calling fetch(data:), which is blocked
+// by Content-Security-Policy connect-src 'self' in the desktop app window.
+function dataUrlToBlob(url, fallbackMime = '') {
+  if (typeof url !== 'string' || url.slice(0, 5).toLowerCase() !== 'data:') return null
+  const comma = url.indexOf(',')
+  if (comma === -1) return null
+  const meta = url.slice(5, comma)
+  const isBase64 = /;base64$/i.test(meta)
+  const mime = (isBase64 ? meta.slice(0, -7) : meta).split(';')[0] || fallbackMime
+  const payload = url.slice(comma + 1)
+  try {
+    let bytes
+    if (isBase64) {
+      if (typeof Uint8Array.fromBase64 === 'function') {
+        bytes = Uint8Array.fromBase64(payload)
+      } else {
+        const binary = atob(payload)
+        bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+      }
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(payload))
+    }
+    return new Blob([bytes], { type: mime })
+  } catch {
+    return null
+  }
+}
+
 // Pictures, loaded once per id and kept as object URLs: the id is the hash of the bytes. A
 // picture that could not be read is asked for again only after a while, not on every redraw.
 const pictures = new Map()
@@ -134,15 +163,25 @@ const RETRY_MS = 60_000
 export function pictureUrl(id, call, loaded) {
   const known = pictures.get(id)
   if (typeof known === 'string') return known
+  if (known instanceof Set) {
+    if (typeof loaded === 'function') known.add(loaded)
+    return undefined
+  }
   if (known === undefined || (typeof known === 'number' && Date.now() - known > RETRY_MS)) {
-    pictures.set(id, null)
+    const waiters = new Set()
+    if (typeof loaded === 'function') waiters.add(loaded)
+    pictures.set(id, waiters)
     const failed = () => pictures.set(id, Date.now())
-    void call('background-picture', { id }).then(async (picture) => {
-      if (picture?.image === undefined) { failed(); return }
-      const blob = await (await fetch(picture.image)).blob()
-      pictures.set(id, URL.createObjectURL(blob))
-      loaded()
-    }).catch(failed)
+    void call('background-picture', { id }).then((picture) => {
+      const blob = dataUrlToBlob(picture?.image, picture?.mime)
+      if (blob === null) { failed(); return }
+      let objectUrl
+      try { objectUrl = URL.createObjectURL(blob) } catch { failed(); return }
+      pictures.set(id, objectUrl)
+      for (const notify of waiters) {
+        try { notify() } catch { /* isolate one view's repaint error from other waiters */ }
+      }
+    }, failed)
   }
   return undefined
 }

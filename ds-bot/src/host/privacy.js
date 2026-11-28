@@ -39,6 +39,16 @@ const GREP_VALUE_FLAGS = new Set([
   '--max-columns', '--path-separator', '--sort', '--sortr',
 ])
 const RG_ONLY_VALUE_FLAGS = new Set(['-g', '-t', '-T', '-r', '-M', '-j'])
+const API_FILE_NAMES = ['api-endpoint.json', 'api-tokens.json', 'api-audit.jsonl', 'api-config.json', 'api-runs.json', 'api-uploads']
+
+function referencesApiFile(text) {
+  // Shell expansions and string operations can extend or trim a filename.
+  for (const [, suffix] of text.matchAll(/api-(?=([\w.-]*))/g)) {
+    const name = `api-${suffix}`
+    if (API_FILE_NAMES.some(file => file.startsWith(name) || name.startsWith(file))) return true
+  }
+  return false
+}
 
 // Windows and macOS file systems ignore case.
 const fold = text => (process.platform === 'linux' ? text : text.toLowerCase())
@@ -1098,12 +1108,8 @@ export function install(rt) {
   // to every Bot, even in teams with no private Bots.
   const apiProtectedFiles = async (memo = new Map()) => (await Promise.all([
     join(rt.home, 'api-'),
-    join(rt.home, 'api-endpoint.json'),
-    join(rt.home, 'api-tokens.json'),
+    ...API_FILE_NAMES.map(file => join(rt.home, file)),
     join(rt.home, 'mcp.json'),
-    join(rt.home, 'api-audit.jsonl'),
-    join(rt.home, 'api-config.json'),
-    join(rt.home, 'api-runs.json'),
     join(rt.home, 'coordination.sqlite'),
     join(rt.home, 'coordination.sqlite-wal'),
     join(rt.home, 'coordination.sqlite-shm'),
@@ -1164,7 +1170,8 @@ export function install(rt) {
     if (SHELL_TOOLS.includes(name)) {
       const rawText = strings(args).join('\n')
       const flat = fold(normalizeSlashes(rawText))
-      if (name !== 'run_code' && (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('coordination.sqlite'))) throw closedApi()
+      const mentionsApiFile = referencesApiFile(flat)
+      if (name !== 'run_code' && (mentionsApiFile || flat.includes('mcp.json') || flat.includes('coordination.sqlite'))) throw closedApi()
       const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
@@ -1175,7 +1182,7 @@ export function install(rt) {
           const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
           if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
         }
-        if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json') || flat.includes('coordination.sqlite')) {
+        if (mentionsApiFile || flat.includes('mcp.json') || flat.includes('telemetry.json') || flat.includes('coordination.sqlite')) {
           const homeKeys = await spellings(rt.home, memo)
           const baseKeys = base === undefined ? [] : await spellings(base, memo)
           if (base === undefined || baseKeys.some(k => homeKeys.some(h => within(h, k)))) throw closedApi()
