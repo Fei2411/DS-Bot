@@ -1,6 +1,7 @@
 import { Fragment, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AGENT_CARDS_CSS } from '../../../ds-bot/src/client/agent-cards.js'
+import { AGENT_PRESET_CSS } from '../../../ds-bot/src/client/agent-preset-menu.js'
 import { AVATAR_LIBRARY_CSS } from '../../../ds-bot/src/client/avatar-library.js'
 import { BOT_SETTINGS_CSS } from '../../../ds-bot/src/client/bot-settings.js'
 import { TASKS_CSS } from '../../../ds-bot/src/client/bot-tasks.js'
@@ -25,6 +26,7 @@ import { PRIVACY_CSS } from '../../../ds-bot/src/client/privacy-page.js'
 import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
+import { SETTINGS_SHELL_CSS } from '../../../ds-bot/src/client/settings-shell.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
 import { RETURN_CSS, SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
 import { INBOX_CSS } from '../../../ds-bot/src/client/inbox.js'
@@ -87,10 +89,10 @@ if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) docum
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 // Settings-only stylesheets install lazily alongside their pages (`settings-pages-lazy.js`).
 for (const [tag, text] of [
-  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
+  ['shell', SHELL_CSS], ['settings-shell', SETTINGS_SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['connectors', CONNECTOR_CSS],
-  ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
+  ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + AGENT_PRESET_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
   ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + GOAL_CSS + TASK_CSS + TASKS_CSS + LEARNING_CSS],
   ['schedules', SCHEDULE_CSS],
   ['feedback', FEEDBACK_CSS], ['privacy', PRIVACY_CSS], ['members', MEMBER_CSS],

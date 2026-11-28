@@ -769,9 +769,20 @@ const SessionEventRow = memo(function SessionEventRow({ row, selfId, roster, act
     }
     case 'request':
     case 'reply':
-    case 'stopped': {
+    case 'stopped':
+    case 'cancelled':
+    case 'note':
+    case 'ask_back':
+    case 'answer': {
       const sender = roster.byId?.[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
-      const prefix = row.eventKind === 'stopped' ? t('Stopped by') : row.eventKind === 'reply' ? t('Reply from') : t('Message from')
+      const prefix = {
+        stopped: t('Stopped by'),
+        cancelled: t('Cancelled by'),
+        note: t('Note from'),
+        ask_back: t('Question from'),
+        answer: t('Answer from'),
+        reply: t('Reply from'),
+      }[row.eventKind] ?? t('Message from')
       return h('div', { className: 'bt-event' },
         h('button', { type: 'button', className: 'bt-event-whole', title: sender.name, onClick: () => { if (selfId && sender.id) actions.openExchange(selfId, sender.id) } },
           h('span', null, prefix), h(BotMark, { bot: sender, size: 16 }), h('span', { className: 'bt-event-name' }, sender.name)))
@@ -1107,7 +1118,7 @@ function renderTranscriptRows({
   resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
   selfId, cwd, showThinking, flat,
   openSessionFile, revealSessionFolder, turnFileMentions, feedback,
-  onSelectFeedback, onRetractFeedback, renderEarlierUserText,
+  onSelectFeedback, onRetractFeedback, renderEarlierUserText, renderEarlierUserAttachments,
   parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
 }) {
   const seenTurnSpeaker = new Set(initialSpeakers)
@@ -1117,7 +1128,16 @@ function renderTranscriptRows({
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
+        ? h(EarlierParts, {
+          key: row.key,
+          sessionId,
+          roster,
+          actions,
+          openFile: openSessionFile,
+          useUi: resolvedUseUi,
+          renderUserAttachments: renderEarlierUserAttachments,
+          renderUserText: renderEarlierUserText,
+        })
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
@@ -1403,6 +1423,15 @@ export function SessionTranscript({
     onRevealFolder: revealSessionFolder,
   }), [earlierMentionBots, actions, openSessionFile, revealSessionFolder])
 
+  const renderEarlierUserAttachments = useCallback((row) => {
+    const blocks = [
+      ...(Array.isArray(row?.imageRefs) ? row.imageRefs.map(ref => ({ type: 'image', attachment: ref })) : []),
+      ...(Array.isArray(row?.fileRefs) ? row.fileRefs.map(ref => ({ type: 'file', attachment: ref })) : []),
+    ]
+    if (blocks.length === 0) return null
+    return h(UserAttachments, { attachments: blocks, sessionId: row?.sessionId ?? sessionId })
+  }, [sessionId])
+
   // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
   // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
   // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
@@ -1478,7 +1507,7 @@ export function SessionTranscript({
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
     selfId, cwd, showThinking, flat,
     openSessionFile, revealSessionFolder, turnFileMentions, feedback,
-    onSelectFeedback: handleSelectFeedback, onRetractFeedback: handleRetractFeedback, renderEarlierUserText,
+    onSelectFeedback: handleSelectFeedback, onRetractFeedback: handleRetractFeedback, renderEarlierUserText, renderEarlierUserAttachments,
     parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   }
 
@@ -1498,7 +1527,7 @@ export function SessionTranscript({
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
     selfId, cwd, showThinking, flat,
     openSessionFile, revealSessionFolder, turnFileMentions, feedback,
-    handleSelectFeedback, handleRetractFeedback, renderEarlierUserText,
+    handleSelectFeedback, handleRetractFeedback, renderEarlierUserText, renderEarlierUserAttachments,
     parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   ])
   const liveElements = rowParts.live.length === 0
@@ -1517,7 +1546,16 @@ export function SessionTranscript({
   }) : null
 
   return [
-    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText })] : []),
+    ...(showTopEarlierParts ? [h(EarlierParts, {
+      key: `earlier-parts:${sessionId}`,
+      sessionId,
+      roster,
+      actions,
+      openFile: openSessionFile,
+      useUi: resolvedUseUi,
+      renderUserAttachments: renderEarlierUserAttachments,
+      renderUserText: renderEarlierUserText,
+    })] : []),
     ...projected,
     ...(feedbackDialog ? [feedbackDialog] : []),
   ]

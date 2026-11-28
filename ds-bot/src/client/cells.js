@@ -755,7 +755,7 @@ export function earlierItems(pages, { cursor, loading } = {}) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-export function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
+export function EarlierParts({ sessionId, roster, actions, openFile, useUi, renderUserAttachments, renderUserText }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)
@@ -823,7 +823,7 @@ export function EarlierParts({ sessionId, roster, actions, openFile, renderUserT
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))
         : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Couldn’t load earlier messages · Retry'))
           : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Load earlier')) : null),
-    h(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
+    h(ChatRows, { items, sessionId, roster, actions, useUi, openFile, onBtwDelete: removeBtw, renderUserAttachments, renderUserText }),
     hasContent ? h(PartLine, { time: view.startedAt }) : null)
 }
 
@@ -934,17 +934,19 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions })
     case 'bot': {
-      const bubbles = h(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale })
+      const partSessionId = row.sessionId ?? sessionId
+      const bubbles = h(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? partSessionId : undefined, msgKey: useUi ? `${partSessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale })
       const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[selfId] : undefined
       return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
     }
     case 'btw': return h(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete })
     case 'post': {
       // A member's message in a group's earlier part, as the live row shows it.
+      const partSessionId = row.sessionId ?? sessionId
       const poster = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t('a Bot'), row.color ?? 'gray')
       return h(MemoGroupMessage, {
         key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
-        msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
+        msgKey: `${partSessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
         whole: stableWhole(row, actions), locale,
       })
     }

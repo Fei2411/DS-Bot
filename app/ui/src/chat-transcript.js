@@ -49,6 +49,7 @@ export function adaptRoomItem(item) {
       time: item.time,
       ...(Number.isFinite(item.duration) ? { duration: item.duration } : {}),
       ...(item.changes ? { changes: item.changes } : {}),
+      ...(Array.isArray(item.claims) && item.claims.length > 0 ? { claims: item.claims } : {}),
       ...(Array.isArray(item.files) && item.files.length > 0 ? { presented: item.files } : {}),
       ...(item.whole?.file ? { file: item.whole.file, length: item.whole.length } : {}),
     }

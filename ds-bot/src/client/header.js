@@ -47,7 +47,7 @@ function MemoryNotice({ shown }) {
     h('span', { className: 'bt-pill-mem-in', ref: inner }, h('span', { className: 'bt-pill-mem-ico' }, h(MemoryIcon)), label))
 }
 
-export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
+export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning, dockOwnsForegroundApprovals = false }) {
   const roster = useRoster(value => value)
   const selectedView = useStore?.(state => state.view)
   const away = useConversationViews?.(views => views.some(view => view.id === selectedView && view.id !== 'chat')) === true
@@ -109,7 +109,10 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const workApprovalsKey = useWork?.(work => (room
     ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
     : bot
-      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.roomId === undefined && entry.answerable === true))
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id
+        && entry.roomId === undefined
+        && entry.answerable === true
+        && (!dockOwnsForegroundApprovals || entry.taskId !== undefined)))
       : '')) ?? '[]'
   const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
   const approvals = room

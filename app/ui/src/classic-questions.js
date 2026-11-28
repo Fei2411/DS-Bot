@@ -40,12 +40,49 @@ export function stripPlanHeading(markdown, heading) {
   return trimmed.slice(match[0].length).replace(/^\s+/, '')
 }
 
+// Persists in-progress Classic question answers across chat switches so returning to a
+// session restores selected options, custom text, current page index, and minimized state.
+const classicQuestionProgress = new Map()
+
+export function clearClassicQuestionProgress(key) {
+  if (key === undefined) classicQuestionProgress.clear()
+  else classicQuestionProgress.delete(key)
+}
+
 function emptyDraftFor(question) {
+  const options = Array.isArray(question?.options) ? question.options : []
+  const recommended = question?.multiSelect === true
+    ? null
+    : options.find(opt => parseRecommendedLabel(opt?.label).recommended)
   return {
     id: question.id,
-    selected: [],
+    selected: recommended ? [recommended.label] : [],
     custom: '',
     skipped: false,
+  }
+}
+
+function readStoredProgress(stableKey, questions) {
+  const saved = classicQuestionProgress.get(stableKey)
+  if (!saved || !Array.isArray(saved.drafts) || saved.drafts.length !== questions.length) {
+    return {
+      index: 0,
+      drafts: questions.map(emptyDraftFor),
+      minimized: false,
+    }
+  }
+  const sameIds = saved.drafts.every((d, idx) => d?.id === questions[idx]?.id)
+  if (!sameIds) {
+    return {
+      index: 0,
+      drafts: questions.map(emptyDraftFor),
+      minimized: false,
+    }
+  }
+  return {
+    index: Math.max(0, Math.min(saved.index ?? 0, Math.max(0, questions.length - 1))),
+    drafts: saved.drafts.map(d => ({ ...d, selected: [...(d.selected ?? [])] })),
+    minimized: Boolean(saved.minimized),
   }
 }
 
@@ -76,9 +113,10 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
   const questions = entry.questions ?? []
   const total = questions.length
   const stableKey = entry.callId ?? entry.id
-  const [index, setIndex] = useState(0)
-  const [drafts, setDrafts] = useState(() => questions.map(emptyDraftFor))
-  const [minimized, setMinimized] = useState(false)
+  const initialProgress = useMemo(() => readStoredProgress(stableKey, questions), [stableKey])
+  const [index, setIndex] = useState(() => initialProgress.index)
+  const [drafts, setDrafts] = useState(() => initialProgress.drafts)
+  const [minimized, setMinimized] = useState(() => initialProgress.minimized)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [remainingMs, setRemainingMs] = useState(() => (
@@ -88,16 +126,25 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
   ))
   const ownRef = useRef(null)
   const titleId = useId()
+  const prevKeyRef = useRef(stableKey)
 
-  // Reset in-progress answers only when a genuinely different question arrives (`callId ?? id`),
+  // Restore saved progress when switching to a genuinely different question (`callId ?? id`),
   // never when a timed question transitions from blocking `<uuid>` to `continued:<callId>`.
   useEffect(() => {
-    setIndex(0)
-    setDrafts(questions.map(emptyDraftFor))
-    setMinimized(false)
+    if (prevKeyRef.current === stableKey) return
+    prevKeyRef.current = stableKey
+    const restored = readStoredProgress(stableKey, questions)
+    setIndex(restored.index)
+    setDrafts(restored.drafts)
+    setMinimized(restored.minimized)
     setBusy(false)
     setError('')
   }, [stableKey])
+
+  // Persist live progress so switching away from this session and coming back keeps answers.
+  useEffect(() => {
+    classicQuestionProgress.set(stableKey, { index, drafts, minimized })
+  }, [stableKey, index, drafts, minimized])
 
   useEffect(() => {
     if (entry.mode !== 'blocking' || !Number.isFinite(entry.deadlineAt)) {
@@ -125,6 +172,7 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
     setError('')
     try {
       await actions.answerUserQuestion(entry.sessionId, entry.id, buildAnswerPayload(nextDrafts))
+      classicQuestionProgress.delete(stableKey)
     } catch (failure) {
       setError(failure?.message ?? t('Couldn’t submit answer'))
       setBusy(false)
@@ -141,6 +189,7 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
     setError('')
     try {
       await actions.dismissUserQuestion(entry.sessionId, entry.id)
+      classicQuestionProgress.delete(stableKey)
     } catch (failure) {
       setError(failure?.message ?? t('Couldn’t dismiss question'))
       setBusy(false)
@@ -163,19 +212,17 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
       })
       return
     }
-    // Single-select: clear custom text and select this option.
+    // Single-select: clear custom text and select this option without auto-submitting on click.
     const nextDrafts = drafts.map((item, idx) => (idx === safeIndex
       ? { ...item, selected: [rawLabel], custom: '', skipped: false }
       : item))
     setDrafts(nextDrafts)
     setError('')
-    if (total === 1) {
-      void submitDrafts(nextDrafts)
-      return
+    if (total > 1) {
+      const nextUnanswered = nextDrafts.findIndex((item, idx) => idx > safeIndex && !isDraftAnswered(item))
+      if (nextUnanswered >= 0) setIndex(nextUnanswered)
+      else if (safeIndex < total - 1) setIndex(safeIndex + 1)
     }
-    const nextUnanswered = nextDrafts.findIndex((item, idx) => idx > safeIndex && !isDraftAnswered(item))
-    if (nextUnanswered >= 0) setIndex(nextUnanswered)
-    else if (safeIndex < total - 1) setIndex(safeIndex + 1)
   }
 
   const skipCurrent = () => {
@@ -269,7 +316,7 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
             onClick: () => setIndex(Math.min(total - 1, safeIndex + 1)),
           }, h(ChevronRightIcon)))) : null,
       h('p', { className: 'bt-q-title', id: titleId }, question.header ? `${question.header} · ` : '', question.question),
-      question.detail ? h('div', { className: 'bt-q-detail' }, question.detail) : null,
+      question.detail ? h('div', { className: 'bt-q-detail' }, h(MarkdownText, { text: question.detail })) : null,
       multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null),
     h('div', { className: 'dsb-cq-head-acts' },
       remainingMs !== null ? h('span', { className: 'dsb-cq-timer', 'aria-live': 'off' }, formatCountdown(remainingMs)) : null,
@@ -374,6 +421,13 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
 export function ClassicQuestionDock({ sessionId, useUserQuestions, useRoster, actions, readOnly = false }) {
   const list = useUserQuestions?.(items => (Array.isArray(items) ? items : [])) ?? []
   const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
+  useEffect(() => {
+    if (classicQuestionProgress.size === 0) return
+    const activeKeys = new Set(list.map(item => item?.callId ?? item?.id).filter(Boolean))
+    for (const key of classicQuestionProgress.keys()) {
+      if (!activeKeys.has(key)) classicQuestionProgress.delete(key)
+    }
+  }, [list])
   const entry = useMemo(
     () => list.find(item => item?.sessionId === sessionId && item.kind !== 'plan-review'),
     [list, sessionId],
