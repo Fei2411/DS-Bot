@@ -21,10 +21,10 @@ const isRemoteTarget = (target) => {
 }
 
 // Decodes CommonMark backslash escapes before ASCII punctuation (e.g. `./plot\(1\).png`
-// → `./plot(1).png`) while leaving Windows drive paths (`C:\dir\_file.png`) verbatim.
+// → `./plot(1).png`) while leaving Windows drive and home-relative paths verbatim.
 const decodeMarkdownDestination = (raw) => {
   const trimmed = String(raw ?? '').trim()
-  if (/^[a-z]:\\/i.test(trimmed)) return trimmed
+  if (/^(?:[a-z]:|~)\\/i.test(trimmed)) return trimmed
   return trimmed.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, '$1')
 }
 
