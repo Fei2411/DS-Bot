@@ -26,17 +26,18 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // saved value back. A required field never saves empty. Where the field sits in a page
 // other than Settings, `className` styles it, `autoFocus` puts the caret at the end of
 // the text on mount, and `onDone` runs when the edit ends, saved or not.
-export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, className, autoFocus = false, onSave, onDone }) {
+export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, className, autoFocus = false, disabled = false, onSave, onDone }) {
   const [draft, setDraft] = useState(null)
   const reverting = useRef(false)
   const field = useRef(null)
   useEffect(() => {
     const node = field.current
-    if (!autoFocus || !node) return
+    if (!autoFocus || disabled || !node) return
     node.focus()
     node.setSelectionRange(node.value.length, node.value.length)
   }, [])
   const commit = () => {
+    if (disabled) return
     const next = draft?.trim()
     if (reverting.current) { reverting.current = false; setDraft(null); onDone?.(); return }
     if (next === undefined || next === (value ?? '') || (required && next === '')) {
@@ -57,8 +58,8 @@ export function InlineText({ label, value, placeholder, required = false, maxLen
     }
   }
   return h(multiline ? 'textarea' : 'input', {
-    ref: field, className: className ?? (multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input'), value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,
-    onChange: event => setDraft(event.target.value),
+    ref: field, className: className ?? (multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input'), value: draft ?? value ?? '', placeholder, maxLength, required, disabled, 'aria-label': label, spellCheck: false,
+    onChange: event => { if (!disabled) setDraft(event.target.value) },
     onBlur: commit,
     onKeyDown: (event) => {
       if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
@@ -215,8 +216,9 @@ function MemoryCard({ bot, actions }) {
 // (model), what it does (instructions), its memory and tasks, its Main Bot role, its
 // sidebar place, and copies.
 export function BotSettingsForm({ bot, roster, actions, run }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [editing, setEditing] = useState(false)
-  const [editorShown, editorLeaving] = useLinger(editing, 120)
+  const [editorShown, editorLeaving] = useLinger(editing && !readOnly, 120)
   const [confirming, setConfirming] = useState(false)
   const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions)
   const [savingPreset, setSavingPreset] = useState(false)
@@ -232,24 +234,25 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const inGroup = (roster.rooms ?? []).some(room => room.members?.includes(bot.id))
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
   const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
-  const save = patch => run(actions.updateBot(bot.id, patch))
+  const save = patch => (readOnly ? undefined : run(actions.updateBot(bot.id, patch)))
   // The Agent preset saves on its own, and the picker waits for it: two preset
   // saves in a row could land out of order.
   const savePreset = (id) => {
+    if (readOnly) return
     const next = presetUpdate(id, bot.agentPreset)
     if (next === undefined || savingPreset) return
     setSavingPreset(true)
     void Promise.resolve(run(actions.updateBot(bot.id, { agentPreset: next }))).finally(() => setSavingPreset(false))
   }
-  const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
-  const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
+  const duplicate = () => (readOnly ? undefined : run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id))))
+  const remove = () => { if (readOnly) return; if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
   const modelNote = modelHint(bot, roster)
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
   return h('div', { className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
       h('div', { className: 'bt-avatar-anchor' },
-        h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit Bot avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
+        h('button', { type: 'button', className: 'bt-avatar-trigger', disabled: readOnly, 'aria-label': t('Edit Bot avatar'), 'aria-expanded': editing && !readOnly, onClick: () => { if (!readOnly) setEditing(value => !value) } },
           h(BotMark, { bot, size: 64, live: true }),
           h('span', { className: 'bt-avatar-pencil', 'aria-hidden': true }, h(PencilIcon))),
         editorShown ? h(AvatarEditor, { bot, actions, run, onClose: closeEditor, leaving: editorLeaving }) : null),
@@ -257,39 +260,39 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         h('span', { className: 'bt-bs-name' }, bot.name),
         h('span', { className: 'bt-bs-sub' }, [bot.role, isMainBot ? t('Main Bot') : ''].filter(Boolean).join(' · ') || t('Bot')))),
     h(Card, { title: t('Profile') },
-      h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
-      h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
-    h(RunModeCard, { bot, roster, actions, run, Card },
+      h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, disabled: readOnly, onSave: name => save({ name }) })),
+      h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, disabled: readOnly, onSave: role => save({ role }) }))),
+    h(RunModeCard, { bot, roster, actions, run, Card, disabled: readOnly },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), modelNote ? h('span', { className: 'bt-set-hint' }, modelNote) : null),
-        h(ModelMenu, { bot, roster, actions, run }))),
+        h(ModelMenu, { bot, roster, actions, run, disabled: readOnly }))),
     !bot.engine ? h(Card, { title: t('Agent preset') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Agent preset')), h('span', { className: 'bt-set-hint' }, presetHint(bot, presets, presetError))),
         h(AgentPresetMenu, {
           value: bot.agentPreset, presets, error: presetError, onRefresh: refreshPresets,
-          disabled: savingPreset, onPick: savePreset,
+          disabled: readOnly || savingPreset, onPick: savePreset,
         }))) : null,
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
+        h(FolderMenu, { value: bot.workDir, actions, run, disabled: readOnly, onPick: workDir => save({ workDir }) })),
       // A private Bot works in its own folder only; a local agent keeps its own file permissions.
-      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
+      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, disabled: readOnly, onSave: extraDirs => save({ extraDirs }) })),
     h(ApprovalSettings, { target: bot, roster, Card }),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
         hint: privacyHint,
         on: bot.private === true,
-        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0),
+        disabled: readOnly || (bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0)),
         onChange: value => save({ private: value }),
       })),
     h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
-        h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
-    h(BotCapabilitiesCard, { bot, roster, actions, run, Card }),
-    h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
+        h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, disabled: readOnly, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
+    h(BotCapabilitiesCard, { bot, roster, actions, run, Card, disabled: readOnly }),
+    h(BotComputerCard, { bot, roster, actions, run, Card, Row, disabled: readOnly }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
     h(Card, null,
@@ -303,19 +306,19 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
           label: t('Main Bot'),
           hint: bot.private === true ? t('A private Bot cannot be a Main Bot.') : t('Can create and change Bots, and runs every group chat.'),
           on: isMainBot,
-          disabled: bot.private === true,
+          disabled: readOnly || bot.private === true,
           onChange: on => run(actions.setMain(bot.id, on)),
         })),
     // The Main Bot tile is always first and always shown, like in the context menu.
-    h(ChatBackgroundSection, { owner: bot, ownerKind: 'bot', actions, run, Section: Card }),
+    h(ChatBackgroundSection, { owner: bot, ownerKind: 'bot', actions, run, Section: Card, disabled: readOnly }),
     isTile ? null : h(Card, { title: t('Sidebar') },
-      h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
-      isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),
+      h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, disabled: readOnly, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
+      isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, disabled: readOnly, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),
     h(Card, { title: t('Manage') },
-      bot.private === true ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: duplicate },
+      bot.private === true ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row', disabled: readOnly, onClick: duplicate },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Duplicate')), h('span', { className: 'bt-set-hint' }, t('A copy with the same job and model, and fresh memory.'))),
         h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))),
-      isMainBot ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-bs-danger', 'data-confirm': confirming || undefined, onClick: remove },
+      isMainBot ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-bs-danger', disabled: readOnly, 'data-confirm': confirming || undefined, onClick: remove },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, confirming ? t('Delete {name}?', { name: bot.name }) : t('Delete Bot')),
           h('span', { className: 'bt-set-hint' }, confirming ? t('Click again to delete. Its chats are archived.') : t('Removes the Bot from the team.'))),

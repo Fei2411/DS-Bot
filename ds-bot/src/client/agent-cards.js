@@ -110,7 +110,7 @@ export const ReadingModels = () => h('span', { className: 'bt-loading' },
   h('i', { className: 'bt-loading-spin', 'aria-hidden': true }), t('Reading models…'))
 
 // A Bot's settings: what it runs on now, and the one way to change it.
-export function RunModeCard({ bot, roster, actions, run, Card, children = null }) {
+export function RunModeCard({ bot, roster, actions, run, Card, disabled = false, children = null }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState('model')
   const [target, setTarget] = useState('')
@@ -118,6 +118,7 @@ export function RunModeCard({ bot, roster, actions, run, Card, children = null }
   const others = agents.filter(agent => agent.route !== bot.engine)
   const engineName = (roster.models ?? []).find(model => model.provider === bot.engine)?.providerName ?? bot.engine
   const start = () => {
+    if (disabled) return
     const toLocal = bot.engine === undefined
     setMode(toLocal ? 'local' : 'model')
     setTarget(toLocal ? '' : startModel(roster))
@@ -134,7 +135,7 @@ export function RunModeCard({ bot, roster, actions, run, Card, children = null }
     h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' },
         h('span', { className: 'bt-bs-label' }, bot.engine === undefined ? t('Built-in engine') : engineName, bot.engine === undefined ? null : h(AgentBadge, { engine: bot.engine }))),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'aria-expanded': open, onClick: () => (open ? setOpen(false) : start()) }, open ? t('Cancel') : t('Switch'))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, 'aria-expanded': open, onClick: () => (open ? setOpen(false) : start()) }, open ? t('Cancel') : t('Switch'))),
     open ? h('div', { className: 'bt-runmode' },
       h(RunModeSwitch, { mode, setMode: switchMode }),
       mode === 'local'

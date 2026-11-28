@@ -31,6 +31,7 @@ function grantKinds(grant) {
 }
 
 export function BrowserPage({ roster, actions, run, Section, Row }) {
+  const readOnly = Boolean(roster?.readOnly)
   const bots = roster.bots ?? []
   const [botId, setBotId] = useState(bots[0]?.id ?? '')
   const [importBotIds, setImportBotIds] = useState(() => (bots[0] ? [bots[0].id] : []))
@@ -82,6 +83,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     bot, grant, index, expired: expired(grant),
   })))
   const remove = (bot, index) => {
+    if (readOnly) return
     const next = (bot.browserGrants ?? []).filter((grant, position) => position !== index && !expired(grant))
     void run(actions.updateBot(bot.id, { browserGrants: next.length ? next : null }))
   }
@@ -118,7 +120,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
   }
 
   const addBtn = adding || bots.length === 0 ? null
-    : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
+    : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', disabled: readOnly, onClick: () => { if (!readOnly) setAdding(true) } }, h(PlusIcon), t('Allow action'))
   const paneMode = browserPaneMode(roster.plugins?.slots?.browser)
   const activeBrowserLabel = paneMode.isExternal ? `${paneMode.activeLabel} · ${t('External window')}` : paneMode.activeLabel
 
@@ -146,7 +148,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
             ? h('button', {
               type: 'button',
               className: 'bt-browser-import-targets-btn',
-              disabled: importFlow.busy,
+              disabled: readOnly || importFlow.busy,
               onClick: toggleAllImportBots,
             }, allImportBotsSelected ? t('Clear') : t('Select all'))
             : null),
@@ -159,7 +161,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
               role: 'checkbox',
               className: 'bt-browser-import-chip',
               'aria-checked': checked,
-              disabled: importFlow.busy,
+              disabled: readOnly || importFlow.busy,
               onClick: () => toggleImportBot(bot.id),
             },
             h(BotAvatar, { bot, size: 20, badge: false, live: false }),
@@ -172,7 +174,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
             sources: importFlow.sources,
             lastSourceId: importFlow.lastSourceId,
             loading: importFlow.loadingSources,
-            busy: importFlow.busy || selectedImportBotIds.length === 0,
+            busy: readOnly || importFlow.busy || selectedImportBotIds.length === 0,
             canPaste: Boolean(imports.paste),
             inline: true,
             onFile: importFlow.pickFile,
@@ -181,8 +183,8 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
           })
           : h(ImportCard, {
             flow: importFlow.flow,
-            busy: importFlow.busy,
-            canApply: selectedImportBotIds.length > 0,
+            busy: readOnly || importFlow.busy,
+            canApply: !readOnly && selectedImportBotIds.length > 0,
             imports,
             inline: true,
             onApply: importFlow.applyImport,
@@ -258,7 +260,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
           h('div', { className: 'bt-browser-grant-kinds' }, grantKinds(grant).map(label => h('span', { key: label, className: 'bt-chip' }, label))),
           h('span', { className: 'bt-set-hint' }, grantTime(grant))),
         h('button', {
-          type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => remove(bot, index),
+          type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => remove(bot, index),
           'aria-label': t('Remove grant'),
         }, t('Remove grant'))))))
 }

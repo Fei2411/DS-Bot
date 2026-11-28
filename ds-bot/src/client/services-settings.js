@@ -72,7 +72,7 @@ function Choice({ label, value, options, disabled, pick, Segmented }) {
 }
 
 // Pure rendering half, so a mock UI test can drive it with a fixed host status.
-export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
+export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable, readOnly = false,
   save, selectAsr, onOpenModels, onOpenPlugins, onOpenWebSearch, Section, Row, Switch, Segmented }) {
   const prefs = { ...DEFAULTS, ...status?.preferences }
   const key = status?.key ?? {}
@@ -92,7 +92,7 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
         ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Providers'))
         : selected && asrUsable
           ? h(Pill, { state: 'ready', text: t('In use') })
-          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
+          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: readOnly || asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
   const asrHint = asr !== null && !asr.registered && asr.reason && asrView.state !== 'missing'
     ? hostText(String(asr.reason))
     : undefined
@@ -114,19 +114,19 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
         h('div', { className: 'bt-svc-actions' },
           ocrView.state !== 'off' ? h(Pill, { state: ocrView.state, text: ocrView.text }) : null,
           h(Switch, {
-            label: t('Image and document reading'), on: prefs.ocr === true, disabled: busy || !ready,
+            label: t('Image and document reading'), on: prefs.ocr === true, disabled: readOnly || busy || !ready,
             onChange: on => save({ ocr: on }),
           }))),
       h(Row, { label: t('Read replies aloud'), tour: 'svc-tts' },
         h('div', { className: 'bt-svc-actions' },
           ttsView.state !== 'off' ? h(Pill, { state: ttsView.state, text: ttsView.text }) : null,
           h(Choice, {
-            label: t('Read replies aloud'), value: prefs.tts, disabled: busy || !ready, Segmented,
+            label: t('Read replies aloud'), value: prefs.tts, disabled: readOnly || busy || !ready, Segmented,
             options: [['system', t('System')], ['deepseek', t('DeepSeek')]], pick: id => save({ tts: id }),
           }))),
       prefs.tts === 'deepseek' ? h(Row, { label: t('Voice') },
         h(Choice, {
-          label: t('Voice'), value: prefs.voice, disabled: busy || !ready, Segmented,
+          label: t('Voice'), value: prefs.voice, disabled: readOnly || busy || !ready, Segmented,
           options: voices.map(id => [id, voiceName(id)]), pick: id => save({ voice: id }),
         })) : null,
       h(Row, { label: t('Speech recognition'), hint: asrHint },
@@ -136,7 +136,7 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
           asr?.registered && pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null))))
 }
 
-export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented, onOpenWebSearch, openEnginePlugins = null }) {
+export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented, readOnly = false, onOpenWebSearch, openEnginePlugins = null }) {
   const [status, setStatus] = useState(null)
   const [selection, setSelection] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -191,7 +191,7 @@ export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segme
   return h(Fragment, null,
     loadError ? h('div', { className: 'bt-error', role: 'alert' }, loadError) : null,
     h(ServicesForm, {
-      status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
+      status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable, readOnly,
       save, selectAsr, onOpenModels: () => actions.openModels?.(),
       // DSH's own Web Search API & engine plugin switches live in the nested
       // `plugins` → `dsh` view when available; otherwise fall back to closing
