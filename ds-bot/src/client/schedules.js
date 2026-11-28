@@ -345,7 +345,7 @@ export const SCHEDULE_CSS = `
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
 .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px;max-width:58%}
-.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
+.bt-sel.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}
@@ -373,11 +373,11 @@ export const SCHEDULE_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
 @container (max-width:440px){
   .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
-  .bt-task-bot{min-width:0;max-width:100%;width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
 }
 @media (max-width:768px){
   .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
-  .bt-task-bot{min-width:0;max-width:100%;width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
 }
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */

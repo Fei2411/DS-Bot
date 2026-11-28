@@ -407,6 +407,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
     stdin: {
       contents: `
         import { SHELL_CSS } from './src/client/styles.js'
+        import { AGENT_PRESET_CSS } from './src/client/agent-preset-menu.js'
         import { MODEL_CSS } from './src/client/model-menu.js'
         import { FOLDER_CSS } from './src/client/folder-menu.js'
         import { BOT_SETTINGS_CSS } from './src/client/bot-settings.js'
@@ -414,12 +415,15 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
         import { SCHEDULE_CSS } from './src/client/schedules.js'
         import { IM_CSS } from './src/client/im-page.js'
         import { COMPUTER_CSS } from './src/client/computer.js'
+        // Match ds-bot/src/client/index.js injection order: COMPUTER_CSS installs in apply(),
+        // followed by SHELL_SHEETS on surface mount.
         export const SHEETS = [
+          COMPUTER_CSS,
           SHELL_CSS,
+          AGENT_PRESET_CSS,
           MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS,
           SCHEDULE_CSS,
           IM_CSS,
-          COMPUTER_CSS,
         ]
       `,
       resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
@@ -445,9 +449,17 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
             <span class="bt-set-copy"><span class="bt-bs-label">标签</span><span class="bt-set-hint">可选，显示在名字下方。</span></span>
             <input class="bt-bs-input" placeholder="研究、行政…" value="" />
           </label>
+          <label class="bt-set-row bt-bs-row" id="row-label-de">
+            <span class="bt-set-copy"><span class="bt-bs-label">Bezeichnung</span><span class="bt-set-hint">Optional. Wird unter dem Namen angezeigt.</span></span>
+            <input class="bt-bs-input" placeholder="Forschung, Verwaltung…" value="" />
+          </label>
           <label class="bt-set-row bt-bs-row" id="row-group-name">
             <span class="bt-set-copy"><span class="bt-bs-label">名称</span><span class="bt-set-hint">留空则以成员名字命名群聊。</span></span>
             <input class="bt-bs-input" placeholder="按成员命名" value="" />
+          </label>
+          <label class="bt-set-row bt-bs-row bt-bs-stack" id="row-instructions">
+            <span class="bt-set-copy"><span class="bt-bs-label">职责说明</span><span class="bt-set-hint">它在团队里的工作。会作为系统提示词的一部分。</span></span>
+            <textarea class="bt-bs-input bt-bs-area">Handle weekly reports.</textarea>
           </label>
         </div>
       </section>
@@ -462,8 +474,8 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
             <button type="button" class="bt-model-trigger"><span class="bt-model-copy"><span class="bt-model-name">Codex · routing-default-model</span></span><span class="bt-model-caret">▾</span></button>
           </div>
           <div class="bt-set-row bt-bs-row" id="row-preset">
-            <span class="bt-set-copy"><span class="bt-bs-label">Agent 预设</span><span class="bt-set-hint">标准 Agent 预设</span></span>
-            <button type="button" class="bt-sel"><span class="bt-sel-label">默认（标准）</span></button>
+            <span class="bt-set-copy"><span class="bt-bs-label">Agent-Voreinstellung</span><span class="bt-set-hint">Standard Agent-Voreinstellung</span></span>
+            <button type="button" class="bt-model-trigger bt-preset-trigger"><span class="bt-model-copy"><span class="bt-model-name">Standard</span></span><span class="bt-model-caret">▾</span></button>
           </div>
           <div class="bt-set-row bt-bs-row" id="row-computer">
             <span class="bt-set-copy"><span class="bt-bs-label">电脑使用</span><span class="bt-set-hint">在提供方就绪前，Bot 不会获得电脑工具。</span></span>
@@ -472,6 +484,14 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           <div class="bt-set-row bt-bs-row" id="row-switch">
             <span class="bt-set-copy"><span class="bt-bs-label">隐私</span><span class="bt-set-hint">仅在自己的文件夹内工作。</span></span>
             <button type="button" role="switch" aria-checked="false" class="bt-switch"><span class="bt-switch-knob"></span></button>
+          </div>
+        </div>
+      </section>
+      <section class="bt-set-section">
+        <div class="bt-set-card" data-card="computer-page">
+          <div class="bt-set-row" id="row-computer-page">
+            <div class="bt-set-copy"><span class="bt-comp-bot"><span>Chief of Staff</span></span></div>
+            <div class="bt-set-control"><button type="button" class="bt-sel bt-level-pick"><span class="bt-sel-label">Background</span></button></div>
           </div>
         </div>
       </section>
@@ -497,83 +517,95 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
       </section>
     </div>
   `
+  const inspectScript = () => {
+    const inspect = (scopeId) => {
+      const scope = document.getElementById(scopeId)
+      const cards = [...scope.querySelectorAll('.bt-set-card')]
+      const overflowCards = cards.filter(card => card.scrollWidth > card.clientWidth + 1).map(card => card.dataset.card)
+      const rowIds = ['row-name', 'row-label', 'row-label-de', 'row-group-name', 'row-instructions', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-computer-page', 'row-task-target', 'row-task-name', 'row-im']
+      const rows = {}
+      for (const id of rowIds) {
+        const row = scope.querySelector(`#${id}`)
+        const card = row.closest('.bt-set-card')
+        const copy = row.querySelector('.bt-set-copy')
+        const label = row.querySelector('.bt-bs-label, .bt-set-copy > span:first-child')
+        const hint = row.querySelector('.bt-set-hint')
+        const control = row.children[1]
+        const innerControl = control.classList.contains('bt-set-control') ? control.firstElementChild : control
+        const cardRect = card.getBoundingClientRect()
+        const rowRect = row.getBoundingClientRect()
+        const copyRect = copy.getBoundingClientRect()
+        const labelRect = label.getBoundingClientRect()
+        const hintRect = hint ? hint.getBoundingClientRect() : null
+        const ctrlRect = control.getBoundingClientRect()
+        const innerCtrlRect = innerControl.getBoundingClientRect()
+        rows[id] = {
+          innerW: Math.round(rowRect.width - 32),
+          copyW: Math.round(copyRect.width),
+          labelH: Math.round(labelRect.height),
+          hintH: hintRect ? Math.round(hintRect.height) : 0,
+          ctrlW: Math.round(ctrlRect.width),
+          innerCtrlW: Math.round(innerCtrlRect.width),
+          stacked: ctrlRect.top >= copyRect.bottom - 1,
+          clipped: ctrlRect.right > cardRect.right + 1 || innerCtrlRect.right > cardRect.right + 1 || copyRect.right > cardRect.right + 1,
+        }
+      }
+      return { overflowCards, rows }
+    }
+    return Object.fromEntries([...document.querySelectorAll('.wrap')].map(el => [el.id, inspect(el.id)]))
+  }
+  const docHtml = widths => `<!doctype html><html><head>${styleTags}<style>
+    *{animation:none!important;transition:none!important}
+    body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .wrap{box-sizing:border-box}
+  </style></head><body data-bt-effects="off">
+    ${widths.map(([id, w]) => `<div id="${id}" class="wrap" style="width:${w}">${cardsMarkup}</div>`).join('')}
+  </body></html>`
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
     try {
-      await page.setContent(`<!doctype html><html><head>${styleTags}<style>
-        *{animation:none!important;transition:none!important}
-        body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-        .wrap{box-sizing:border-box}
-      </style></head><body data-bt-effects="off">
-        <div id="narrow" class="wrap" style="width:274px">${cardsMarkup}</div>
-        <div id="mid" class="wrap" style="width:460px">${cardsMarkup}</div>
-        <div id="wide" class="wrap" style="width:680px">${cardsMarkup}</div>
-      </body></html>`)
-      const report = await page.evaluate(() => {
-        const inspect = (scopeId) => {
-          const scope = document.getElementById(scopeId)
-          const cards = [...scope.querySelectorAll('.bt-set-card')]
-          const overflowCards = cards.filter(card => card.scrollWidth > card.clientWidth + 1).map(card => card.dataset.card)
-          const rowIds = ['row-name', 'row-label', 'row-group-name', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-task-target', 'row-task-name', 'row-im']
-          const rows = {}
-          for (const id of rowIds) {
-            const row = scope.querySelector(`#${id}`)
-            const card = row.closest('.bt-set-card')
-            const copy = row.querySelector('.bt-set-copy')
-            const label = row.querySelector('.bt-bs-label, .bt-set-copy > span:first-child')
-            const hint = row.querySelector('.bt-set-hint')
-            const control = row.children[1]
-            const cardRect = card.getBoundingClientRect()
-            const rowRect = row.getBoundingClientRect()
-            const copyRect = copy.getBoundingClientRect()
-            const labelRect = label.getBoundingClientRect()
-            const hintRect = hint ? hint.getBoundingClientRect() : null
-            const ctrlRect = control.getBoundingClientRect()
-            rows[id] = {
-              innerW: Math.round(rowRect.width - 32),
-              copyW: Math.round(copyRect.width),
-              labelH: Math.round(labelRect.height),
-              hintH: hintRect ? Math.round(hintRect.height) : 0,
-              ctrlW: Math.round(ctrlRect.width),
-              stacked: ctrlRect.top >= copyRect.bottom - 1,
-              clipped: ctrlRect.right > cardRect.right + 1 || copyRect.right > cardRect.right + 1,
-            }
-          }
-          return { overflowCards, rows }
+      // .bt-set-card has 0.5px border (1px per side at 1x DPR), so 442px outer width has a 440px
+      // container content-box and 443px outer width crosses the @container (max-width:440px) breakpoint.
+      await page.setContent(docHtml([['narrow', '274px'], ['edge440', '442px'], ['edge441', '443px'], ['wide', '680px']]))
+      const report = await page.evaluate(inspectScript)
+
+      for (const scopeName of ['narrow', 'edge440', 'edge441', 'wide']) {
+        assert.deepEqual(report[scopeName].overflowCards, [], `${scopeName}: ${JSON.stringify(report[scopeName])}`)
+        // Multiline .bt-bs-area must stay full-width at every card width (never capped at 58%).
+        const area = report[scopeName].rows['row-instructions']
+        assert.equal(area.stacked, true, `${scopeName} instructions should stack: ${JSON.stringify(area)}`)
+        assert.ok(area.ctrlW >= area.innerW - 2, `${scopeName} instructions textarea capped: ${JSON.stringify(area)}`)
+      }
+
+      const stackedInNarrow = ['row-name', 'row-label', 'row-label-de', 'row-group-name', 'row-model', 'row-preset', 'row-computer', 'row-computer-page', 'row-task-target', 'row-task-name', 'row-im']
+      for (const scopeName of ['narrow', 'edge440']) {
+        for (const id of stackedInNarrow) {
+          const r = report[scopeName].rows[id]
+          assert.equal(r.stacked, true, `${scopeName} ${id} should stack: ${JSON.stringify(r)}`)
+          assert.equal(r.clipped, false, `${scopeName} ${id} clipped: ${JSON.stringify(r)}`)
+          assert.ok(r.copyW >= r.innerW - 2, `${scopeName} ${id} copy width too small: ${JSON.stringify(r)}`)
+          assert.ok(r.innerCtrlW >= r.innerW - 2, `${scopeName} ${id} control width too small: ${JSON.stringify(r)}`)
+          assert.ok(r.labelH <= 24, `${scopeName} ${id} label wrapped vertically: ${JSON.stringify(r)}`)
         }
-        return { narrow: inspect('narrow'), mid: inspect('mid'), wide: inspect('wide') }
-      })
-
-      assert.deepEqual(report.narrow.overflowCards, [], JSON.stringify(report.narrow))
-      assert.deepEqual(report.mid.overflowCards, [], JSON.stringify(report.mid))
-      assert.deepEqual(report.wide.overflowCards, [], JSON.stringify(report.wide))
-
-      const stackedInNarrow = ['row-name', 'row-label', 'row-group-name', 'row-model', 'row-preset', 'row-computer', 'row-task-target', 'row-task-name', 'row-im']
-      for (const id of stackedInNarrow) {
-        const r = report.narrow.rows[id]
-        assert.equal(r.stacked, true, `narrow ${id} should stack: ${JSON.stringify(r)}`)
-        assert.equal(r.clipped, false, `narrow ${id} clipped: ${JSON.stringify(r)}`)
-        assert.ok(r.copyW >= r.innerW - 2, `narrow ${id} copy width too small: ${JSON.stringify(r)}`)
-        assert.ok(r.ctrlW >= r.innerW - 2, `narrow ${id} control width too small: ${JSON.stringify(r)}`)
-        assert.ok(r.labelH <= 24, `narrow ${id} label wrapped vertically: ${JSON.stringify(r)}`)
+        for (const id of ['row-engine', 'row-switch']) {
+          const r = report[scopeName].rows[id]
+          assert.equal(r.stacked, false, `${scopeName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
+          assert.equal(r.clipped, false, `${scopeName} ${id} clipped: ${JSON.stringify(r)}`)
+          assert.ok(r.copyW >= 120, `${scopeName} ${id} copy squeezed: ${JSON.stringify(r)}`)
+        }
       }
       assert.ok(report.narrow.rows['row-label'].hintH <= 24, `narrow label hint wrapped excessively: ${JSON.stringify(report.narrow.rows['row-label'])}`)
       assert.ok(report.narrow.rows['row-group-name'].hintH <= 24, `narrow group name hint wrapped excessively: ${JSON.stringify(report.narrow.rows['row-group-name'])}`)
 
-      for (const id of ['row-engine', 'row-switch']) {
-        const r = report.narrow.rows[id]
-        assert.equal(r.stacked, false, `narrow ${id} should stay horizontal: ${JSON.stringify(r)}`)
-        assert.equal(r.clipped, false, `narrow ${id} clipped: ${JSON.stringify(r)}`)
-        assert.ok(r.copyW >= 120, `narrow ${id} copy squeezed: ${JSON.stringify(r)}`)
-      }
-
-      for (const scopeName of ['mid', 'wide']) {
+      for (const scopeName of ['edge441', 'wide']) {
         for (const [id, r] of Object.entries(report[scopeName].rows)) {
+          if (id === 'row-instructions') continue
           assert.equal(r.stacked, false, `${scopeName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${scopeName} ${id} clipped: ${JSON.stringify(r)}`)
           assert.ok(r.copyW >= 140, `${scopeName} ${id} copy squeezed: ${JSON.stringify(r)}`)
           assert.ok(r.labelH <= 24, `${scopeName} ${id} label wrapped vertically: ${JSON.stringify(r)}`)
         }
+        assert.ok(report[scopeName].rows['row-computer-page'].innerCtrlW <= 200, `${scopeName} computer-page picker exceeded 200px: ${JSON.stringify(report[scopeName].rows['row-computer-page'])}`)
       }
 
       // Verify stacked narrow input keeps focus ring and accent border instead of being overridden.
@@ -588,6 +620,25 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
       })
       assert.equal(focusState.focusedBorder, 'rgb(77, 107, 254)', JSON.stringify(focusState))
       assert.notEqual(focusState.focusedBorder, focusState.idleBorder, JSON.stringify(focusState))
+
+      // Verify @media (max-width:768px) branch at phone (375px) and tablet (700px) viewports.
+      for (const [vpName, vpWidth, cardWidth] of [['phone375', 375, '343px'], ['tablet700', 700, '600px']]) {
+        await page.setViewportSize({ width: vpWidth, height: 812 })
+        await page.setContent(docHtml([[vpName, cardWidth]]))
+        const vpReport = (await page.evaluate(inspectScript))[vpName]
+        assert.deepEqual(vpReport.overflowCards, [], `${vpName}: ${JSON.stringify(vpReport)}`)
+        for (const id of [...stackedInNarrow, 'row-instructions']) {
+          const r = vpReport.rows[id]
+          assert.equal(r.stacked, true, `${vpName} ${id} should stack: ${JSON.stringify(r)}`)
+          assert.equal(r.clipped, false, `${vpName} ${id} clipped: ${JSON.stringify(r)}`)
+          assert.ok(r.innerCtrlW >= r.innerW - 2, `${vpName} ${id} control width too small: ${JSON.stringify(r)}`)
+        }
+        for (const id of ['row-engine', 'row-switch']) {
+          const r = vpReport.rows[id]
+          assert.equal(r.stacked, false, `${vpName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
+          assert.equal(r.clipped, false, `${vpName} ${id} clipped: ${JSON.stringify(r)}`)
+        }
+      }
     } finally { await page.close() }
   } finally { await browser.close() }
 })

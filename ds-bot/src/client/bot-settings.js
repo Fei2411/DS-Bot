@@ -340,7 +340,7 @@ label.bt-bs-row{cursor:text}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area{flex:none;width:100%;min-width:0;max-width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
 .bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}

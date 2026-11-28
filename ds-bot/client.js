@@ -36461,7 +36461,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
 }
 var COMPUTER_CSS = `
 .bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-level-pick{max-width:200px}
+.bt-sel.bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}
 .bt-cview{display:flex;flex-direction:column;gap:12px}
@@ -36496,8 +36496,8 @@ var COMPUTER_CSS = `
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
-@container (max-width:440px){.bt-level-pick{width:100%;min-width:0;max-width:100%}}
-@media (max-width:768px){.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@container (max-width:440px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@media (max-width:768px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
 `;
 
 // node_modules/deep-view/src/core/reply.js
@@ -39760,7 +39760,7 @@ var SCHEDULE_CSS = `
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
 .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px;max-width:58%}
-.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
+.bt-sel.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}
@@ -39788,11 +39788,11 @@ var SCHEDULE_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
 @container (max-width:440px){
   .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
-  .bt-task-bot{min-width:0;max-width:100%;width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
 }
 @media (max-width:768px){
   .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
-  .bt-task-bot{min-width:0;max-width:100%;width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
 }
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */
@@ -42511,7 +42511,7 @@ label.bt-bs-row{cursor:text}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area{flex:none;width:100%;min-width:0;max-width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
 .bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}
