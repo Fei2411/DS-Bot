@@ -329,7 +329,7 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   useEffect(() => {
     if (!active || !feed) return undefined
     return feed.on((event, data) => {
-      if (event === 'hello') { if (ready.current) void loadRef.current(undefined, undefined, true); return }
+      if (event === 'hello') { if (data?.resumed !== true && ready.current) void loadRef.current(undefined, undefined, true); return }
       if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true)
     })
   }, [active, feed, roomId])
@@ -661,8 +661,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       return undefined
     }
     refreshClassicControlsRef.current()
-    const offFeed = feed?.on?.((event) => {
-      if (event === 'live' || event === 'revision' || event === 'hello') refreshClassicControlsRef.current()
+    const offFeed = feed?.on?.((event, data) => {
+      if (event === 'live' || event === 'revision' || (event === 'hello' && data?.resumed !== true)) refreshClassicControlsRef.current()
     })
     return () => { offFeed?.() }
   }, [isAgentChat, sessionId, feed])
@@ -1518,18 +1518,24 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         trailingControls)))
 }
 
-function PendingUserRows({ items, sessionId, classic = false }) {
+function PendingUserRows({ items, sessionId, classic = false, reconnecting = false }) {
   if (!items || items.length === 0) return null
+  const statusLabel = reconnecting ? t('Waiting to confirm…') : t('Sending…')
+  const meta = h('div', { className: 'dsb-pending-meta', 'data-reconnecting': reconnecting || undefined },
+    h('span', { className: 'dsb-pending-dot', 'aria-hidden': true }),
+    h('span', null, statusLabel))
   if (classic) {
     return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
       h('div', { className: 'dsb-dsh-user-stack' },
         entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null,
+        meta))))
   }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null,
+      meta))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
@@ -1652,6 +1658,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
   }, [])
 
+  const viewedUpdatedAt = useSessions(list => list.byId[viewedSessionId]?.updatedAt)
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
   const dmChat = useSessionFollow({
     sessionId: viewedSessionId,
@@ -1660,6 +1667,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     enabled: !isRoom && Boolean(viewedSessionId),
     feed,
     readOnly: Boolean(roster.readOnly),
+    readOnlyUpdatedAt: roster.readOnly ? viewedUpdatedAt : undefined,
     onUserMessage: viewingSubagent ? undefined : onSessionUser,
     keep,
   })
@@ -1808,7 +1816,9 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const sessionNotice = !isRoom && (dmChat.terminalError || dmChat.failed)
     ? h('div', { className: 'dsb-session-error', role: 'alert' },
-      h('span', null, dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
+      h('span', null, dmChat.terminalError?.code === 'bot/stream-overflow'
+        ? t('Live updates paused: message too large')
+        : dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
     : null
 
@@ -1825,6 +1835,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const useBrowserHolds = hooks.useBrowserHolds ?? NO_OBJ_HOOK
   const useBrowserTabs = hooks.useBrowserTabs ?? NO_OBJ_HOOK
   const useBrowserPages = hooks.useBrowserPages ?? NO_OBJ_HOOK
+  const feedDisconnected = hooks.useConnection ? hooks.useConnection(state => state.status !== 'connected') : false
 
   // Once an optimistic message lands in the live Queue Dock, drop its faded pending bubble
   // from the transcript so queued messages are never shown twice. Track seen queue item IDs
@@ -1995,9 +2006,11 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             useComputer,
             thinkingAt: dmChat.thinkingAt,
             hasMore: dmChat.hasMore,
+            quietSeq: dmChat.quietSeq,
+            reloadEpoch: dmChat.reloadEpoch,
             registry,
           }),
-        !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic }) : null,
+        !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic, reconnecting: feedDisconnected }) : null,
         // The Bot views' activity row (from the header pill) draws itself in here.
         !viewingSubagent ? h('div', { 'data-bt-running': '' }) : null))),
   !following && !viewingSubagent ? h('button', {
