@@ -2063,6 +2063,7 @@ async function fail(error) {
   console.error(error)
   if (failed || stopping) return
   failed = true
+  forgetHost()
   const mine = attempt
   startWindow.fail(error, startKind())
   // The failure page takes the place of a card that waited.
