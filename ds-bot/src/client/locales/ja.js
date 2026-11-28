@@ -1,6 +1,13 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Enter while running": "実行中の Enter",
+  "Queue": "キュー",
+  "Steer": "割り込み",
+  "Open a side chat": "サイドチャットを開く",
+  "Uploading…": "アップロード中…",
+  "Upload failed": "アップロードに失敗しました",
+  "Retry upload": "再アップロード",
   'Reconnecting…': '再接続中…',
   'Reconnect': '再接続',
   'Waiting to confirm…': '確認待ち…',

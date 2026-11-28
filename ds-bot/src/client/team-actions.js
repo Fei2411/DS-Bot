@@ -332,6 +332,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     send: (sessionId, text, options = {}) => after(call('send', {
       sessionId: partFor(sessionId),
       text,
+      ...(options.mode === 'steer' || options.mode === 'queue' ? { mode: options.mode } : {}),
       ...(options.images?.length ? { images: options.images } : {}),
       ...(options.files?.length ? { files: options.files } : {}),
     })),

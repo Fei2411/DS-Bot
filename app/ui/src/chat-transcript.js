@@ -388,13 +388,23 @@ export const Transcript = memo(function Transcript({
 
   const earlierTopRef = useRef(null)
   const follow = useRef(true)
+  const userBrokeFollowRef = useRef(false)
+  const touchStartYRef = useRef(null)
   const smoothScrollRef = useRef(null)
   const [following, setFollowing] = useState(true)
   const keep = useRef(null)
 
+  const breakFollow = useCallback(() => {
+    smoothScrollRef.current = null
+    userBrokeFollowRef.current = true
+    if (follow.current) follow.current = false
+    setFollowing(prev => (prev ? false : prev))
+  }, [])
+
   useEffect(() => {
     keep.current = null
     follow.current = true
+    userBrokeFollowRef.current = false
     smoothScrollRef.current = null
     setFollowing(true)
   }, [activeSessionId])
@@ -403,10 +413,12 @@ export const Transcript = memo(function Transcript({
     transcriptRef.current = {
       followBottom() {
         follow.current = true
+        userBrokeFollowRef.current = false
         setFollowing(true)
       },
       resetFollow() {
         follow.current = true
+        userBrokeFollowRef.current = false
         setFollowing(true)
         keep.current = null
       },
@@ -450,7 +462,7 @@ export const Transcript = memo(function Transcript({
       node.scrollTop = node.scrollHeight - keep.current
       keep.current = null
     } else if (follow.current) node.scrollTop = node.scrollHeight
-    if (!follow.current && node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX) {
+    if (!follow.current && !userBrokeFollowRef.current && node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX) {
       follow.current = true
       setFollowing(true)
     }
@@ -459,9 +471,11 @@ export const Transcript = memo(function Transcript({
   const onScroll = () => {
     const node = scrollerRef.current
     if (!node) return
-    const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
+    const dist = node.scrollHeight - node.scrollTop - node.clientHeight
+    const atBottom = userBrokeFollowRef.current ? dist <= 8 : dist < FOLLOW_PX
     if (atBottom) {
       smoothScrollRef.current = null
+      userBrokeFollowRef.current = false
     } else if (smoothScrollRef.current !== null) {
       // Keep following during an in-flight smooth scroll to bottom unless the user scrolls back up.
       if (node.scrollTop < smoothScrollRef.current.lastTop - 2 || Date.now() > smoothScrollRef.current.until) {
@@ -475,8 +489,36 @@ export const Transcript = memo(function Transcript({
     setFollowing(prev => (prev === atBottom ? prev : atBottom))
   }
 
+  const onWheel = (event) => {
+    if (event.deltaY < 0) breakFollow()
+  }
+
+  const onTouchStart = (event) => {
+    touchStartYRef.current = event.touches?.[0]?.clientY ?? null
+  }
+
+  const onTouchMove = (event) => {
+    const y = event.touches?.[0]?.clientY
+    if (touchStartYRef.current !== null && typeof y === 'number' && y - touchStartYRef.current > 4) {
+      breakFollow()
+    }
+  }
+
+  const onTouchEnd = () => {
+    touchStartYRef.current = null
+  }
+
+  const onTranscriptKeyDown = (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key !== 'PageUp' && event.key !== 'Home' && event.key !== 'ArrowUp') return
+    const tag = String(event.target?.tagName ?? '').toUpperCase()
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
+    breakFollow()
+  }
+
   const scrollToBottom = () => {
     follow.current = true
+    userBrokeFollowRef.current = false
     setFollowing(true)
     const node = scrollerRef.current
     if (!node) return
@@ -589,7 +631,20 @@ export const Transcript = memo(function Transcript({
       onBack: onPopSubagent,
       onSelectDepth: onSelectSubagentDepth,
     }) : null,
-    h('div', { ref: scrollerRef, className: 'dsb-scroll', 'data-bt-scroll': '', 'data-bt-following-tail': following ? 'true' : 'false', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
+    h('div', {
+      ref: scrollerRef,
+      className: 'dsb-scroll',
+      'data-bt-scroll': '',
+      'data-bt-following-tail': following ? 'true' : 'false',
+      'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined,
+      tabIndex: -1,
+      onScroll,
+      onWheel,
+      onTouchStart,
+      onTouchMove,
+      onTouchEnd,
+      onKeyDown: onTranscriptKeyDown,
+    },
       !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
       h('div', { className: 'dsb-column' },
         earlier ? h('div', { ref: earlierTopRef, className: 'bt-earlier-top' }, earlier) : null,

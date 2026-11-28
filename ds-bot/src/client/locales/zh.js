@@ -3089,5 +3089,12 @@ const HOST_ZH = {
   'Local': '本地',
   'Open config file': '打开配置文件',
   'Open folder': '打开文件夹',
+  "Enter while running": "运行中按 Enter",
+  "Queue": "排队",
+  "Steer": "插话",
+  "Open a side chat": "打开侧边对话",
+  "Uploading…": "正在上传…",
+  "Upload failed": "上传失败",
+  "Retry upload": "重新上传",
 }
 Object.assign(ZH, HOST_ZH)

@@ -1,6 +1,13 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  "Enter while running": "Enter während der Ausführung",
+  "Queue": "Warteschlange",
+  "Steer": "Eingreifen",
+  "Open a side chat": "Nebenchat öffnen",
+  "Uploading…": "Wird hochgeladen…",
+  "Upload failed": "Upload fehlgeschlagen",
+  "Retry upload": "Upload wiederholen",
   'Reconnecting…': 'Verbindung wird wiederhergestellt…',
   'Reconnect': 'Neu verbinden',
   'Waiting to confirm…': 'Warte auf Bestätigung…',

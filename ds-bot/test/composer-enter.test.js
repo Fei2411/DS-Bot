@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { insertComposerNewline } from '../src/client/enter-key.js'
+import { insertComposerNewline, runningEnterMode, submitModeForKey } from '../src/client/enter-key.js'
 
 function bench({ composing = false, listbox = false, actions = true } = {}) {
   const inserted = []
@@ -65,4 +65,30 @@ test('other keys, other fields, and a missing input face stay untouched', () => 
   const noActions = bench({ actions: false })
   assert.equal(insertComposerNewline(noActions.event, noActions.inputActions), false)
   assert.equal(noActions.event.prevented, 0)
+})
+
+test('runningEnterMode defaults to queue and submitModeForKey maps running Enter and Cmd/Ctrl+Enter to opposite actions', () => {
+  assert.equal(runningEnterMode(undefined), 'queue')
+  assert.equal(runningEnterMode({}), 'queue')
+  assert.equal(runningEnterMode({ runningEnter: 'queue' }), 'queue')
+  assert.equal(runningEnterMode({ runningEnter: 'steer' }), 'steer')
+
+  // Idle: enterToSend true -> plain or mod sends; enterToSend false -> only mod sends.
+  assert.equal(submitModeForKey({ running: false, enterToSend: true, runningEnter: 'queue', plainEnter: true, modEnter: false }), 'queue')
+  assert.equal(submitModeForKey({ running: false, enterToSend: true, runningEnter: 'steer', plainEnter: false, modEnter: true }), 'queue')
+  assert.equal(submitModeForKey({ running: false, enterToSend: false, runningEnter: 'queue', plainEnter: true, modEnter: false }), null)
+  assert.equal(submitModeForKey({ running: false, enterToSend: false, runningEnter: 'steer', plainEnter: false, modEnter: true }), 'queue')
+
+  // Running with enterToSend true + default queue: Enter queues, Cmd/Ctrl+Enter steers.
+  assert.equal(submitModeForKey({ running: true, enterToSend: true, runningEnter: 'queue', plainEnter: true, modEnter: false }), 'queue')
+  assert.equal(submitModeForKey({ running: true, enterToSend: true, runningEnter: 'queue', plainEnter: false, modEnter: true }), 'steer')
+
+  // Running with enterToSend true + steer setting: Enter steers, Cmd/Ctrl+Enter queues.
+  assert.equal(submitModeForKey({ running: true, enterToSend: true, runningEnter: 'steer', plainEnter: true, modEnter: false }), 'steer')
+  assert.equal(submitModeForKey({ running: true, enterToSend: true, runningEnter: 'steer', plainEnter: false, modEnter: true }), 'queue')
+
+  // Running with enterToSend false: plain Enter stays newline, Cmd/Ctrl+Enter uses configured runningEnter.
+  assert.equal(submitModeForKey({ running: true, enterToSend: false, runningEnter: 'queue', plainEnter: true, modEnter: false }), null)
+  assert.equal(submitModeForKey({ running: true, enterToSend: false, runningEnter: 'queue', plainEnter: false, modEnter: true }), 'queue')
+  assert.equal(submitModeForKey({ running: true, enterToSend: false, runningEnter: 'steer', plainEnter: false, modEnter: true }), 'steer')
 })

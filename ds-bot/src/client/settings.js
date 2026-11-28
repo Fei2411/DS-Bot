@@ -17,6 +17,7 @@ import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
 import { requestWindowReload } from './reload-action.js'
 import { t } from './i18n.js'
+import { runningEnterMode } from './enter-key.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 import { isShortcutRecording } from './shortcuts-model.js'
 import { isImeComposing } from './enter-key.js'
@@ -190,6 +191,13 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
         prefs.defaultBotModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ defaultBotModel: null })) }, t('Reset')) : null),
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) })),
+      h(SetRow, { label: t('Enter while running') },
+        h(Choice, {
+          label: t('Enter while running'),
+          value: runningEnterMode(prefs),
+          options: [['queue', 'Queue'], ['steer', 'Steer']],
+          pick: runningEnter => run(actions.setPrefs({ runningEnter })),
+        })),
       basicDsh.includes('composer-enter') ? dshItem(dsh, 'composer-enter') : null),
     h(SetSection, { key: 'approvals', title: t('Approvals') },
       h(SetRow, { label: t('Approval model'), className: 'bt-set-model' },

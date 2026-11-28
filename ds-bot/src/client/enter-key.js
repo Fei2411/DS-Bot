@@ -3,6 +3,31 @@
 // the snapshot's prefs come from the window's cache, so a saved `false` already holds.
 export const sendsOnEnter = prefs => prefs?.enterToSend !== false
 
+// While a turn is running, plain Enter defaults to queuing the message for the next turn;
+// users can switch the preference to 'steer', and Cmd/Ctrl+Enter always does the opposite.
+export const runningEnterMode = prefs => (prefs?.runningEnter === 'steer' ? 'steer' : 'queue')
+
+/**
+ * Resolves the send mode (`'queue' | 'steer' | null`) for an Enter keydown event.
+ * - While idle: plain Enter or Cmd/Ctrl+Enter sends when `enterToSend` is on (Cmd/Ctrl+Enter when off).
+ * - While running with `enterToSend` on: plain Enter uses `runningEnter`, Cmd/Ctrl+Enter does the opposite.
+ * - While running with `enterToSend` off: Cmd/Ctrl+Enter uses `runningEnter` (plain Enter keeps newline).
+ */
+export function submitModeForKey({ running, enterToSend, runningEnter = 'queue', plainEnter, modEnter }) {
+  if (!plainEnter && !modEnter) return null
+  if (!running) {
+    return (enterToSend ? (plainEnter || modEnter) : modEnter) ? 'queue' : null
+  }
+  const preferred = runningEnter === 'steer' ? 'steer' : 'queue'
+  const opposite = preferred === 'steer' ? 'queue' : 'steer'
+  if (enterToSend) {
+    if (plainEnter) return preferred
+    if (modEnter) return opposite
+    return null
+  }
+  return modEnter ? preferred : null
+}
+
 // Safari/Chromium fire keyCode === 229 on the closing Enter of a CJK IME composition
 // even when isComposing has already flipped false.
 export const isImeComposing = event => Boolean(

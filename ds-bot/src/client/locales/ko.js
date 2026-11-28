@@ -1,6 +1,13 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "Enter while running": "실행 중 Enter",
+  "Queue": "대기열",
+  "Steer": "즉시 개입",
+  "Open a side chat": "사이드 채팅 열기",
+  "Uploading…": "업로드 중…",
+  "Upload failed": "업로드 실패",
+  "Retry upload": "다시 업로드",
   'Reconnecting…': '다시 연결하는 중…',
   'Reconnect': '다시 연결',
   'Waiting to confirm…': '확인 대기 중…',

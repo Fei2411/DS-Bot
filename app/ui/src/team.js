@@ -304,6 +304,7 @@ export function createTeam() {
         thinking: prefs.thinking,
         defaultBotModel: prefs.defaultBotModel,
         enterToSend: prefs.enterToSend,
+        runningEnter: prefs.runningEnter,
       }))
     } catch { /* storage unavailable */ }
   }

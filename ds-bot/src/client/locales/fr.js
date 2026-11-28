@@ -1,6 +1,13 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Enter while running": "Entrée en cours d’exécution",
+  "Queue": "File d’attente",
+  "Steer": "Intervenir",
+  "Open a side chat": "Ouvrir une discussion annexe",
+  "Uploading…": "Envoi…",
+  "Upload failed": "Échec de l’envoi",
+  "Retry upload": "Réessayer l’envoi",
   'Reconnecting…': 'Reconnexion…',
   'Reconnect': 'Reconnecter',
   'Waiting to confirm…': 'En attente de confirmation…',

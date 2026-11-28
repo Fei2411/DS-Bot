@@ -5,7 +5,7 @@ import { canSetGoal } from '../../../ds-bot/src/client/goal.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import {
   BlocksIcon, ChatsIcon, ClockIcon, DownloadIcon, FileIcon, FolderIcon, GoalIcon,
-  InfoIcon, LayersIcon, PeopleIcon, SendIcon, ShieldIcon, SlidersIcon, TerminalIcon,
+  InfoIcon, LayersIcon, PeopleIcon, SendIcon, ShieldIcon, SideIcon, SlidersIcon, TerminalIcon,
 } from '../../../ds-bot/src/client/icons.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
@@ -310,6 +310,8 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
   const snapshot = { getSnapshot: () => roster }
   const { contributions, decorations } = commandEntries({ roster: snapshot, actions })
   const session = { sessionId }
+  const sessionSkills = Array.isArray(classicCatalog?.skills) ? classicCatalog.skills : []
+  const hasRichCatalog = sessionSkills.length > 0
 
   for (const contrib of contributions) {
     if (typeof contrib.available === 'function' && !contrib.available(session)) continue
@@ -319,7 +321,20 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
       label: typeof contrib.label === 'function' ? contrib.label() : contrib.name,
       description: typeof contrib.description === 'function' ? contrib.description() : '',
       icon: contrib.icon ?? ClockIcon,
+      ...(hasRichCatalog ? { section: t('Commands') } : {}),
       run: () => contrib.ui?.run?.(session),
+    })
+  }
+
+  if (bot && !room && typeof actions?.newSideChat === 'function') {
+    items.push({
+      key: 'cmd:side',
+      name: '/side',
+      label: t('Side chat'),
+      description: t('Open a side chat'),
+      icon: SideIcon,
+      ...(hasRichCatalog ? { section: t('Commands') } : {}),
+      run: () => actions.newSideChat(sessionId),
     })
   }
 
@@ -331,6 +346,7 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
       label: t('Set a goal'),
       description: t('Set a goal for this group chat'),
       icon: GoalIcon,
+      ...(hasRichCatalog ? { section: t('Commands') } : {}),
       run: () => goalDec.ui?.run?.(session),
     })
   }
@@ -342,6 +358,7 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
       label: t('Details'),
       description: t('View conversation details'),
       icon: SlidersIcon,
+      ...(hasRichCatalog ? { section: t('Commands') } : {}),
       run: () => actions.showDetails(sessionId),
     })
   }
@@ -353,7 +370,24 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
       label: t('Keyboard shortcuts'),
       description: t('View keyboard shortcuts'),
       icon: InfoIcon,
+      ...(hasRichCatalog ? { section: t('Commands') } : {}),
       run: () => actions.openShortcuts(),
+    })
+  }
+
+  for (const skill of sessionSkills) {
+    if (!skill?.name) continue
+    const code = `/${skill.name}`
+    const desc = cleanSubtitle(skill.description || skill.whenToUse || '', skill.name, code)
+    items.push({
+      key: `skill:${skill.name}`,
+      kind: 'insert',
+      name: code,
+      label: skill.name,
+      description: desc,
+      icon: BlocksIcon,
+      section: t('Skills'),
+      insertText: `${code} `,
     })
   }
 
@@ -371,29 +405,27 @@ export function buildComposerMenuItems({ mode, query = '', quoted = false, roste
   const isAgent = !roster.byId?.[sessionId] && !roster.roomsById?.[sessionId] && roster.agentOf?.[sessionId] !== undefined
 
   if (mode === 'mention') {
-    if (isAgent) {
-      const files = Array.isArray(classicCatalog?.files) ? classicCatalog.files : []
-      const out = []
-      for (const entry of files.slice(0, 32)) {
-        if (!entry?.path) continue
-        const formatted = formatClassicFileMention(entry, quoted)
-        if (!formatted) continue
-        const { title, dir } = fileTitleAndDir(entry.path)
-        const label = entry.kind === 'directory' ? `${title}/` : title
-        out.push({
-          key: `atfile:${entry.kind}:${entry.path}`,
-          kind: 'insert',
-          icon: entry.kind === 'directory' ? FolderIcon : FileIcon,
-          title: label,
-          subtitle: cleanSubtitle(dir, label, title),
-          section: t('Workspace files'),
-          insertText: entry.kind === 'directory' ? formatted : `${formatted} `,
-        })
-      }
-      return out
+    const files = Array.isArray(classicCatalog?.files) ? classicCatalog.files : []
+    const fileItems = []
+    for (const entry of files.slice(0, 32)) {
+      if (!entry?.path) continue
+      const formatted = formatClassicFileMention(entry, quoted)
+      if (!formatted) continue
+      const { title, dir } = fileTitleAndDir(entry.path)
+      const label = entry.kind === 'directory' ? `${title}/` : title
+      fileItems.push({
+        key: `atfile:${entry.kind}:${entry.path}`,
+        kind: 'insert',
+        icon: entry.kind === 'directory' ? FolderIcon : FileIcon,
+        title: label,
+        subtitle: cleanSubtitle(dir, label, title),
+        section: t('Workspace files'),
+        insertText: entry.kind === 'directory' ? formatted : `${formatted} `,
+      })
     }
+    if (isAgent) return fileItems
     const rows = mentionRows(roster, sessionId, query) ?? []
-    return rows.map((row) => {
+    const memberItems = rows.map((row) => {
       // Only emit localized "@Everyone" when `mentionSpans` recognizes the word (e.g. "Everyone", "所有人");
       // otherwise emit "@everyone " so group routing reaches every member across all locales.
       const rawWord = String(row.text ?? '').replace(/^@/, '').trim().toLowerCase()
@@ -405,9 +437,11 @@ export function buildComposerMenuItems({ mode, query = '', quoted = false, roste
         icon: row.bot ? null : PeopleIcon,
         title: row.bot ? row.bot.name : t('Everyone'),
         subtitle: row.bot?.role || (row.room ? t('{count} members', { count: row.room.members.length }) : ''),
+        ...(fileItems.length > 0 ? { section: t('Members') } : {}),
         insertText: row.bot ? row.text : everyoneText,
       }
     })
+    return [...memberItems, ...fileItems]
   }
   if (mode === 'reference') {
     const rows = chatRows(roster, sessions, sessionId)
