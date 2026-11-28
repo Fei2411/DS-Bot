@@ -7,6 +7,7 @@ import { apply } from '../index.js'
 import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
+import { FEED_ROUTE } from '../src/host/feed.js'
 import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
 import { COMPUTER_ONLY_ENDPOINTS, COMPUTER_ONLY_PREFIXES, TEAM_COMPUTER_PREFIX_EXCEPTIONS, TEAM_ENDPOINTS, isClassifiedEndpoint, isComputerOnlyEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
 
@@ -28,7 +29,11 @@ function open(home) {
   const ctx = fakeContext()
   ctx.workspaceRegistry = { get: () => undefined, list: () => [] }
   const register = ctx.connection.fetch.register
-  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  ctx.connection.fetch.register = (route) => {
+    if (route.path === FEED_ROUTE) ctx.feedRoute = route
+    else ctx.route = route
+    return register(route)
+  }
   apply(ctx, { home, github: false })
   const call = async (endpoint, payload) => (await (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json())
   return { ctx, call }
@@ -113,9 +118,18 @@ test('a browser pairs with its own code and is listed by authenticated kind', as
   await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
   const paired = await desk.call('phone-pair', {})
   const offer = parsePairingUri(paired.value.pairing.browserUri)
+  const before = (await desk.call('state', {})).value
+  assert.ok(before.phone.pairing)
+  const feed = await desk.ctx.feedRoute.fetch(new Request('http://localhost/api/bot/feed'))
+  const reader = feed.body.getReader()
+  t.after(() => reader.cancel())
+  const decoder = new TextDecoder()
+  assert.match(decoder.decode((await reader.read()).value), /^event: hello\n/u)
+
   const link = phone(offer, { pairingCode: offer.code, name: 'iPhone' })
   await link.client.connect()
-  const listed = (await desk.call('state', {})).value.phone
+  assert.equal(decoder.decode((await reader.read()).value), 'event: live\ndata: {}\n\n')
+  const { phone: listed } = (await desk.call('state', { since: before.revision, live: before.liveKey })).value
   assert.equal(listed.pairing, null)
   assert.equal(listed.phones[0].kind, 'browser')
   assert.equal(listed.phones[0].name, 'iPhone')

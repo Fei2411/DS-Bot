@@ -347,6 +347,8 @@ var JA = {
   "Open in a browser": "ブラウザーで開く",
   "Web browser": "ウェブブラウザー",
   "Copy browser link": "ブラウザーのリンクをコピー",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "iPhone の DS Bot Native で読み取ってください。ブラウザーでペアリングする場合は、カメラで読み取ってください。",
+  "Show new QR code": "新しい QR コードを表示",
   "Clipboard is not available": "クリップボードを利用できません",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "サーバーは暗号化されたメッセージを中継します。ブラウザーでのアクセスでは、サーバーが提供するページも信頼します。",
   "The browser runs the page the Server sends. Only use a Server you trust.": "ブラウザーはサーバーから送信されたページを実行します。信頼できるサーバーのみを使用してください。",
@@ -3975,6 +3977,8 @@ var KO = {
   "Open in a browser": "브라우저에서 열기",
   "Web browser": "웹 브라우저",
   "Copy browser link": "브라우저 링크 복사",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "iPhone의 DS Bot Native로 스캔하세요. 브라우저에서 페어링하려면 카메라로 스캔하세요.",
+  "Show new QR code": "새 QR 코드 표시",
   "Clipboard is not available": "클립보드를 사용할 수 없습니다",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "서버는 암호화된 메시지를 전달합니다. 브라우저 접근은 서버가 제공하는 페이지도 신뢰합니다.",
   "The browser runs the page the Server sends. Only use a Server you trust.": "브라우저는 서버가 보낸 페이지를 실행합니다. 신뢰하는 서버만 사용하세요.",
@@ -7648,6 +7652,8 @@ var ES = {
   "Open in a browser": "Abrir en un navegador",
   "Web browser": "Navegador web",
   "Copy browser link": "Copiar enlace del navegador",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Escanea el código con DS Bot Native en el iPhone. Para enlazar en el navegador, escanéalo con la cámara.",
+  "Show new QR code": "Mostrar un nuevo código QR",
   "Clipboard is not available": "El portapapeles no está disponible",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "El servidor retransmite mensajes cifrados. El acceso desde el navegador también confía en la página que sirve.",
   "The browser runs the page the Server sends. Only use a Server you trust.": "El navegador ejecuta la página que envía el servidor. Usa solo un servidor de confianza.",
@@ -11321,6 +11327,8 @@ var FR = {
   "Open in a browser": "Ouvrir dans un navigateur",
   "Web browser": "Navigateur web",
   "Copy browser link": "Copier le lien du navigateur",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Scannez le code avec DS Bot Native sur iPhone. Pour l’appairer dans le navigateur, scannez-le avec l’appareil photo.",
+  "Show new QR code": "Afficher un nouveau code QR",
   "Clipboard is not available": "Le presse-papiers n’est pas disponible",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Le serveur transmet les messages chiffrés. L’accès par navigateur fait aussi confiance à la page qu’il fournit.",
   "The browser runs the page the Server sends. Only use a Server you trust.": "Le navigateur exécute la page envoyée par le serveur. Utilisez uniquement un serveur de confiance.",
@@ -14949,6 +14957,8 @@ var DE = {
   "Open in a browser": "Im Browser öffnen",
   "Web browser": "Webbrowser",
   "Copy browser link": "Browser-Link kopieren",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Scanne den Code mit DS Bot Native auf dem iPhone. Zum Koppeln im Browser scannst du mit der Kamera.",
+  "Show new QR code": "Neuen QR-Code anzeigen",
   "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Der Server leitet verschlüsselte Nachrichten weiter. Der Browserzugriff vertraut auch der von ihm bereitgestellten Seite.",
   "The browser runs the page the Server sends. Only use a Server you trust.": "Der Browser führt die vom Server gesendete Seite aus. Verwende nur einen Server, dem du vertraust.",
@@ -19448,6 +19458,8 @@ var ZH = {
   "Open in a browser": "在浏览器中打开",
   "Web browser": "网页浏览器",
   "Copy browser link": "复制浏览器链接",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "用 iPhone 上的 DS Bot Native 扫码配对。也可以用系统相机扫码，在浏览器中配对。",
+  "Show new QR code": "显示新二维码",
   "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
   "Turn on phone access first": "请先打开手机访问",
@@ -26244,6 +26256,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-error{padding:0 4px}
 .bt-phone-pair{display:flex;align-items:center;gap:20px;padding:16px}
 .bt-phone-qr{flex:none;width:184px;height:184px;border-radius:8px}
+.bt-phone-qr-browser{width:min(248px,100%);height:auto;aspect-ratio:1}
 .bt-mcp{display:flex;flex-direction:column;gap:20px}
 .bt-mcp .bt-input{flex:1;min-width:0}
 .bt-mcp-token{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px}
@@ -26255,6 +26268,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
 .bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
+@container(max-width:460px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 .bt-api{display:flex;flex-direction:column;gap:16px}
 .bt-api-bind{gap:10px;align-items:flex-end}
 .bt-api-bind-fields{display:flex;flex:1;gap:10px;min-width:0}
@@ -54978,7 +54992,7 @@ function serverHost(value) {
     return raw;
   }
 }
-function QrCode({ text }) {
+function QrCode({ text, browser }) {
   const qr = qrcode_default(0, "M");
   qr.addData(text);
   qr.make();
@@ -54990,7 +55004,7 @@ function QrCode({ text }) {
   }
   return (0, import_react55.createElement)(
     "svg",
-    { className: "bt-phone-qr", viewBox: `0 0 ${size} ${size}`, role: "img", "aria-label": t("Pairing QR code"), shapeRendering: "crispEdges" },
+    { className: browser ? "bt-phone-qr bt-phone-qr-browser" : "bt-phone-qr", viewBox: `0 0 ${size} ${size}`, role: "img", "aria-label": t("Pairing QR code"), shapeRendering: "crispEdges" },
     (0, import_react55.createElement)("rect", { width: size, height: size }),
     (0, import_react55.createElement)("path", { d: path2 })
   );
@@ -55008,7 +55022,9 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [busy, setBusy] = (0, import_react55.useState)(false);
   const [error, setError] = (0, import_react55.useState)(null);
   const [copied, setCopied] = (0, import_react55.useState)(false);
+  const [pairMode, setPairMode] = (0, import_react55.useState)("android");
   const copyTimer = (0, import_react55.useRef)(null);
+  const qrPanel = (0, import_react55.useRef)(null);
   const prevState = (0, import_react55.useRef)({ on: phone.on, status: phone.status, error: phone.error });
   const [, tick] = (0, import_react55.useState)(0);
   (0, import_react55.useEffect)(() => {
@@ -55018,10 +55034,19 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   (0, import_react55.useEffect)(() => {
     setCopied(false);
     clearTimeout(copyTimer.current);
-    if (!phone.pairing) return void 0;
+    const remaining = (phone.pairing?.expiresAt ?? 0) - Date.now();
+    if (remaining <= 0) return void 0;
     const timer2 = setInterval(() => tick((count) => count + 1), 15e3);
-    return () => clearInterval(timer2);
+    const expiryTimer = setTimeout(() => {
+      clearInterval(timer2);
+      tick((count) => count + 1);
+    }, remaining);
+    return () => {
+      clearInterval(timer2);
+      clearTimeout(expiryTimer);
+    };
   }, [phone.pairing]);
+  const pairing = phone.pairing?.expiresAt > Date.now() ? phone.pairing : null;
   const run2 = (task) => {
     setBusy(true);
     setError(null);
@@ -55034,7 +55059,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     const prev = prevState.current;
     prevState.current = { on: phone.on, status: phone.status, error: phone.error };
     if (!wantPair || !wantPairRef.current) return;
-    if (phone.pairing) {
+    if (pairing) {
       wantPairRef.current = false;
       setWantPair(false);
       return;
@@ -55052,7 +55077,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       setWantPair(false);
       void run2(actions.phonePair());
     }
-  }, [wantPair, phone.on, phone.status, phone.pairing, phone.error]);
+  }, [wantPair, phone.on, phone.status, pairing, phone.error]);
   const saveServer = () => {
     if (busy || server.trim() === phone.server) return;
     void run2(actions.phoneSet({ server })).then((ok) => {
@@ -55060,7 +55085,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     });
   };
   const startPair = () => {
-    if (busy) return;
+    if (busy || wantPairRef.current) return;
     if (phone.on && phone.status === "online") {
       void run2(actions.phonePair());
       return;
@@ -55090,12 +55115,21 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   };
   const online = phone.on && phone.status === "online";
   let browserUrl = null;
-  if (phone.pairing?.browserUri) {
+  if (pairing?.browserUri) {
     try {
-      browserUrl = browserPairingUrl(phone.server, phone.pairing.browserUri);
+      browserUrl = browserPairingUrl(phone.server, pairing.browserUri);
     } catch {
     }
   }
+  const browserQr = pairMode === "browser";
+  const qrText = browserQr ? browserUrl : pairing?.uri;
+  (0, import_react55.useEffect)(() => {
+    if (qrText) qrPanel.current?.scrollIntoView({ block: "nearest" });
+  }, [qrText]);
+  const selectPairMode = (mode) => {
+    setPairMode(mode);
+    if (pairing === null) startPair();
+  };
   return (0, import_react55.createElement)(
     "div",
     { className: "bt-phone" },
@@ -55136,23 +55170,38 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     (0, import_react55.createElement)(
       Section2,
       { title: t("Pair a phone"), tour: "phone-pair" },
-      phone.pairing ? (0, import_react55.createElement)(
+      (0, import_react55.createElement)(
         "div",
-        { className: "bt-phone-pair" },
-        (0, import_react55.createElement)(QrCode, { text: phone.pairing.uri }),
+        { className: "bt-set-row" },
+        (0, import_react55.createElement)(
+          Segmented,
+          { label: t("Show QR code"), value: pairMode },
+          (0, import_react55.createElement)("button", { type: "button", "aria-pressed": !browserQr, onClick: () => selectPairMode("android") }, "Android"),
+          (0, import_react55.createElement)("button", { type: "button", "aria-pressed": browserQr, onClick: () => selectPairMode("browser") }, "iOS / Web")
+        )
+      ),
+      qrText ? (0, import_react55.createElement)(
+        "div",
+        { ref: qrPanel, className: "bt-phone-pair" },
+        (0, import_react55.createElement)(QrCode, { text: qrText, browser: browserQr }),
         (0, import_react55.createElement)(
           "div",
           { className: "bt-phone-pair-copy" },
-          (0, import_react55.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
-          (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
-          browserUrl !== null ? (0, import_react55.createElement)(
+          (0, import_react55.createElement)("span", null, browserQr ? t("Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.") : t("Scan this code with the DS Bot app on your phone.")),
+          (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(pairing.expiresAt) })),
+          browserQr ? (0, import_react55.createElement)(
             "div",
             { className: "bt-phone-pair-actions" },
             (0, import_react55.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
             (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
           ) : null,
-          browserUrl !== null ? (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
-          (0, import_react55.createElement)("div", null, (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
+          browserQr ? (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
+          (0, import_react55.createElement)(
+            "div",
+            { className: "bt-phone-pair-actions" },
+            browserQr ? (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || !online, onClick: startPair }, t("Show new QR code")) : null,
+            (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel"))
+          )
         )
       ) : (0, import_react55.createElement)(
         Row4,

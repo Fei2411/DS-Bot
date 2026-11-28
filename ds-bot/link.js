@@ -7664,16 +7664,18 @@ var DeviceRegistry = class {
   }
   /** The check after the handshake: a paired device, or a new one that holds the open code. */
   authorize(deviceId, identityKey, hello) {
-    if (this.matches(deviceId, identityKey)) return true;
-    if (hello.pairingCode === void 0 || !this.pairingOpen()) return false;
+    const paired = this.matches(deviceId, identityKey);
+    if (hello.pairingCode === void 0 || !this.pairingOpen()) return paired;
     const pairing = this.pairing;
     const kind = sameText(hello.pairingCode, pairing.browserCode) ? "browser" : "phone";
     if (kind === "phone" && !sameText(hello.pairingCode, pairing.code)) {
+      if (paired) return true;
       pairing.misses += 1;
       if (pairing.misses >= 5) this.pairing = void 0;
       return false;
     }
     this.pairing = void 0;
+    if (paired) return true;
     this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? "", pairedAt: this.now(), kind });
     this.onChange?.(this.list());
     return true;

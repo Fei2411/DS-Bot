@@ -436,7 +436,7 @@ export function install(rt) {
     const want = data.on === true && serve !== null && blocked === undefined
     if (link !== null && (!want || linkServer !== serverUrl())) void stop()
     if (!want || link !== null) return
-    link = new HostLink({
+    const running = new HostLink({
       url: serverUrl(),
       identity: identity(),
       accessToken: data.accessToken,
@@ -447,10 +447,14 @@ export function install(rt) {
       // Feed events ride the link while a phone is connected, and also when an
       // offline phone has an E2E push subscription registered.
       onReadyCount: count => {
+        if (link !== running) return
         readyCount = count
         reconcileFeed()
+        // Pairing changes without a team revision.
+        rt.publishLocalFeed?.('live', {})
       },
     })
+    link = running
     linkServer = serverUrl()
     link.start()
     reconcileFeed()

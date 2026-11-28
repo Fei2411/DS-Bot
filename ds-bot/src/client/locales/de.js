@@ -217,6 +217,8 @@ export const DE = {
   "Open in a browser": "Im Browser öffnen",
   "Web browser": "Webbrowser",
   "Copy browser link": "Browser-Link kopieren",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Scanne den Code mit DS Bot Native auf dem iPhone. Zum Koppeln im Browser scannst du mit der Kamera.",
+  "Show new QR code": "Neuen QR-Code anzeigen",
   "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Der Server leitet verschlüsselte Nachrichten weiter. Der Browserzugriff vertraut auch der von ihm bereitgestellten Seite.",
   "The browser runs the page the Server sends. Only use a Server you trust.": "Der Browser führt die vom Server gesendete Seite aus. Verwende nur einen Server, dem du vertraust.",

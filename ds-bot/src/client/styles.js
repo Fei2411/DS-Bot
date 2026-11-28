@@ -1036,6 +1036,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-error{padding:0 4px}
 .bt-phone-pair{display:flex;align-items:center;gap:20px;padding:16px}
 .bt-phone-qr{flex:none;width:184px;height:184px;border-radius:8px}
+.bt-phone-qr-browser{width:min(248px,100%);height:auto;aspect-ratio:1}
 .bt-mcp{display:flex;flex-direction:column;gap:20px}
 .bt-mcp .bt-input{flex:1;min-width:0}
 .bt-mcp-token{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 16px}
@@ -1047,6 +1048,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
 .bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
+@container(max-width:460px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 .bt-api{display:flex;flex-direction:column;gap:16px}
 .bt-api-bind{gap:10px;align-items:flex-end}
 .bt-api-bind-fields{display:flex;flex:1;gap:10px;min-width:0}

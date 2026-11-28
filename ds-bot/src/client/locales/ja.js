@@ -217,6 +217,8 @@ export const JA = {
   "Open in a browser": "ブラウザーで開く",
   "Web browser": "ウェブブラウザー",
   "Copy browser link": "ブラウザーのリンクをコピー",
+  "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "iPhone の DS Bot Native で読み取ってください。ブラウザーでペアリングする場合は、カメラで読み取ってください。",
+  "Show new QR code": "新しい QR コードを表示",
   "Clipboard is not available": "クリップボードを利用できません",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "サーバーは暗号化されたメッセージを中継します。ブラウザーでのアクセスでは、サーバーが提供するページも信頼します。",
   "The browser runs the page the Server sends. Only use a Server you trust.": "ブラウザーはサーバーから送信されたページを実行します。信頼できるサーバーのみを使用してください。",

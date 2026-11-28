@@ -928,22 +928,64 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     failTree = drawFail()
     assert.ok(findAll(failTree, n => n.type === 'button' && textOf(n) === 'Turn on & pair').length === 1, 'failed phoneSet must clear wantPair')
 
-    // Browser pairing retains relay trust warning.
+    // iOS / Web starts pairing directly and stays selected across consumed or expired offers.
     harness.unmount()
     phone = {
       on: true,
       status: 'online',
       server: 'wss://relay.example/v1/link',
       phones: [{ id: 'p1', name: 'Pixel', connected: true, pairedAt: Date.now() }],
-      pairing: { uri: 'dsbot://pair?t=1', browserUri: '#pair=1', expiresAt: Date.now() + 60_000 },
+      pairing: null,
     }
-    const pairTree = draw()
-    assert.match(textOf(pairTree), /Phone online/)
-    assert.match(textOf(pairTree), /Only use a Server you trust/)
-    const download = findAll(pairTree, n => n.type === 'a' && textOf(n) === 'Download')
+    const qrPath = tree => findAll(tree, n => n.props?.['aria-label'] === 'Pairing QR code').flatMap(qr => (
+      findAll(qr, n => n.type === 'path').map(path => path.props.d)
+    ))
+    const qrButton = (tree, label) => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+    calls.length = 0
+    const idleTree = draw()
+    assert.match(textOf(idleTree), /Phone online/)
+    assert.equal(qrPath(idleTree).length, 0)
+    assert.equal(qrButton(idleTree, 'Android').props['aria-pressed'], true)
+    qrButton(idleTree, 'iOS / Web').props.onClick()
+    assert.deepEqual(calls, [['pair']])
+    await new Promise(resolve => setImmediate(resolve))
+
+    const offer = {
+      uri: 'dsbot://pair?code=android',
+      browserUri: 'dsbot://pair?code=browser&device=browser',
+      expiresAt: Date.now() + 60_000,
+    }
+    phone = { ...phone, pairing: offer }
+    const iosTree = draw()
+    assert.equal(qrButton(iosTree, 'iOS / Web').props['aria-pressed'], true)
+    assert.equal(qrPath(iosTree).length, 1)
+    assert.match(textOf(iosTree), /Only use a Server you trust/)
+    assert.ok(qrButton(iosTree, 'Copy browser link'))
+    const browserLink = findAll(iosTree, n => n.type === 'a' && textOf(n) === 'Open in a browser')[0]
+    assert.equal(browserLink.props.href, 'https://relay.example/web/#pair=dsbot%3A%2F%2Fpair%3Fcode%3Dbrowser%26device%3Dbrowser')
+    qrButton(iosTree, 'Android').props.onClick()
+    const androidTree = draw()
+    assert.equal(qrPath(androidTree).length, 1)
+    assert.notDeepEqual(qrPath(androidTree), qrPath(iosTree))
+    const download = findAll(androidTree, n => n.type === 'a' && textOf(n) === 'Download')
     assert.equal(download.length, 1)
     assert.equal(download[0].props.href, 'https://github.com/Fei-Craft/DS-Bot/releases/latest')
-    assert.equal(findAll(pairTree, n => n.props?.['aria-label'] === 'Pairing QR code').length, 1)
+    qrButton(androidTree, 'iOS / Web').props.onClick()
+    const activeTree = draw()
+    assert.deepEqual(qrPath(activeTree), qrPath(iosTree))
+    assert.deepEqual(calls, [['pair']])
+    qrButton(activeTree, 'Show new QR code').props.onClick()
+    await new Promise(resolve => setImmediate(resolve))
+    for (const unavailable of [null, { ...offer, expiresAt: Date.now() - 1 }]) {
+      phone = { ...phone, pairing: unavailable }
+      const nextTree = draw()
+      assert.equal(qrButton(nextTree, 'iOS / Web').props['aria-pressed'], true)
+      assert.equal(qrPath(nextTree).length, 0)
+      assert.equal(qrButton(nextTree, 'Copy browser link'), undefined)
+      qrButton(nextTree, 'Show QR code').props.onClick()
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.deepEqual(calls, [['pair'], ['pair'], ['pair'], ['pair']])
     harness.unmount()
   })
 })

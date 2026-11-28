@@ -1030,6 +1030,8 @@ const ZH = {
   'Open in a browser': '在浏览器中打开',
   'Web browser': '网页浏览器',
   'Copy browser link': '复制浏览器链接',
+  'Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.': '用 iPhone 上的 DS Bot Native 扫码配对。也可以用系统相机扫码，在浏览器中配对。',
+  'Show new QR code': '显示新二维码',
   'Clipboard is not available': '剪贴板不可用',
   'Your phone scans it once. After that it connects by itself.': '手机扫一次就行，以后会自动连接。',
   'Turn on phone access first': '请先打开手机访问',
