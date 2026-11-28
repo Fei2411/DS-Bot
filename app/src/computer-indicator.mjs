@@ -7,6 +7,7 @@
  * @param {{
  *   BrowserWindow: new (options: object) => object,
  *   screen: { getPrimaryDisplay: () => { workAreaSize: { width: number, height: number }, workArea: { x: number, y: number } } },
+ *   platform?: NodeJS.Platform,
  *   html: (entries: object[]) => string,
  *   ipcMain?: { on: (channel: string, listener: (event: { sender: object }, ...args: any[]) => void) => void },
  *   preload?: string,
@@ -15,7 +16,7 @@
  * }} options injected Electron surface and a renderer for the bar
  * @returns {{ update: (entries: object[]) => void, dispose: () => void }}
  */
-export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, preload, onAction = () => {}, log = console }) {
+export function createComputerIndicator({ BrowserWindow, screen, platform = process.platform, html, ipcMain, preload, onAction = () => {}, log = console }) {
   let win = null
   // One listener for the indicator's whole life: a listener per open() would
   // multiply each click on reopen. The check pins it to the current window.
@@ -55,11 +56,13 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
       skipTaskbar: true,
       hasShadow: false,
       show: false,
+      ...(platform === 'darwin' ? { type: 'panel' } : {}),
       webPreferences: { sandbox: true, preload },
     })
     // The bar must never appear inside a screenshot the provider hands a Bot.
     try { win.setContentProtection(true) } catch (error) { log.warn(`DS Bot: the indicator could not hide from screenshots: ${error instanceof Error ? error.message : String(error)}`) }
-    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch (error) { log.warn(`DS Bot: the indicator could not join every workspace: ${error instanceof Error ? error.message : String(error)}`) }
+    // A macOS panel can join fullscreen spaces while the app keeps its Dock icon.
+    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true }) } catch (error) { log.warn(`DS Bot: the indicator could not join every workspace: ${error instanceof Error ? error.message : String(error)}`) }
     win.once('ready-to-show', () => { win?.showInactive() })
     win.on('closed', () => { win = null; lastSignature = null })
     const page = html(entries, labels)
