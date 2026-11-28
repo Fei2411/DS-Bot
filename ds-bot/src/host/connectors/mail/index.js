@@ -879,6 +879,9 @@ function gmailVerifyError(error) {
   if (error?.name === 'TimeoutError' || GMAIL_TIMEOUT_CODES.has(error?.code) || GMAIL_TIMEOUT_CODES.has(error?.originalCode)) {
     return diagnostic('timeout', 'Gmail verification timed out. Check your network or proxy can reach Gmail and try again.')
   }
+  if (error?.responseCode === 534 && typeof error.response === 'string' && /^534[ -]5\.7\.14\b/.test(error.response)) {
+    return diagnostic('auth', 'Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.')
+  }
   if (error?.authenticationFailed === true || error?.code === 'EAUTH' || error?.responseCode === 534 || error?.responseCode === 535) {
     return diagnostic('auth', 'Gmail refused the sign-in. Check your Gmail app password and try again.')
   }
