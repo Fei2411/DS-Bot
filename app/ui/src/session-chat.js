@@ -920,7 +920,8 @@ function turnFactsSignature(facts) {
   if (!facts?.turns) return ''
   const parts = [`open:${facts.openTurn ?? ''}`]
   for (const entry of facts.turns.values()) {
-    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}`)
+    const replyLen = facts.closingReplies?.get(entry.turn)?.length ?? 0
+    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}:${replyLen}`)
   }
   return parts.join('|')
 }
@@ -1062,6 +1063,7 @@ function renderTranscriptRows({
     })
 
     const showNew = firstUnreadKey !== null && row.key === firstUnreadKey
+    if (!pause && !showNew) return [node]
     const out = []
     if (showNew) out.push(h(NewDivider, { key: `${row.key}:new` }))
     if (pause) out.push(h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))

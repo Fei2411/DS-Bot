@@ -1149,7 +1149,11 @@ export const KO = {
   '{used} of {total} tokens of context in use': '컨텍스트 {total} 토큰 중 {used} 사용 중',
 
   // Transcript
+  Quote: '인용',
   Annotate: '주석 달기',
+  'Sign out of your DeepSeek account?': 'DeepSeek 계정에서 로그아웃할까요?',
+  'Some Bots are still working. Signing out will stop them.': '일부 Bot이 아직 작업 중입니다. 로그아웃하면 중지됩니다.',
+  'Signing out may stop running work.': '로그아웃하면 진행 중인 작업이 중지될 수 있습니다.',
   'Annotate quote': '인용 주석',
   Annotation: '주석',
   'Add an annotation…': '주석을 입력하세요…',

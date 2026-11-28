@@ -1149,7 +1149,11 @@ export const ES = {
   '{used} of {total} tokens of context in use': '{used} de {total} tokens de contexto en uso',
 
   // Transcript
+  Quote: 'Citar',
   Annotate: 'Anotar',
+  'Sign out of your DeepSeek account?': '¿Cerrar sesión en tu cuenta de DeepSeek?',
+  'Some Bots are still working. Signing out will stop them.': 'Algunos Bots siguen trabajando. Cerrar sesión los detendrá.',
+  'Signing out may stop running work.': 'Cerrar sesión puede detener el trabajo en curso.',
   'Annotate quote': 'Anotar cita',
   Annotation: 'Anotación',
   'Add an annotation…': 'Añade una anotación…',

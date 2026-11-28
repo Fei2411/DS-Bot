@@ -31,12 +31,17 @@ import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/s
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
 import { isBlockedEngineBundle } from '../../../ds-bot/src/shared/engine-bundles.js'
+import { getDesktopAccountState, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
 import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { writeClipboard } from './primitives.js'
 import { reloadExternalUiPlugins } from './ui-plugin-loader.js'
 
 // Module-level stale-while-revalidate caches so reopening Engine settings tabs never flashes "Loading…".
 let accountCache = null
+subscribeDesktopAccountState((reply, meta) => {
+  if (meta?.source === 'settings') return
+  accountCache = reply
+})
 let pluginsCache = null
 let settingsCache = null
 let presetsCache = null
@@ -542,8 +547,8 @@ function formatWallets(wallets) {
 }
 
 export function AccountSettingsPage({ readOnly = false }) {
-  const [data, setData] = useState(() => accountCache)
-  const [loading, setLoading] = useState(() => !accountCache)
+  const [data, setData] = useState(() => accountCache ?? getDesktopAccountState())
+  const [loading, setLoading] = useState(() => !(accountCache ?? getDesktopAccountState()))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const mounted = useRef(true)
@@ -561,6 +566,7 @@ export function AccountSettingsPage({ readOnly = false }) {
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
       accountCache = next
+      publishDesktopAccountState(next, { source: 'settings' })
       if (mounted.current) setData(next)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
@@ -570,6 +576,18 @@ export function AccountSettingsPage({ readOnly = false }) {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => subscribeDesktopAccountState((reply, meta) => {
+    if (meta?.source === 'settings') return
+    accountCache = reply
+    if (mounted.current) {
+      setData(reply)
+      setLoading(false)
+    }
+    if (reply?.view?.status === 'credential-stored' && !reply.view?.profile && !reply.view?.balance) {
+      void load()
+    }
+  }), [load])
 
   const attemptPhase = data?.view?.attempt?.phase
   const signingIn = attemptPhase === 'initializing' || attemptPhase === 'waiting-browser' || attemptPhase === 'exchanging' || attemptPhase === 'committing'
