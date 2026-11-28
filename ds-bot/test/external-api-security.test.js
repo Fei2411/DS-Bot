@@ -18,13 +18,15 @@ function startHost(home, state) {
     resolveAgent: async sid => ({ agent: { id: sid, session: { id: sid, header: { cwd: home }, snapshotEvents: () => [] }, followup() {}, cancel() {} } }),
     page: async () => ({ records: [], hasMore: false }),
     prompt: async ({ requestId, sessionId, content }) => {
-      const ev = { type: 'user/message', seq: 1, time: Date.now(), data: { content, source: { kind: 'user', rpcId: requestId } } }
-      for (const listener of ctx.listeners.get('session/event') ?? []) listener({ id: sessionId }, ev)
+      const session = { id: sessionId }
+      for (const listener of ctx.listeners.get('session/event') ?? []) {
+        listener(session, { type: 'turn/start', seq: 1, time: Date.now(), data: { turn: 1 } })
+        listener(session, { type: 'user/message', seq: 2, time: Date.now(), data: { content, source: { kind: 'user', rpcId: requestId } } })
+      }
       setTimeout(() => {
         for (const listener of ctx.listeners.get('session/event') ?? []) {
-          listener({ id: sessionId }, { type: 'turn/start', seq: 2, time: Date.now(), data: { turn: 1 } })
-          listener({ id: sessionId }, { type: 'assistant/message', seq: 3, time: Date.now(), data: { message: { content: [{ type: 'text', text: 'SENSITIVE_REPLY_BODY' }] } } })
-          listener({ id: sessionId }, { type: 'turn/end', seq: 4, time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+          listener(session, { type: 'assistant/message', seq: 3, time: Date.now(), data: { message: { content: [{ type: 'text', text: 'SENSITIVE_REPLY_BODY' }] } } })
+          listener(session, { type: 'turn/end', seq: 4, time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
         }
       }, 10)
     },
@@ -336,7 +338,7 @@ test('API turns do not leak to IM outbound and tag apiVia instead of imVia', asy
   assert.equal(res.status, 200)
   // apiVia records the token name for chat badge rendering; imVia stays empty.
   assert.deepEqual(rt.imViaView(), {})
-  assert.equal(rt.apiViaView().b1?.[1], 'Claude Code')
+  assert.equal(rt.apiViaView().b1?.[2], 'Claude Code')
 })
 
 test('API group runs queue behind existing IM work without clearing its origin', async t => {

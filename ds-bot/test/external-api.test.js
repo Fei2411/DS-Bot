@@ -52,15 +52,15 @@ function createHarness(initialState, { onPrompt } = {}) {
         followups: [],
         followup(msg) {
           this.followups.push(msg)
-          emitSessionEvent(sid, {
-            type: 'user/message',
-            seq: ++seqCounter,
-            time: Date.now(),
-            data: { content: msg.content, source: msg.source },
-          })
           // Automatically complete a follow-up turn unless customized
           setTimeout(() => {
             emitSessionEvent(sid, { type: 'turn/start', seq: ++seqCounter, time: Date.now(), data: { turn: 2 } })
+            emitSessionEvent(sid, {
+              type: 'user/message',
+              seq: ++seqCounter,
+              time: Date.now(),
+              data: { content: msg.content, source: msg.source },
+            })
             emitSessionEvent(sid, {
               type: 'assistant/message',
               seq: ++seqCounter,
@@ -90,10 +90,14 @@ function createHarness(initialState, { onPrompt } = {}) {
       listener(s, event)
     }
   }
-  const emitStream = (sid, text) => {
+  const emitStream = (sid, ...deltas) => {
     const agent = agents.get(sid) ?? (ensureSession(sid), agents.get(sid))
+    const attemptId = ++seqCounter
+    const turn = agent.session.events.findLast(event => event.type === 'turn/start').data.turn
     for (const listener of ctx.listeners.get('agent/assistant-stream') ?? []) {
-      listener({ agent, frame: { type: 'chunk', chunk: { type: 'text-delta', text } } })
+      listener({ agent, frame: { type: 'start', attemptId, turn } })
+      for (const text of deltas) listener({ agent, frame: { type: 'chunk', attemptId, chunk: { type: 'text-delta', text } } })
+      listener({ agent, frame: { type: 'end', attemptId } })
     }
   }
   const triggerApproval = (request) => {
@@ -133,6 +137,7 @@ function createHarness(initialState, { onPrompt } = {}) {
     prompt: async ({ requestId, sessionId, content }) => {
       prompted.push({ requestId, sessionId, content })
       const text = (content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
+      emitSessionEvent(sessionId, { type: 'turn/start', seq: ++seqCounter, time: Date.now(), data: { turn: 1 } })
       emitSessionEvent(sessionId, {
         type: 'user/message',
         seq: ++seqCounter,
@@ -145,9 +150,7 @@ function createHarness(initialState, { onPrompt } = {}) {
       }
       // Default realistic turn completion with streaming + usage
       setTimeout(() => {
-        emitSessionEvent(sessionId, { type: 'turn/start', seq: ++seqCounter, time: Date.now(), data: { turn: 1 } })
-        emitStream(sessionId, 'Hello ')
-        emitStream(sessionId, 'world!')
+        emitStream(sessionId, 'Hello ', 'world!')
         emitSessionEvent(sessionId, { type: 'tool/call', seq: ++seqCounter, time: Date.now(), data: { callId: 'c1', name: 'read' } })
         emitSessionEvent(sessionId, { type: 'tool/result', seq: ++seqCounter, time: Date.now(), data: { message: { toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] } } })
         emitSessionEvent(sessionId, {
@@ -503,7 +506,6 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   let approvalPromise
   const h = createHarness(undefined, {
     async onPrompt({ sessionId, text, emitSessionEvent, triggerApproval, rt, agents, nextSeq }) {
-      emitSessionEvent(sessionId, { type: 'turn/start', seq: nextSeq(), time: Date.now(), data: { turn: 1 } })
       if (text === 'need-approval' || text === 'privacy-outbound' || text === 'privacy-reworded') {
         approvalPromise = triggerApproval({
           agent: agents.get(sessionId),
@@ -599,6 +601,14 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   assert.equal(runQ.status, 'waiting_human')
   assert.equal(runQ.pendingAction.kind, 'question')
 
+  const sid = runQ.pendingAction.sessionId
+  h.emitSessionEvent(sid, { type: 'turn/start', data: { turn: 2 } })
+  h.emitSessionEvent(sid, { type: 'tool/call', data: { turn: 2, callId: 'unrelated', name: 'read' } })
+  h.emitSessionEvent(sid, { type: 'turn/end', data: { turn: 2, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'Connection error' } } } })
+  const stillWaiting = await fetch(`${view.baseUrl}/v1/runs/${runQ.runId}`, { headers: { Authorization: `Bearer ${msgOnlyToken}` } }).then(r => r.json())
+  assert.equal(stillWaiting.status, 'waiting_human')
+  assert.equal(stillWaiting.output.text, '')
+
   assert.equal((await respond(runQ, { answer: 'Yes' })).status, 400)
   const question = h.rt.state.questions[runQ.pendingAction.sessionId]
   h.rt.state.questions[runQ.pendingAction.sessionId] = { ...question, id: 'replacement' }
@@ -657,6 +667,18 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
     body: JSON.stringify({ actionId: runS.pendingAction.actionId, answer: 'sk-123' }),
   })
   assert.equal(refuseSecret.status, 403)
+  const secretSid = runS.pendingAction.sessionId
+  const secretAgent = h.agents.get(secretSid)
+  secretAgent.followup({ content: [], source: { role: 'secret', idempotencyKey: 'secret:other-card' } })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const stillWaitingForSecret = await fetch(`${view.baseUrl}/v1/runs/${runS.runId}`, { headers: { Authorization: `Bearer ${approveToken}` } }).then(r => r.json())
+  assert.equal(stillWaitingForSecret.status, 'waiting_human')
+  delete h.rt.state.secretRequests[secretSid]
+  secretAgent.followup({ content: [], source: { role: 'secret', idempotencyKey: `secret:${runS.pendingAction.actionId}` } })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const doneS = await fetch(`${view.baseUrl}/v1/runs/${runS.runId}`, { headers: { Authorization: `Bearer ${approveToken}` } }).then(r => r.json())
+  assert.equal(doneS.status, 'completed')
+  assert.equal(doneS.output.text, 'Continued after human input.')
 })
 
 test('group chat multi-member batch settlement collects ordered replies', async (t) => {
@@ -724,7 +746,6 @@ test('run cancel, deliverables file download authorization, and global SSE strea
     revision: 1,
   }, {
     async onPrompt({ sessionId, text, emitSessionEvent, nextSeq }) {
-      emitSessionEvent(sessionId, { type: 'turn/start', seq: nextSeq(), time: Date.now(), data: { turn: 1 } })
       if (text === 'slow-cancel') {
         // Stay running until cancelled
         return

@@ -5,11 +5,12 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import { createUserMessage, LlmAdapter, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import * as llmRetry from '@deepseek-ai/dsh-llm-retry'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { createRunCoordinator } from '../src/host/api/runs.js'
 import { install as installModels } from '../src/host/models.js'
 
 const fastBackoff = { initialDelayMs: 1, maxDelayMs: 2, jitterRatio: 0 }
 
-async function run(t, { code = 'TRANSPORT', failures = 2, source = 'schedule', stop = false } = {}) {
+async function run(t, { code = 'TRANSPORT', failures = 2, source = 'schedule', stop = false, onRetry } = {}) {
   const ctx = new Context()
   t.after(() => ctx.fiber.dispose())
   await mountAgentLoopTestDependencies(ctx)
@@ -22,12 +23,19 @@ async function run(t, { code = 'TRANSPORT', failures = 2, source = 'schedule', s
     }
     async *stream() {
       if (++attempts <= failures) {
+        if (attempts === 2 && onRetry !== undefined) {
+          await onRetry(startApiRun)
+          yield { type: 'block-start', index: 0, blockType: 'text' }
+          yield { type: 'text-delta', index: 0, text: 'Scheduled work completed' }
+          yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Scheduled work completed' } }
+        }
         yield { type: 'finish', reason: { kind: 'error', failure: { code, message: 'Mock provider error' } } }
         return
       }
+      const answer = onRetry !== undefined && attempts > failures + 1 ? 'API answer' : 'Scheduled work completed'
       yield { type: 'block-start', index: 0, blockType: 'text' }
-      yield { type: 'text-delta', index: 0, text: 'Scheduled work completed' }
-      yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Scheduled work completed' } }
+      yield { type: 'text-delta', index: 0, text: answer }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: answer } }
       yield { type: 'finish', reason: { kind: 'stop' } }
     }
   }
@@ -40,6 +48,23 @@ async function run(t, { code = 'TRANSPORT', failures = 2, source = 'schedule', s
   })
   const harness = await mountAgentLoopTestHarness(ctx)
   const agent = await harness.create(sessionId, { provider: 'mock', model: 'mock' })
+  let startApiRun
+  if (onRetry !== undefined) {
+    const bot = { id: sessionId, name: 'Bot' }
+    const runs = createRunCoordinator({
+      ctx, state: {}, chatOf: () => sessionId, botOf: () => bot, roomOf: () => undefined,
+      groupOwners: new Map(), live: new Map(), own: (value, key) => value?.[key],
+      sendUser: async ({ content, requestId }) => agent.followup(createUserMessage({ content, source: { kind: 'user', rpcId: requestId } })),
+    }, { acquireRunSlot: () => ({ ok: true }) })
+    runs.attachListeners()
+    t.after(() => runs.dispose())
+    startApiRun = async () => {
+      const { run: queued } = await runs.startBotRun({ bot, principal: { keyId: 'test', name: 'Test' }, text: 'API prompt' })
+      const events = []
+      runs.subscribeRun(queued.runId, event => events.push(event))
+      return { queued, events }
+    }
+  }
   if (stop) {
     ctx.on('agent/request-error', (_, next) => {
       if (attempts === 2) setImmediate(() => agent.cancel({ kind: 'user' }))
@@ -91,4 +116,13 @@ test('stopping a scheduled turn during backoff cancels the retry', async t => {
   const { attempts, ends } = await run(t, { stop: true })
   assert.deepEqual(ends, ['aborted'])
   assert.equal(attempts, 2)
+})
+
+test('an API run queued during a scheduled retry only receives its own turn', async t => {
+  let api
+  const { ends } = await run(t, { onRetry: async start => { api = await start() } })
+  assert.equal(api.queued.status, 'queued')
+  assert.deepEqual(ends, ['completed', 'completed'])
+  assert.deepEqual(api.events.filter(event => event.event === 'delta').map(event => event.data.text), ['API answer'])
+  assert.deepEqual(api.events.filter(event => event.event === 'run.completed').map(event => event.data.output.text), ['API answer'])
 })
