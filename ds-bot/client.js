@@ -52633,6 +52633,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
 
 // src/client/reload-action.js
 var hostListeners = /* @__PURE__ */ new Set();
+var reloadGuards = /* @__PURE__ */ new Set();
 function registerReloadConfirmHost(listener) {
   if (typeof listener !== "function") return () => {
   };
@@ -52640,6 +52641,25 @@ function registerReloadConfirmHost(listener) {
   return () => {
     hostListeners.delete(listener);
   };
+}
+function registerReloadGuard(check) {
+  if (typeof check !== "function") return () => {
+  };
+  reloadGuards.add(check);
+  return () => {
+    reloadGuards.delete(check);
+  };
+}
+function hasUnsentReloadRisk() {
+  if (hasKeptDraftFiles()) return true;
+  for (const check of Array.from(reloadGuards)) {
+    try {
+      if (check()) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 function performReload(reloadFn) {
   try {
@@ -52650,7 +52670,7 @@ function performReload(reloadFn) {
   else globalThis.location?.reload?.();
 }
 function requestWindowReload({ reload, onBlocked } = {}) {
-  if (!hasKeptDraftFiles()) {
+  if (!hasUnsentReloadRisk()) {
     performReload(reload);
     return "reloaded";
   }
