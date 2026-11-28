@@ -19,6 +19,8 @@ export const imapOptions = (account, deps = {}) => ({
 export async function connectImap(account, deps = {}) {
   const { ImapFlow } = deps.modules ?? await import('imapflow')
   const nodemailer = deps.modules?.nodemailer ?? await import('nodemailer')
+  const { signal } = deps
+  signal?.throwIfAborted()
   const imap = new ImapFlow(imapOptions(account, deps))
   let gone = false
   let smtp
@@ -62,15 +64,20 @@ export async function connectImap(account, deps = {}) {
     },
   })
   smtp.on('error', retire)
+  signal?.addEventListener('abort', retire, { once: true })
   try {
     await Promise.all([
       imap.connect().then(() => { if (gone) imap.close() }),
       smtp.verify().then(() => { if (gone) smtp.close() }),
     ])
+    signal?.throwIfAborted()
     if (gone) throw new Error('The mail connection closed during verification')
   } catch (error) {
     retire()
+    signal?.throwIfAborted()
     throw error
+  } finally {
+    signal?.removeEventListener('abort', retire)
   }
 
   const folders = async () => {

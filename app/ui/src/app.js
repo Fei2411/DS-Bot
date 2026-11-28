@@ -1,4 +1,4 @@
-import { Component, createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { maskOf } from '../../../ds-bot/src/client/characters.js'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
@@ -29,11 +29,72 @@ import { getAppLocale } from './locale.js'
 import { pluginRuntime, usePluginPage } from './plugin-runtime.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal, setLiveShortcutContext } from './shortcuts.js'
+import { SidebarFooterActions, SidebarMainPanel, SidebarSlotRows, useSidebarPanel } from './sidebar-slots.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
 export { ShellOverlayHost }
 import { createTeam } from './team.js'
 import { conversationTitleOf, useWindowTitle } from './window-title.js'
+
+const NARROW_MEDIA_QUERY = '(max-width: 768px)'
+
+export function readNarrowViewport(win = typeof window === 'undefined' ? null : window) {
+  if (!win) return false
+  if (typeof win.matchMedia === 'function') {
+    const mql = win.matchMedia(NARROW_MEDIA_QUERY)
+    if (typeof mql?.matches === 'boolean') return mql.matches
+  }
+  return typeof win.innerWidth === 'number' ? win.innerWidth <= 768 : false
+}
+
+// Subscribes ONLY to crossing the 768px narrow breakpoint via `matchMedia`, so continuous
+// window resizing within desktop or narrow ranges never re-renders `<App>`.
+export function useNarrowViewport(win = typeof window === 'undefined' ? null : window) {
+  const [isNarrow, setIsNarrow] = useState(() => readNarrowViewport(win))
+  useEffect(() => {
+    if (!win) return undefined
+    let current = readNarrowViewport(win)
+    setIsNarrow(prev => (prev === current ? prev : current))
+    if (typeof win.matchMedia === 'function') {
+      const mql = win.matchMedia(NARROW_MEDIA_QUERY)
+      if (mql) {
+        const onChange = (event) => {
+          const next = typeof event?.matches === 'boolean' ? event.matches : Boolean(mql.matches)
+          if (next === current) return
+          current = next
+          setIsNarrow(next)
+        }
+        if (typeof mql.addEventListener === 'function') {
+          mql.addEventListener('change', onChange)
+          return () => mql.removeEventListener('change', onChange)
+        }
+        if (typeof mql.addListener === 'function') {
+          mql.addListener(onChange)
+          return () => mql.removeListener(onChange)
+        }
+      }
+    }
+    const onResize = () => {
+      const next = typeof win.innerWidth === 'number' ? win.innerWidth <= 768 : false
+      if (next === current) return
+      current = next
+      setIsNarrow(next)
+    }
+    win.addEventListener?.('resize', onResize)
+    return () => win.removeEventListener?.('resize', onResize)
+  }, [win])
+  return isNarrow
+}
+
+function buildOwnFrameSnapshot({ isNarrow, sidebarWidth, drawerOpen }) {
+  const vw = typeof window === 'undefined' ? 1280 : window.innerWidth
+  const effectiveSideW = isNarrow
+    ? Math.min(sidebarWidth, Math.max(264, Math.round(vw * 0.84)))
+    : Math.min(sidebarWidth, Math.max(264, vw - 420))
+  return isNarrow
+    ? { viewport: Math.min(vw, 680), sidebarWidth: effectiveSideW, collapsedWidth: drawerOpen ? 88 : 0 }
+    : { viewport: vw, sidebarWidth: effectiveSideW, collapsedWidth: 0 }
+}
 
 const CLASSIC_BROWSER_OWNER = 'classic'
 
@@ -239,8 +300,17 @@ export function App() {
     onRestoredSession: () => actions.refreshClassicSessions?.(),
     onStartPresetCreator: () => actions.startPresetCreator?.(),
   })
-  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
+  const isNarrow = useNarrowViewport()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [sidebarPanelId, setSidebarPanelId] = useState(null)
+  const sidebarPanel = useSidebarPanel(slots, sidebarPanelId)
+  const sidebarPanelOpen = Boolean(sidebarPanel)
+  const closeSidebarPanel = useCallback(() => setSidebarPanelId(null), [])
+  useLayoutEffect(() => { actions.setChatCovered(sidebarPanelOpen) }, [actions, sidebarPanelOpen])
+  useEffect(() => { closeSidebarPanel() }, [shown, surfaceMode, closeSidebarPanel])
+  useEffect(() => {
+    if (sidebarPanelId !== null && !sidebarPanel) closeSidebarPanel()
+  }, [sidebarPanelId, sidebarPanel, closeSidebarPanel])
   const drawerOpenRef = useRef(drawerOpen)
   drawerOpenRef.current = drawerOpen
   const mobileMenuRef = useRef(null)
@@ -259,18 +329,15 @@ export function App() {
     restoreMobileMenuFocusRef.current = restoreFocus
     setDrawerOpen(false)
   }, [])
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-    const onResize = () => setViewportWidth(window.innerWidth)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-  const isNarrow = viewportWidth <= 768
+  const renderPluginRows = wide => h(SidebarSlotRows, {
+    wide, activePanel: sidebarPanel?.key,
+    onSelectPanel: (id) => { setSidebarPanelId(id); closeDrawer({ restoreFocus: true }) },
+  })
   const inClassicMode = surfaceMode === 'agent'
   const classicHidden = inClassicMode && !isNarrow && sidebarPref === 'hidden'
-  const effectiveSideW = isNarrow
-    ? Math.min(sidebarWidth, Math.max(264, Math.round(viewportWidth * 0.84)))
-    : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
+  const sideWidthCss = isNarrow
+    ? `min(${sidebarWidth}px, max(264px, 84vw))`
+    : `min(${sidebarWidth}px, max(264px, calc(100vw - 420px)))`
   useEffect(() => { closeDrawer() }, [shown, surfaceMode, closeDrawer])
   useEffect(() => { if (!isNarrow) closeDrawer() }, [isNarrow, closeDrawer])
   useLayoutEffect(() => {
@@ -304,26 +371,26 @@ export function App() {
         else openDrawer()
       } else actions.toggleLeftHidden()
     },
-    openSession: (...args) => { closeDrawer(); return actions.openSession?.(...args) },
-    openAgent: (...args) => { closeDrawer(); return actions.openAgent?.(...args) },
-    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession?.(...args) },
-    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession?.(...args) },
+    openSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openSession?.(...args) },
+    openAgent: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openAgent?.(...args) },
+    openAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openAgentSession?.(...args) },
+    newAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.newAgentSession?.(...args) },
     openInbox: (...args) => { closeDrawer(); return actions.openInbox?.(...args) },
     openSettings: (...args) => { closeDrawer(); return actions.openSettings(...args) },
     selectPanel: (...args) => { closeDrawer(); return actions.selectPanel(...args) },
     openNewChat: (...args) => { closeDrawer(); return actions.openNewChat(...args) },
     openPalette: (...args) => { closeDrawer(); return actions.openPalette(...args) },
-  }), [actions, isNarrow, openDrawer, closeDrawer])
+  }), [actions, isNarrow, openDrawer, closeDrawer, closeSidebarPanel])
   const classicSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: () => {
       if (isNarrow) closeDrawer({ restoreFocus: true })
       else actions.toggleLeftHidden()
     },
-    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession(...args) },
-    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession(...args) },
+    openAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openAgentSession(...args) },
+    newAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.newAgentSession(...args) },
     addAgent: (...args) => { closeDrawer(); return actions.addAgent(...args) },
-  }), [actions, isNarrow, closeDrawer])
+  }), [actions, isNarrow, closeDrawer, closeSidebarPanel])
   const useTeamUi = useMemo(
     () => makeTeamUiHook(hooks.useUi, isNarrow, drawerOpen),
     [hooks.useUi, isNarrow, drawerOpen],
@@ -331,12 +398,72 @@ export function App() {
   // Bot mode renders `.dsb-frame[data-surface=bot]` as a single column and lets TeamSidebar's
   // portalled `.bt-leftcol` own left offset via `chatRoom.setLeft(pushed)`. Keeping collapsedWidth
   // at 0 on desktop makes `chatRoom.setLeft` the single source of truth for both layout and drag.
-  const useOwnFrame = useMemo(() => {
-    const snap = isNarrow
-      ? { viewport: Math.min(viewportWidth, 680), sidebarWidth: effectiveSideW, collapsedWidth: drawerOpen ? 88 : 0 }
-      : { viewport: viewportWidth, sidebarWidth: effectiveSideW, collapsedWidth: 0 }
-    return selector => selector(snap)
-  }, [isNarrow, viewportWidth, effectiveSideW, drawerOpen])
+  // Backed by an external store so resize updates reach `useFrame` subscribers without re-rendering `<App>`.
+  const frameParamsRef = useRef({ isNarrow, sidebarWidth, drawerOpen })
+  frameParamsRef.current = { isNarrow, sidebarWidth, drawerOpen }
+  const ownFrameStoreRef = useRef(null)
+  if (ownFrameStoreRef.current === null) {
+    const listeners = new Set()
+    let snap = buildOwnFrameSnapshot(frameParamsRef.current)
+    let raf = 0
+    const syncSnap = () => {
+      const next = buildOwnFrameSnapshot(frameParamsRef.current)
+      if (next.viewport === snap.viewport && next.sidebarWidth === snap.sidebarWidth && next.collapsedWidth === snap.collapsedWidth) return false
+      snap = next
+      return true
+    }
+    const refresh = () => {
+      if (!syncSnap()) return
+      for (const listener of listeners) listener()
+    }
+    const onResize = () => {
+      if (typeof requestAnimationFrame === 'function') {
+        if (raf) return
+        raf = requestAnimationFrame(() => { raf = 0; refresh() })
+      } else {
+        refresh()
+      }
+    }
+    ownFrameStoreRef.current = {
+      refresh,
+      getSnapshot: () => snap,
+      subscribe: (listener) => {
+        if (listeners.size === 0) {
+          syncSnap()
+          if (typeof window !== 'undefined') window.addEventListener('resize', onResize)
+        }
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+          if (listeners.size === 0) {
+            if (typeof window !== 'undefined') window.removeEventListener('resize', onResize)
+            if (raf && typeof cancelAnimationFrame === 'function') { cancelAnimationFrame(raf); raf = 0 }
+          }
+        }
+      },
+    }
+  }
+  useLayoutEffect(() => {
+    ownFrameStoreRef.current?.refresh()
+  }, [isNarrow, sidebarWidth, drawerOpen])
+  const useOwnFrame = useCallback((selector) => {
+    const store = ownFrameStoreRef.current
+    const selectorRef = useRef(selector)
+    selectorRef.current = selector
+    const lastRef = useRef({ snap: null, value: undefined })
+    const getSelected = useCallback(() => {
+      const snap = store.getSnapshot()
+      if (lastRef.current.snap === snap) return lastRef.current.value
+      const next = selectorRef.current(snap)
+      if (Object.is(lastRef.current.value, next)) {
+        lastRef.current.snap = snap
+        return lastRef.current.value
+      }
+      lastRef.current = { snap, value: next }
+      return next
+    }, [store])
+    return useSyncExternalStore(store.subscribe, getSelected, getSelected)
+  }, [])
   const effectivePref = isNarrow
     ? (drawerOpen ? 'open' : 'hidden')
     : (inClassicMode && sidebarPref === 'rail' ? 'open' : sidebarPref)
@@ -376,6 +503,7 @@ export function App() {
     const isSettingsOpen = Boolean(uiSnap.settings)
     const isPaletteOpen = Boolean(uiSnap.palette)
     const focusComposerSoon = () => {
+      closeSidebarPanel()
       const focus = () => {
         if (typeof document === 'undefined') return
         if (document.querySelector('[aria-modal="true"]')) return
@@ -548,7 +676,7 @@ export function App() {
         focusComposerSoon()
       }
     }
-  }, [team, actions])
+  }, [team, actions, closeSidebarPanel])
 
   // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 66 releaseNotes > 61 memory > 60 settings > dialogs > inbox).
   const activeModalOf = useCallback(resolveActiveModal, [])
@@ -696,7 +824,7 @@ export function App() {
   }, [nextChatKeyState.shown, nextChatKeyState.chatId, nextChatKeyState.key])
   return h('div', {
     className: 'dsb-frame',
-    style: { '--dsb-side-w': `${effectiveSideW}px` },
+    style: { '--dsb-side-w': sideWidthCss },
     'data-collapsed': classicHidden ? '' : undefined,
     'data-drawer-open': drawerOpen ? '' : undefined,
     'data-surface': surfaceMode,
@@ -710,7 +838,7 @@ export function App() {
         : h('aside', { className: 'dsb-side' },
           h('div', { className: 'dsb-band' }),
           h('div', { className: 'dsb-side-list' },
-            h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: true })),
+            h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: true, pluginRows: renderPluginRows(true) })),
           h('div', { className: 'dsb-side-foot' },
             h('button', {
               type: 'button',
@@ -719,7 +847,8 @@ export function App() {
               title: t('Settings'),
               onClick: () => { closeDrawer(); actions.openSettings() },
             }, h(YouAvatar)),
-            h(BotReturn, { ...views, wide: true }))))
+            h(BotReturn, { ...views, wide: true }),
+            h(SidebarFooterActions, { wide: true, className: 'dsb-sidebar-footer-actions' }))))
     : h(TeamSidebar, {
       ...views,
       useUi: useTeamUi,
@@ -728,6 +857,8 @@ export function App() {
       useSidebarPref: useOwnSidebarPref,
       wide: effectivePref === 'open',
       hideTitleToggle: isNarrow,
+      renderPluginRows,
+      renderFooterActions: wide => h(SidebarFooterActions, { wide }),
     }),
   // The unified right panel makes room by giving `[data-bt-center]` a right margin.
   h('main', { className: 'dsb-main', 'data-bt-center': '', 'data-classic': shownAgent ? '' : undefined },
@@ -738,6 +869,8 @@ export function App() {
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': false,
       onClick: openDrawer,
     }, h(SidebarIcon)) : null,
+    sidebarPanel ? h(SidebarMainPanel, { entry: sidebarPanel, onClose: closeSidebarPanel }) : null,
+    h('div', { className: 'dsb-conversation-seat', hidden: sidebarPanelOpen },
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },
         shownAgent
@@ -755,7 +888,7 @@ export function App() {
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
       : (inClassicMode
         ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))
-        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null))),
+        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null)))),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
     h(DeepSeekSignIn, views),

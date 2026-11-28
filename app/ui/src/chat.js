@@ -4,7 +4,7 @@ import { chatOfSession } from '../../../ds-bot/src/client/draft-keep.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { TextSelectionAction } from '../../../ds-bot/src/client/text-annotation.js'
-import { Transcript, adaptRoomItem, adaptRoomItems, mergeLatestPage } from './chat-transcript.js'
+import { Transcript, adaptRoomItem, adaptRoomItems, mergeIncrementalItems, mergeLatestPage } from './chat-transcript.js'
 import {
   ComposerArea,
   bytesToBase64,
@@ -27,6 +27,7 @@ export {
   adaptRoomItems,
   bytesToBase64,
   clearFailedSends,
+  mergeIncrementalItems,
   mergeLatestPage,
   pruneFailedSends,
 }

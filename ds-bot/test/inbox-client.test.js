@@ -432,7 +432,7 @@ test('Escape closes the inbox on the first press, and filtering holds steady dur
   assert.equal(closed, 1, 'single Escape closes inbox')
 })
 
-test('watchBotCompletions marks replies on the active chat unread while Inbox covers it, and clears when Inbox closes', async () => {
+test('watchBotCompletions marks replies on a covered active chat unread until it is revealed', async () => {
   const { watchBotCompletions } = await import('../src/client/bot-completions.js')
   const makeStore = (initial) => {
     let value = initial
@@ -537,6 +537,21 @@ test('watchBotCompletions marks replies on the active chat unread while Inbox co
   assert.equal(unread.getSnapshot().w2, true)
   ui.set({ inbox: false, inboxTarget: null })
   assert.deepEqual(unread.getSnapshot(), { w1: true }, 'closing Inbox without navigating clears the revealed chat')
+
+  ui.set({ inbox: false, inboxTarget: null, chatCovered: true })
+  sessions.set(({ ids, byId }) => ({
+    ids,
+    byId: {
+      ...byId,
+      w2: {
+        ...byId.w2,
+        projectionValues: { turnOutline: [...byId.w2.projectionValues.turnOutline, { turn: 4, response: 'while covered' }] },
+      },
+    },
+  }))
+  assert.deepEqual(unread.getSnapshot(), { w1: true, w2: true }, 'plugin panel keeps a retained chat unread')
+  ui.set({ inbox: false, inboxTarget: null, chatCovered: false })
+  assert.deepEqual(unread.getSnapshot(), { w1: true }, 'closing the plugin panel reveals the chat and clears its unread flag')
   stop()
 })
 

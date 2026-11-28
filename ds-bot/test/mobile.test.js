@@ -1539,3 +1539,261 @@ test('file-download rejects presented files in private Bot folders, protected da
   assert.equal(orphanDl.error.code, 'bot/not-found')
   assert.match(orphanDl.error.message, /no longer available/)
 })
+
+test('room-chat serves incremental deltas via `after` without re-reading the whole page and falls back on part rollover', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  history[room.id] = [
+    { seq: 1, time: 100, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] } },
+    { seq: 2, time: 110, type: 'tool/call', data: { callId: 'call-1', name: 'group_relay' } },
+  ]
+  ctx.sessions.get = () => ({ seq: 3 })
+  rt.roomProgress.set('call-1', {
+    roomId: room.id,
+    replies: [{ botId: chief, name: 'Chief', text: 'first live reply', time: 115 }],
+  })
+
+  let pageCalls = 0
+  const origPage = ctx.sessionController.page
+  ctx.sessionController.page = async (...args) => {
+    pageCalls += 1
+    return origPage(...args)
+  }
+
+  // Initial load returns items + tip (without dead `tailCallId`) and stamps `sessionId` on every item.
+  const first = (await call('room-chat', { roomId: room.id })).value
+  assert.equal(first.items.length, 2)
+  assert.ok(first.tip, 'initial room-chat returns tip metadata')
+  assert.equal('tailCallId' in first.tip, false, 'tip omits unreachable tailCallId field')
+  assert.ok(first.items.every(i => i.sessionId === room.id), 'every room-chat item carries its part sessionId')
+  assert.equal(pageCalls, 1)
+
+  // Quiescent poll (same session.seq, same room.seq, unchanged openCounts) skips sessionController.page completely.
+  const quiescent = (await call('room-chat', { roomId: room.id, after: first.tip })).value
+  assert.equal(quiescent.incremental, true)
+  assert.deepEqual(quiescent.items, [])
+  assert.equal(pageCalls, 1, 'quiescent poll skips sessionController.page completely')
+
+  // Live round appends a second reply and bumps room.seq -> fail-closed fallback to full page.
+  rt.roomProgress.get('call-1').replies.push({ botId: chief, name: 'Chief', text: 'second live reply', time: 120 })
+  rt.state.rooms[room.id].seq = (rt.state.rooms[room.id].seq ?? 0) + 1
+  const liveAfterAppend = (await call('room-chat', { roomId: room.id, after: quiescent.tip })).value
+  assert.equal(liveAfterAppend.incremental, undefined, 'live round append falls back to full page instead of relying on unreachable tailCallId')
+  assert.ok(liveAfterAppend.items.some(i => i.id === 'call-1:1' && i.text === 'second live reply'))
+
+  // While call-1 is still active, a new session event falls back to full page so live splice order stays exact.
+  history[room.id].push({
+    seq: 3, time: 130, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'interleaved' }] },
+  })
+  ctx.sessions.get = () => ({ seq: 4 })
+  const interleaved = (await call('room-chat', { roomId: room.id, after: liveAfterAppend.tip })).value
+  assert.equal(interleaved.incremental, undefined, 'new session event while an earlier live round is open falls back to full page')
+
+  // Once the live round finishes (no open rounds), a new committed user message takes the delta-page incremental path.
+  rt.roomProgress.delete('call-1')
+  const settled = (await call('room-chat', { roomId: room.id, after: interleaved.tip })).value
+  assert.equal(settled.incremental, undefined, 'vanished/finished live round falls back to full page')
+
+  // Invariant check: any visible row written through `say()` bumps `room.seq` even if `agent.session.seq`
+  // is unchanged (e.g. zero-wake post / notice / rt.logRoom). `room-chat` MUST fail closed to a full page
+  // rather than returning `{ incremental: true, items: [] }`.
+  rt.state.rooms[room.id].seq = (rt.state.rooms[room.id].seq ?? 0) + 1
+  const afterRoomSeqBump = (await call('room-chat', { roomId: room.id, after: settled.tip })).value
+  assert.equal(afterRoomSeqBump.incremental, undefined, 'room.seq bump from say() invalidates zero-I/O incremental path')
+  assert.equal(afterRoomSeqBump.tip.roomSeq, rt.state.rooms[room.id].seq)
+
+  history[room.id].push({
+    seq: 4, time: 140, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'follow-up' }] },
+  })
+  ctx.sessions.get = () => ({ seq: 5 })
+  const seqDelta = (await call('room-chat', { roomId: room.id, after: afterRoomSeqBump.tip })).value
+  assert.equal(seqDelta.incremental, true)
+  assert.deepEqual(seqDelta.items.map(i => [i.sessionId, i.id, i.text]), [[room.id, '4', 'follow-up']])
+
+  // Part rollover -> `after.part` no longer matches current part -> falls back to full page (`incremental` absent).
+  const nextPart = 'room-part-2'
+  rt.state.rooms[room.id].ownParts = [room.id]
+  rt.state.rooms[room.id].sessionId = nextPart
+  history[nextPart] = [
+    { seq: 1, time: 200, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'fresh part' }] } },
+    { seq: 2, time: 205, type: 'tool/result', data: { callId: 'c-ev', name: 'group_relay', result: { replies: [{ kind: 'done', botId: chief, name: 'Chief', text: '', time: 205 }] } } },
+  ]
+  ctx.sessions.get = () => ({ seq: 3 })
+  const rollover = (await call('room-chat', { roomId: room.id, after: seqDelta.tip })).value
+  assert.equal(rollover.incremental, undefined)
+  assert.equal(rollover.sessionId, undefined, 'full room-chat keeps part sessionId inside tip so clients merge across part rollovers')
+  assert.equal(rollover.tip?.sessionId, nextPart)
+  assert.ok(rollover.items.every(i => i.sessionId === nextPart), 'rollover stamps part sessionId on all items including event rows')
+  assert.deepEqual(rollover.items.filter(i => i.kind === 'user').map(i => i.text), ['fresh part'])
+})
+
+test('room-chat differential: incremental deltas match full pages across concurrent rounds, cancellations, unresolved agent, restart, rollover, and truncation', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, other, room } = await team(call)
+
+  // Client-side incremental merge helper matching app/ui/src/chat-transcript.js composite-key semantics.
+  const itemKey = (item) => (item?.id !== undefined && item?.id !== null ? `${item.sessionId ?? ''}:${item.id}` : null)
+  const applyDelta = (current, delta) => {
+    const out = current.slice()
+    const byId = new Map()
+    for (let i = 0; i < out.length; i += 1) {
+      const k = itemKey(out[i])
+      if (k !== null) byId.set(k, i)
+    }
+    for (const item of delta) {
+      const k = itemKey(item)
+      const idx = k !== null ? byId.get(k) : undefined
+      if (idx !== undefined) out[idx] = item
+      else {
+        if (k !== null) byId.set(k, out.length)
+        out.push(item)
+      }
+    }
+    return out
+  }
+
+  // Reference full-refresh merge matching `mergeLatestPage` in app/ui/src/chat-transcript.js.
+  const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
+    ? a.id === b.id && (a.sessionId ?? null) === (b.sessionId ?? null) && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
+    : a.kind === b.kind && (a.sessionId ?? null) === (b.sessionId ?? null) && a.time === b.time && a.text === b.text)
+  const applyFull = (current, nextItems, nextCursor) => {
+    if (current.length === 0) return nextItems
+    if (nextItems.length === 0) return []
+    let cut = -1
+    for (const next of nextItems) {
+      for (let i = current.length - 1; i >= 0; i -= 1) {
+        if (sameItem(current[i], next)) { cut = i; break }
+      }
+      if (cut !== -1) break
+    }
+    if (cut > 0) return [...current.slice(0, cut), ...nextItems]
+    if (cut === 0) return nextItems
+    if (nextCursor && nextCursor.beforeSeq === undefined && Number.isInteger(nextCursor.part)) {
+      return [...current, ...nextItems]
+    }
+    return nextItems
+  }
+
+  let curPart = room.id
+  let seq = 0
+  let callCounter = 0
+  let agentResolved = true
+  history[curPart] = []
+  ctx.sessions.get = (sid) => (agentResolved ? { seq: (history[sid]?.at(-1)?.seq ?? 0) + 1 } : undefined)
+  const origResolve = ctx.sessionController.resolveAgent
+  ctx.sessionController.resolveAgent = async (sid) => {
+    if (!agentResolved) return { agent: undefined }
+    return origResolve(sid)
+  }
+
+  let incClientItems = []
+  let fullClientItems = []
+  let clientTip = null
+
+  const verifyStep = async (label, { forceRestartBoot = false } = {}) => {
+    const afterArg = clientTip
+      ? (forceRestartBoot ? { ...clientTip, boot: 'stale-boot-before-restart' } : clientTip)
+      : undefined
+    const incResp = (await call('room-chat', { roomId: room.id, ...(afterArg ? { after: afterArg } : {}) })).value
+    const fullResp = (await call('room-chat', { roomId: room.id })).value
+    incClientItems = incResp.incremental === true
+      ? applyDelta(incClientItems, incResp.items)
+      : applyFull(incClientItems, incResp.items, incResp.cursor)
+    fullClientItems = applyFull(fullClientItems, fullResp.items, fullResp.cursor)
+    clientTip = incResp.tip ?? null
+    assert.deepEqual(incClientItems, fullClientItems, `differential client mismatch at step: ${label}`)
+    assert.deepEqual(
+      incClientItems.slice(-fullResp.items.length),
+      fullResp.items,
+      `differential tail-window mismatch at step: ${label}`,
+    )
+    return { incResp, fullResp }
+  }
+
+  // Deterministic PRNG driving randomized group-chat event sequences + targeted adversarial steps.
+  let seed = 0x2483c0de
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+
+  // 1. Targeted Blocking 1B: unresolved agent (`currentSeq === -1`) must NOT return stuck empty delta.
+  agentResolved = false
+  history[curPart].push({ seq: ++seq, time: 10, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'disk-1' }] } })
+  await verifyStep('unresolved-initial')
+  history[curPart].push({ seq: ++seq, time: 11, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'disk-2' }] } })
+  const unresolvedStep = await verifyStep('unresolved-second')
+  assert.notEqual(unresolvedStep.incResp.incremental, true, 'unresolved agent must fall back to full page')
+  agentResolved = true
+  await verifyStep('resolved-again')
+
+  // 2. Targeted Blocking 1A: live round opened before `after.seq`, then BOTH a new user message AND
+  //    a new live reply arrive -> must preserve full-page splice order `[user, call-1:0, call-1:1, user2]`.
+  const c1 = `call-${++callCounter}`
+  history[curPart].push({ seq: ++seq, time: 20, type: 'tool/call', data: { callId: c1, name: 'group_relay' } })
+  rt.roomProgress.set(c1, { roomId: room.id, replies: [{ botId: chief, name: 'Chief', text: 'r1-0', time: 21 }] })
+  await verifyStep('open-c1')
+  history[curPart].push({ seq: ++seq, time: 22, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'interleaved-user' }] } })
+  rt.roomProgress.get(c1).replies.push({ botId: other, name: 'Other', text: 'r1-1', time: 23 })
+  await verifyStep('interleaved-user-plus-live-reply')
+
+  // 3. Targeted Blocking 1A (zero-seq case): `seq` unchanged while `c1` (non-tail slot!) emits another live reply.
+  rt.roomProgress.get(c1).replies.push({ botId: chief, name: 'Chief', text: 'r1-2', time: 24 })
+  await verifyStep('non-tail-live-reply-same-seq')
+
+  // 4. Targeted Blocking 1C: round cancelled/vanished, reply count shrinks, roomSeq rewinds, and host restart boot changes.
+  rt.roomProgress.delete(c1)
+  await verifyStep('cancelled-round-vanished')
+
+  const c2 = `call-${++callCounter}`
+  history[curPart].push({ seq: ++seq, time: 30, type: 'tool/call', data: { callId: c2, name: 'group_relay' } })
+  rt.roomProgress.set(c2, { roomId: room.id, replies: [{ botId: chief, name: 'Chief', text: 'a', time: 31 }, { botId: other, name: 'Other', text: 'b', time: 32 }] })
+  await verifyStep('open-c2-two-replies')
+  rt.roomProgress.get(c2).replies.pop()
+  await verifyStep('shrunk-open-count')
+  rt.state.rooms[room.id].seq = Math.max(0, (rt.state.rooms[room.id].seq ?? 1) - 1)
+  await verifyStep('roomSeq-rewind')
+  await verifyStep('host-restart-boot-mismatch', { forceRestartBoot: true })
+  rt.roomProgress.delete(c2)
+  await verifyStep('clear-c2')
+
+  // 5. Randomized fuzz sequence (40 steps): user msgs, concurrent live rounds, live replies,
+  //    cancellations, roomSeq increments, part rollover, and large >60 event burst (truncation).
+  for (let step = 0; step < 40; step += 1) {
+    const roll = rand()
+    const activeCalls = [...rt.roomProgress.keys()]
+    if (roll < 0.25) {
+      history[curPart].push({ seq: ++seq, time: 100 + step, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: `u-${step}` }] } })
+    } else if (roll < 0.45) {
+      const cid = `call-${++callCounter}`
+      history[curPart].push({ seq: ++seq, time: 100 + step, type: 'tool/call', data: { callId: cid, name: 'group_relay' } })
+      rt.roomProgress.set(cid, { roomId: room.id, replies: [{ botId: chief, name: 'Chief', text: `live-${cid}-0`, time: 100 + step }] })
+    } else if (roll < 0.70 && activeCalls.length > 0) {
+      const cid = activeCalls[Math.floor(rand() * activeCalls.length)]
+      const round = rt.roomProgress.get(cid)
+      round.replies.push({ botId: step % 2 === 0 ? chief : other, name: step % 2 === 0 ? 'Chief' : 'Other', text: `live-${cid}-${round.replies.length}`, time: 100 + step })
+      rt.state.rooms[room.id].seq = (rt.state.rooms[room.id].seq ?? 0) + 1
+    } else if (roll < 0.85 && activeCalls.length > 0) {
+      const cid = activeCalls[Math.floor(rand() * activeCalls.length)]
+      rt.roomProgress.delete(cid)
+    } else if (roll < 0.92) {
+      // Part rollover
+      rt.roomProgress.clear()
+      const nextPart = `room-fuzz-part-${step}`
+      rt.state.rooms[room.id].ownParts = [...(rt.state.rooms[room.id].ownParts ?? []), curPart]
+      rt.state.rooms[room.id].sessionId = nextPart
+      curPart = nextPart
+      seq = 0
+      history[curPart] = [{ seq: ++seq, time: 500 + step, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: `rollover-${step}` }] } }]
+    } else {
+      // Truncation burst (> ROOM_PAGE = 60 events)
+      rt.roomProgress.clear()
+      for (let k = 0; k < 65; k += 1) {
+        history[curPart].push({ seq: ++seq, time: 900 + step * 100 + k, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: `burst-${step}-${k}` }] } })
+      }
+    }
+    await verifyStep(`fuzz-${step}`)
+  }
+})

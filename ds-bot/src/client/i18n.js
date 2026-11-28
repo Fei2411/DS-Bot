@@ -374,6 +374,14 @@ export function language() {
   return typeof active === 'string' ? active : 'en'
 }
 
+// Monotonic token covering both active language changes and async locale pack loads
+// so memoized row components invalidate cleanly when interface copy updates.
+export function localeKey() {
+  const active = language()
+  const rev = service?.getSnapshot?.()?.revision ?? 0
+  return `${active}:${rev}:${loadedPacks.size}`
+}
+
 export const dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? 'en-US'
 
 // MarkdownText re-parses when `labels` changes identity, and a streaming message starts

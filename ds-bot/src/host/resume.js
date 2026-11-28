@@ -149,6 +149,7 @@ export function install(rt) {
     coordDb.importLegacyState({
       state: rt.state,
       inflight,
+      hasDeliveredReply: (from, to, id) => rt.deliveredReplyOf?.(from, to, id) !== undefined,
     })
 
     if (existsSync(inflightPath)) {

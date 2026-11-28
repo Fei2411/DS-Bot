@@ -571,6 +571,10 @@ export function install(rt) {
   }
 
   const roomLineListeners = new Set()
+  // Invariant: every visible group row written to `bookOf(room.id)` MUST go through `say()`
+  // so `room.seq` advances monotonically. `host/mobile.js` relies on `room.seq` to invalidate
+  // `room-chat` incremental fast-path tips whenever a visible row lands (including zero-wake
+  // posts, notices, and `rt.logRoom` cards).
   const say = (room, line) => {
     ensureRoomLog(room)
     room.seq += 1

@@ -122,7 +122,7 @@ function ClassicSessionRow({ session, agent, actions, renaming, readOnly }) {
     }, h(ArchiveIcon))) : null)
 }
 
-export function ClassicSidebar({ useRoster, useSessions, useSessionStatus, useUi, actions, wide }) {
+export function ClassicSidebar({ useRoster, useSessions, useSessionStatus, useUi, actions, wide, pluginRows }) {
   const roster = useRoster(value => value)
   const agent = (roster.agents ?? [])[0] ?? null
   const readOnly = Boolean(roster.readOnly)
@@ -197,6 +197,7 @@ export function ClassicSidebar({ useRoster, useSessions, useSessionStatus, useUi
     h('span', { className: 'dsb-classic-new-ico', 'aria-hidden': true }, h(PlusIcon)),
     h('span', { className: 'dsb-classic-new-label' }, t('New session'))),
     h('div', { className: 'dsb-classic-list', role: 'list', 'aria-label': t('Classic Agent mode') },
+      pluginRows,
       sessions.length === 0
         ? h('div', { className: 'dsb-classic-empty' },
           h('span', { className: 'dsb-classic-empty-mark', 'aria-hidden': true }, h(FishLogo, { size: 28 })),

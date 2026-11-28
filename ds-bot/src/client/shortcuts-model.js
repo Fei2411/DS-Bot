@@ -736,7 +736,7 @@ export function visibleSidebarTargets(roster, sessionsById = {}, activeId = null
   if (!roster) return []
   const stamps = {}
   for (const [id, entry] of Object.entries(sessionsById ?? {})) {
-    stamps[id] = entry?.updatedAt ?? 0
+    if (Number.isFinite(entry?.updatedAt)) stamps[id] = entry.updatedAt
   }
   const stampOf = (item, kind) => {
     if (kind === 'agent') {
