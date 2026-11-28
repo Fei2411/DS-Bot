@@ -51,7 +51,15 @@ function writeStoredPreference(storage, pref) {
 
 export function createLocale(tag, options = {}) {
   const storage = options.storage !== undefined ? options.storage : globalThis.localStorage
-  const systemActive = resolveLocale(tag)
+  const target = options.target !== undefined
+    ? options.target
+    : (typeof globalThis.window !== 'undefined' ? globalThis.window : null)
+  const getSystemTag = typeof options.getSystemTag === 'function'
+    ? options.getSystemTag
+    : () => (typeof globalThis.navigator?.language === 'string' && globalThis.navigator.language !== ''
+      ? globalThis.navigator.language
+      : tag)
+  let systemActive = resolveLocale(tag)
   let preference = readStoredPreference(storage)
   let active = preference === 'auto' ? systemActive : resolveLocale(preference)
   const dictionaries = new Map()
@@ -61,6 +69,26 @@ export function createLocale(tag, options = {}) {
     if (typeof document !== 'undefined' && document.documentElement) {
       document.documentElement.lang = active
     }
+  }
+
+  const notify = () => {
+    for (const listener of Array.from(listeners)) {
+      try { listener({ active, preference }) } catch { /* listener error isolated */ }
+    }
+  }
+
+  const onLanguageChange = () => {
+    const nextSystem = resolveLocale(getSystemTag())
+    if (nextSystem === systemActive) return
+    systemActive = nextSystem
+    if (preference !== 'auto' || systemActive === active) return
+    active = systemActive
+    syncDocumentLang()
+    notify()
+  }
+
+  if (typeof target?.addEventListener === 'function') {
+    target.addEventListener('languagechange', onLanguageChange)
   }
 
   return {
@@ -73,9 +101,7 @@ export function createLocale(tag, options = {}) {
       active = nextActive
       writeStoredPreference(storage, preference)
       syncDocumentLang()
-      for (const listener of Array.from(listeners)) {
-        try { listener({ active, preference }) } catch { /* listener error isolated */ }
-      }
+      notify()
       return { active, preference }
     },
     subscribe(listener) {
@@ -89,6 +115,11 @@ export function createLocale(tag, options = {}) {
       return () => { dictionaries.delete(key) }
     },
     bind: namespace => (key, params) => fill(dictionaries.get(`${namespace}:${active}`)?.[key] ?? key, params),
+    dispose() {
+      if (typeof target?.removeEventListener === 'function') {
+        target.removeEventListener('languagechange', onLanguageChange)
+      }
+    },
   }
 }
 

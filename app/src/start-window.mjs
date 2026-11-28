@@ -661,8 +661,10 @@ export class StartWindow {
     this.#update({ update: update === undefined ? undefined : { ...update } })
   }
 
-  /** The team window's rect: centred on the start window, inside that display's work area. */
+  /** The team window's rect: saved bounds clamped to current displays, or centred on the start window. */
   mainBounds() {
+    const saved = this.#o.savedBounds?.()
+    if (saved !== undefined) return { x: saved.x, y: saved.y, width: saved.width, height: saved.height }
     const { screen } = this.#o.electron
     if (!this.#open()) return centred(clampInto({ x: 0, y: 0, ...MAIN_SIZE }, screen.getPrimaryDisplay().workArea), screen.getPrimaryDisplay().workArea)
     const start = this.#window.getNormalBounds()
@@ -908,11 +910,13 @@ export class StartWindow {
     if (this.#under) this.#unlay(main)
     if (how === 'focused') {
       main.show()
+      if (this.#o.savedBounds?.()?.maximized === true) main.maximize?.()
       main.focus()
     } else if (how === 'minimized') {
       main.minimize()
     } else {
       main.showInactive()
+      if (this.#o.savedBounds?.()?.maximized === true) main.maximize?.()
       try { main.moveAbove(win.getMediaSourceId()) } catch { /* the order stays the system's */ }
     }
     if (how !== 'focused') {
@@ -943,6 +947,7 @@ export class StartWindow {
       win.setOpacity(1 - eased)
       if (time < 1) { this.#later('fade', CROSSFADE.step, step); return }
       this.#destroy()
+      if (this.#o.savedBounds?.()?.maximized === true && how !== 'minimized') main.maximize?.()
       if (how === 'focused') {
         main.focus()
         main.webContents?.focus?.()

@@ -34,6 +34,7 @@ import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
+import { isAllowedWindowTitle, readWindowBounds, resolveRestoredBounds, watchWindowBounds, WINDOW_BOUNDS_FILE } from './window-bounds.mjs'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
@@ -96,6 +97,12 @@ const material = materialOf(process.platform, release())
 configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
+const windowBoundsFile = join(app.getPath('userData'), WINDOW_BOUNDS_FILE)
+const savedMainBounds = () => resolveRestoredBounds(
+  readWindowBounds(windowBoundsFile),
+  screen.getAllDisplays(),
+  { primary: screen.getPrimaryDisplay() },
+)
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
@@ -232,6 +239,7 @@ if (canonical !== undefined) {
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
+    savedBounds: savedMainBounds,
     onRetry: () => { retry().catch(fail) },
     onReload: () => { mainWindow?.webContents.reload() },
     // Closing the start window before the hand-off quits: there is no team window yet to stay in
@@ -1628,12 +1636,25 @@ function createWindow() {
     },
   })
   if (material === 'vibrancy') keepVibrancy(win, sidebarFill)
+  const savedBounds = savedMainBounds()
   mainWindow = win
   startWindow.placeMain(win)
+  const boundsWatcher = watchWindowBounds(win, { file: windowBoundsFile, ready: () => startWindow.revealed })
+  const flushBounds = () => { boundsWatcher.flush() }
+  app.on('before-quit', flushBounds)
+  if (startWindow.revealed && savedBounds?.maximized === true) {
+    win.once('show', () => {
+      if (!win.isDestroyed() && !win.isMinimized() && !win.isFullScreen()) win.maximize()
+    })
+  }
   // No ready-to-show here: the first window shows at the hand-off (start-window.mjs), a window
   // built anew when the shell opens it.
-  win.on('page-title-updated', (event) => { event.preventDefault() })
+  win.on('page-title-updated', (event, title) => {
+    if (!isAllowedWindowTitle(title)) event.preventDefault()
+  })
   win.on('closed', () => {
+    app.off('before-quit', flushBounds)
+    boundsWatcher.dispose()
     if (mainWindow !== win) return
     mainWindow = undefined
     // The Bot browsers' tabs belonged to this window; they wait for the next one.

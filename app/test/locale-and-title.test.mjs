@@ -1,0 +1,135 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { createLocale } from '../ui/src/locale.js'
+import { conversationTitleOf, formatWindowTitle } from '../ui/src/window-title.js'
+import { isAllowedWindowTitle } from '../src/window-bounds.mjs'
+
+function makeTarget() {
+  const listeners = new Map()
+  return {
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set())
+      listeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) {
+      listeners.get(type)?.delete(fn)
+    },
+    dispatch(type) {
+      for (const fn of Array.from(listeners.get(type) ?? [])) fn({ type })
+    },
+    count(type) {
+      return listeners.get(type)?.size ?? 0
+    },
+  }
+}
+
+function makeStorage() {
+  const map = new Map()
+  return {
+    getItem: key => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => { map.set(key, String(value)) },
+    removeItem: (key) => { map.delete(key) },
+  }
+}
+
+test('createLocale follows system languagechange events in auto mode and updates document lang and bindings', () => {
+  const prevDoc = globalThis.document
+  globalThis.document = { documentElement: { lang: '' } }
+  try {
+    let sysLang = 'en-US'
+    const target = makeTarget()
+    const storage = makeStorage()
+    const locale = createLocale(sysLang, {
+      storage,
+      target,
+      getSystemTag: () => sysLang,
+    })
+    locale.register('ui', 'en', { hi: 'Hello' })
+    locale.register('ui', 'zh', { hi: '你好' })
+    locale.register('ui', 'ja', { hi: 'こんにちは' })
+    const t = locale.bind('ui')
+
+    const seen = []
+    locale.subscribe(state => seen.push(state))
+
+    assert.equal(target.count('languagechange'), 1)
+    assert.deepEqual(locale.getLocale(), { active: 'en', preference: 'auto' })
+    assert.equal(t('hi'), 'Hello')
+
+    // System switches to Simplified Chinese.
+    sysLang = 'zh-CN'
+    target.dispatch('languagechange')
+    assert.deepEqual(locale.getLocale(), { active: 'zh', preference: 'auto' })
+    assert.equal(globalThis.document.documentElement.lang, 'zh')
+    assert.equal(t('hi'), '你好')
+    assert.deepEqual(seen, [{ active: 'zh', preference: 'auto' }])
+
+    // Duplicate event with same resolved locale does not re-notify.
+    sysLang = 'zh-SG'
+    target.dispatch('languagechange')
+    assert.equal(seen.length, 1)
+
+    // Explicit manual preference ignores languagechange, but returning to auto picks up the latest system language.
+    locale.setLocale('ja')
+    assert.deepEqual(locale.getLocale(), { active: 'ja', preference: 'ja' })
+    assert.equal(t('hi'), 'こんにちは')
+
+    sysLang = 'en-GB'
+    target.dispatch('languagechange')
+    assert.deepEqual(locale.getLocale(), { active: 'ja', preference: 'ja' })
+    assert.equal(t('hi'), 'こんにちは')
+
+    locale.setLocale('auto')
+    assert.deepEqual(locale.getLocale(), { active: 'en', preference: 'auto' })
+    assert.equal(t('hi'), 'Hello')
+
+    // Dispose detaches listener cleanly.
+    locale.dispose()
+    assert.equal(target.count('languagechange'), 0)
+    sysLang = 'zh-CN'
+    target.dispatch('languagechange')
+    assert.deepEqual(locale.getLocale(), { active: 'en', preference: 'auto' })
+  } finally {
+    globalThis.document = prevDoc
+  }
+})
+
+test('window title formatting covers Bot DM, group chat, classic sessions, and empty fallback', () => {
+  assert.equal(formatWindowTitle(''), 'DS Bot')
+  assert.equal(formatWindowTitle('   '), 'DS Bot')
+  assert.equal(formatWindowTitle('Chief'), 'Chief — DS Bot')
+  assert.equal(formatWindowTitle('  Product Team  '), 'Product Team — DS Bot')
+
+  assert.equal(
+    formatWindowTitle(conversationTitleOf({ shown: null, chat: { name: 'Chief' }, shownAgent: null, sessionTitle: '' })),
+    'DS Bot',
+  )
+  assert.equal(
+    formatWindowTitle(conversationTitleOf({ shown: 'bot-1', chat: { name: 'Chief' }, shownAgent: null, sessionTitle: '' })),
+    'Chief — DS Bot',
+  )
+  assert.equal(
+    formatWindowTitle(conversationTitleOf({ shown: 'room-1', chat: { name: 'Design Group' }, shownAgent: null, sessionTitle: '' })),
+    'Design Group — DS Bot',
+  )
+  assert.equal(
+    formatWindowTitle(conversationTitleOf({ shown: 'sess-1', chat: undefined, shownAgent: { name: 'Coder' }, sessionTitle: 'Refactor auth' })),
+    'Refactor auth — DS Bot',
+  )
+  assert.equal(
+    formatWindowTitle(conversationTitleOf({ shown: 'sess-2', chat: undefined, shownAgent: { name: 'Coder' }, sessionTitle: '' })),
+    'Coder — DS Bot',
+  )
+  assert.equal(
+    formatWindowTitle(conversationTitleOf({ shown: 'sess-3', chat: undefined, shownAgent: undefined, sessionTitle: '' })),
+    'DS Bot',
+  )
+})
+
+test('isAllowedWindowTitle accepts DS Bot titles and rejects blank or arbitrary page titles', () => {
+  assert.equal(isAllowedWindowTitle('DS Bot'), true)
+  assert.equal(isAllowedWindowTitle('Chief — DS Bot'), true)
+  assert.equal(isAllowedWindowTitle(''), false)
+  assert.equal(isAllowedWindowTitle('http://127.0.0.1:41234/'), false)
+  assert.equal(isAllowedWindowTitle('Sign in — DeepSeek'), false)
+})
