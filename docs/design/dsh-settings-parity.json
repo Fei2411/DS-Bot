@@ -1,0 +1,687 @@
+{
+  "description": "Parity inventory mapping every user-visible DSH settings slot, schema field, and settings capability in app/node_modules/@deepseek-ai/* to its DS Bot Desktop implementation or explicit exclusion rationale.",
+  "slots": {
+    "plugins.item::agent-loop::dsh-client-ui-settings-agent-loop": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "id: 'agent-loop'"
+      }
+    },
+    "plugins.item::shell::dsh-client-ui-settings-shell": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "id: 'shell'"
+      }
+    },
+    "plugins.item::subagent::dsh-client-ui-settings-subagent": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "SUBAGENT_CONFIG_GROUP"
+      },
+      "note": "Exposed in Classic Agent mode; intentionally disabled by policy in Bot mode."
+    },
+    "plugins.item::web-search::dsh-client-ui-settings-web-search": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "function WebSearchDetailForm"
+      }
+    },
+    "settings.action::open-document::dsh-client-ui-settings-general": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "engine-settings-open-file"
+      }
+    },
+    "settings.close::(no-id)::dsh-client-ui-settings-general": {
+      "status": "excluded",
+      "reason": "DSH Web settings modal close chrome; DS Bot Desktop owns SettingsDialog's header and close control."
+    },
+    "settings.general.item::(no-id)::dsh-client-ui-settings-session-log": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/privacy-page.js",
+        "pattern": "dshSessionLog"
+      }
+    },
+    "settings.general.item::appearance::dsh-client-ui-theme": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/appearance-page.js",
+        "pattern": "export function AppearancePage"
+      }
+    },
+    "settings.general.item::composer-enter::dsh-client-ui-conversation": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/settings.js",
+        "pattern": "Enter sends message"
+      }
+    },
+    "settings.general.item::current-version::dsh-client-ui-settings-general": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/about.js",
+        "pattern": "export function AboutPage"
+      }
+    },
+    "settings.general.item::desktop-update-channel::dsh-client-ui-settings-general": {
+      "status": "excluded",
+      "reason": "DS Bot Desktop ships its own signed updater under Settings -> About rather than DSH Desktop's separate release channel."
+    },
+    "settings.general.item::developer-tools::dsh-client-ui-settings-general": {
+      "status": "excluded",
+      "reason": "DS Bot Desktop exposes DevTools via F12 / Ctrl+Shift+I and diagnostics under Settings -> About rather than a DSH Desktop General toggle."
+    },
+    "settings.general.item::font-size::dsh-client-ui-theme": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/appearance-page.js",
+        "pattern": "appearance.fontSize"
+      }
+    },
+    "settings.general.item::language::dsh-client-locale": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings-bridge.js",
+        "pattern": "export function LanguageGeneralItem"
+      }
+    },
+    "settings.general.item::link-opening::dsh-client-ui-chat": {
+      "status": "excluded",
+      "reason": "DS Bot Desktop always opens external links via Electron's safe shell.openExternal handler rather than a browser-tab preference."
+    },
+    "settings.general.item::performance-usage::dsh-client-ui-chat": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/usage-page.js",
+        "pattern": "export function UsagePage"
+      }
+    },
+    "settings.general.item::permission::dsh-client-ui-permission-presets": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/approval-settings.js",
+        "pattern": "export function ApprovalSettings"
+      }
+    },
+    "settings.general.item::shortcuts::dsh-client-ui-shortcuts": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/shortcuts-page.js",
+        "pattern": "export function ShortcutsPage"
+      }
+    },
+    "settings.general.item::transcript-view::dsh-client-ui-chat": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/appearance-page.js",
+        "pattern": "DENSITY_LABELS"
+      }
+    },
+    "settings.header::(no-id)::dsh-client-ui-settings-general": {
+      "status": "excluded",
+      "reason": "DSH Web settings header chrome; replaced by DS Bot Desktop's SettingsDialog rail and header."
+    },
+    "settings.launcher.notifications::(no-id)::dsh-client-ui-account-notifications": {
+      "status": "excluded",
+      "reason": "DSH Web sidebar launcher badge slot; DS Bot Desktop surfaces account errors inline in chat and Settings -> Account."
+    },
+    "settings.launcher::(no-id)::dsh-client-ui-settings-account": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/deepseek-account.js",
+        "pattern": "export function createDesktopAccountBridge"
+      }
+    },
+    "settings.models.sign-in::(no-id)::dsh-client-ui-settings-account": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/deepseek-account.js",
+        "pattern": "function DesktopDeepSeekSignInModal"
+      },
+      "note": "Provided by the Models settings page and DesktopDeepSeekSignInModal."
+    },
+    "settings.onboarding::deepseek-official::dsh-client-ui-settings-models": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/settings.js",
+        "pattern": "'models'"
+      },
+      "note": "Provided by DS Bot's Models settings page and first-run provider setup."
+    },
+    "settings.onboarding::welcome-notice::dsh-client-ui-settings-models": {
+      "status": "excluded",
+      "reason": "DSH Web model-onboarding notice banner; replaced by DS Bot's Settings Overview checklist and interactive walkthrough tour."
+    },
+    "settings.plugins.tab::all::dsh-client-ui-settings-plugin-inventory": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "function PluginInventorySection"
+      }
+    },
+    "settings.section::account::dsh-client-ui-settings-account": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "export function AccountSettingsPage"
+      }
+    },
+    "settings.section::agent-presets::dsh-client-ui-agent-preset": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "export function AgentPresetsSettingsPage"
+      }
+    },
+    "settings.section::general::dsh-client-ui-settings-general": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/settings.js",
+        "pattern": "function GeneralPage"
+      }
+    },
+    "settings.section::models::dsh-client-ui-settings-models": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/settings.js",
+        "pattern": "'models'"
+      },
+      "note": "Provided by DS Bot's Models settings page."
+    },
+    "settings.section::plugins::dsh-client-ui-settings-plugins": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "export function PluginsSettingsPage"
+      }
+    },
+    "settings.trigger::(no-id)::dsh-client-ui-settings-general": {
+      "status": "excluded",
+      "reason": "DSH Web settings trigger button chrome; replaced by DS Bot Desktop's sidebar Settings button and Cmd/Ctrl+, shortcut."
+    }
+  },
+  "schemaFields": {
+    "dsh-web::searchProvider": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "searchProvider"
+      }
+    },
+    "dsh-web::fetchProvider": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "fetchProvider"
+      }
+    },
+    "dsh-web-deepseek-api::count": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "'web-deepseek-api:count'"
+      }
+    },
+    "dsh-web-deepseek-api::searchRequestsPerSecond": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "searchRequestsPerSecond"
+      }
+    },
+    "dsh-web-deepseek-api::sendOriginalQuestion": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "sendOriginalQuestion"
+      }
+    },
+    "dsh-web-deepseek-api::searchBilling": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "searchBilling"
+      }
+    },
+    "dsh-web-deepseek-api::fetchBilling": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "fetchBilling"
+      }
+    },
+    "dsh-web-deepseek-api::searchBaseURL": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "searchBaseURL"
+      },
+      "note": "Surfaced as YAML billing-override indicator in WebSearchDetailForm, matching DSH Web."
+    },
+    "dsh-web-deepseek-api::searchApiKeyEnv": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "searchApiKeyEnv"
+      },
+      "note": "Surfaced as YAML billing-override indicator in WebSearchDetailForm, matching DSH Web."
+    },
+    "dsh-web-deepseek-api::fetchBaseURL": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "fetchBaseURL"
+      },
+      "note": "Surfaced as YAML billing-override indicator in WebSearchDetailForm, matching DSH Web."
+    },
+    "dsh-web-deepseek-api::fetchApiKeyEnv": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "fetchApiKeyEnv"
+      },
+      "note": "Surfaced as YAML billing-override indicator in WebSearchDetailForm, matching DSH Web."
+    },
+    "dsh-web-search-deepseek::apiKey": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "apiKey: 'API key'"
+      }
+    },
+    "dsh-web-search-deepseek::apiKeyEnv": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "apiKeyEnv"
+      }
+    },
+    "dsh-web-search-deepseek::baseURL": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "baseURL: 'Base URL'"
+      }
+    },
+    "dsh-web-search-deepseek::model": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "model: 'Model'"
+      }
+    },
+    "dsh-web-search-deepseek::apiVersion": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "apiVersion: 'API version'"
+      }
+    },
+    "dsh-web-search-deepseek::maxTokens": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxTokens: 'Max tokens'"
+      }
+    },
+    "dsh-web-search-deepseek::maxUses": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "'web-search-deepseek:maxUses'"
+      }
+    },
+    "dsh-web-fetch-http::maxResponseBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxResponseBytes"
+      }
+    },
+    "dsh-web-fetch-http::maxBodyChars": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxBodyChars"
+      }
+    },
+    "dsh-web-fetch-http::timeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "timeoutMs: 'Timeout (ms)'"
+      }
+    },
+    "dsh-web-fetch-http::maxRedirects": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxRedirects"
+      }
+    },
+    "dsh-web-fetch-http::userAgent": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "userAgent"
+      }
+    },
+    "dsh-agent-default-model::provider": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "function AgentDefaultModelDetailForm"
+      }
+    },
+    "dsh-agent-default-model::model": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "function AgentDefaultModelDetailForm"
+      }
+    },
+    "dsh-agent-default-model::reasoningEffort": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "reasoningEffort: 'Reasoning effort'"
+      }
+    },
+    "dsh-agent-loop::maxParallelToolCalls": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxParallelToolCalls: 'Max parallel tool calls'"
+      }
+    },
+    "dsh-agent-loop::agents": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "kind: 'config-file'"
+      },
+      "note": "Complex per-agent map surfaced via config-file editing action in StagedSchemaGroupForm."
+    },
+    "dsh-bash-sandbox::cwd": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "cwd: 'Working directory'"
+      }
+    },
+    "dsh-bash-sandbox::timeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "timeoutMs: 'Timeout (ms)'"
+      }
+    },
+    "dsh-bash-sandbox::maxTimeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxTimeoutMs: 'Max timeout (ms)'"
+      }
+    },
+    "dsh-bash-sandbox::maxOutputBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxOutputBytes: 'Max output bytes'"
+      }
+    },
+    "dsh-bash-sandbox::maxSpillBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxSpillBytes: 'Max spill bytes'"
+      }
+    },
+    "dsh-bash-sandbox::graceMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "graceMs: 'Shutdown grace (ms)'"
+      }
+    },
+    "dsh-bash-local::cwd": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "cwd: 'Working directory'"
+      }
+    },
+    "dsh-bash-local::timeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "timeoutMs: 'Timeout (ms)'"
+      }
+    },
+    "dsh-bash-local::maxTimeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxTimeoutMs: 'Max timeout (ms)'"
+      }
+    },
+    "dsh-bash-local::maxOutputBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxOutputBytes: 'Max output bytes'"
+      }
+    },
+    "dsh-bash-local::maxSpillBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxSpillBytes: 'Max spill bytes'"
+      }
+    },
+    "dsh-bash-local::graceMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "graceMs: 'Shutdown grace (ms)'"
+      }
+    },
+    "dsh-pwsh-sandbox::cwd": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "cwd: 'Working directory'"
+      }
+    },
+    "dsh-pwsh-sandbox::timeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "timeoutMs: 'Timeout (ms)'"
+      }
+    },
+    "dsh-pwsh-sandbox::maxTimeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxTimeoutMs: 'Max timeout (ms)'"
+      }
+    },
+    "dsh-pwsh-sandbox::maxOutputBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxOutputBytes: 'Max output bytes'"
+      }
+    },
+    "dsh-pwsh-sandbox::maxSpillBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxSpillBytes: 'Max spill bytes'"
+      }
+    },
+    "dsh-pwsh-sandbox::graceMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "graceMs: 'Shutdown grace (ms)'"
+      }
+    },
+    "dsh-pwsh-sandbox::pwshPath": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "pwshPath: 'PowerShell path'"
+      }
+    },
+    "dsh-pwsh-local::cwd": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "cwd: 'Working directory'"
+      }
+    },
+    "dsh-pwsh-local::timeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "timeoutMs: 'Timeout (ms)'"
+      }
+    },
+    "dsh-pwsh-local::maxTimeoutMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxTimeoutMs: 'Max timeout (ms)'"
+      }
+    },
+    "dsh-pwsh-local::maxOutputBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxOutputBytes: 'Max output bytes'"
+      }
+    },
+    "dsh-pwsh-local::maxSpillBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "maxSpillBytes: 'Max spill bytes'"
+      }
+    },
+    "dsh-pwsh-local::graceMs": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "graceMs: 'Shutdown grace (ms)'"
+      }
+    },
+    "dsh-pwsh-local::pwshPath": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "pwshPath: 'PowerShell path'"
+      }
+    },
+    "dsh-session-log-deepseek::enabled": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/privacy-page.js",
+        "pattern": "dshSessionLog"
+      }
+    },
+    "dsh-session-log-deepseek::maxBytes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/client/privacy-page.js",
+        "pattern": "dshSessionLogMaxBytes"
+      }
+    }
+  },
+  "capabilities": {
+    "web-search.credentials": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "engine-credentials-describe"
+      }
+    },
+    "engine-settings.reset-all": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "dsb-engine-reset-all"
+      }
+    },
+    "engine-settings.read-only-banner": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "function ReadOnlyBanner"
+      }
+    },
+    "plugin-inventory.endpoint": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/host/engine-settings.js",
+        "pattern": "case 'plugins-inventory':"
+      }
+    },
+    "plugin-inventory.session-and-global-scopes": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "data-plugin-scope"
+      }
+    },
+    "plugin-inventory.cross-preset-search": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "data-jump-preset"
+      }
+    },
+    "account.exact-balance-formatting": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "export function formatAccountBalance"
+      }
+    },
+    "account.granted-bonus-balance": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "data-account-bonus"
+      }
+    },
+    "account.copy-signin-link": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "data-copy-signin-link"
+      }
+    },
+    "account.api-keys-entry": {
+      "status": "implemented",
+      "anchor": {
+        "file": "app/ui/src/engine-settings.js",
+        "pattern": "data-platform-api-keys"
+      }
+    },
+    "account.signout-running-tasks-guard": {
+      "status": "implemented",
+      "anchor": {
+        "file": "ds-bot/src/host/engine-settings.js",
+        "pattern": "case 'account-running-tasks':"
+      }
+    }
+  }
+}
