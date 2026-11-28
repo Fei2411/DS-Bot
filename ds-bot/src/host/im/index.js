@@ -1182,7 +1182,7 @@ export function install(rt) {
           sessionId,
           ...(botId !== undefined ? { botId } : {}),
           path,
-        }),
+        }, { allowAgentArtifacts: true }),
       })
       for (const failure of prepared.failed) {
         rt.warn('ds-bot: im outbound image %s skipped: %s', failure.path, failure.reason)

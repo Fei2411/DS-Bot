@@ -1205,17 +1205,25 @@ test('markdown-image expands home links but limits default artifacts to the Anti
   rt.state.bots[chief].model = 'local-antigravity/default'
   const chatId = rt.chatOf(chief)
   const groupId = rt.sessionOfRoom(rt.state.rooms[room.id])
-  const read = (sessionId, path, botId) => call('markdown-image', { sessionId, path, botId })
+  const read = (sessionId, path, botId) => rt.mobileEndpoint('markdown-image', { sessionId, path, botId }, { allowAgentArtifacts: true })
   const results = await Promise.all([
     read(chatId, `~/${cli}`),
     read(chatId, `~\\${desktop}`),
     read(groupId, join(home, cli), chief),
   ])
-  assert.deepEqual(results.map(result => result.value?.bytes ?? result.error?.message), Array(3).fill(bytes.toString('base64')))
-  assert.equal((await read(groupId, join(home, cli), writer.id)).error?.code, 'bot/forbidden')
-  assert.equal((await read(rt.chatOf(writer.id), join(home, cli), chief)).error?.code, 'bot/forbidden')
-  assert.equal((await read(chatId, '~/unrelated.png')).error?.code, 'bot/forbidden')
-  assert.equal((await read(chatId, '~/.gemini/antigravity-cli/brain/turn/escape.png')).error?.code, 'bot/forbidden')
+  assert.deepEqual(results.map(result => result.bytes), Array(3).fill(bytes.toString('base64')))
+  await assert.rejects(read(groupId, join(home, cli), writer.id), { code: 'bot/forbidden' })
+  await assert.rejects(read(rt.chatOf(writer.id), join(home, cli), chief), { code: 'bot/forbidden' })
+  await assert.rejects(read(chatId, '~/unrelated.png'), { code: 'bot/forbidden' })
+  await assert.rejects(read(chatId, '~/.gemini/antigravity-cli/brain/turn/escape.png'), { code: 'bot/forbidden' })
+
+  const extra = join(home, 'extra')
+  mkdirSync(extra)
+  writeFileSync(join(extra, 'plot.png'), bytes)
+  rt.state.bots[writer.id].extraDirs = [extra]
+  for (const path of ['~/extra/plot.png', '~\\extra/plot.png']) {
+    assert.equal((await call('markdown-image', { sessionId: rt.chatOf(writer.id), path })).value?.bytes, bytes.toString('base64'))
+  }
 })
 
 test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {

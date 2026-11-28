@@ -785,7 +785,7 @@ export function install(rt) {
     ['.svg', 'image/svg+xml'],
   ])
 
-  async function markdownImage(body) {
+  async function markdownImage(body, { allowAgentArtifacts = false } = {}) {
     const sessionId = String(body.sessionId ?? '')
     const raw = typeof body.path === 'string' ? body.path.trim() : ''
     if (raw === '') throw Object.assign(new Error('No image named'), { code: 'bot/invalid' })
@@ -861,7 +861,7 @@ export function install(rt) {
       for (const dir of new Set(extraDirs)) {
         if (within(realPath, await rt.real(dir))) { allowed = true; break }
       }
-      if (!allowed && rt.engineOfBot(rt.botOf(authorId ?? botId)) === 'local-antigravity') {
+      if (!allowed && allowAgentArtifacts && rt.engineOfBot(rt.botOf(authorId ?? botId)) === 'local-antigravity') {
         const userHome = await rt.real(homedir())
         allowed = ['antigravity-cli', 'antigravity'].some(dir => within(realPath, resolve(userHome, '.gemini', dir, 'brain')))
       }
@@ -901,7 +901,7 @@ export function install(rt) {
     }
   }
 
-  async function mobileEndpoint(endpoint, body) {
+  async function mobileEndpoint(endpoint, body, options) {
     switch (endpoint) {
       case 'hello': return hello(body)
       case 'notices': return notices(body)
@@ -909,7 +909,7 @@ export function install(rt) {
       case 'room-chat': return roomChat(body)
       case 'image': return image(body)
       case 'file-download': return fileDownload(body)
-      case 'markdown-image': return markdownImage(body)
+      case 'markdown-image': return markdownImage(body, options)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })

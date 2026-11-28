@@ -472,13 +472,34 @@ test('IM outbound delivers private and group workspace images, blocks traversal/
   ])
   assert.deepEqual(events[1].bytes, PNG)
 
+  // Antigravity's group reply can attach its generated image outside the workspace.
+  events.length = 0
+  const artifactDir = join(root, '.gemini', 'antigravity-cli', 'brain', 'turn')
+  mkdirSync(artifactDir, { recursive: true })
+  writeFileSync(join(artifactDir, 'generated.png'), PNG)
+  const homeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const previousHome = process.env[homeKey]
+  process.env[homeKey] = root
+  t.after(() => {
+    if (previousHome === undefined) delete process.env[homeKey]
+    else process.env[homeKey] = previousHome
+  })
+  rt.state.bots.b.model = 'local-antigravity/default'
+  rt.logRoom(rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'Generated ![Plot](~/.gemini/antigravity-cli/brain/turn/generated.png)' })
+  await until(() => events.filter(e => e.chat === 'c-grp').length === 2)
+  assert.deepEqual(events.map(e => [e.kind, e.kind === 'text' ? e.text : e.name]), [
+    ['text', '**Writer**: Generated'],
+    ['image', 'generated.png'],
+  ])
+  assert.deepEqual(events[1].bytes, PNG)
+
   // 4. Unpairing mid-staging blocks delivery of both text and images.
   events.length = 0
   let releaseRead
   const origMobile = rt.mobileEndpoint
-  rt.mobileEndpoint = async (endpoint, body) => {
+  rt.mobileEndpoint = async (endpoint, body, options) => {
     if (endpoint === 'markdown-image') await new Promise(resolve => { releaseRead = resolve })
-    return origMobile(endpoint, body)
+    return origMobile(endpoint, body, options)
   }
   await fake.handlers.onMessage({ chat: { key: 'c-dm', kind: 'direct', title: 'Fei' }, sender: { id: 'u1', name: 'Fei' }, text: 'hold', images: [], files: [], mentioned: false, messageId: 'm4' })
   const holdRpc = prompts.at(-1).requestId
