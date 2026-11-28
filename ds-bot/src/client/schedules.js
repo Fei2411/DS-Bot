@@ -344,8 +344,8 @@ export const SCHEDULE_CSS = `
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
-.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
-.bt-task-bot{width:auto;min-width:220px;max-width:58%}
+.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px;max-width:58%}
+.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}
@@ -371,10 +371,17 @@ export const SCHEDULE_CSS = `
 .bt-task-line-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-line-when{flex:none;font-size:12px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
+@container (max-width:440px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
+@media (max-width:768px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */
 @media (max-width:640px){
-  .bt-task-bot{min-width:0;width:100%}
   .bt-task-time{min-width:0;flex:1 1 110px}
   .bt-task-count{width:auto!important;flex:1 1 72px}
 }

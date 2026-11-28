@@ -383,4 +383,6 @@ export const COMPUTER_CSS = `
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
+@container (max-width:440px){.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@media (max-width:768px){.bt-level-pick{width:100%;min-width:0;max-width:100%}}
 `

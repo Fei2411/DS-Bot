@@ -391,3 +391,203 @@ test('Segmented adapts without clipping across narrow/wide panels, services acti
     } finally { await page.close() }
   } finally { await browser.close() }
 })
+
+test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead of squeezing labels into vertical columns', async (t) => {
+  let browser
+  try {
+    browser = await launchBrowser()
+  } catch (error) {
+    if (!process.env.CI && /not found|doesn't exist|not installed/i.test(error.message)) {
+      t.skip('Chromium or Chrome is required for the narrow settings layout regression')
+      return
+    }
+    throw error
+  }
+  const { outputFiles: cssFiles } = await build({
+    stdin: {
+      contents: `
+        import { SHELL_CSS } from './src/client/styles.js'
+        import { MODEL_CSS } from './src/client/model-menu.js'
+        import { FOLDER_CSS } from './src/client/folder-menu.js'
+        import { BOT_SETTINGS_CSS } from './src/client/bot-settings.js'
+        import { GROUP_SETTINGS_CSS } from './src/client/group-settings.js'
+        import { SCHEDULE_CSS } from './src/client/schedules.js'
+        import { IM_CSS } from './src/client/im-page.js'
+        import { COMPUTER_CSS } from './src/client/computer.js'
+        export const SHEETS = [
+          SHELL_CSS,
+          MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS,
+          SCHEDULE_CSS,
+          IM_CSS,
+          COMPUTER_CSS,
+        ]
+      `,
+      resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
+    },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const cssMod = { exports: {} }
+  runInNewContext(cssFiles[0].text, {
+    module: cssMod, exports: cssMod.exports,
+    require: () => ({ createContext: () => ({}), createElement: () => null, Fragment: Symbol('Fragment') }),
+  })
+  const styleTags = cssMod.exports.SHEETS.map(css => `<style>${css}</style>`).join('\n')
+  const cardsMarkup = `
+    <div class="bt-bs">
+      <section class="bt-set-section">
+        <div class="bt-set-card" data-card="profile">
+          <label class="bt-set-row bt-bs-row" id="row-name">
+            <span class="bt-set-copy"><span class="bt-bs-label">名字</span></span>
+            <input class="bt-bs-input" value="新 Bot" />
+          </label>
+          <label class="bt-set-row bt-bs-row" id="row-label">
+            <span class="bt-set-copy"><span class="bt-bs-label">标签</span><span class="bt-set-hint">可选，显示在名字下方。</span></span>
+            <input class="bt-bs-input" placeholder="研究、行政…" value="" />
+          </label>
+          <label class="bt-set-row bt-bs-row" id="row-group-name">
+            <span class="bt-set-copy"><span class="bt-bs-label">名称</span><span class="bt-set-hint">留空则以成员名字命名群聊。</span></span>
+            <input class="bt-bs-input" placeholder="按成员命名" value="" />
+          </label>
+        </div>
+      </section>
+      <section class="bt-set-section">
+        <div class="bt-set-card" data-card="engine">
+          <div class="bt-set-row bt-bs-row" id="row-engine">
+            <span class="bt-set-copy"><span class="bt-bs-label">内置引擎</span></span>
+            <button type="button" class="bt-soft bt-soft-sm">切换</button>
+          </div>
+          <div class="bt-set-row bt-bs-row" id="row-model">
+            <span class="bt-set-copy"><span class="bt-bs-label">模型</span><span class="bt-set-hint">切换模型不会影响对话历史。</span></span>
+            <button type="button" class="bt-model-trigger"><span class="bt-model-copy"><span class="bt-model-name">Codex · routing-default-model</span></span><span class="bt-model-caret">▾</span></button>
+          </div>
+          <div class="bt-set-row bt-bs-row" id="row-preset">
+            <span class="bt-set-copy"><span class="bt-bs-label">Agent 预设</span><span class="bt-set-hint">标准 Agent 预设</span></span>
+            <button type="button" class="bt-sel"><span class="bt-sel-label">默认（标准）</span></button>
+          </div>
+          <div class="bt-set-row bt-bs-row" id="row-computer">
+            <span class="bt-set-copy"><span class="bt-bs-label">电脑使用</span><span class="bt-set-hint">在提供方就绪前，Bot 不会获得电脑工具。</span></span>
+            <button type="button" class="bt-sel bt-level-pick"><span class="bt-sel-label">后台</span></button>
+          </div>
+          <div class="bt-set-row bt-bs-row" id="row-switch">
+            <span class="bt-set-copy"><span class="bt-bs-label">隐私</span><span class="bt-set-hint">仅在自己的文件夹内工作。</span></span>
+            <button type="button" role="switch" aria-checked="false" class="bt-switch"><span class="bt-switch-knob"></span></button>
+          </div>
+        </div>
+      </section>
+      <section class="bt-set-section">
+        <form class="bt-set-card bt-task-form" data-card="task">
+          <div class="bt-set-row bt-bs-row" id="row-task-target">
+            <span class="bt-set-copy"><span class="bt-bs-label">发送给</span></span>
+            <button type="button" class="bt-sel bt-task-bot"><span class="bt-sel-label">Chief of Staff</span></button>
+          </div>
+          <label class="bt-set-row bt-bs-row" id="row-task-name">
+            <span class="bt-set-copy"><span class="bt-bs-label">名称</span></span>
+            <input class="bt-bs-input" placeholder="每日晨报" value="" />
+          </label>
+        </form>
+      </section>
+      <section class="bt-set-section">
+        <div class="bt-set-card bt-im-form" data-card="im">
+          <div class="bt-set-row bt-im-field" id="row-im">
+            <div class="bt-set-copy"><span>Bot Token</span><span class="bt-set-hint">Paste the token from the platform console.</span></div>
+            <div class="bt-set-control bt-im-control"><input class="bt-input" value="token-value" /></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  `
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+    try {
+      await page.setContent(`<!doctype html><html><head>${styleTags}<style>
+        *{animation:none!important;transition:none!important}
+        body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+        .wrap{box-sizing:border-box}
+      </style></head><body data-bt-effects="off">
+        <div id="narrow" class="wrap" style="width:274px">${cardsMarkup}</div>
+        <div id="mid" class="wrap" style="width:460px">${cardsMarkup}</div>
+        <div id="wide" class="wrap" style="width:680px">${cardsMarkup}</div>
+      </body></html>`)
+      const report = await page.evaluate(() => {
+        const inspect = (scopeId) => {
+          const scope = document.getElementById(scopeId)
+          const cards = [...scope.querySelectorAll('.bt-set-card')]
+          const overflowCards = cards.filter(card => card.scrollWidth > card.clientWidth + 1).map(card => card.dataset.card)
+          const rowIds = ['row-name', 'row-label', 'row-group-name', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-task-target', 'row-task-name', 'row-im']
+          const rows = {}
+          for (const id of rowIds) {
+            const row = scope.querySelector(`#${id}`)
+            const card = row.closest('.bt-set-card')
+            const copy = row.querySelector('.bt-set-copy')
+            const label = row.querySelector('.bt-bs-label, .bt-set-copy > span:first-child')
+            const hint = row.querySelector('.bt-set-hint')
+            const control = row.children[1]
+            const cardRect = card.getBoundingClientRect()
+            const rowRect = row.getBoundingClientRect()
+            const copyRect = copy.getBoundingClientRect()
+            const labelRect = label.getBoundingClientRect()
+            const hintRect = hint ? hint.getBoundingClientRect() : null
+            const ctrlRect = control.getBoundingClientRect()
+            rows[id] = {
+              innerW: Math.round(rowRect.width - 32),
+              copyW: Math.round(copyRect.width),
+              labelH: Math.round(labelRect.height),
+              hintH: hintRect ? Math.round(hintRect.height) : 0,
+              ctrlW: Math.round(ctrlRect.width),
+              stacked: ctrlRect.top >= copyRect.bottom - 1,
+              clipped: ctrlRect.right > cardRect.right + 1 || copyRect.right > cardRect.right + 1,
+            }
+          }
+          return { overflowCards, rows }
+        }
+        return { narrow: inspect('narrow'), mid: inspect('mid'), wide: inspect('wide') }
+      })
+
+      assert.deepEqual(report.narrow.overflowCards, [], JSON.stringify(report.narrow))
+      assert.deepEqual(report.mid.overflowCards, [], JSON.stringify(report.mid))
+      assert.deepEqual(report.wide.overflowCards, [], JSON.stringify(report.wide))
+
+      const stackedInNarrow = ['row-name', 'row-label', 'row-group-name', 'row-model', 'row-preset', 'row-computer', 'row-task-target', 'row-task-name', 'row-im']
+      for (const id of stackedInNarrow) {
+        const r = report.narrow.rows[id]
+        assert.equal(r.stacked, true, `narrow ${id} should stack: ${JSON.stringify(r)}`)
+        assert.equal(r.clipped, false, `narrow ${id} clipped: ${JSON.stringify(r)}`)
+        assert.ok(r.copyW >= r.innerW - 2, `narrow ${id} copy width too small: ${JSON.stringify(r)}`)
+        assert.ok(r.ctrlW >= r.innerW - 2, `narrow ${id} control width too small: ${JSON.stringify(r)}`)
+        assert.ok(r.labelH <= 24, `narrow ${id} label wrapped vertically: ${JSON.stringify(r)}`)
+      }
+      assert.ok(report.narrow.rows['row-label'].hintH <= 24, `narrow label hint wrapped excessively: ${JSON.stringify(report.narrow.rows['row-label'])}`)
+      assert.ok(report.narrow.rows['row-group-name'].hintH <= 24, `narrow group name hint wrapped excessively: ${JSON.stringify(report.narrow.rows['row-group-name'])}`)
+
+      for (const id of ['row-engine', 'row-switch']) {
+        const r = report.narrow.rows[id]
+        assert.equal(r.stacked, false, `narrow ${id} should stay horizontal: ${JSON.stringify(r)}`)
+        assert.equal(r.clipped, false, `narrow ${id} clipped: ${JSON.stringify(r)}`)
+        assert.ok(r.copyW >= 120, `narrow ${id} copy squeezed: ${JSON.stringify(r)}`)
+      }
+
+      for (const scopeName of ['mid', 'wide']) {
+        for (const [id, r] of Object.entries(report[scopeName].rows)) {
+          assert.equal(r.stacked, false, `${scopeName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
+          assert.equal(r.clipped, false, `${scopeName} ${id} clipped: ${JSON.stringify(r)}`)
+          assert.ok(r.copyW >= 140, `${scopeName} ${id} copy squeezed: ${JSON.stringify(r)}`)
+          assert.ok(r.labelH <= 24, `${scopeName} ${id} label wrapped vertically: ${JSON.stringify(r)}`)
+        }
+      }
+
+      // Verify stacked narrow input keeps focus ring and accent border instead of being overridden.
+      const focusState = await page.evaluate(() => {
+        document.documentElement.style.setProperty('--bt-accent', 'rgb(77, 107, 254)')
+        document.documentElement.style.setProperty('--bt-line-2', 'rgba(20, 20, 20, 0.15)')
+        const input = document.querySelector('#narrow #row-label input')
+        const idleBorder = getComputedStyle(input).borderTopColor
+        input.focus()
+        const focusedBorder = getComputedStyle(input).borderTopColor
+        return { idleBorder, focusedBorder }
+      })
+      assert.equal(focusState.focusedBorder, 'rgb(77, 107, 254)', JSON.stringify(focusState))
+      assert.notEqual(focusState.focusedBorder, focusState.idleBorder, JSON.stringify(focusState))
+    } finally { await page.close() }
+  } finally { await browser.close() }
+})

@@ -213,7 +213,7 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-x{position:relative;flex:none;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -822,7 +822,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-card>.bt-set-row:first-child,.bt-set-card>:first-child>.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
-.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:break-word}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
@@ -1357,7 +1357,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
+.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
@@ -1531,15 +1531,17 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
    from their own width instead of relying on viewport media queries. */
 @container (max-width:440px){
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control,.bt-set-places .bt-set-control{max-width:none}
+  .bt-set-row .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-motion-seg,.bt-look-seg{min-width:0;width:100%}
   .bt-range{width:100%}
 }
@@ -1575,14 +1577,15 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
