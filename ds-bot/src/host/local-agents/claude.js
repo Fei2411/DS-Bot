@@ -294,6 +294,7 @@ class ClaudeSession {
         } else if (event.subtype === 'compact_boundary') {
           this.compacting = false
           this.emit({ type: 'compaction', status: 'completed' })
+          this.maybeScheduleResultFallback()
         } else if (event.subtype === 'status' && event.status === 'compacting') {
           this.compacting = true
           this.cancelResultTimer()

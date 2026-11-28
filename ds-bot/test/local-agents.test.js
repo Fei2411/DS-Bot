@@ -3028,6 +3028,11 @@ process.stdin.on('data', (chunk) => {
       continue
     }
     send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } })
+    if (text.includes('hang-after-compact')) {
+      send({ type: 'system', subtype: 'status', status: 'compacting' })
+      setTimeout(() => send({ type: 'system', subtype: 'compact_boundary' }), 30)
+      continue
+    }
     if (text.includes('hang-no-result')) {
       // Simulate Claude Code hanging after message_stop with no closing result event.
       continue
@@ -3065,6 +3070,11 @@ process.stdin.on('data', (chunk) => {
   const t4 = await collect(adapter.stream(options('s1', [user('m1', 'first'), user('m2', 'hang-no-result'), user('m3', 'after-hang'), user('m4', 'hang-no-stop')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
   assert.equal(t4.finish?.kind, 'stop')
   assert.match(t4.text, new RegExp(`reply:[\\s\\S]*hang-no-stop:resume=${savedId}`))
+
+  // Turn 5: compact_boundary after message_stop re-arms fallback when result is omitted.
+  const t5 = await collect(adapter.stream(options('s1', [user('m1', 'first'), user('m2', 'hang-no-result'), user('m3', 'after-hang'), user('m4', 'hang-no-stop'), user('m5', 'hang-after-compact')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(t5.finish?.kind, 'stop')
+  assert.match(t5.text, new RegExp(`reply:[\\s\\S]*hang-after-compact:resume=${savedId}`))
 })
 
 test('claude: completes turn without result on clean exit 0 or non-partial assistant fallback (#2382)', async (t) => {
