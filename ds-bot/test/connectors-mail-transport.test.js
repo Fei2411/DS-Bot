@@ -102,6 +102,30 @@ test('an IMAP failure cancels a real nodemailer verification socket', async (t) 
   await closed.promise
 })
 
+test('cancelling verification retires IMAP and closes a stalled SMTP socket', { timeout: 5000 }, async (t) => {
+  const accepted = Promise.withResolvers()
+  const closed = Promise.withResolvers()
+  const server = createServer(socket => {
+    t.after(() => socket.destroy())
+    socket.on('error', () => {})
+    socket.on('close', closed.resolve)
+    accepted.resolve()
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => server.close())
+  const fake = transport()
+  const nodemailer = await import('nodemailer')
+  const controller = new AbortController()
+  const pending = connectImap({
+    ...account, smtp: { host: '127.0.0.1', port: server.address().port, secure: false },
+  }, { signal: controller.signal, modules: { ImapFlow: fake.modules.ImapFlow, nodemailer } })
+  const rejected = assert.rejects(pending, { name: 'TimeoutError' })
+  await accepted.promise
+  controller.abort(new DOMException('Verification timed out', 'TimeoutError'))
+  await Promise.all([rejected, closed.promise])
+  assert.equal(fake.imap.closed, true)
+})
+
 test('a verified SMTP transport opens a fresh socket when sending', async (t) => {
   let connections = 0
   const server = createServer(socket => {

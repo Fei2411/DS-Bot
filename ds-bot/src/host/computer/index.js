@@ -99,6 +99,22 @@ const appendNotice = (result, notice) => {
     : (result.value !== undefined ? [{ type: 'text', text: serializeValue(result.value) }] : [])
   return { ...result, content: [...existing, { type: 'text', text: notice }] }
 }
+const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+
+// Some OpenAI-compatible inference servers decode `cua`'s `params` as a JSON string
+// because its top-level schema uses `oneOf` without `properties`. Unwrap a string
+// `params` that parses to a plain JSON object so schema validation and computerGate
+// receive the object; malformed or non-object strings stay untouched for validation.
+export function normalizeCuaArguments(raw) {
+  if (typeof raw !== 'string') return raw
+  let parsed
+  try { parsed = JSON.parse(raw) } catch { return raw }
+  if (!isPlainObject(parsed) || typeof parsed.params !== 'string') return raw
+  let params
+  try { params = JSON.parse(parsed.params) } catch { return raw }
+  if (!isPlainObject(params)) return raw
+  return JSON.stringify({ ...parsed, params })
+}
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -1196,6 +1212,61 @@ export function install(rt) {
     leases.endSession(sessionId)
     const botId = rt.selfOf(sessionId)
     if (botId !== undefined) settleControl(botId)
+  })
+
+  ctx.on('llm/stream', function normalizeCuaToolCalls(options, next) {
+    if (rt.isCacheAffinityRewritten?.(options) || options.purpose !== undefined || rt.ownRequest?.(options)) return next()
+    if (!isBotAt(options.sessionId) || !Array.isArray(options.tools) || !options.tools.some(tool => tool?.name === 'cua')) return next()
+    return (async function* normalizeCuaStream() {
+      const pending = new Map()
+      const closed = new Set()
+      const drainPending = function* () {
+        for (const [index, call] of pending) {
+          if (call.name !== 'cua') continue
+          const normalized = normalizeCuaArguments(call.arguments)
+          if (normalized !== call.arguments) {
+            yield { type: 'block-end', index, block: { type: 'tool-call', id: call.id, name: 'cua', arguments: normalized } }
+          }
+        }
+        pending.clear()
+      }
+      for await (const chunk of next()) {
+        if (chunk?.type === 'tool-call-delta') {
+          if (!closed.has(chunk.index)) {
+            const existing = pending.get(chunk.index)
+            pending.set(chunk.index, {
+              id: chunk.id || existing?.id || `call-${chunk.index}`,
+              name: chunk.name || existing?.name || '',
+              arguments: (existing?.arguments ?? '') + (chunk.argumentsDelta ?? ''),
+            })
+          }
+          yield chunk
+          continue
+        }
+        if (chunk?.type === 'block-end') {
+          closed.add(chunk.index)
+          pending.delete(chunk.index)
+          if (chunk.block?.type === 'tool-call' && chunk.block.name === 'cua') {
+            const normalized = normalizeCuaArguments(chunk.block.arguments)
+            if (normalized !== chunk.block.arguments) {
+              yield { ...chunk, block: { ...chunk.block, arguments: normalized } }
+              continue
+            }
+          }
+          yield chunk
+          continue
+        }
+        if (chunk?.type === 'finish') {
+          const kind = chunk.reason?.kind
+          if (kind !== 'max-tokens' && kind !== 'error' && kind !== 'aborted') yield* drainPending()
+          else pending.clear()
+          yield chunk
+          continue
+        }
+        yield chunk
+      }
+      yield* drainPending()
+    })()
   })
 
   // ---- Holds: the computer variant of the hand-off card ----

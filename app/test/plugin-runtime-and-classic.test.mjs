@@ -41,6 +41,7 @@ const entryCode = `
   export { extractSchemaFields } from './ui/src/engine-settings.js'
   export { createRetryableLazy, registerEngineSettingsPlugin, useDshSettingsBridge } from './ui/src/engine-settings-bridge.js'
   export { ClassicSidebar, ClassicHeader, AgentEmptyHero } from './ui/src/classic-sidebar.js'
+  export { SidebarFooterActions, SidebarMainPanel, SidebarSlotRows, useSidebarPanel } from './ui/src/sidebar-slots.js'
   export { foregroundApprovalsOf } from './ui/src/approval-dock.js'
   export { CLASSIC_BROWSER_OWNER, createTeam } from './ui/src/team.js'
   export { createLocale, LANGUAGE_STORAGE_KEY } from './ui/src/locale.js'
@@ -62,6 +63,7 @@ const { outputFiles } = await build({
   platform: 'browser',
   write: false,
   logLevel: 'silent',
+  loader: { '.css': 'empty' },
   external: ['react', 'react-dom'],
   plugins: [{
     name: 'chunk4-stubs',
@@ -224,6 +226,156 @@ function findAll(tree, predicate, out = []) {
   return out
 }
 
+test('slot capability probes wait for declarations and clean up with the declaration', () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const name = 'example.panel'
+  const spec = { kind: 'list', scope: 'root' }
+  const calls = []
+  assert.equal(slots.spec(name), undefined)
+  assert.equal(slots.entries(name).length, 0)
+  slots.inject(name, () => assert.fail('disposed waiter fired'))()
+  const stop = slots.inject(name, function* () {
+    calls.push('start')
+    yield () => calls.push('first')
+    yield slots.register({ name, id: 'example', order: 10, label: 'Example' }, () => null)
+    yield () => calls.push('last')
+  })
+  assert.equal(calls.length, 0)
+  const first = slots.declare(name, spec)
+  assert.equal(slots.spec(name), spec)
+  const [entry] = slots.entries(name)
+  assert.equal(entry.options.id, 'example')
+  assert.equal(entry.options.order, 10)
+  assert.equal(entry.options.label, 'Example')
+  assert.equal(typeof entry.component, 'function')
+  first()
+  assert.equal(slots.entries(name).length, 0)
+  assert.equal(slots.spec(name), undefined)
+  const second = slots.declare(name, spec)
+  first()
+  assert.equal(slots.entries(name).length, 1)
+  stop()
+  stop()
+  second()
+  assert.deepEqual(calls, ['start', 'last', 'first', 'start', 'last', 'first'])
+})
+
+test('plugin slot registrations are scoped and unsupported slots allow settings fallback', () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const runtime = mod.createPluginRuntime({ slots })
+  const View = ({ message, surfaceMode } = {}) => ({ type: 'view', props: { children: [message, surfaceMode] } })
+  runtime.provide('slots', slots)
+  const unload = runtime.use({ id: 'sidebar-plugin', inject: ['slots'] }, (ctx) => {
+    const service = ctx.get('slots')
+    assert.equal(service, ctx.slots)
+    assert.equal(service.list('settings.section').length, 0)
+    assert.equal(service.resolve('settings.section'), undefined)
+    assert.equal(service.resolveEntry('settings.section'), undefined)
+    let updates = 0
+    ctx.effect(() => service.subscribe('settings.section', () => { updates += 1 }))
+    assert.equal(ctx.slots.spec('sidebar.panellist').kind, 'list')
+    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'view' }, View))
+    ctx.slots.inject('plugins.tab', () => assert.fail('unsupported slot fired'))
+    ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section',
+      id: 'view',
+      label: 'Plugin settings',
+      inject: () => ({ message: 'Injected content' }),
+    }, View))
+    assert.equal(service.list('settings.section').length, 1)
+    assert.equal(service.resolve('settings.section'), View)
+    assert.equal(service.resolveEntry('settings.section').component, View)
+    assert.equal(updates, 1)
+  })
+  assert.equal(runtime.getSnapshot()[0].status, 'active')
+  assert.equal(slots.entries('sidebar.panellist')[0].pluginId, 'sidebar-plugin')
+  assert.equal(slots.entries('settings.section')[0].component, View)
+  const Settings = () => {
+    const bridge = mod.useDshSettingsBridge(slots, { runtime, surfaceMode: 'agent' })
+    return {
+      type: 'settings',
+      props: { children: [bridge.sections[0]?.label, bridge.renderSlot('settings.section', {}, { only: 'view' })] },
+    }
+  }
+  const settings = renderTree(Settings)
+  assert.equal(settings.props.children[0], 'Plugin settings')
+  const [view] = findAll(settings, node => node.type === 'view')
+  assert.deepEqual(view.props.children, ['Injected content', 'agent'])
+  unload()
+  assert.equal(slots.entries('sidebar.panellist').length, 0)
+  assert.equal(slots.entries('settings.section').length, 0)
+  assert.deepEqual(renderTree(Settings).props.children, [undefined, null])
+
+  runtime.use({ id: 'broken-sidebar' }, (ctx) => {
+    ctx.slots.inject('sidebar.panellist', function* () {
+      yield ctx.slots.register({ name: 'sidebar.panellist', id: 'broken' }, View)
+      throw new Error('bad sidebar')
+    })
+  })
+  assert.equal(runtime.getSnapshot()[0].status, 'error')
+  assert.equal(runtime.getSnapshot()[0].error, 'bad sidebar')
+  assert.equal(slots.entries('sidebar.panellist').length, 0)
+
+  runtime.use({ id: 'delayed-sidebar' }, (ctx) => {
+    ctx.slots.inject('example.delayed', function* () {
+      yield ctx.slots.register({ name: 'example.delayed', id: 'broken' }, View)
+      throw new Error('bad delayed sidebar')
+    })
+  })
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'delayed-sidebar').status, 'active')
+  slots.declare('example.delayed', { kind: 'list', scope: 'root' })
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'delayed-sidebar').error, 'bad delayed sidebar')
+  assert.equal(slots.entries('example.delayed').length, 0)
+})
+
+test('sidebar slots render ordered rows, keyed panels and footer actions with owner props', () => {
+  const { mod } = loadMod()
+  const registry = mod.createSlotRegistry()
+  const select = []
+  const props = { registry, onSelectPanel: id => select.push(id) }
+  assert.equal(renderTree(mod.SidebarSlotRows, props), null)
+  assert.equal(renderTree(mod.SidebarFooterActions, props), null)
+  const inspect = marker => ({ wide, size, active, injected }) => ({
+    type: 'span', props: { marker, wide, size, active, injected, children: [] },
+  })
+  registry.register({ name: 'sidebar.panellist', id: 'one', label: () => 'First panel', order: 1 }, inspect('icon'))
+  registry.register({ name: 'sidebar.panellist', id: 'direct', order: 2 }, inspect('direct'))
+  registry.register({ name: 'sidebar.entry', id: 'entry' }, inspect('entry'))
+  registry.register({ name: 'sidebar.footer.action', id: 'action', inject: () => ({ wide: true, injected: 'ready' }) }, inspect('footer'))
+  registry.register({ name: 'sidebar.footer.action', id: 'bad', order: 1 }, () => { throw new Error('broken view') })
+  const dropPanel = registry.register({ name: 'main', key: 'one' }, inspect('panel'))
+
+  const tree = renderTree(mod.SidebarSlotRows, { ...props, wide: true, activePanel: 'one' })
+  const row = findAll(tree, n => n.props['aria-label'] === 'First panel')[0]
+  assert.equal(row.props['aria-current'], 'page')
+  row.props.onClick()
+  assert.deepEqual(select, ['one'])
+  const [icon, direct, entry] = findAll(tree, n => n.props.marker)
+  assert.equal(icon.props.size, 16)
+  assert.equal(icon.props.active, true)
+  assert.equal(direct.props.marker, 'direct')
+  assert.equal(entry.props.wide, true)
+
+  const footer = renderTree(mod.SidebarFooterActions, { registry, wide: false })
+  const [action] = findAll(footer, n => n.props.marker === 'footer')
+  assert.equal(action.props.wide, false, 'owner props take precedence')
+  assert.equal(action.props.injected, 'ready')
+  assert.equal(findAll(footer, n => n.props.role === 'alert').length, 1)
+
+  const Panel = ({ id }) => {
+    const entry = mod.useSidebarPanel(registry, id)
+    return entry ? react.createElement(mod.SidebarMainPanel, { entry, onClose: () => select.push(null) }) : null
+  }
+  const panel = renderTree(Panel, { id: 'one' })
+  assert.equal(findAll(panel, n => n.props.marker === 'panel').length, 1)
+  findAll(panel, n => n.type === 'button')[0].props.onClick()
+  assert.deepEqual(select, ['one', null])
+  dropPanel()
+  assert.equal(renderTree(Panel, { id: 'one' }), null)
+})
+
 test('Cordis-style plugin runtime handles provide/inject lifecycle, themes, slots, fault isolation, and retry', async () => {
   const { mod } = loadMod()
   const slots = mod.createSlotRegistry()
@@ -367,6 +519,23 @@ test('extractSchemaFields decodes Schemastery toJSON graphs including enums, nes
   assert.equal(fields.find(f => f.path[0] === 'mode').options.length, 2)
   assert.equal(fields.find(f => f.path[0] === 'apiKey').isSet, true)
   assert.equal(fields.find(f => f.path.join('.') === 'nested.timeout').value, 45)
+})
+
+test('Settings section labels resolve callbacks and fall back to IDs if there is no label', () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const View = () => null
+  let label = 'Callback label'
+  slots.register({ name: 'settings.section', id: 'callback', label: () => label }, View)
+  slots.register({ name: 'settings.section', id: 'unlabeled' }, View)
+  slots.register({ name: 'settings.section', id: 'broken-label', label: () => { throw new Error('bad label') } }, View)
+  const Probe = () => {
+    const bridge = mod.useDshSettingsBridge(slots)
+    return { type: 'probe', props: { children: bridge.sections.map(section => section.label) } }
+  }
+  assert.deepEqual(Array.from(renderTree(Probe).props.children), ['Callback label', 'unlabeled', 'broken-label'])
+  label = 'Updated label'
+  assert.equal(renderTree(Probe).props.children[0], 'Updated label')
 })
 
 test('Engine settings plugin registers all sections + language item, and AppearancePage disables Window material when a background is set', () => {

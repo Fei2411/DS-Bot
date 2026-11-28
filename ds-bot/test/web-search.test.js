@@ -384,6 +384,7 @@ test('each outcome keeps its endpoint from being retried for its own time', asyn
   const cases = [
     ['HTTP 404', () => json({ error: { message: 'Not Found' } }, 404), 24 * HOUR],
     ['HTTP 405', () => json({}, 405), 24 * HOUR],
+    ['HTTP 405', () => json({ error: { code: 'model_not_found' } }, 405), 30 * MINUTE],
     ['HTTP 400', () => json({ error: { message: 'web search tool found in the request body, but webSearchEnabled is false' } }, 400), 30 * MINUTE],
     ['HTTP 422', () => json({}, 422), 30 * MINUTE],
     ['HTTP 401', () => json({ error: { message: 'Invalid Authentication' } }, 401), 30 * MINUTE],
@@ -403,6 +404,36 @@ test('each outcome keeps its endpoint from being retried for its own time', asyn
     await provider.search({ query: 'q' })
     assert.equal(calls.fetch.length, 2, label)
   }
+})
+
+test('a gateway model_not_found on a search tool probe gets the shorter rejection backoff', async () => {
+  let clock = 0
+  const { provider, calls } = harness({
+    route: { ...ACME, api: 'openai-completions' },
+    keys: { ACME_KEY: 'k' },
+    now: () => clock,
+    fetch: (url, init) => {
+      if (url.endsWith('/responses')) return json({ output: [{ type: 'reasoning' }, { type: 'message' }] })
+      assert.deepEqual(JSON.parse(init.body).tools, [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }])
+      return clock < 30 * MINUTE
+        ? json({ type: 'error', error: { type: 'not_found_error', code: 'model_not_found', message: 'The requested model was not found.' } }, 404)
+        : json(MESSAGES_HIT)
+    },
+  })
+  const first = await provider.search({ query: 'q' })
+  assert.match(first.content, /Search backend: keyless fallback/)
+  assert.match(first.content, /search tool request rejected \(model_not_found, HTTP 404: The requested model was not found\.\)/)
+  assert.deepEqual(urls(calls), [`${ACME.baseURL}/responses`, `${ACME.baseURL}/messages`])
+
+  clock = 29 * MINUTE
+  await provider.search({ query: 'q' })
+  assert.equal(calls.fetch.length, 2)
+
+  clock = 30 * MINUTE
+  const retried = await provider.search({ query: 'q' })
+  assert.equal(urls(calls).at(-1), `${ACME.baseURL}/messages`)
+  assert.equal(calls.fetch.length, 3)
+  assert.match(retried.content, /Search backend: native search/)
 })
 
 test('server errors, rate limits, timeouts, and cut-off answers are not remembered', async () => {

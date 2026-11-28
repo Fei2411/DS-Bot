@@ -252,26 +252,59 @@ test('Antigravity with unknown sign-in renders its logo, Sign in button, no stat
   assert.deepEqual(written, ['agy acp --login'])
 })
 
-test('Antigravity uses only a positive macOS Keychain lookup as sign-in evidence', async (t) => {
+test('Antigravity detects sign-in via macOS Keychain or acp_token.json fallback (#2479)', async (t) => {
   const { signedIn } = ENGINES['local-antigravity']
   const agy = '/bench/bin/agy'
+  const root = mkdtempSync(join(tmpdir(), 'dsb-antigravity-signin-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const emptyHome = join(root, 'empty')
   const fromExit = code => t.mock.fn((_file, _args, options) => spawn(process.execPath, ['-e', `process.exit(${code})`], options))
   const hit = fromExit(0)
   const miss = fromExit(44) // security returns 44 for an item not found.
-  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: hit }), true)
+  assert.equal(await probeSignIn(agy, signedIn, { home: emptyHome, platform: 'darwin', spawnKeychain: hit }), true)
   const [file, args, options] = hit.mock.calls[0].arguments
   assert.equal(file, '/usr/bin/security')
   assert.deepEqual(args, ['find-generic-password', '-s', 'gemini', '-a', 'antigravity'])
   assert.equal(options.stdio, 'ignore')
-  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: miss }), null)
+  assert.equal(await probeSignIn(agy, signedIn, { home: emptyHome, platform: 'darwin', spawnKeychain: miss }), null)
 
   const unavailable = t.mock.fn((_file, _args, options) => spawn(join(process.execPath, 'missing'), [], options))
-  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: unavailable }), null)
+  assert.equal(await probeSignIn(agy, signedIn, { home: emptyHome, platform: 'darwin', spawnKeychain: unavailable }), null)
 
   for (const platform of ['linux', 'win32']) {
-    assert.equal(await probeSignIn(agy, signedIn, { platform, spawnKeychain: hit }), null)
+    assert.equal(await probeSignIn(agy, signedIn, { home: emptyHome, platform, spawnKeychain: hit }), null)
   }
   assert.equal(hit.mock.callCount(), 1)
+
+  const home = join(root, 'home')
+  const tokenFile = join(home, '.gemini', 'antigravity-acp', 'acp_token.json')
+  mkdirSync(dirname(tokenFile), { recursive: true })
+  for (const invalid of [
+    '',
+    'not json',
+    'null',
+    '[]',
+    '{}',
+    '{"access_token":"at-only"}',
+    '{"refresh_token":""}',
+    '{"refresh_token":"   "}',
+    '{"refresh_token":123}',
+    '{"refresh_token":true}',
+    '{"refresh_token":{}}',
+    '{"refresh_token":[]}',
+    '{"refresh_token":null}',
+  ]) {
+    writeFileSync(tokenFile, invalid)
+    assert.equal(await probeSignIn(agy, signedIn, { home, platform: 'win32', spawnKeychain: hit }), null, `rejects ${invalid}`)
+  }
+
+  writeFileSync(tokenFile, JSON.stringify({ refresh_token: 'rt-antigravity', access_token: 'at-antigravity' }))
+  assert.equal(await probeSignIn(agy, signedIn, { home, platform: 'win32', spawnKeychain: hit }), true)
+  assert.equal(await probeSignIn(agy, signedIn, { home, platform: 'linux', spawnKeychain: hit }), true)
+  assert.equal(await probeSignIn(agy, signedIn, { home, platform: 'darwin', spawnKeychain: miss }), true)
+  assert.equal(hit.mock.callCount(), 1, 'non-darwin platforms never invoke macOS Keychain')
+
+  assert.equal(await probeSignIn(agy, signedIn, { home, platform: 'win32', isolated: true, spawnKeychain: hit }), null, 'isolated profile never falls back to global acp_token.json')
 })
 
 test('CodeBuddy Code is signed in while its session file holds a login and it has not logged out (#1835)', async (t) => {
