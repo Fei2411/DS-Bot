@@ -105,6 +105,7 @@ const sandbox = {
   Node,
   Event,
   TextEncoder,
+  AbortController,
   URL,
   Blob,
   setTimeout,
@@ -504,6 +505,55 @@ test('file and folder references parse cleanly with no false positives and open 
     assert.deepEqual(plain(uOpened), [{ path: 'README.md' }])
   } finally {
     uView.unmount()
+  }
+})
+
+test('desktop Bot replies load local Markdown images through the session-scoped endpoint', async () => {
+  const paths = ['sample.png', '/repo/sample.png', 'file:///repo/sample%20image.png', '../outside.png']
+  const bytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='
+  const requests = []
+  const previousCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint !== 'markdown-image') return {}
+    requests.push(plain(body))
+    if (body.path === '../outside.png') throw new Error('Image outside workspace')
+    return { mime: 'image/png', bytes }
+  }
+  const text = [
+    ...paths.map((path, i) => `![Local ${i}](${path})`),
+    '![Remote](https://example.com/sample.png)',
+    '![Data](data:image/png;base64,AAAA)',
+    '![Blocked](javascript:alert(1))',
+  ].join('\n\n')
+  const log = {
+    header: { cwd: '/repo' },
+    events: [
+      { seq: 1, time: 1000, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text }] } } },
+    ],
+    writing: null,
+  }
+  const bot = { id: 'b1', name: 'Chief' }
+  const roster = { bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 's1', bot, roster, actions: { openFile() {} },
+  }))
+  try {
+    await flush()
+    assert.deepEqual(requests, paths.map(path => ({ sessionId: 's1', path })))
+    const sources = Object.fromEntries(Array.from(view.host.querySelectorAll('img'))
+      .map(img => [img.getAttribute('alt'), img.getAttribute('src')]))
+    assert.deepEqual(sources, {
+      'Local 0': `data:image/png;base64,${bytes}`,
+      'Local 1': `data:image/png;base64,${bytes}`,
+      'Local 2': `data:image/png;base64,${bytes}`,
+      'Local 3': null,
+      Remote: 'https://example.com/sample.png',
+      Data: null,
+      Blocked: null,
+    })
+  } finally {
+    view.unmount()
+    sandbox.__testCall = previousCall
   }
 })
 
