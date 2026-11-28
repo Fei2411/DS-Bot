@@ -52,6 +52,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
   && a.streaming === b.streaming
   && a.lang === b.lang
   && a.sessionId === b.sessionId
+  && a.anchor === b.anchor
   && a.turn === b.turn
   && a.msgKey === b.msgKey
   && a.useUi === b.useUi
@@ -69,7 +70,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, turn, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole, time, textInteractionSource }) {
+export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, anchor = true, turn, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -80,7 +81,7 @@ export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, s
   const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
   const useReadUi = useUi ?? useNullUi
   const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
-  return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, ...messageAnchor(sessionId, turn), onClickCapture: onClick },
+  return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, ...(anchor ? messageAnchor(sessionId, turn) : undefined), onClickCapture: onClick },
     cleaned.map((text, index) => {
       const first = index === 0
       const last = index === cleaned.length - 1
@@ -525,7 +526,7 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
     filesOnly
       ? (flat ? fileCards : h('div', { className: 'bt-pfiles-row' }, lead, fileCards))
       : h(Fragment, null,
-        h(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true }),
+        h(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, anchor: anchorSessionId === undefined, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true }),
         fileCards),
     changes === undefined ? null : h(ChangesCard, { changes, actions }),
     claimLines(claims).map(line => h('div', { key: line.kind + line.text, className: `bt-claim bt-claim-${line.kind}`, role: 'status', title: line.detail ?? undefined }, line.text)))

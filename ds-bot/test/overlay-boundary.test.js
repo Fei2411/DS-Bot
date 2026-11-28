@@ -48,6 +48,7 @@ function createRuntime() {
     useLayoutEffect() {},
     useCallback: fn => fn,
     useMemo: fn => fn(),
+    memo: component => component,
     useId: () => 'id',
     useState(initial) {
       const key = `${activeKey}:s:${hookIndex++}`
@@ -134,6 +135,7 @@ function createRuntime() {
 }
 
 const bundleCode = await loadBundle(`
+  export { GroupMessage } from './src/client/cells.js'
   export { CommandPalette } from './src/client/palette.js'
   export { OverlayBoundary } from './src/client/overlay-boundary.js'
   export { Overlays } from './src/client/overlays.js'
@@ -142,6 +144,18 @@ const bundleCode = await loadBundle(`
   export { createSource, EMPTY_ROSTER } from './src/client/sources.js'
   export { clientErrors, clearClientErrors } from './src/client/diagnostics.js'
 `)
+
+test('a group reply exposes one message jump anchor in its owning session', () => {
+  const { react, render } = createRuntime()
+  const { GroupMessage, EMPTY_ROSTER } = loadModule(react)
+  const bot = { id: 'writer', name: 'Writer', color: 'blue' }
+  const tree = render(react.createElement(GroupMessage, {
+    bot, roster: EMPTY_ROSTER, actions: {}, text: 'Older reply',
+    sessionId: 'room-part', anchorSessionId: 'room-part',
+  }))
+  const matches = collect(tree, node => node.props?.['data-bt-message-session'] === 'room-part')
+  assert.deepEqual(matches.map(node => node.props.className), ['bt-group-msg'])
+})
 
 test('command palette opens a message hit with its turn and snippet', () => {
   const { react, render } = createRuntime()

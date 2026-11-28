@@ -45935,8 +45935,8 @@ var ASSISTANT_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "pr
 var TRIGGER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "prefs", "closedCards"];
 var TOOL_ROSTER_FIELDS = ["bots", "byId", "rooms", "roomsById", "exchangeTurns", "prefs", "closedCards", "questions", "views", "secrets", "secretRequests", "connectors", "connectorRequests", "mailRequests", "browser", "computer"];
 var sameStringList = (a, b2) => a === b2 || Array.isArray(a) && Array.isArray(b2) && a.length === b2.length && a.every((item, i) => item === b2[i]);
-var sameBubbles = (a, b2) => sameStringList(a.texts, b2.texts) && a.selfId === b2.selfId && a.actions === b2.actions && a.streaming === b2.streaming && a.lang === b2.lang && a.sessionId === b2.sessionId && a.turn === b2.turn && a.msgKey === b2.msgKey && a.useUi === b2.useUi && a.lead === b2.lead && a.mentions === b2.mentions && a.fold === b2.fold && a.whole === b2.whole && a.time === b2.time && a.textInteractionSource === b2.textInteractionSource && a.roster?.bots === b2.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b2.roster?.byId?.[b2.selfId]?.name;
-var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, turn, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole: whole2, time, textInteractionSource }) {
+var sameBubbles = (a, b2) => sameStringList(a.texts, b2.texts) && a.selfId === b2.selfId && a.actions === b2.actions && a.streaming === b2.streaming && a.lang === b2.lang && a.sessionId === b2.sessionId && a.anchor === b2.anchor && a.turn === b2.turn && a.msgKey === b2.msgKey && a.useUi === b2.useUi && a.lead === b2.lead && a.mentions === b2.mentions && a.fold === b2.fold && a.whole === b2.whole && a.time === b2.time && a.textInteractionSource === b2.textInteractionSource && a.roster?.bots === b2.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b2.roster?.byId?.[b2.selfId]?.name;
+var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, anchor = true, turn, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole: whole2, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -45949,7 +45949,7 @@ var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, s
   const reactions = useReadUi((state) => msgKey ? state.reactions?.[msgKey] ?? null : null);
   return (0, import_react39.createElement)(
     "div",
-    { className: "bt-astack", "data-lead": lead ? "" : void 0, ...messageAnchor(sessionId, turn), onClickCapture: onClick },
+    { className: "bt-astack", "data-lead": lead ? "" : void 0, ...anchor ? messageAnchor(sessionId, turn) : void 0, onClickCapture: onClick },
     cleaned.map((text, index) => {
       const first = index === 0;
       const last = index === cleaned.length - 1;
@@ -46400,7 +46400,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
     filesOnly ? flat ? fileCards : (0, import_react39.createElement)("div", { className: "bt-pfiles-row" }, lead, fileCards) : (0, import_react39.createElement)(
       import_react39.Fragment,
       null,
-      (0, import_react39.createElement)(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole: whole2, textInteractionSource: true }),
+      (0, import_react39.createElement)(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, anchor: anchorSessionId === void 0, msgKey, useUi, lead: flat ? null : lead, whole: whole2, textInteractionSource: true }),
       fileCards
     ),
     changes === void 0 ? null : (0, import_react39.createElement)(ChangesCard, { changes, actions }),
