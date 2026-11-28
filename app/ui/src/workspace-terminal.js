@@ -636,6 +636,7 @@ export function WorkspaceTerminal({
   feed,
   readOnly = false,
   autoOpenNonce = 0,
+  onConsumeAutoOpenNonce = null,
   active: paneVisible = true,
   focusNonce: externalFocusNonce = 0,
   onConsumeFocusNonce = null,
@@ -647,8 +648,12 @@ export function WorkspaceTerminal({
   const consumedFocusNonceRef = useRef(0)
   const lastExternalFocusRef = useRef(0)
   const pendingExternalFocusRef = useRef(0)
+  const paneVisibleRef = useRef(paneVisible)
+  paneVisibleRef.current = paneVisible
   const onConsumeFocusNonceRef = useRef(onConsumeFocusNonce)
   onConsumeFocusNonceRef.current = onConsumeFocusNonce
+  const onConsumeAutoOpenNonceRef = useRef(onConsumeAutoOpenNonce)
+  onConsumeAutoOpenNonceRef.current = onConsumeAutoOpenNonce
   const tabsRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
@@ -870,7 +875,7 @@ export function WorkspaceTerminal({
       pendingExitRef.current.delete(created.id)
       knownIdsRef.current.add(created.id)
       if ((pendingExit?.end ?? 0) > (positionsRef.current.get(created.id) ?? 0)) requestSync()
-      if (focus) {
+      if (focus && paneVisibleRef.current) {
         setFocusRequest(prev => ({ nonce: prev.nonce + 1, targetId: created.id }))
       }
       setState((current) => {
@@ -913,9 +918,14 @@ export function WorkspaceTerminal({
 
   // Triggered explicitly when the user selects "Terminal" from a menu.
   useEffect(() => {
-    if (!autoOpenNonce || autoOpenNonce === lastAutoNonceRef.current || readOnly) return
+    if (!autoOpenNonce) {
+      lastAutoNonceRef.current = 0
+      return
+    }
+    if (autoOpenNonce === lastAutoNonceRef.current || readOnly) return
     lastAutoNonceRef.current = autoOpenNonce
     openedOnceRef.current = true
+    onConsumeAutoOpenNonceRef.current?.(autoOpenNonce)
     void openNew({ focus: true })
   }, [autoOpenNonce, readOnly, openNew])
 
@@ -1026,7 +1036,7 @@ export function WorkspaceTerminal({
     api?.focus()
   }
 
-  return h('div', { className: 'dsb-term' },
+  return h('div', { className: 'dsb-term', 'data-session-id': sessionId || undefined },
     h('div', { className: 'dsb-term-bar' },
       h('div', { ref: tabsRef, className: 'dsb-term-tabs', role: 'tablist' },
         terms.map((term, idx) => h('div', {

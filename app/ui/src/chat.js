@@ -672,15 +672,23 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [text])
+  const mountedFocusRef = useRef(false)
   useEffect(() => {
+    const isMount = !mountedFocusRef.current
+    mountedFocusRef.current = true
     if (disabled) return
     if (typeof document !== 'undefined') {
       if (document.querySelector?.('[aria-modal="true"]')) return
       const activeEl = document.activeElement
       if (activeEl && activeEl !== document.body && activeEl !== document.documentElement && activeEl !== field.current
-        && typeof activeEl.closest === 'function'
-        && activeEl.closest('.dsb-term, textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
-        return
+        && typeof activeEl.closest === 'function') {
+        const activeTerm = activeEl.closest('.dsb-term')
+        const staleOtherTerm = isMount && activeTerm && sessionId
+          && activeTerm.getAttribute?.('data-session-id')
+          && activeTerm.getAttribute('data-session-id') !== sessionId
+        if (!staleOtherTerm && activeEl.closest('.dsb-term, textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+          return
+        }
       }
     }
     field.current?.focus?.()

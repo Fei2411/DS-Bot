@@ -949,6 +949,9 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
   const openWorkspaceFile = useCallback((path) => {
     actions.openFile?.(path)
   }, [actions])
+  const consumeAutoOpenNonce = useCallback((nonce) => {
+    actions.consumeTerminalNonce?.(nonce)
+  }, [actions])
 
   // Load workspace file contents whenever a preview tab is open and `panel.file` or retry updates.
   useEffect(() => {
@@ -1039,6 +1042,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
           feed,
           readOnly,
           autoOpenNonce: terminalNonce,
+          onConsumeAutoOpenNonce: consumeAutoOpenNonce,
           active: visible && activeTab === 'terminal',
           focusNonce: terminalFocusNonce,
           onConsumeFocusNonce: onConsumeTerminalFocus,
