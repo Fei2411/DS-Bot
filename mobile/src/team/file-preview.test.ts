@@ -67,6 +67,15 @@ test('DOCX reads body headings, line breaks and tables without loading relations
   assert.deepEqual(result, { kind: 'html', content: '<h1>Field &amp; office notes</h1><p>First<br>Second</p><table><tbody><tr><td><p>Table cell</p></td></tr></tbody></table>' })
 })
 
+test('DOCX previews show the destination and omit the source of tracked moves', async () => {
+  const doc = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+    <w:p><w:moveFrom w:id="1"><w:r><w:t>Moved text</w:t></w:r></w:moveFrom><w:r><w:t>Original paragraph</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Destination: </w:t></w:r><w:moveTo w:id="2"><w:r><w:t>Moved text</w:t></w:r></w:moveTo></w:p>
+    </w:body></w:document>`
+  const result = await preview({ name: 'Notes.docx', seq: 1 }, zipSync({ 'word/document.xml': strToU8(doc) }))
+  assert.deepEqual(result, { kind: 'html', content: '<p>Original paragraph</p><p>Destination: Moved text</p>' })
+})
+
 test('plain text stays literal and unsupported formats remain share-only', async () => {
   const requests: object[] = []
   assert.deepEqual(await preview({ name: 'Notes.txt', attachmentId: 'file-id' }, '\uFEFF<script>plain text</script>', requests),

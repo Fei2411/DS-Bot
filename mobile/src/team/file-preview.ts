@@ -120,7 +120,7 @@ function docxBody(archive: Uint8Array) {
       case 't': return node.children.map(child => child.type === 'text' ? escapeText(child.data) : '').join('')
       case 'br': case 'cr': return '<br>'
       case 'tab': return ' '
-      case 'body': case 'r': case 'hyperlink': case 'ins': case 'sdt': case 'sdtContent': return renderChildren()
+      case 'body': case 'r': case 'hyperlink': case 'ins': case 'moveTo': case 'sdt': case 'sdtContent': return renderChildren()
       case 'p': {
         const props = node.children.find(child => DomUtils.isTag(child) && child.name === `${prefix}pPr`)
         const style = props && DomUtils.isTag(props) ? props.children.find(child => DomUtils.isTag(child) && child.name === `${prefix}pStyle`) : undefined
