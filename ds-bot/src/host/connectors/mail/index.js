@@ -871,7 +871,12 @@ export function install(rt, host) {
 const GMAIL_TIMEOUT_CODES = new Set(['ETIMEOUT', 'ETIMEDOUT', 'CONNECT_TIMEOUT', 'GREETING_TIMEOUT', 'UPGRADE_TIMEOUT'])
 const GMAIL_NETWORK_CODES = new Set([
   'EAI_AGAIN', 'EDNS', 'ENOTFOUND', 'ENETDOWN', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED',
-  'ECONNRESET', 'ECONNECTION', 'ESOCKET', 'ETLS', 'NoConnection', 'EConnectionClosed',
+  'ECONNRESET', 'ECONNECTION', 'ESOCKET', 'NoConnection', 'EConnectionClosed',
+])
+const GMAIL_TLS_CODES = new Set([
+  'ETLS', 'ERR_TLS_CERT_ALTNAME_INVALID', 'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'CERT_UNTRUSTED',
+  'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
 ])
 
 function gmailVerifyError(error) {
@@ -884,6 +889,9 @@ function gmailVerifyError(error) {
   }
   if (error?.authenticationFailed === true || error?.code === 'EAUTH' || error?.responseCode === 534 || error?.responseCode === 535) {
     return diagnostic('auth', 'Gmail refused the sign-in. Check your Gmail app password and try again.')
+  }
+  if (GMAIL_TLS_CODES.has(error?.code) || GMAIL_TLS_CODES.has(error?.originalCode)) {
+    return diagnostic('network', 'Could not establish a secure connection to Gmail. Check your network or proxy settings and try again.')
   }
   if (GMAIL_NETWORK_CODES.has(error?.code)) {
     return diagnostic('network', 'Could not reach Gmail. Check your network, firewall, or proxy and try again.')

@@ -768,6 +768,8 @@ test('Gmail Add distinguishes reachability from authentication without exporting
 
   for (const [fields, category, hint] of [
     [{ code: 'ENETUNREACH' }, 'network', /check.*network.*proxy/i],
+    [{ code: 'SELF_SIGNED_CERT_IN_CHAIN' }, 'network', /secure connection.*check.*network.*proxy/i],
+    [{ code: 'ESOCKET', originalCode: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }, 'network', /secure connection.*check.*network.*proxy/i],
     [{ code: 'ETIMEOUT' }, 'timeout', /timed out.*check.*network.*proxy/i],
     [{ code: 'GREETING_TIMEOUT' }, 'timeout', /timed out/i],
     [{ code: 'EAUTH', responseCode: 534, response: `534-5.7.14 Sign in via your web browser: ${raw}` }, 'auth', /sign in to google in your browser/i],
@@ -787,7 +789,7 @@ test('Gmail Add distinguishes reachability from authentication without exporting
     assert.doesNotMatch(JSON.stringify(result), /private-/)
   }
   const entries = (await rt.diagnostics.entries()).filter(row => row.text.includes('Gmail Add verification failed'))
-  assert.equal(entries.length, 8)
+  assert.equal(entries.length, 10)
   assert.doesNotMatch(JSON.stringify(entries), /private-/)
   assert.deepEqual(rt.mailView().accounts, [])
   assert.equal(rt.secretValue(mailSecretName(address, 'PASSWORD')), undefined)
