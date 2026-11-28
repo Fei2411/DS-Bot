@@ -926,3 +926,91 @@ test('BotViews ignores did-stop-loading emitted during eviction/close and preser
   assert.equal(navResolved, true)
   assert.equal(await manager2.operate('a', 'read', { tabId: 'T2', script: 'ok' }), 'http://127.0.0.1:43118/2-new:ok')
 })
+
+test('Bot browser views never steal focus over CDP and return focus to main window when hidden, covered, or closed', async t => {
+  const { manager, views, setWindow } = fixture()
+  t.after(() => manager.dispose())
+  let mainFocusCalls = 0
+  let windowFocused = true
+  const added = []
+  const removed = []
+  setWindow({
+    isFocused: () => windowFocused,
+    webContents: {
+      getZoomFactor: () => 1,
+      isDestroyed: () => false,
+      focus: () => { mainFocusCalls += 1 },
+    },
+    contentView: {
+      addChildView(view) { added.push(view) },
+      removeChildView(view) { removed.push(view) },
+    },
+  })
+
+  const entry = manager.create('a', { tabId: 'T1' })
+  let view1FocusCalls = 0
+  let view1Focused = false
+  views[0].webContents.focus = () => { view1FocusCalls += 1; view1Focused = true }
+  views[0].webContents.isFocused = () => view1Focused
+
+  // CDP createTarget & activateTarget must never steal native focus from the composer.
+  const endpoint = await manager.endpoint('a')
+  const socket = await openSocket(endpoint)
+  t.after(() => socket.close())
+  const created = await request(socket, 1, 'Target.createTarget', { url: 'about:blank' })
+  let view2FocusCalls = 0
+  views[1].webContents.focus = () => { view2FocusCalls += 1 }
+  await request(socket, 2, 'Target.activateTarget', { targetId: entry.tabId })
+  await request(socket, 3, 'Target.activateTarget', { targetId: created.result.targetId })
+  assert.equal(view1FocusCalls, 0, 'CDP activateTarget must not steal native focus')
+  assert.equal(view2FocusCalls, 0, 'CDP createTarget/activateTarget must not steal native focus')
+
+  // operate('focus') ignores hidden views and focuses visible views.
+  await manager.operate('a', 'focus', { tabId: 'T1' })
+  assert.equal(view1FocusCalls, 0, 'hidden view must not take focus')
+  manager.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
+  await manager.operate('a', 'focus', { tabId: 'T1' })
+  assert.equal(view1FocusCalls, 1, 'visible view takes focus when explicitly requested')
+
+  // Covering the view returns focus to main window.
+  manager.cover(true)
+  assert.equal(mainFocusCalls, 1, 'covering a focused view returns focus to the main window')
+  manager.cover(false)
+  view1Focused = true
+
+  // Hiding the view via place(..., false) returns focus to main window.
+  manager.place('T1', null, false)
+  assert.equal(mainFocusCalls, 2, 'hiding a focused view returns focus to the main window')
+
+  // Closing a visible focused view returns focus, unless the window itself is unfocused.
+  manager.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
+  view1Focused = true
+  windowFocused = false
+  manager.place('T1', null, false)
+  assert.equal(mainFocusCalls, 2, 'must not steal OS focus when the main window is unfocused')
+
+  windowFocused = true
+  manager.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
+  view1Focused = true
+  // Window hidden or system paused must NOT re-focus the window even if isFocused() is still true.
+  manager.setWindowHidden(true)
+  assert.equal(mainFocusCalls, 2, 'setWindowHidden(true) must not call mainWindow.webContents.focus()')
+  manager.setWindowHidden(false)
+  view1Focused = true
+  manager.setSystemPaused(true)
+  assert.equal(mainFocusCalls, 2, 'setSystemPaused(true) must not call mainWindow.webContents.focus()')
+  manager.setSystemPaused(false)
+  view1Focused = true
+  // Closing a covered (invisible) tab must NOT call main.focus() again.
+  manager.cover(true)
+  assert.equal(mainFocusCalls, 3, 'covering visible focused view returns focus once')
+  await manager.close('a', 'T1')
+  assert.equal(mainFocusCalls, 3, 'closing an already covered/hidden view must not return focus a second time')
+
+  // Closing an actively visible focused view returns focus to main window.
+  manager.cover(false)
+  manager.place(created.result.targetId, { left: 0, top: 0, width: 400, height: 300 }, true)
+  views[1].webContents.isFocused = () => true
+  await manager.close('a', created.result.targetId)
+  assert.equal(mainFocusCalls, 4, 'closing a visible focused view returns focus to the main window')
+})
