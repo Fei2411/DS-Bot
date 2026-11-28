@@ -745,7 +745,11 @@ function SignInHost({ entry, actions }) {
     ...hooks,
     t: actions.accountT(),
     complete: close,
-    useApiKey: () => { close(); actions.openHarnessOnboarding('deepseek-official') },
+    useApiKey: () => {
+      close()
+      if (typeof actions.openHarnessOnboarding === 'function') actions.openHarnessOnboarding('deepseek-official')
+      else actions.openModels?.()
+    },
   })
 }
 

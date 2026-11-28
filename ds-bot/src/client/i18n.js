@@ -1220,7 +1220,11 @@ const ZH = {
   '{used} of {total} tokens of context in use': '上下文已用 {used} / {total} tokens',
 
   // Transcript
+  Quote: '引用',
   Annotate: '批注',
+  'Sign out of your DeepSeek account?': '确定要退出当前 DeepSeek 账号吗？',
+  'Some Bots are still working. Signing out will stop them.': '部分 Bot 正在工作中，退出登录会停止它们。',
+  'Signing out may stop running work.': '退出登录可能会停止正在进行的工作。',
   'Annotate quote': '批注引用',
   Annotation: '批注',
   'Add an annotation…': '写下批注…',

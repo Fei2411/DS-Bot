@@ -1,13 +1,20 @@
 import { Component, createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { maskOf } from '../../../ds-bot/src/client/characters.js'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
+import { inkText, paintCss } from '../../../ds-bot/src/client/inks.js'
+import { PendingLearning } from '../../../ds-bot/src/client/learning-card.js'
+import { lookOf } from '../../../ds-bot/src/client/mark.js'
+import { DeepSeekSignIn } from '../../../ds-bot/src/client/model-menu.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
+import { installStyles } from '../../../ds-bot/src/client/styles.js'
+import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { allThemes, effectsOf, flatWidthOf, layoutOf, themeCss, themesOf, widthOf } from '../../../ds-bot/src/client/themes.js'
 import { appearanceCss, onSafeAppearance, pictureUrl, safeAppearance, watchSafeAppearance } from '../../../ds-bot/src/client/appearance.js'
 import { call } from '../../../ds-bot/src/client/api.js'
@@ -70,6 +77,25 @@ function useTheme(prefs, chat, actions, registryVersion) {
   }, [prefs, chat?.background, safe, loaded, registryVersion])
   const mode = readAppearance(prefs?.appearance).mode
   useEffect(() => paintMode(mode), [mode])
+}
+
+// Bot mentions in rendered replies (`.bt-bubble a[href="https://bot.mention.invalid/<id>"]`)
+// wear each Bot's accent color and silhouette/avatar mark, matching plugin mode without DSH selectors.
+function useMentions(bots, registryVersion) {
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.head) return undefined
+    const css = (Array.isArray(bots) ? bots : []).map((bot) => {
+      if (!bot?.id) return ''
+      const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
+      const look = lookOf(bot)
+      const mark = look.image
+        ? `${anchor}::before{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}`
+        : `${anchor}::before{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`
+      return `${anchor}{color:${inkText(look.color)}}${mark}`
+    }).filter(Boolean).join('\n')
+    const style = installStyles(css, 'mentions')
+    return () => style.remove()
+  }, [bots, registryVersion])
 }
 
 // A dialog or panel that fails closes, and the failure shows as a toast; the window stays.
@@ -497,6 +523,7 @@ export function App() {
     }
   }, [team, activeModalOf, capabilitiesOf, browserEnabled, hasSurfaceCap, hasInboxCap, inClassicMode])
   const prefs = hooks.useRoster(value => value.prefs)
+  const bots = hooks.useRoster(value => value.bots)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
   const shownAgent = hooks.useRoster((value) => {
@@ -505,6 +532,7 @@ export function App() {
     return agentId ? value.agentsById?.[agentId] : undefined
   })
   useTheme(prefs, chat, actions, registryVersion)
+  useMentions(bots, registryVersion)
   const closeOverlays = (error) => {
     actions.closeSettings()
     actions.closeReleaseNotes?.()
@@ -514,6 +542,7 @@ export function App() {
     actions.closePalette()
     actions.closeVoice()
     actions.closeShortcuts()
+    actions.closeSignIn?.()
     actions.closeInbox?.()
     actions.closeOverlay()
     actions.reportError(error, 'overlay')
@@ -624,11 +653,12 @@ export function App() {
             readOnly,
             sidebarWide: isNarrow ? drawerOpen : !classicHidden,
           })
-          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
+          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), PendingLearning })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
       : (inClassicMode ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true })) : null)),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
+    h(DeepSeekSignIn, views),
     h(ShortcutsDialog, {
       open: shortcutsOpen,
       enterToSend: sendsOnEnter(prefs),

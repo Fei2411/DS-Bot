@@ -24,8 +24,10 @@ import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { TextSelectionAction, quoteMarkdown } from '../../../ds-bot/src/client/text-annotation.js'
 import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
+import { WorkPauseDock } from '../../../ds-bot/src/client/work-pause-card.js'
 import { ApprovalDock } from './approval-dock.js'
 import { ClassicControls } from './classic-controls.js'
 import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
@@ -509,7 +511,7 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
     canTerminal ? h('button', { type: 'button', role: 'menuitem', onClick: openTerminal }, h(TerminalIcon), h('span', { className: 'bt-menu-label' }, t('Terminal'))) : null), document.body) : null)
 }
 
-function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
+function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, insertQuoteRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
   const roster = useRoster(value => value)
   const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
   const sessionQueue = (useSessionQueues ?? NO_OBJ_HOOK)(map => map?.[sessionId] ?? EMPTY_LIST)
@@ -574,6 +576,17 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   textRef.current = text
   const noteDraftEdit = useCallback(() => { draftEditSeqRef.current += 1 }, [])
   const inputActions = useInput(field, textRef, setText, setCaret, noteDraftEdit)
+  useEffect(() => {
+    if (!insertQuoteRef) return undefined
+    insertQuoteRef.current = (raw) => {
+      const quoted = quoteMarkdown(String(raw ?? ''))
+      if (quoted === '') return false
+      const existing = textRef.current ?? ''
+      const prefix = existing === '' ? '' : existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n'
+      return inputActions.insertText(`${prefix}${quoted}\n\n`, { start: existing.length, end: existing.length })
+    }
+    return () => { insertQuoteRef.current = undefined }
+  }, [insertQuoteRef, inputActions])
   const enterToSend = sendsOnEnter(roster.prefs)
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
 
@@ -1518,6 +1531,157 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         trailingControls)))
 }
 
+const SELECTION_SESSION_STATE = Object.freeze({ removed: false, subagent: null })
+const useSelectionSession = selector => selector(SELECTION_SESSION_STATE)
+const selectionHostT = key => (key === 'quote.add' ? t('Quote') : t(key))
+
+function selectionElementOf(node) {
+  if (!node) return null
+  return node.nodeType === 1 ? node : node.parentElement ?? null
+}
+
+function TextSelectionOverlay({ sessionId, containerRef, insertQuoteRef, disabled, actions, useRoster }) {
+  const [selection, setSelection] = useState(null)
+  const [box, setBox] = useState(null)
+  const hostRef = useRef(null)
+  const seqRef = useRef(0)
+
+  const dismiss = useCallback(() => {
+    setSelection(null)
+    setBox(null)
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    try { window.getSelection?.()?.removeAllRanges?.() } catch { /* ignore */ }
+  }, [])
+
+  const readText = useCallback(() => {
+    const raw = window.getSelection?.()?.toString?.() ?? ''
+    if (raw.trim() !== '') return raw.trim()
+    return selection?.text ?? null
+  }, [selection])
+
+  const inputActions = useMemo(() => ({
+    insertQuote: (raw) => {
+      if (typeof insertQuoteRef?.current !== 'function') return false
+      return insertQuoteRef.current(raw) === true
+    },
+  }), [insertQuoteRef])
+
+  const place = useCallback((rect) => {
+    if (!rect || typeof window === 'undefined') return null
+    const pad = 12
+    const vw = window.innerWidth || 1280
+    const vh = window.innerHeight || 800
+    const measuredW = hostRef.current?.offsetWidth || 160
+    const measuredH = hostRef.current?.offsetHeight || 36
+    const centerX = rect.left + rect.width / 2
+    const left = Math.max(pad, Math.min(vw - measuredW - pad, Math.round(centerX - measuredW / 2)))
+    const preferTop = Math.round(rect.top - measuredH - 8)
+    const top = preferTop >= pad ? preferTop : Math.max(pad, Math.min(vh - measuredH - pad, Math.round(rect.bottom + 8)))
+    return { left, top }
+  }, [])
+
+  useEffect(() => { dismiss() }, [sessionId, disabled, dismiss])
+
+  useEffect(() => {
+    if (disabled || typeof document === 'undefined' || typeof window === 'undefined') return undefined
+    const isInHost = (node) => Boolean(hostRef.current && node && hostRef.current.contains(node))
+    const capture = () => {
+      if (isInHost(document.activeElement)) return
+      const container = containerRef.current
+      const sel = window.getSelection?.()
+      if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) {
+        dismiss()
+        return
+      }
+      const text = sel.toString().trim()
+      if (text === '') {
+        dismiss()
+        return
+      }
+      const range = sel.getRangeAt(0)
+      const anchorEl = selectionElementOf(range.startContainer)
+      const focusEl = selectionElementOf(range.endContainer)
+      if (!anchorEl || !focusEl || !container.contains(anchorEl) || !container.contains(focusEl)) {
+        dismiss()
+        return
+      }
+      if (!anchorEl.closest?.('[data-text-interaction-source]') || !focusEl.closest?.('[data-text-interaction-source]')) {
+        dismiss()
+        return
+      }
+      const rect = range.getBoundingClientRect()
+      if (!rect || (rect.width === 0 && rect.height === 0)) {
+        dismiss()
+        return
+      }
+      const nextRect = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+      setSelection((prev) => {
+        if (prev && prev.text === text && Math.abs(prev.rect.top - nextRect.top) < 2 && Math.abs(prev.rect.left - nextRect.left) < 2) {
+          return prev
+        }
+        seqRef.current += 1
+        return { key: seqRef.current, text, rect: nextRect }
+      })
+    }
+    const onPointerDown = (event) => {
+      if (isInHost(event.target)) return
+      setSelection(prev => (prev ? null : prev))
+      setBox(prev => (prev ? null : prev))
+    }
+    const onSelectionChange = () => {
+      if (isInHost(document.activeElement)) return
+      const sel = window.getSelection?.()
+      if (!sel || sel.isCollapsed || sel.toString().trim() === '') dismiss()
+    }
+    const onScroll = () => {
+      if (isInHost(document.activeElement)) return
+      dismiss()
+    }
+    const scroller = containerRef.current
+    document.addEventListener('mouseup', capture)
+    document.addEventListener('keyup', capture)
+    document.addEventListener('selectionchange', onSelectionChange)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    scroller?.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      document.removeEventListener('mouseup', capture)
+      document.removeEventListener('keyup', capture)
+      document.removeEventListener('selectionchange', onSelectionChange)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      scroller?.removeEventListener('scroll', onScroll)
+    }
+  }, [disabled, containerRef, dismiss])
+
+  useLayoutEffect(() => {
+    if (!selection) { setBox(null); return undefined }
+    const reposition = () => setBox(place(selection.rect))
+    reposition()
+    window.addEventListener('resize', reposition)
+    return () => window.removeEventListener('resize', reposition)
+  }, [selection, place])
+
+  if (!selection || disabled || typeof document === 'undefined' || !document.body) return null
+  const style = box ? { left: `${box.left}px`, top: `${box.top}px` } : { left: `${Math.max(12, Math.round(selection.rect.left))}px`, top: `${Math.max(12, Math.round(selection.rect.top - 44))}px`, visibility: 'hidden' }
+  return createPortal(
+    h('div', { ref: hostRef, className: 'dsb-selection-host', style },
+      h(TextSelectionAction, {
+        key: selection.key,
+        sessionId,
+        dismiss,
+        readText,
+        clearSelection,
+        inputActions,
+        useSession: useSelectionSession,
+        useRoster,
+        actions,
+        t: selectionHostT,
+      })),
+    document.body,
+  )
+}
+
 function PendingUserRows({ items, sessionId, classic = false }) {
   if (!items || items.length === 0) return null
   if (classic) {
@@ -1557,6 +1721,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const dragDepth = useRef(0)
   const addFilesRef = useRef(undefined)
   const withdrawRef = useRef(undefined)
+  const insertQuoteRef = useRef(undefined)
   const pendingRef = useRef(undefined)
   pendingRef.current = pending
   const scroller = useRef(null)
@@ -1951,6 +2116,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     !isRoom && !viewingSubagent ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
     !isRoom && !viewingSubagent ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
     !isRoom && !viewingSubagent ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(WorkPauseDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, actions }) : null,
     !isRoom && !viewingSubagent ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
     !isRoom && !viewingSubagent ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
     !isRoom && !viewingSubagent ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
@@ -1980,6 +2146,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
         onStop,
         addFilesRef,
         withdrawRef,
+        insertQuoteRef,
         actions,
         feed,
         useUi: hooks.useUi,
@@ -1988,5 +2155,13 @@ export function Chat({ sessionId, team, registry, classic = false }) {
         useSessions: hooks.useSessions,
         useSessionQueues,
         useRescuedDrafts: hooks.useRescuedDrafts,
-      })))
+      })),
+  !viewingSubagent && !readOnly ? h(TextSelectionOverlay, {
+    sessionId: activeSessionId,
+    containerRef: scroller,
+    insertQuoteRef,
+    disabled: locked,
+    actions,
+    useRoster: hooks.useRoster,
+  }) : null)
 }

@@ -2,12 +2,16 @@
 // engine's `state` endpoint and live feed. The views also read a few Session facts that
 // DSH keeps for them in the plugin; here the window keeps those as well.
 import { useRef, useSyncExternalStore } from 'react'
+import { watchAgentTerminals } from '../../../ds-bot/src/client/agent-terminals.js'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
+import { createAvatarRefCache } from '../../../ds-bot/src/client/avatar-refs.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
+import { watchBotCompletions } from '../../../ds-bot/src/client/bot-completions.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
-import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
+import { sameVersion } from '../../../ds-bot/src/client/dsh-offer.js'
+import { frameLayout, readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -21,7 +25,9 @@ import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
+import { createDesktopAccountBridge } from './deepseek-account.js'
 import { pruneFailedSends } from './failed-send-bar.js'
+import { slots } from './slots.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
@@ -60,13 +66,16 @@ const setChanged = (source, value) => { if (JSON.stringify(source.getSnapshot())
 
 export function createTeam() {
   migrateStorage()
+  let savedPrefs = {}
+  try { savedPrefs = JSON.parse(localStorage.getItem(STORAGE.prefs) ?? '{}') ?? {} } catch { savedPrefs = {} }
   const unreadStore = sharedMap(STORAGE.unread)
   const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new entries against it.
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
-  const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
+  const botCompletions = createSource({})
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, pendingOpen: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
   const userQuestions = createSource([])
@@ -125,10 +134,15 @@ export function createTeam() {
   let lastTeamSession = null
   let lastAgentSession = null
   let terminalNonceSeq = 0
+  let navSeq = 0
+  const recovering = new Set()
   const agentNewInFlight = new Map()
   let classicSeq = 0
   const sessionHooks = new Map()
   const streamingReply = new Set()
+  const closingRepliesBySession = new Map()
+  const draftFileStore = new Map()
+  let draftFileSeq = 0
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -244,6 +258,11 @@ export function createTeam() {
       return next
     })
     for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
+    for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id)
+    for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id)
+    for (const [fileId, entry] of [...draftFileStore.entries()]) {
+      if (entry?.sessionId && !keep(entry.sessionId)) draftFileStore.delete(fileId)
+    }
     for (const id of [...streamingReply]) {
       if (!keep(id)) {
         streamingReply.delete(id)
@@ -256,11 +275,31 @@ export function createTeam() {
   let pulls = 0
   let applied = 0
   const foldWrites = sectionFoldWrites()
+  const avatarRefs = createAvatarRefCache(call)
+  let avatarIncomplete = false
   let liveKey
+  const persistPrefs = (prefs) => {
+    if (!prefs || typeof prefs !== 'object') return
+    try {
+      localStorage.setItem(STORAGE.prefs, JSON.stringify({
+        theme: prefs.theme,
+        accent: prefs.accent,
+        motion: prefs.motion,
+        layout: prefs.layout,
+        effects: prefs.effects,
+        width: prefs.width,
+        flatWidth: prefs.flatWidth,
+        thinking: prefs.thinking,
+        defaultBotModel: prefs.defaultBotModel,
+        enterToSend: prefs.enterToSend,
+      }))
+    } catch { /* storage unavailable */ }
+  }
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
+    const since = avatarIncomplete ? -1 : known.revision
+    const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
     if (order < applied) return
     applied = order
     if (value.liveKey !== undefined) liveKey = value.liveKey
@@ -294,18 +333,31 @@ export function createTeam() {
     if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
     if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
     if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+    if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
+    const { state: hydrated, incomplete } = await avatarRefs.hydrate(value)
+    if (order < applied) return
+    avatarIncomplete = incomplete
+    const latest = roster.getSnapshot()
+    const sameState = hydrated.revision === latest.revision && hydrated.modelsKey === latest.modelsKey && latest.ready
+    const avatarsChanged = sameState && (
+      (hydrated.bots ?? []).some(bot => bot?.avatar?.image !== latest.byId?.[bot.id]?.avatar?.image)
+      || (hydrated.rooms ?? []).some(room => room?.avatar?.image !== latest.roomsById?.[room.id]?.avatar?.image)
+    )
+    if (sameState && !avatarsChanged) {
+      if (Object.keys(changed).length > 0) roster.set({ ...latest, ...changed })
+      return
+    }
     // In a window with no visit record yet, everything already there counts as seen.
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    const indexed = indexRoster({ ...value, sections: foldWrites.reconcile(value.sections, value.revision) })
-    if (current.ready) {
+    if (Object.keys(seenAt).length === 0) leaveVisits([...(hydrated.bots ?? []), ...(hydrated.rooms ?? [])].map(entry => entry.id))
+    const indexed = indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) })
+    if (latest.ready) {
       const gone = [
-        ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
-        ...Object.keys(current.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
-        ...Object.keys(current.agentOf ?? {}).filter(id => indexed.agentOf?.[id] === undefined),
+        ...Object.keys(latest.byId ?? {}).filter(id => indexed.byId[id] === undefined),
+        ...Object.keys(latest.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
+        ...Object.keys(latest.agentOf ?? {}).filter(id => indexed.agentOf?.[id] === undefined),
       ]
       if (gone.length > 0) {
         questionDrafts.pruneChats(gone)
@@ -314,6 +366,7 @@ export function createTeam() {
       }
     }
     roster.set(indexed)
+    persistPrefs(indexed.prefs)
     if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
       void refreshClassicSessions()
     }
@@ -353,8 +406,30 @@ export function createTeam() {
     }
   }
 
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot()
+    if (state.details === null) return false
+    const vp = typeof window === 'undefined' ? 1280 : window.innerWidth
+    const l = layout.getSnapshot()
+    return frameLayout({
+      viewport: vp,
+      sidebarWidth: l.width,
+      pref: l.pref,
+      drawer: state.leftDrawer === true,
+      panel: { view: view ?? state.view, yielded: state.panelYield === true },
+    }).panel === 'folded'
+  }
+
+  const accountBridge = createDesktopAccountBridge({
+    call,
+    after,
+    work,
+    refreshModels: () => pull().catch(() => {}),
+  })
+  const appUpdates = globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.updates ?? null : null
+
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -406,6 +481,88 @@ export function createTeam() {
       changes: null,
     }
   }
+  const appendTurnOutline = (row, { kind, text, turn }) => {
+    const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
+    const outline = prev.map(entry => ({ ...entry }))
+    const field = kind === 'bot' ? 'response' : 'prompt'
+    let effectiveTurn
+    if (Number.isInteger(turn) && turn >= 0) {
+      effectiveTurn = turn
+      const idx = outline.findIndex(entry => entry.turn === turn)
+      if (idx >= 0) {
+        outline[idx] = { ...outline[idx], [field]: text }
+      } else {
+        outline.push({ turn, [field]: text })
+        outline.sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0))
+      }
+    } else {
+      const last = outline.at(-1)
+      if (kind === 'bot' && last && Number.isInteger(last.turn) && last.turn >= 0 && !last.response) {
+        effectiveTurn = last.turn
+        outline[outline.length - 1] = { ...last, response: text }
+      } else {
+        const maxTurn = outline.reduce((max, entry) => (Number.isInteger(entry.turn) && entry.turn > max ? entry.turn : max), -1)
+        effectiveTurn = maxTurn + 1
+        outline.push({ turn: effectiveTurn, [field]: text })
+      }
+    }
+    return { outline, turn: effectiveTurn }
+  }
+
+  const recordClosingReply = (sessionId, turn, text, seq = null) => {
+    if (!sessionId || !Number.isInteger(turn) || turn < 0 || typeof text !== 'string' || text === '') return
+    let map = closingRepliesBySession.get(sessionId)
+    if (!map) { map = new Map(); closingRepliesBySession.set(sessionId, map) }
+    const prev = map.get(turn)
+    if (prev && seq !== null && prev.seq === seq) {
+      map.set(turn, { text: `${prev.text}\n\n${text}`, seq })
+    } else {
+      map.set(turn, { text, seq })
+    }
+    notifyTurnWatchers(sessionId)
+  }
+
+  const syncOutlineFromFacts = (sessionId, facts) => {
+    if (!facts?.turns || facts.turns.size === 0) return
+    const closedReplies = facts.closingReplies
+    const ordered = [...facts.turns.values()]
+      .filter(entry => Number.isInteger(entry.turn) && entry.turn >= 0)
+      .sort((a, b) => a.turn - b.turn)
+    if (ordered.length === 0) return
+    sessions.set((list) => {
+      const row = list.byId[sessionId] ?? { id: sessionId }
+      const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
+      const byTurn = new Map()
+      for (const item of prev) {
+        if (Number.isInteger(item?.turn) && item.turn >= 0) byTurn.set(item.turn, { ...item })
+      }
+      let changed = false
+      for (const entry of ordered) {
+        const reply = closedReplies?.get(entry.turn)
+        const existing = byTurn.get(entry.turn)
+        if (!existing) {
+          byTurn.set(entry.turn, reply ? { turn: entry.turn, response: reply } : { turn: entry.turn })
+          changed = true
+        } else if (reply && existing.response !== reply) {
+          byTurn.set(entry.turn, { ...existing, response: reply })
+          changed = true
+        }
+      }
+      if (!changed) return list
+      const nextOutline = [...byTurn.values()].sort((a, b) => a.turn - b.turn)
+      return {
+        ids: list.ids.includes(sessionId) ? list.ids : [...list.ids, sessionId],
+        byId: {
+          ...list.byId,
+          [sessionId]: {
+            ...row,
+            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: nextOutline },
+          },
+        },
+      }
+    })
+  }
+
   const openWorkspaceTab = (tabId, updateFn, fallbackSubject = null) => {
     if (typeof tabId !== 'string' || tabId === '') return
     const snap = roster.getSnapshot()
@@ -517,6 +674,7 @@ export function createTeam() {
         actions.openAgentSession(id)
         return
       }
+      navSeq += 1
       if (surface.getSnapshot().mode === 'agent') {
         writeMode('bot')
         surface.set({ mode: 'bot' })
@@ -524,23 +682,49 @@ export function createTeam() {
       lastTeamSession = id
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
+      const fromInbox = ui.getSnapshot().inbox === true
       show(next)
       ui.set((state) => {
-        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox)
+        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox || state.inboxTarget || state.pendingOpen)
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const foldWorkspace = switched && state.view === 'workspace' && rp === null
         if (!dropOverlay && rp === state.rightPanel && !foldWorkspace) return state
         return {
           ...state,
-          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false, inbox: false } : {}),
+          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false, inbox: false, inboxTarget: fromInbox ? next : null, pendingOpen: null } : {}),
           ...(foldWorkspace ? { view: 'details' } : {}),
           rightPanel: rp,
         }
       })
     },
+    retryOpening: (target) => {
+      if (!target) return
+      actions.openSession(target)
+    },
+    recoverOpening: async (botId) => {
+      if (!botId || recovering.has(botId)) return
+      recovering.add(botId)
+      const seq = ++navSeq
+      try {
+        await after(call('recover-session', { botId }))
+        if (seq !== navSeq) return
+        const bot = roster.getSnapshot().byId?.[botId]
+        if (bot === undefined) {
+          ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null }))
+          return
+        }
+        actions.openSession(currentPart(bot))
+      } catch (error) {
+        actions.reportError?.(error, 'reopen-session')
+      } finally {
+        recovering.delete(botId)
+      }
+    },
     openAgentSession: (sessionId) => {
       if (!sessionId) return
+      navSeq += 1
       const switched = sessionId !== shown.getSnapshot()
+      const fromInbox = ui.getSnapshot().inbox === true
       lastAgentSession = sessionId
       const hasClassicBrowser = Boolean(
         roster.getSnapshot().browser === true
@@ -573,6 +757,8 @@ export function createTeam() {
           groupSearch: null,
           shortcuts: false,
           inbox: false,
+          inboxTarget: fromInbox ? sessionId : null,
+          pendingOpen: null,
           rightPanel: keepWorkspace ? rp : null,
         }
       })
@@ -706,7 +892,92 @@ export function createTeam() {
       await pull().catch(() => {})
       await refreshClassicSessions()
     },
-    landOn: id => show(partFor(id)),
+    navSeq: () => navSeq,
+    landOn: (id, last, expectedSeq) => {
+      if (expectedSeq !== undefined && expectedSeq !== navSeq) return undefined
+      const seq = ++navSeq
+      if (!last) {
+        show(partFor(id))
+        return undefined
+      }
+      const currentOfLast = (snap) => {
+        const bot = last.kind === 'room' ? undefined : snap.byId?.[last.botId ?? last.id]
+        if (bot !== undefined) return currentPart(bot)
+        const room = snap.roomsById?.[last.roomId ?? last.id]
+        return room === undefined ? undefined : (room.sessionId ?? room.id)
+      }
+      return (async () => {
+        let moved = currentOfLast(roster.getSnapshot())
+        if (moved === undefined || moved === last.sessionId) {
+          await pull().catch(() => {})
+          if (seq !== navSeq) return
+          moved = currentOfLast(roster.getSnapshot())
+        }
+        if (seq !== navSeq) return
+        const target = moved !== undefined && moved !== last.sessionId ? moved : partFor(id)
+        if (target) show(target)
+      })()
+    },
+    selectPanel: (id) => {
+      if (typeof id !== 'string' || id === '') return
+      if (id === 'files' || id === 'terminal' || id === 'preview' || id === 'changes') {
+        openWorkspaceTab(id)
+        return
+      }
+      actions.openSettings(id === 'settings' ? 'overview' : id)
+    },
+    steerQueued: async (sessionId) => {
+      if (!sessionId) return
+      const rows = sessionQueues.getSnapshot()[sessionId] ?? []
+      const ids = rows
+        .filter(row => typeof row?.id === 'string' && row.id !== '' && row.source !== 'bot' && row.source !== 'relay')
+        .map(row => row.id)
+      if (ids.length === 0) return
+      try {
+        if (roster.getSnapshot().byId?.[sessionId] !== undefined && typeof actions.steerQueueBatch === 'function') {
+          try {
+            const result = await actions.steerQueueBatch(sessionId, ids)
+            if (result?.fallback !== true) return
+          } catch (error) {
+            if (error?.code !== 'bot/not-found') throw error
+          }
+        }
+        await actions.steerSessionQueue(sessionId, ids)
+      } catch {
+        actions.reportError?.(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
+      }
+    },
+    draftFiles: (ids) => {
+      if (!Array.isArray(ids) || ids.length === 0) return []
+      const out = []
+      for (const id of ids) {
+        const entry = draftFileStore.get(id)
+        if (entry) out.push({ kind: entry.kind, file: entry.file })
+      }
+      return out
+    },
+    restoreDraftFiles: (sessionId, files) => {
+      if (!Array.isArray(files) || files.length === 0) return []
+      const ids = []
+      for (const item of files) {
+        if (!item?.file) continue
+        const id = `draft-file-${++draftFileSeq}`
+        draftFileStore.set(id, { sessionId: sessionId ?? null, kind: item.kind ?? 'file', file: item.file })
+        ids.push(id)
+      }
+      return ids
+    },
+    releaseDraftFiles: (ids) => {
+      if (!Array.isArray(ids)) return
+      for (const id of ids) draftFileStore.delete(id)
+    },
+    holdSettingsLook: () => () => {},
+    watchAgentTerminals: sessionId => watchAgentTerminals(slots, sessionId, error => actions.reportError?.(error, 'right-sidebar')),
+    signInEntry: () => accountBridge.signInEntry(),
+    canSignIn: () => accountBridge.canSignIn(),
+    signIn: () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 })),
+    closeSignIn: () => ui.set(state => ({ ...state, signIn: null })),
+    accountT: () => accountBridge.accountT(),
     setSidebarPref: (pref) => {
       const next = pref === 'rail' || pref === 'hidden' ? pref : 'open'
       const nextShown = next === 'hidden' ? sidebarSaved.shown : next
@@ -896,8 +1167,27 @@ export function createTeam() {
         turnFactsBySession.delete(sessionId)
       } else {
         turnFactsBySession.set(sessionId, facts)
+        syncOutlineFromFacts(sessionId, facts)
       }
       notifyTurnWatchers(sessionId)
+    },
+    closingReply: (sessionId, turn) => {
+      if (!sessionId || !Number.isInteger(turn) || turn < 0) return null
+      const facts = turnFactsBySession.get(sessionId)
+      const fromFacts = facts?.closingReplies?.get(turn)
+      if (typeof fromFacts === 'string' && fromFacts !== '') return fromFacts
+      const fromFeed = closingRepliesBySession.get(sessionId)?.get(turn)?.text
+      if (typeof fromFeed === 'string' && fromFeed !== '') return fromFeed
+      const row = sessions.getSnapshot().byId?.[sessionId]
+      const outline = row?.projectionValues?.turnOutline
+      if (Array.isArray(outline)) {
+        const entry = outline.find(item => item?.turn === turn)
+        if (typeof entry?.response === 'string' && entry.response !== '') return entry.response
+      }
+      if (facts?.turns?.get(turn)?.status === 'ended') return ''
+      const snap = roster.getSnapshot()
+      const known = row !== undefined || snap.byId?.[sessionId] !== undefined || snap.roomsById?.[sessionId] !== undefined
+      return known ? undefined : null
     },
     turnFacts: sessionId => turnFactsBySession.get(sessionId) ?? EMPTY_TURN_FACTS,
     watchTurns: (sessionId, listener) => {
@@ -927,6 +1217,15 @@ export function createTeam() {
       const dsh = await call('dsh-update-install')
       update.set(previous => ({ ...previous, dsh }))
       wakeUpdate()
+    },
+    openAppUpdates: async (verified) => {
+      if (appUpdates?.status) {
+        const app = await appUpdates.status()
+        if (app) update.set(previous => ({ ...previous, app }))
+        if (sameVersion(app?.version, verified)) await appUpdates.open?.()
+        return
+      }
+      await globalThis.dsBotApp?.updates?.open?.()
     },
     checkOwnApp: async () => { await globalThis.dsBotApp?.updates?.check?.() },
     installOwnApp: async () => { await globalThis.dsBotApp?.updates?.install?.() },
@@ -1098,15 +1397,26 @@ export function createTeam() {
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
-      editRow(sessionId, row => ({
-        ...row,
-        updatedAt: Math.max(row.updatedAt ?? 0, item.time ?? 0),
-        // The sidebar's preview line; turn -1 is never a hidden exchange turn.
-        projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
-      }))
       if (item.kind === 'bot') {
         if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
+        // Set completionUnread BEFORE updating turnOutline so watchBotCompletions sees the
+        // unread flag on the first turnOutline snapshot for a background Bot.
         if (shown.getSnapshot() !== sessionId || isCovered(ui.getSnapshot())) setStatus(sessionId, { completionUnread: true })
+      }
+      let effectiveTurn = null
+      editRow(sessionId, (row) => {
+        const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
+        if (!text) return { ...row, updatedAt }
+        const next = appendTurnOutline(row, { kind: item.kind, text, turn: item.turn })
+        effectiveTurn = next.turn
+        return {
+          ...row,
+          updatedAt,
+          projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
+        }
+      })
+      if (item.kind === 'bot' && text && Number.isInteger(effectiveTurn)) {
+        recordClosingReply(sessionId, effectiveTurn, text, Number.isInteger(item.seq) ? item.seq : null)
       }
       if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
     }
@@ -1115,11 +1425,14 @@ export function createTeam() {
       const roomSession = room ? currentPart(room) : data.roomId
       if (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot())) setStatus(roomSession, { completionUnread: true })
       if (data.text) {
-        editRow(roomSession, row => ({
-          ...row,
-          updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
-          projectionValues: { turnOutline: [{ turn: -1, response: data.text }] },
-        }))
+        editRow(roomSession, (row) => {
+          const next = appendTurnOutline(row, { kind: 'bot', text: data.text, turn: data.turn })
+          return {
+            ...row,
+            updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
+          }
+        })
       }
     }
     // While a reply streams in, it stands in for the activity row; notify only on transitions.
@@ -1179,6 +1492,14 @@ export function createTeam() {
     wakeUpdate = () => { void pollUpdate() }
     scheduleUpdate = armUpdate
     void pollUpdate()
+    let unsubscribeAppUpdates = null
+    if (appUpdates?.status && appUpdates.subscribe) {
+      const takeApp = (app) => {
+        if (!stopped && app) update.set(previous => ({ ...previous, app }))
+      }
+      void Promise.resolve(appUpdates.status()).then(takeApp, () => {})
+      unsubscribeAppUpdates = appUpdates.subscribe(takeApp)
+    }
     let unsubscribeOwnApp = null
     const ownAppUpdates = globalThis.dsBotApp?.updates ?? null
     if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
@@ -1188,6 +1509,14 @@ export function createTeam() {
       void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
       unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
     }
+    void accountBridge.refresh()
+    const stopBotCompletions = watchBotCompletions({
+      roster,
+      sessions,
+      statuses: status,
+      unread: botCompletions,
+      ui,
+    })
     const closeFeed = openFeed((event, data) => {
       if (READ_AGAIN.has(event)) read()
       onFeed(event, data)
@@ -1376,7 +1705,11 @@ export function createTeam() {
       clearTimeout(updateTimer)
       wakeUpdate = () => {}
       scheduleUpdate = () => {}
+      unsubscribeAppUpdates?.()
       unsubscribeOwnApp?.()
+      stopBotCompletions()
+      avatarRefs.clear()
+      avatarIncomplete = false
       closeFeed()
       stopApprovalNotices()
       stopBrowsers?.()
@@ -1407,6 +1740,7 @@ export function createTeam() {
     useBrowserHolds: use(browserHolds),
     useBrowserPages: use(browserPages),
     useBrowserTabs: use(browserTabs),
+    useBotCompletions: use(botCompletions),
     useSessions: use(sessions),
     useSessionStatus: use(status),
     useSessionRetainInfo: (id, selector) => useSelect(sessions, list => selector(list.byId[id])),

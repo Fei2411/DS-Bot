@@ -13,6 +13,8 @@ const stubs = {
     export const Bubbles = ({ texts }) => ({ type: 'bubbles', props: { texts, children: texts } })
     export const ThinkingRow = ({ text }) => ({ type: 'thinking', props: { text, children: [text] } })
     export const EarlierParts = () => null
+    export const NewDivider = () => ({ type: 'div', props: { className: 'bt-new-sep', role: 'separator', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && time > visit.seen && time <= visit.entered
     export const PartLine = () => null
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = () => null

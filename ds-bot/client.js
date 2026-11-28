@@ -1258,7 +1258,11 @@ var JA = {
   "Cache hit {hit}%": "キャッシュヒット {hit}%",
   "Context {percent}%": "コンテキスト {percent}%",
   "{used} of {total} tokens of context in use": "コンテキスト使用量: {used} / {total} トークン",
+  "Quote": "引用",
   "Annotate": "注釈",
+  "Sign out of your DeepSeek account?": "DeepSeek アカウントからサインアウトしますか？",
+  "Some Bots are still working. Signing out will stop them.": "一部の Bot が作業中です。サインアウトすると停止します。",
+  "Signing out may stop running work.": "サインアウトすると進行中の作業が停止する場合があります。",
   "Annotate quote": "引用に注釈",
   "Annotation": "注釈",
   "Add an annotation…": "注釈を入力…",
@@ -4910,7 +4914,11 @@ var KO = {
   "Context {percent}%": "컨텍스트 {percent}%",
   "{used} of {total} tokens of context in use": "컨텍스트 {total} 토큰 중 {used} 사용 중",
   // Transcript
+  Quote: "인용",
   Annotate: "주석 달기",
+  "Sign out of your DeepSeek account?": "DeepSeek 계정에서 로그아웃할까요?",
+  "Some Bots are still working. Signing out will stop them.": "일부 Bot이 아직 작업 중입니다. 로그아웃하면 중지됩니다.",
+  "Signing out may stop running work.": "로그아웃하면 진행 중인 작업이 중지될 수 있습니다.",
   "Annotate quote": "인용 주석",
   Annotation: "주석",
   "Add an annotation…": "주석을 입력하세요…",
@@ -8578,7 +8586,11 @@ var ES = {
   "Context {percent}%": "Contexto {percent}%",
   "{used} of {total} tokens of context in use": "{used} de {total} tokens de contexto en uso",
   // Transcript
+  Quote: "Citar",
   Annotate: "Anotar",
+  "Sign out of your DeepSeek account?": "¿Cerrar sesión en tu cuenta de DeepSeek?",
+  "Some Bots are still working. Signing out will stop them.": "Algunos Bots siguen trabajando. Cerrar sesión los detendrá.",
+  "Signing out may stop running work.": "Cerrar sesión puede detener el trabajo en curso.",
   "Annotate quote": "Anotar cita",
   Annotation: "Anotación",
   "Add an annotation…": "Añade una anotación…",
@@ -12217,7 +12229,11 @@ var FR = {
   "Cache hit {hit}%": "Cache {hit} %",
   "Context {percent}%": "Contexte {percent} %",
   "{used} of {total} tokens of context in use": "{used} sur {total} jetons de contexte utilisés",
+  "Quote": "Citer",
   "Annotate": "Annoter",
+  "Sign out of your DeepSeek account?": "Se déconnecter de votre compte DeepSeek ?",
+  "Some Bots are still working. Signing out will stop them.": "Certains Bots travaillent encore. La déconnexion les arrêtera.",
+  "Signing out may stop running work.": "La déconnexion peut arrêter le travail en cours.",
   "Annotate quote": "Annoter la citation",
   "Annotation": "Annotation",
   "Add an annotation…": "Ajouter une annotation…",
@@ -15869,7 +15885,11 @@ var DE = {
   "Context {percent}%": "Kontext {percent}%",
   "{used} of {total} tokens of context in use": "{used} von {total} Kontext-Tokens belegt",
   // Transcript
+  Quote: "Zitieren",
   Annotate: "Kommentieren",
+  "Sign out of your DeepSeek account?": "Von deinem DeepSeek-Konto abmelden?",
+  "Some Bots are still working. Signing out will stop them.": "Einige Bots arbeiten noch. Durch das Abmelden werden sie gestoppt.",
+  "Signing out may stop running work.": "Durch das Abmelden kann laufende Arbeit gestoppt werden.",
   "Annotate quote": "Zitat kommentieren",
   Annotation: "Anmerkung",
   "Add an annotation…": "Anmerkung hinzufügen…",
@@ -19606,7 +19626,11 @@ var ZH = {
   "Context {percent}%": "上下文 {percent}%",
   "{used} of {total} tokens of context in use": "上下文已用 {used} / {total} tokens",
   // Transcript
+  Quote: "引用",
   Annotate: "批注",
+  "Sign out of your DeepSeek account?": "确定要退出当前 DeepSeek 账号吗？",
+  "Some Bots are still working. Signing out will stop them.": "部分 Bot 正在工作中，退出登录会停止它们。",
+  "Signing out may stop running work.": "退出登录可能会停止正在进行的工作。",
   "Annotate quote": "批注引用",
   Annotation: "批注",
   "Add an annotation…": "写下批注…",
@@ -38627,7 +38651,8 @@ function SignInHost({ entry, actions }) {
     complete: close,
     useApiKey: () => {
       close();
-      actions.openHarnessOnboarding("deepseek-official");
+      if (typeof actions.openHarnessOnboarding === "function") actions.openHarnessOnboarding("deepseek-official");
+      else actions.openModels?.();
     }
   });
 }

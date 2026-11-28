@@ -7,7 +7,7 @@
 import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
-import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
+import { Bubbles, EarlierParts, NewDivider, PartLine, ThinkingRow, ToolCell, isBotTool, unseenSince } from '../../../ds-bot/src/client/cells.js'
 import { ChangesCard } from '../../../ds-bot/src/client/changes-card.js'
 import { MarkdownText, fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
@@ -792,7 +792,8 @@ function turnFactsSignature(facts) {
   if (!facts?.turns) return ''
   const parts = [`open:${facts.openTurn ?? ''}`]
   for (const entry of facts.turns.values()) {
-    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}`)
+    const replyLen = facts.closingReplies?.get(entry.turn)?.length ?? 0
+    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}:${replyLen}`)
   }
   return parts.join('|')
 }
@@ -838,7 +839,7 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 const EMPTY_SPEAKERS = new Set()
 
 function renderTranscriptRows({
-  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
+  rows, initialSpeakers = EMPTY_SPEAKERS, initialUnseenShown = false, visit = null, canLoadEarlierParts,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
   resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -850,6 +851,7 @@ function renderTranscriptRows({
 }) {
   const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
+  let unseenShown = initialUnseenShown
 
   return rows.flatMap((row) => {
     if (row.kind === 'part-start') {
@@ -885,6 +887,8 @@ function renderTranscriptRows({
     }
 
     const pause = !classic && !silentTool && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
+    const fresh = !classic && !silentTool && !unseenShown && Number.isFinite(row.time) && unseenSince(visit, row.time)
+    if (fresh) unseenShown = true
     if (!silentTool && Number.isFinite(row.time)) prevTime = row.time
 
     const renderDefault = () => {
@@ -933,9 +937,12 @@ function renderTranscriptRows({
       fallback: renderDefault,
     })
 
-    return pause
-      ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
-      : [node]
+    if (!pause && !fresh) return [node]
+    const out = []
+    if (pause) out.push(h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
+    if (fresh) out.push(h(NewDivider, { key: `${row.key}:new` }))
+    out.push(node)
+    return out
   })
 }
 
@@ -1126,7 +1133,13 @@ export function SessionTranscript({
       computerShot,
     }
   }, [actions, loadImage])
+  const visit = resolvedUseUi(state => state?.visits?.[sessionId] ?? null)
+  const committedUnseenShown = useMemo(() => {
+    if (classic || !visit) return false
+    return rowParts.committed.some(row => Number.isFinite(row.time) && unseenSince(visit, row.time))
+  }, [classic, visit, rowParts.committed])
   const rowProps = {
+    visit,
     canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -1146,7 +1159,7 @@ export function SessionTranscript({
     thinkingAt: undefined,
     rows: rowParts.committed,
   }), [
-    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
+    rowParts.committed, visit, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
     useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -1158,7 +1171,7 @@ export function SessionTranscript({
   ])
   const liveElements = rowParts.live.length === 0
     ? []
-    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
+    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers, initialUnseenShown: committedUnseenShown })
   const projected = [...committedElements, ...liveElements]
 
   const feedbackDialog = feedbackEnabled ? h(ClassicFeedbackDialog, {
