@@ -62361,39 +62361,105 @@ var b = (code, { mod = false, ctrl = false, alt = false, shift = false } = {}) =
   alt: Boolean(alt),
   shift: Boolean(shift)
 });
+var DESKTOP_ONLY = Object.freeze(["desktop"]);
+var BOTH_HOSTS = Object.freeze(["desktop", "plugin"]);
 var SHORTCUT_DEFS = [
   // Navigation
-  { id: "palette", group: "navigation", label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
-  { id: "switch-surface", group: "navigation", label: "Switch Bot / Classic Agent mode", defaultBinding: b("KeyM", { mod: true, shift: true }), requiresSurface: true },
-  { id: "inbox", group: "navigation", label: "Open Inbox", defaultBinding: b("KeyI", { mod: true }), requiresInbox: true, allowInModal: ["inbox"] },
-  { id: "prev-chat", group: "navigation", label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
-  { id: "next-chat", group: "navigation", label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
+  { id: "palette", group: "navigation", hosts: DESKTOP_ONLY, label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
+  {
+    id: "switch-surface",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Switch Bot / Classic Agent mode",
+    defaultBinding: b("KeyM", { mod: true, shift: true }),
+    requiresSurface: true,
+    plugin: { id: "ds-bot.switch-surface", aliases: ["classic", "agent", "bot", "mode"], webModifiers: ["primary", "shift"] }
+  },
+  {
+    id: "inbox",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Open Inbox",
+    defaultBinding: b("KeyI", { mod: true }),
+    requiresInbox: true,
+    allowInModal: ["inbox"],
+    plugin: { id: "ds-bot.open-inbox", aliases: ["inbox", "notifications"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "prev-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
+  { id: "next-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
   // Panels
-  { id: "sidebar", group: "panels", label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
-  { id: "right-panel", group: "panels", label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
-  { id: "browser", group: "panels", label: "Toggle Bot browser", classicLabel: "Toggle browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
-  { id: "terminal", group: "panels", label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
-  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
-  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
+  { id: "sidebar", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
+  { id: "right-panel", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
+  {
+    id: "browser",
+    group: "panels",
+    hosts: BOTH_HOSTS,
+    label: "Toggle Bot browser",
+    classicLabel: "Toggle browser",
+    defaultBinding: b("KeyB", { mod: true, shift: true }),
+    requiresBrowser: true,
+    plugin: { id: "ds-bot.open-browser", aliases: ["browser", "web"], webModifiers: ["primary", "alt", "shift"] }
+  },
+  { id: "terminal", group: "panels", hosts: DESKTOP_ONLY, label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
+  { id: "details", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
+  { id: "memory", group: "panels", hosts: DESKTOP_ONLY, label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
   // Conversation
-  { id: "new-chat", group: "conversation", label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
-  { id: "focus-composer", group: "conversation", label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
-  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ["groupSearch"] },
-  { id: "stop-turn", group: "conversation", label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
+  { id: "new-chat", group: "conversation", hosts: DESKTOP_ONLY, label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
+  { id: "focus-composer", group: "conversation", hosts: DESKTOP_ONLY, label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
+  {
+    id: "group-search",
+    group: "conversation",
+    hosts: BOTH_HOSTS,
+    label: "Search in group",
+    defaultBinding: b("KeyF", { mod: true, shift: true }),
+    requiresGroupSearch: true,
+    allowInModal: ["groupSearch"],
+    plugin: { id: "ds-bot.group-search", aliases: ["search", "group"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "stop-turn", group: "conversation", hosts: DESKTOP_ONLY, label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
   // Application
-  { id: "settings", group: "application", label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
-  { id: "shortcuts", group: "application", label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
+  { id: "settings", group: "application", hosts: DESKTOP_ONLY, label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
+  { id: "shortcuts", group: "application", hosts: DESKTOP_ONLY, label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
   // Quick switch 1..9 (#1694)
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `switch-bot-${index + 1}`,
     group: "chats",
+    hosts: BOTH_HOSTS,
     label: "Switch to conversation {n}",
     labelVars: { n: index + 1 },
     slot: index,
-    defaultBinding: b(`Digit${index + 1}`, { mod: true })
+    defaultBinding: b(`Digit${index + 1}`, { mod: true }),
+    plugin: { id: `ds-bot.switch-bot-${index + 1}`, aliases: ["bot", "switch", String(index + 1)], webModifiers: ["primary", "alt"] }
   }))
 ];
 var SHORTCUT_BY_ID = Object.fromEntries(SHORTCUT_DEFS.map((def) => [def.id, def]));
+function shortcutsForHost(host = "desktop") {
+  return SHORTCUT_DEFS.filter((def) => Array.isArray(def.hosts) && def.hosts.includes(host));
+}
+function bindingToDshModifiers(binding) {
+  if (!binding) return [];
+  const mods = [];
+  if (binding.mod) mods.push("primary");
+  if (binding.ctrl) mods.push("control");
+  if (binding.alt) mods.push("alt");
+  if (binding.shift) mods.push("shift");
+  return mods;
+}
+function pluginShortcutDefaults(def) {
+  const code = def?.defaultBinding?.code;
+  if (!code) return {};
+  const desktopModifiers = bindingToDshModifiers(def.defaultBinding);
+  const webModifiers = def?.plugin?.webModifiers;
+  return {
+    "desktop:macos": { code, modifiers: desktopModifiers },
+    "desktop:windows": { code, modifiers: desktopModifiers },
+    "desktop:linux": { code, modifiers: desktopModifiers },
+    ...webModifiers ? {
+      "web:macos": { code, modifiers: webModifiers },
+      "web:windows": { code, modifiers: webModifiers }
+    } : {}
+  };
+}
 var MODIFIER_CODES = /* @__PURE__ */ new Set([
   "ShiftLeft",
   "ShiftRight",
@@ -62651,10 +62717,10 @@ function effectiveBinding(id, overrides = {}) {
   }
   return def.defaultBinding ?? null;
 }
-function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) {
+function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform(), host = "desktop") {
   const key = bindingKey(binding, mac);
   if (!key) return null;
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost(host)) {
     if (def.id === targetId) continue;
     const current2 = effectiveBinding(def.id, overrides);
     if (current2 && bindingKey(current2, mac) === key) return def;
@@ -62663,6 +62729,27 @@ function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) 
 }
 function platformBucket(mac = isMacPlatform()) {
   return mac ? "mac" : "other";
+}
+function isDesktopDef(def) {
+  return Boolean(def && Array.isArray(def.hosts) && def.hosts.includes("desktop"));
+}
+function resolveEffectiveOverrides(explicit = {}, mac = isMacPlatform(), host = "desktop") {
+  const effective = { ...explicit };
+  const usedByExplicit = /* @__PURE__ */ new Set();
+  for (const [id, binding] of Object.entries(explicit)) {
+    if (!binding) continue;
+    const def = SHORTCUT_BY_ID[id];
+    if (!def || !Array.isArray(def.hosts) || !def.hosts.includes(host)) continue;
+    const key = bindingKey(binding, mac);
+    if (key) usedByExplicit.add(key);
+  }
+  for (const def of shortcutsForHost(host)) {
+    if (Object.prototype.hasOwnProperty.call(explicit, def.id)) continue;
+    if (!def.defaultBinding) continue;
+    const key = bindingKey(def.defaultBinding, mac);
+    if (key && usedByExplicit.has(key)) effective[def.id] = null;
+  }
+  return effective;
 }
 function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? null : localStorage, mac = isMacPlatform()) {
   if (!storage) return {};
@@ -62675,11 +62762,15 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
     if (!bucket || typeof bucket !== "object") return {};
     const clean = {};
     for (const [id, value] of Object.entries(bucket)) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     return clean;
@@ -62698,11 +62789,15 @@ function saveShortcutOverrides(overrides, storage = typeof localStorage === "und
     }
     const clean = {};
     for (const [id, value] of Object.entries(overrides ?? {})) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     parsed[platformBucket(mac)] = clean;
@@ -62719,65 +62814,71 @@ function isShortcutRecording() {
 }
 function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
   const resolveStorage = () => storage !== void 0 ? storage : typeof localStorage === "undefined" ? null : localStorage;
-  let overrides = loadShortcutOverrides(resolveStorage(), mac);
+  let explicit = loadShortcutOverrides(resolveStorage(), mac);
+  let effective = resolveEffectiveOverrides(explicit, mac, "desktop");
   const listeners3 = /* @__PURE__ */ new Set();
   const notify = () => {
     for (const fn of listeners3) fn();
   };
-  const commit = (next) => {
-    overrides = next;
-    saveShortcutOverrides(overrides, resolveStorage(), mac);
+  const commit = (nextExplicit) => {
+    explicit = nextExplicit;
+    effective = resolveEffectiveOverrides(explicit, mac, "desktop");
+    saveShortcutOverrides(explicit, resolveStorage(), mac);
     notify();
   };
   return {
-    getSnapshot: () => overrides,
+    getSnapshot: () => effective,
     subscribe(listener) {
       listeners3.add(listener);
       return () => listeners3.delete(listener);
     },
-    bindingOf: (id) => effectiveBinding(id, overrides),
-    isCustomized: (id) => Object.prototype.hasOwnProperty.call(overrides, id),
-    hasCustomizations: () => Object.keys(overrides).length > 0,
+    bindingOf: (id) => effectiveBinding(id, effective),
+    isCustomized: (id) => Object.prototype.hasOwnProperty.call(explicit, id),
+    hasCustomizations: () => Object.keys(explicit).length > 0,
     setBinding(id, binding, { replaceConflict = false } = {}) {
-      if (!SHORTCUT_BY_ID[id]) return { ok: false, reason: "unknown" };
-      const next = { ...overrides };
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) return { ok: false, reason: "unknown" };
+      const nextExplicit = { ...explicit };
       if (binding === null) {
-        if (SHORTCUT_BY_ID[id].defaultBinding === null) delete next[id];
-        else next[id] = null;
-        commit(next);
+        if (def.defaultBinding === null) delete nextExplicit[id];
+        else nextExplicit[id] = null;
+        commit(nextExplicit);
         return { ok: true };
       }
       const normalized = normalizeBinding(binding);
       const check = validateBinding(normalized, mac);
       if (!check.ok) return check;
-      const conflict = findConflict(id, normalized, next, mac);
+      const conflict = findConflict(id, normalized, effective, mac);
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      if (bindingsEqual(normalized, SHORTCUT_BY_ID[id].defaultBinding, mac)) {
-        delete next[id];
+      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+        delete nextExplicit[id];
       } else {
-        next[id] = normalized;
+        nextExplicit[id] = normalized;
       }
-      commit(next);
+      commit(nextExplicit);
       return { ok: true };
     },
     resetBinding(id, { replaceConflict = false } = {}) {
       const def = SHORTCUT_BY_ID[id];
-      if (!def || !Object.prototype.hasOwnProperty.call(overrides, id)) return { ok: true };
-      const next = { ...overrides };
-      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, next, mac) : null;
+      if (!isDesktopDef(def)) return { ok: true };
+      if (!Object.prototype.hasOwnProperty.call(effective, id) && !Object.prototype.hasOwnProperty.call(explicit, id)) {
+        return { ok: true };
+      }
+      const nextExplicit = { ...explicit };
+      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, effective, mac) : null;
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict, binding: def.defaultBinding };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      delete next[id];
-      commit(next);
+      delete nextExplicit[id];
+      commit(nextExplicit);
       return { ok: true };
     },
     resetAll() {
-      if (Object.keys(overrides).length === 0) return;
+      if (Object.keys(explicit).length === 0) return;
       commit({});
     },
     /**
@@ -62785,9 +62886,9 @@ function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
      */
     activeBindings(capabilities = {}) {
       const list = [];
-      for (const def of SHORTCUT_DEFS) {
+      for (const def of shortcutsForHost("desktop")) {
         if (!isCommandAvailable(def, capabilities)) continue;
-        const binding = effectiveBinding(def.id, overrides);
+        const binding = effectiveBinding(def.id, effective);
         if (!binding) continue;
         list.push({ id: def.id, ...binding });
       }
@@ -62821,7 +62922,7 @@ function matchShortcutEvent(event, {
     event.target?.closest?.(".xterm") || !event.target?.closest && typeof document !== "undefined" && document.activeElement?.closest?.(".xterm")
   );
   const activeModal = modal ?? (settingsOpen ? "settings" : null);
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost("desktop")) {
     if (!isCommandAvailable(def, capabilities)) continue;
     const binding = effectiveBinding(def.id, overrides);
     if (!binding || binding.code !== code) continue;
@@ -63019,7 +63120,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react73.useMemo)(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
-    return SHORTCUT_DEFS.filter((def) => {
+    return shortcutsForHost("desktop").filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false;
       if (!wanted) return true;
       const label = labelForDef(def, classic).toLowerCase();
@@ -63036,7 +63137,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
     }
     return SHORTCUT_GROUPS.map((group) => ({ ...group, items: byGroup.get(group.id) ?? [] })).filter((group) => group.items.length > 0);
   }, [visibleDefs]);
-  const hasCustom = Object.keys(overrides).length > 0;
+  const hasCustom = store.hasCustomizations();
   const modCap = mac ? "⌘" : "Ctrl";
   const shiftCap = mac ? "⇧" : "Shift";
   const fixedRows = (0, import_react73.useMemo)(() => {
@@ -63126,7 +63227,8 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides);
         const caps = formatBindingCaps(binding, mac);
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
+        const customized = store.isCustomized(def.id);
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
         const label = labelForDef(def, classic);
@@ -63146,7 +63248,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
             (0, import_react73.createElement)(
               "div",
               { className: "bt-sc-controls" },
-              customized ? (0, import_react73.createElement)("button", {
+              customized || suppressed ? (0, import_react73.createElement)("button", {
                 type: "button",
                 className: "bt-mini bt-sc-reset",
                 onClick: () => resetOne(def.id)
@@ -74262,15 +74364,6 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 }
 
 // src/client/plugin-shortcuts.js
-var pluginDefaults = (code, desktopModifiers, webModifiers) => ({
-  "desktop:macos": { code, modifiers: desktopModifiers },
-  "desktop:windows": { code, modifiers: desktopModifiers },
-  "desktop:linux": { code, modifiers: desktopModifiers },
-  ...webModifiers ? {
-    "web:macos": { code, modifiers: webModifiers },
-    "web:windows": { code, modifiers: webModifiers }
-  } : {}
-});
 function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, sessionsById }) {
   const activeBotTarget = () => {
     const snap = roster.getSnapshot();
@@ -74278,98 +74371,76 @@ function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, s
     if (current2 && snap.byId?.[current2]) return snap.byId[current2].id;
     return snap.mainBotId ?? snap.bots?.[0]?.id ?? null;
   };
-  return [
-    {
-      id: "ds-bot.switch-surface",
-      label: () => t("Switch Bot / Classic Agent mode"),
-      aliases: ["classic", "agent", "bot", "mode"],
-      defaults: pluginDefaults("KeyM", ["primary", "shift"], ["primary", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
-      }
+  const resolvers = {
+    "switch-surface": ({ modal }) => {
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
     },
-    ...typeof actions.openInbox === "function" ? [{
-      id: "ds-bot.open-inbox",
-      label: () => t("Open Inbox"),
-      aliases: ["inbox", "notifications"],
-      defaults: pluginDefaults("KeyI", ["primary"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return {
-          status: "handled",
-          run: () => {
-            if (ui.getSnapshot().inbox) actions.closeInbox?.();
-            else actions.openInbox();
-          }
-        };
-      }
-    }] : [],
-    ...typeof actions.openBrowser === "function" ? [{
-      id: "ds-bot.open-browser",
-      label: () => t("Toggle Bot browser"),
-      aliases: ["browser", "web"],
-      defaults: pluginDefaults("KeyB", ["primary", "shift"], ["primary", "alt", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        const snap = roster.getSnapshot();
-        if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const botId = activeBotTarget();
-        if (!botId) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => actions.toggleBrowser(botId)
-        };
-      }
-    }] : [],
-    {
-      id: "ds-bot.group-search",
-      label: () => t("Search in group"),
-      aliases: ["search", "group"],
-      defaults: pluginDefaults("KeyF", ["primary", "shift"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const current2 = mainView();
-        const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
-        return {
-          status: "handled",
-          run: () => {
-            if (room2) actions.openGroupSearch?.(room2.id);
-            else actions.openPalette();
-          }
-        };
-      }
+    inbox: ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return {
+        status: "handled",
+        run: () => {
+          if (ui.getSnapshot().inbox) actions.closeInbox?.();
+          else actions.openInbox();
+        }
+      };
     },
-    ...Array.from({ length: 9 }, (_, index) => ({
-      id: `ds-bot.switch-bot-${index + 1}`,
-      label: () => t("Switch to conversation {n}", { n: index + 1 }),
-      aliases: ["bot", "switch", String(index + 1)],
-      defaults: pluginDefaults(`Digit${index + 1}`, ["primary"], ["primary", "alt"]),
+    browser: ({ modal }) => {
+      const snap = roster.getSnapshot();
+      if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const botId = activeBotTarget();
+      if (!botId) return { status: "blocked", reason: "unavailable" };
+      return {
+        status: "handled",
+        run: () => actions.toggleBrowser(botId)
+      };
+    },
+    "group-search": ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const current2 = mainView();
+      const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
+      return {
+        status: "handled",
+        run: () => {
+          if (room2) actions.openGroupSearch?.(room2.id);
+          else actions.openPalette();
+        }
+      };
+    }
+  };
+  const resolveSlot = (slot) => ({ modal }) => {
+    if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+    if (modal !== null) return { status: "blocked", reason: "modal" };
+    const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
+    const target = targets[slot];
+    if (!target) return { status: "blocked", reason: "unavailable" };
+    return {
+      status: "handled",
+      run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
+    };
+  };
+  const commands = [];
+  for (const def of shortcutsForHost("plugin")) {
+    if (!def.plugin?.id) continue;
+    if (def.requiresInbox && typeof actions.openInbox !== "function") continue;
+    if (def.requiresBrowser && typeof actions.openBrowser !== "function") continue;
+    const resolve2 = Number.isInteger(def.slot) ? resolveSlot(def.slot) : resolvers[def.id];
+    if (typeof resolve2 !== "function") continue;
+    commands.push({
+      id: def.plugin.id,
+      label: () => def.labelVars ? t(def.label, def.labelVars) : t(def.label),
+      aliases: def.plugin.aliases ?? [],
+      defaults: pluginShortcutDefaults(def),
       regions: ["page", "editable"],
       modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
-        const target = targets[index];
-        if (!target) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
-        };
-      }
-    }))
-  ];
+      resolve: resolve2
+    });
+  }
+  return commands;
 }
 function registerPluginShortcuts(shortcuts, { onError, ...deps }) {
   const commands = buildPluginShortcutCommands(deps);
