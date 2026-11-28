@@ -8,12 +8,37 @@ import { hostText, language, t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CloseIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { createSource } from '../../../ds-bot/src/client/sources.js'
-import { writeClipboard } from './primitives.js'
 
 const SAFE_EXTERNAL_URL = /^https?:\/\//i
 const safeExternalUrl = value => (typeof value === 'string' && SAFE_EXTERNAL_URL.test(value.trim()) ? value.trim() : null)
 const SIGNIN_POLL_MS = 2000
 const IN_FLIGHT_PHASES = new Set(['initializing', 'waiting-browser', 'exchanging', 'committing'])
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? '')
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+  } catch { /* fall through to execCommand */ }
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function' || !document.body) return false
+  const area = document.createElement('textarea')
+  area.value = value
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.top = '-9999px'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  const previous = document.activeElement
+  area.focus()
+  area.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  area.remove()
+  if (typeof HTMLElement !== 'undefined' && previous instanceof HTMLElement) previous.focus()
+  return ok
+}
 
 export function currentColorScheme() {
   return typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true ? 'dark' : 'light'
@@ -137,7 +162,7 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
 
   const copyLink = useCallback(async () => {
     if (!authorizeUrl) return
-    const ok = await writeClipboard(authorizeUrl)
+    const ok = await copyTextToClipboard(authorizeUrl)
     if (!mountedRef.current) return
     setCopyState(ok ? 'copied' : 'failed')
     clearTimeout(copyTimer.current)
