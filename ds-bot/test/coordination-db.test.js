@@ -1487,6 +1487,68 @@ test('corrupt recovery refuses to delete or replace DB when backup fails and pre
   }
 })
 
+test('createRuntime survives corrupt_backup_failed without crashing startup or passive views while preserving original SQLite rows', async () => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return
+  const dir = tempDir('dsb-coord-rt-backup-fail-')
+  const dbPath = join(dir, 'coordination.sqlite')
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['a'],
+    bots: { a: { id: 'a', name: 'Chief', role: 'Lead', sessionId: 'a', createdAt: 1 } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 1,
+  }))
+  createPartiallyCorruptSqlite(dbPath, { withUncheckpointedWal: true })
+  // Prime `-shm` in WAL mode so SQLite opens the existing WAL files in the 0o555 dir
+  // and hits the real `SQLITE_CORRUPT` error on `DROP TABLE meta` rather than `SQLITE_READONLY`.
+  const primer = new DatabaseSync(dbPath)
+  primer.exec('SELECT COUNT(*) FROM works;')
+  primer.close()
+  // Re-create the uncheckpointed `-wal` + `-shm` state if closing checkpointed it.
+  if (!existsSync(`${dbPath}-wal`)) {
+    writeFileSync(`${dbPath}-wal`, '')
+  }
+  if (!existsSync(`${dbPath}-shm`)) {
+    writeFileSync(`${dbPath}-shm`, '')
+  }
+
+  const ctx = fakeContext()
+  chmodSync(dir, 0o555)
+  try {
+    const rt = createRuntime(ctx, { home: dir })
+    await rt.load()
+    assert.equal(rt.refreshCoordDb(), null, 'refreshCoordDb fails closed without throwing during startup')
+    assert.equal(rt.coordDbError()?.code, 'coordination/corrupt_backup_failed')
+    assert.deepEqual(rt.waitingView(), {}, 'passive waitingView succeeds without throwing')
+    assert.deepEqual(rt.pausedWorksView(), [], 'passive pausedWorksView succeeds without throwing')
+    assert.deepEqual(rt.activityView(), {}, 'passive activityView succeeds without throwing')
+    assert.equal(rt.statusOf?.('a'), 'idle', 'passive statusOf succeeds without throwing')
+    assert.equal(rt.existingCoordDb(), null, 'passive existingCoordDb returns null without creating an empty ledger')
+    assert.throws(
+      () => rt.coordDb,
+      err => err instanceof CoordinationError && err.code === 'coordination/corrupt_backup_failed',
+      'active rt.coordDb getter must still fail closed with coordination/corrupt_backup_failed',
+    )
+    assert.equal(
+      readdirSync(dir).some(name => name.startsWith('coordination.sqlite.corrupt-')),
+      false,
+      'no partial backup file created in unwritable directory',
+    )
+  } finally {
+    chmodSync(dir, 0o755)
+    await ctx.dispose()
+  }
+
+  assert.deepEqual(readWorksFromRealSqlite(dbPath), [
+    { workId: 'w1', title: 'Committed main row' },
+    { workId: 'w2', title: 'Committed WAL-only row' },
+  ], 'original SQLite DB rows must stay intact and readable after createRuntime backup failure')
+})
+
 test('corrupt recovery produces independently openable and readable real SQLite backups (main + WAL)', () => {
   for (const { label, withUncheckpointedWal, expectedRows } of [
     {

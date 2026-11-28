@@ -1177,7 +1177,7 @@ export function install(rt) {
   }
 
   const unreadChildResultsOf = (workId) => {
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.() || !workId) return []
     return handle.listInbox(workId, { unreadOnly: true, includeNotes: false })
       .filter(msg => msg.kind === 'result')

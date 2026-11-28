@@ -43,7 +43,8 @@ export function install(rt) {
   const nameOf = id => rt.botOf(id)?.name
   const writes = () => rt.readOnly?.() === undefined
   const hasCoordDb = () => rt.coordDb != null && !rt.coordDb.isClosed?.()
-  const hasExistingCoordDb = () => (typeof rt.hasExistingCoordDb === 'function' ? rt.hasExistingCoordDb() : true) && hasCoordDb()
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (hasCoordDb() ? rt.coordDb : null))
+  const hasExistingCoordDb = () => existingCoordDb() !== null
   const writableCoordDb = () => hasCoordDb() && rt.coordDb.readonly !== true && writes()
 
   // In-memory cache of full result bodies written during this process lifetime,
@@ -235,12 +236,13 @@ export function install(rt) {
   // canonical SQLite fields alongside legacy compatibility aliases (`ref`, `from`, `to`, `state`).
   const mapWorkCompat = (work, call) => {
     if (work === undefined) return undefined
-    const incoming = call ?? (hasCoordDb()
-      ? (rt.coordDb.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
-        ?? rt.coordDb.listCalls({ childWorkId: work.workId, limit: 1 })[0])
+    const db = existingCoordDb()
+    const incoming = call ?? (db !== null
+      ? (db.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
+        ?? db.listCalls({ childWorkId: work.workId, limit: 1 })[0])
       : undefined)
-    const openAsk = hasCoordDb() && !TERMINAL_STATUSES.has(work.status)
-      ? rt.coordDb.listWaits({ workId: work.workId, kind: 'ask', status: 'open', limit: 1 })[0]
+    const openAsk = db !== null && !TERMINAL_STATUSES.has(work.status)
+      ? db.listWaits({ workId: work.workId, kind: 'ask', status: 'open', limit: 1 })[0]
       : undefined
     const legacyState = TERMINAL_STATUSES.has(work.status)
       ? (work.status === 'stopped' ? 'cancelled' : work.status === 'done' ? 'closed' : 'failed')
@@ -253,7 +255,7 @@ export function install(rt) {
       ...work,
       id: work.workId,
       ref: work.workRef ?? undefined,
-      from: incoming?.callerBotId ?? (work.parentWorkId && hasCoordDb() ? rt.coordDb.getWork(work.parentWorkId)?.botId : undefined),
+      from: incoming?.callerBotId ?? (work.parentWorkId && db !== null ? db.getWork(work.parentWorkId)?.botId : undefined),
       to: work.botId,
       parent: work.parentWorkId ?? undefined,
       room: work.roomId ?? undefined,
@@ -266,21 +268,22 @@ export function install(rt) {
   }
 
   function findDbWork(refOrId) {
-    if (!hasExistingCoordDb()) return undefined
+    const db = existingCoordDb()
+    if (db === null) return undefined
     const key = String(refOrId ?? '').trim()
     if (key === '') return undefined
-    const direct = rt.coordDb.getWork(key)
-      ?? rt.coordDb.getWork(`handoff:${key}`)
-      ?? rt.coordDb.getWork(`task:${key}`)
-      ?? rt.coordDb.getWorkByLogicalAddress(key)
+    const direct = db.getWork(key)
+      ?? db.getWork(`handoff:${key}`)
+      ?? db.getWork(`task:${key}`)
+      ?? db.getWorkByLogicalAddress(key)
     if (direct !== undefined) return direct
     const ref = normalizeRef(key)
     if (ref !== undefined) {
-      const byRef = rt.coordDb.getWorkByRef(ref)
+      const byRef = db.getWorkByRef(ref)
       if (byRef !== undefined) return byRef
     }
-    const call = rt.coordDb.getCall(key)
-    if (call !== undefined) return rt.coordDb.getWork(call.childWorkId)
+    const call = db.getCall(key)
+    if (call !== undefined) return db.getWork(call.childWorkId)
     return undefined
   }
 
@@ -324,7 +327,8 @@ export function install(rt) {
 
   function resolveWorkForSession(sessionId, { ensureForeground = true } = {}) {
     if (typeof sessionId !== 'string' || sessionId === '') return undefined
-    if (ensureForeground ? !hasCoordDb() : !hasExistingCoordDb()) return undefined
+    const db = ensureForeground ? (hasCoordDb() ? rt.coordDb : null) : existingCoordDb()
+    if (db === null) return undefined
     const liveInfo = rt.live?.get(sessionId)?.info
     const activeId = workOf(liveInfo)
     if (activeId !== undefined) {
@@ -333,19 +337,19 @@ export function install(rt) {
     }
     const taskOwner = rt.taskOwners?.get(sessionId)
     if (taskOwner?.taskId) {
-      const taskWork = rt.coordDb.getWork(`task:${taskOwner.taskId}`) ?? rt.coordDb.getWorkBySessionId(sessionId)
+      const taskWork = db.getWork(`task:${taskOwner.taskId}`) ?? db.getWorkBySessionId(sessionId)
       if (taskWork !== undefined && !TERMINAL_STATUSES.has(taskWork.status)) return taskWork
     }
-    const bySession = rt.coordDb.getWorkBySessionId(sessionId)
+    const bySession = db.getWorkBySessionId(sessionId)
     if (bySession !== undefined && !TERMINAL_STATUSES.has(bySession.status)) return bySession
     const groupOwner = rt.groupOwners?.get(sessionId)
     if (groupOwner?.roomId && groupOwner?.botId) {
-      const roomWork = rt.coordDb.getWorkByLogicalAddress(roomMemberAddress(groupOwner.roomId, groupOwner.botId))
+      const roomWork = db.getWorkByLogicalAddress(roomMemberAddress(groupOwner.roomId, groupOwner.botId))
       if (roomWork !== undefined && !TERMINAL_STATUSES.has(roomWork.status)) return roomWork
     }
     const botId = rt.chatOwners?.get(sessionId) ?? rt.selfOf?.(sessionId)
     if (botId !== undefined) {
-      const fg = rt.coordDb.getForegroundWork(botId)
+      const fg = db.getForegroundWork(botId)
       if (fg !== undefined) return fg
       if (ensureForeground) return ensureForegroundWorkForBot(botId)
     }
@@ -356,7 +360,8 @@ export function install(rt) {
   // (directly or transitively) on any work in `workIds`.
   function upstreamOf(workIds) {
     const bots = new Set()
-    if (!hasExistingCoordDb()) return bots
+    const db = existingCoordDb()
+    if (db === null) return bots
     const queue = []
     const visited = new Set()
     for (const rawId of workIds ?? []) {
@@ -368,9 +373,9 @@ export function install(rt) {
     }
     while (queue.length > 0) {
       const currentId = queue.shift()
-      const incomingWaits = rt.coordDb.listWaits({ targetWorkId: currentId, kind: 'call', status: 'open', limit: 200 })
+      const incomingWaits = db.listWaits({ targetWorkId: currentId, kind: 'call', status: 'open', limit: 200 })
       for (const wait of incomingWaits) {
-        const parent = rt.coordDb.getWork(wait.workId)
+        const parent = db.getWork(wait.workId)
         if (parent !== undefined && !TERMINAL_STATUSES.has(parent.status)) {
           if (parent.botId) bots.add(parent.botId)
           if (!visited.has(parent.workId)) {
@@ -379,7 +384,7 @@ export function install(rt) {
           }
         }
       }
-      const incomingCalls = rt.coordDb.listCalls({ childWorkId: currentId, status: 'open', limit: 200 })
+      const incomingCalls = db.listCalls({ childWorkId: currentId, status: 'open', limit: 200 })
       for (const call of incomingCalls) {
         if (call.callerBotId) bots.add(call.callerBotId)
         if (call.parentWorkId && !visited.has(call.parentWorkId)) {
@@ -933,10 +938,11 @@ export function install(rt) {
   }
 
   const waits = (workId) => {
-    if (!hasExistingCoordDb() || !workId) return false
+    const db = existingCoordDb()
+    if (db === null || !workId) return false
     const work = findDbWork(workId)
     if (work === undefined || TERMINAL_STATUSES.has(work.status)) return false
-    return rt.coordDb.listWaits({ workId: work.workId, status: 'open', limit: 1 }).length > 0
+    return db.listWaits({ workId: work.workId, status: 'open', limit: 1 }).length > 0
   }
 
   const hold = (workId, text) => {
@@ -947,10 +953,12 @@ export function install(rt) {
   const hasHeldWork = workId => heldAnswers.has(workId)
 
   const askedBy = (workId) => {
+    const db = existingCoordDb()
+    if (db === null) return undefined
     const work = findDbWork(workId)
     if (work === undefined) return undefined
-    const call = rt.coordDb.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
-      ?? rt.coordDb.listCalls({ childWorkId: work.workId, limit: 1 })[0]
+    const call = db.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
+      ?? db.listCalls({ childWorkId: work.workId, limit: 1 })[0]
     return {
       kind: 'bot',
       role: 'request',
@@ -966,7 +974,8 @@ export function install(rt) {
   function answerText(workId, reply, botName) {
     const said = reply !== '' ? reply : (heldAnswers.get(workId) ?? '')
     heldAnswers.delete(workId)
-    if (!hasExistingCoordDb()) return said || `${botName} finished without a reply.`
+    const db = existingCoordDb()
+    if (db === null) return said || `${botName} finished without a reply.`
     const work = findDbWork(workId)
     if (work === undefined) return said || `${botName} finished without a reply.`
     const formatEntry = (label, resObj) => {
@@ -976,10 +985,10 @@ export function install(rt) {
         : `${text}\n[cut; ${resObj.length} characters in all, the rest was not kept]`
       return `${label}:\n${body}`
     }
-    const settledChildren = rt.coordDb.listCalls({ parentWorkId: work.workId, limit: 50 })
+    const settledChildren = db.listCalls({ parentWorkId: work.workId, limit: 50 })
       .filter(call => call.status !== 'open' && !String(call.childWorkId ?? '').startsWith('room-report:'))
     const results = settledChildren.map((call) => {
-      const childWork = rt.coordDb.getWork(call.childWorkId)
+      const childWork = db.getWork(call.childWorkId)
       const childName = childWork?.meta?.child !== undefined
         ? (childWork.apiMeta?.name ?? childWork.meta?.name ?? childWork.title ?? 'subagent')
         : (nameOf(call.calleeBotId) ?? 'teammate')
@@ -1006,13 +1015,14 @@ export function install(rt) {
   }
 
   const needInputWorksFor = (callerId) => {
-    if (!hasExistingCoordDb() || !callerId) return []
-    const openAsks = rt.coordDb.listWaits({ kind: 'ask', status: 'open', limit: 200 })
+    const db = existingCoordDb()
+    if (db === null || !callerId) return []
+    const openAsks = db.listWaits({ kind: 'ask', status: 'open', limit: 200 })
     const out = []
     for (const askWait of openAsks) {
-      const target = askWait.targetWorkId ? rt.coordDb.getWork(askWait.targetWorkId) : undefined
+      const target = askWait.targetWorkId ? db.getWork(askWait.targetWorkId) : undefined
       if (target?.botId !== callerId) continue
-      const askerWork = rt.coordDb.getWork(askWait.workId)
+      const askerWork = db.getWork(askWait.workId)
       if (askerWork === undefined || TERMINAL_STATUSES.has(askerWork.status)) continue
       out.push({ id: askerWork.workId, work: mapWorkCompat(askerWork), wait: askWait })
     }
@@ -1020,12 +1030,13 @@ export function install(rt) {
   }
 
   const openWorksBetween = (fromId, toId) => {
-    if (!hasExistingCoordDb() || !fromId || !toId) return []
-    const openCalls = rt.coordDb.listCalls({ status: 'open', limit: 500 })
+    const db = existingCoordDb()
+    if (db === null || !fromId || !toId) return []
+    const openCalls = db.listCalls({ status: 'open', limit: 500 })
       .filter(call => call.callerBotId === fromId && call.calleeBotId === toId)
     const out = []
     for (const call of openCalls) {
-      const child = rt.coordDb.getWork(call.childWorkId)
+      const child = db.getWork(call.childWorkId)
       if (child !== undefined && !TERMINAL_STATUSES.has(child.status)) {
         out.push({ id: child.workId, work: mapWorkCompat(child, call), call })
       }
@@ -1079,16 +1090,17 @@ export function install(rt) {
   // Per Bot, the Bots and groups it waits for, and the Bots it does that work for.
   function waitingView() {
     const view = {}
-    if (!hasExistingCoordDb()) return view
+    const db = existingCoordDb()
+    if (db === null) return view
     const add = (list, id) => { if (id !== undefined && !list.includes(id)) list.push(id) }
-    const openWaits = rt.coordDb.listWaits({ status: 'open', limit: 500 })
+    const openWaits = db.listWaits({ status: 'open', limit: 500 })
     for (const wait of openWaits) {
       if (wait.kind !== 'call' && wait.kind !== 'ask') continue
-      const ownerWork = rt.coordDb.getWork(wait.workId)
+      const ownerWork = db.getWork(wait.workId)
       if (ownerWork === undefined || ownerWork.kind === 'foreground' || TERMINAL_STATUSES.has(ownerWork.status)) continue
       if (ownerWork.status === 'running' || (ownerWork.sessionId && rt.live?.get?.(ownerWork.sessionId)?.turn !== undefined)) continue
       const owner = ownerWork.botId
-      const targetWork = wait.targetWorkId ? rt.coordDb.getWork(wait.targetWorkId) : undefined
+      const targetWork = wait.targetWorkId ? db.getWork(wait.targetWorkId) : undefined
       if (targetWork === undefined || TERMINAL_STATUSES.has(targetWork.status)) continue
       const entry = view[owner] ??= { bots: [], rooms: [], for: [], waits: [] }
       if (targetWork.roomId) {
@@ -1098,7 +1110,7 @@ export function install(rt) {
         add(entry.bots, targetWork.botId)
         entry.waits.push({ id: targetWork.workId, to: targetWork.botId, name: nameOf(targetWork.botId) ?? targetWork.title })
       }
-      const incoming = rt.coordDb.listCalls({ childWorkId: ownerWork.workId, status: 'open', limit: 1 })[0]
+      const incoming = db.listCalls({ childWorkId: ownerWork.workId, status: 'open', limit: 1 })[0]
       if (incoming?.callerBotId && incoming.callerBotId !== owner) add(entry.for, incoming.callerBotId)
     }
     return view
@@ -1107,12 +1119,13 @@ export function install(rt) {
   function pausedWorksView() {
     const out = []
     const seenIds = new Set()
-    if (hasExistingCoordDb()) {
-      const paused = rt.coordDb.listWorks({ statuses: ['paused', 'needs_verification'], limit: 200 })
+    const db = existingCoordDb()
+    if (db !== null) {
+      const paused = db.listWorks({ statuses: ['paused', 'needs_verification'], limit: 200 })
       for (const work of paused) {
         if (work.originKind === 'request_dedup') continue
-        const call = rt.coordDb.listCalls({ childWorkId: work.workId, limit: 1 })[0]
-        const parentWork = work.parentWorkId ? rt.coordDb.getWork(work.parentWorkId) : undefined
+        const call = db.listCalls({ childWorkId: work.workId, limit: 1 })[0]
+        const parentWork = work.parentWorkId ? db.getWork(work.parentWorkId) : undefined
         const from = call?.callerBotId ?? parentWork?.botId ?? null
         const detail = work.pauseDetail ?? {}
         const id = work.meta?.legacyWorkId ?? work.workId
@@ -1229,23 +1242,24 @@ export function install(rt) {
       const entry = rt.live.get(sessionId)
       lines.push(`working ${place(sessionId)} ${minutes(entry.since ?? Date.now())}${forWhom(sessionId, entry.info)}${doing(entry)}`)
     }
-    if (hasExistingCoordDb()) {
-      const activeWorks = rt.coordDb.listWorks({ botId, activeOnly: true, limit: 100 })
+    const db = existingCoordDb()
+    if (db !== null) {
+      const activeWorks = db.listWorks({ botId, activeOnly: true, limit: 100 })
       for (const work of activeWorks) {
         if (work.originKind === 'request_dedup') continue
         if (work.status === 'paused' || work.status === 'needs_verification') {
           lines.push(`paused work ${work.workRef ?? work.workId} (${work.pauseReason ?? work.status}; waiting for the user to continue or cancel)`)
           continue
         }
-        const openWaits = rt.coordDb.listWaits({ workId: work.workId, status: 'open', limit: 20 })
+        const openWaits = db.listWaits({ workId: work.workId, status: 'open', limit: 20 })
         const askWaits = openWaits.filter(w => w.kind === 'ask')
         const callWaits = openWaits.filter(w => w.kind === 'call')
         if (askWaits.length > 0) {
-          const target = askWaits[0].targetWorkId ? rt.coordDb.getWork(askWaits[0].targetWorkId) : undefined
+          const target = askWaits[0].targetWorkId ? db.getWork(askWaits[0].targetWorkId) : undefined
           lines.push(`waiting for ${nameOf(target?.botId) ?? 'the caller'} to answer a question on ${work.workRef ?? work.workId}`)
         } else if (callWaits.length > 0 && work.status !== 'running') {
           const names = [...new Set(callWaits.map((w) => {
-            const child = w.targetWorkId ? rt.coordDb.getWork(w.targetWorkId) : undefined
+            const child = w.targetWorkId ? db.getWork(w.targetWorkId) : undefined
             if (child?.roomId) return `group "${rt.roomOf(child.roomId)?.name ?? 'a group'}"`
             return nameOf(child?.botId) ?? child?.title ?? 'a teammate'
           }))]
@@ -1257,11 +1271,11 @@ export function install(rt) {
     for (const [kind, card] of [['question', state.questions?.[chat]], ['view', state.views?.[chat]]]) {
       if (card !== undefined) lines.push(`a ${kind} card in its own chat has waited for the user's answer ${forHowLong(card.askedAt)}`)
     }
-    if (hasExistingCoordDb()) {
-      const fg = rt.coordDb.getForegroundWork(botId)
+    if (db !== null) {
+      const fg = db.getForegroundWork(botId)
       if (fg !== undefined) {
         const unread = new Map()
-        for (const msg of rt.coordDb.listInbox(fg.workId, { unreadOnly: true, includeNotes: false, limit: 100 })) {
+        for (const msg of db.listInbox(fg.workId, { unreadOnly: true, includeNotes: false, limit: 100 })) {
           const name = nameOf(msg.senderBotId)
           if (name !== undefined) unread.set(name, (unread.get(name) ?? 0) + 1)
         }
@@ -1326,8 +1340,9 @@ export function install(rt) {
 
   // Subagent sub-work lifecycle helpers backed by `coordDb` (`meta.child`).
   const findSubWork = (childId, { activeOnly = false, exclude } = {}) => {
-    if (!hasExistingCoordDb() || typeof childId !== 'string' || childId === '') return undefined
-    const candidates = rt.coordDb.listWorks({ activeOnly, limit: 500 })
+    const db = existingCoordDb()
+    if (db === null || typeof childId !== 'string' || childId === '') return undefined
+    const candidates = db.listWorks({ activeOnly, limit: 500 })
       .filter(w => w.meta?.child === childId && !(exclude?.has?.(w.workId)))
     return candidates.at(-1)
   }
@@ -1338,7 +1353,7 @@ export function install(rt) {
       const abandoned = takeAbandoned(work.workId)
       if (abandoned !== undefined) {
         const subName = abandoned.name ?? work.apiMeta?.name ?? work.meta?.name ?? work.title ?? 'subagent'
-        const parentWork = work.parentWorkId ? rt.coordDb?.getWork?.(work.parentWorkId) : undefined
+        const parentWork = work.parentWorkId ? existingCoordDb()?.getWork?.(work.parentWorkId) : undefined
         const targetBot = abandoned.waiting ?? abandoned.from ?? parentWork?.botId ?? work.botId
         const body = String(text ?? '').trim()
         if (targetBot !== undefined && body !== '' && typeof rt.deliver === 'function') {

@@ -398,7 +398,13 @@ export function createRunCoordinator(rt, auth) {
     if (typeof rt.hasExistingCoordDb === 'function' && !rt.hasExistingCoordDb() && !existsSync(join(rt.home, 'api-runs.json'))) {
       return
     }
-    const db = writableDb()
+    let db
+    try {
+      db = writableDb()
+    } catch (error) {
+      rt.warn?.('ds-bot: skipping API run reconciliation (coordination database unavailable): %s', error?.message ?? error)
+      return
+    }
     if (!db) return
     reconciled = true
     migrateLegacyApiRuns()
