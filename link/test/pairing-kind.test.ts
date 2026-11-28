@@ -43,3 +43,16 @@ test('legacy devices are phones; invalid and expired codes cannot set a kind', (
   assert.equal(registry.authorize('new', 'key', { pairingCode: browserCode }), false)
   assert.equal(registry.list().length, 1)
 })
+
+test('a paired device closes a new offer when it scans the new code', () => {
+  const registry = new DeviceRegistry([{ deviceId: 'iphone', identityKey: 'key', name: 'iPhone', pairedAt: 1, kind: 'browser' }])
+  const [device] = registry.list()
+  const { code, browserCode } = registry.openPairing()
+  assert.equal(registry.authorize('iphone', 'key', {}), true)
+  assert.equal(registry.authorize('iphone', 'key', { pairingCode: 'old-code' }), true)
+  assert.equal(registry.pairingOpen(), true)
+  assert.equal(registry.authorize('iphone', 'key', { pairingCode: browserCode }), true)
+  assert.equal(registry.pairingOpen(), false)
+  assert.equal(registry.authorize('new', 'other-key', { pairingCode: code }), false)
+  assert.deepEqual(registry.list(), [device])
+})

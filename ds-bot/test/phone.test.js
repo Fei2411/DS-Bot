@@ -7,6 +7,7 @@ import { apply } from '../index.js'
 import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
+import { FEED_ROUTE } from '../src/host/feed.js'
 import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
 import { COMPUTER_ONLY_ENDPOINTS, COMPUTER_ONLY_PREFIXES, TEAM_COMPUTER_PREFIX_EXCEPTIONS, TEAM_ENDPOINTS, isClassifiedEndpoint, isComputerOnlyEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
 
@@ -28,7 +29,11 @@ function open(home) {
   const ctx = fakeContext()
   ctx.workspaceRegistry = { get: () => undefined, list: () => [] }
   const register = ctx.connection.fetch.register
-  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  ctx.connection.fetch.register = (route) => {
+    if (route.path === FEED_ROUTE) ctx.feedRoute = route
+    else ctx.route = route
+    return register(route)
+  }
   apply(ctx, { home, github: false })
   const call = async (endpoint, payload) => (await (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json())
   return { ctx, call }
@@ -113,14 +118,57 @@ test('a browser pairs with its own code and is listed by authenticated kind', as
   await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
   const paired = await desk.call('phone-pair', {})
   const offer = parsePairingUri(paired.value.pairing.browserUri)
+  const before = (await desk.call('state', {})).value
+  assert.ok(before.phone.pairing)
+  const feed = await desk.ctx.feedRoute.fetch(new Request('http://localhost/api/bot/feed'))
+  const reader = feed.body.getReader()
+  t.after(() => reader.cancel())
+  const decoder = new TextDecoder()
+  assert.match(decoder.decode((await reader.read()).value), /^event: hello\n/u)
+
   const link = phone(offer, { pairingCode: offer.code, name: 'iPhone' })
   await link.client.connect()
-  const listed = (await desk.call('state', {})).value.phone
+  assert.equal(decoder.decode((await reader.read()).value), 'event: live\ndata: {}\n\n')
+  const { phone: listed } = (await desk.call('state', { since: before.revision, live: before.liveKey })).value
   assert.equal(listed.pairing, null)
   assert.equal(listed.phones[0].kind, 'browser')
   assert.equal(listed.phones[0].name, 'iPhone')
   assert.equal((await link.client.rpc('bot', { endpoint: 'state' })).ok, true)
   await link.client.close()
+})
+
+test('the desktop feed refreshes when failed pairing attempts close the offer', async (t) => {
+  const relay = await startRelayServer()
+  const home = mkdtempSync(join(tmpdir(), 'dsb-pairing-misses-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const desk = open(home)
+  t.after(async () => {
+    await desk.ctx.dispose()
+    await relay.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await desk.call('phone-set', { server: relay.url, on: true })
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+  const paired = await desk.call('phone-pair', {})
+  const offer = parsePairingUri(paired.value.pairing.browserUri)
+  const feed = await desk.ctx.feedRoute.fetch(new Request('http://localhost/api/bot/feed'))
+  const reader = feed.body.getReader()
+  t.after(() => reader.cancel())
+  const decoder = new TextDecoder()
+  assert.match(decoder.decode((await reader.read()).value), /^event: hello\n/u)
+
+  const keys = generateKeyPair()
+  const token = randomToken()
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const link = phone(offer, { pairingCode: 'wrong' }, keys, token)
+    await assert.rejects(link.client.connect(), { code: 'NOT_PAIRED' })
+    await link.client.close()
+    if (attempt < 5) assert.ok((await desk.call('state', {})).value.phone.pairing)
+  }
+  assert.equal(decoder.decode((await reader.read()).value), 'event: live\ndata: {}\n\n')
+  const { phone: closed } = (await desk.call('state', {})).value
+  assert.equal(closed.pairing, null)
+  assert.deepEqual(closed.phones, [])
 })
 
 test('remote state and live polls never disclose pairing offers, including attached state', async t => {

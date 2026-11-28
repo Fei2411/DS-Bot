@@ -436,21 +436,33 @@ export function install(rt) {
     const want = data.on === true && serve !== null && blocked === undefined
     if (link !== null && (!want || linkServer !== serverUrl())) void stop()
     if (!want || link !== null) return
-    link = new HostLink({
+    const running = new HostLink({
       url: serverUrl(),
       identity: identity(),
       accessToken: data.accessToken,
       name: hostname(),
       admits: (deviceId, key) => registry.admits(deviceId, key),
-      authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
+      authorize: (deviceId, key, hello) => {
+        if (link !== running) return false
+        const allowed = registry.authorize(deviceId, key, hello)
+        if (!allowed && pairing !== null && !registry.pairingOpen()) {
+          pairing = null
+          rt.publishLocalFeed?.('live', {})
+        }
+        return allowed
+      },
       handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
       // Feed events ride the link while a phone is connected, and also when an
       // offline phone has an E2E push subscription registered.
       onReadyCount: count => {
+        if (link !== running) return
         readyCount = count
         reconcileFeed()
+        // Pairing changes without a team revision.
+        rt.publishLocalFeed?.('live', {})
       },
     })
+    link = running
     linkServer = serverUrl()
     link.start()
     reconcileFeed()
