@@ -156,6 +156,18 @@ test('applying a Bot model leaves the DSH default as the user set it', async () 
   assert.equal(bot.appliedModel, 'deepseek/v4-flash')
 })
 
+test('a Bot defaults to medium only on models that serve it, with explicit efforts taking priority', async () => {
+  const ref = 'deepseek/v4-flash'
+  const { rt, selected } = bench({ reasoning: { [ref]: { reasoning: { efforts: ['medium', 'max'].map(id => ({ id })) } } } })
+  const bot = { id: 'b1', model: ref }
+  assert.equal((await rt.botReasoningOf(ref)).defaultEffort, 'medium')
+  await rt.applyModel(bot)
+  assert.equal(selected.at(-1), 'b1:' + ref + ':medium')
+  assert.equal(await rt.desiredEffort({ effort: 'max' }, ref), 'max')
+  assert.equal(await rt.desiredEffort({ effort: 'ultra' }, ref), 'medium')
+  assert.equal(await rt.desiredEffort(bot, 'stepfun/step-5'), undefined)
+})
+
 test('a Bot model applies its thinking level, and only re-selects on a change', async () => {
   const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' } } } })
   const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low' }

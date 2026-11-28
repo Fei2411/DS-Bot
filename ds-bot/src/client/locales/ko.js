@@ -899,6 +899,12 @@ export const KO = {
   // Model menu
   Default: '기본값',
   'Thinking level': '사고 강도',
+  'Minimal': '최소',
+  'Low': '낮음',
+  'Medium': '중간',
+  'High': '높음',
+  'Xhigh': '매우 높음',
+  'Max': '최대',
   'Model: {model}': '모델: {model}',
   none: '없음',
   'Choose a model': '모델 선택',

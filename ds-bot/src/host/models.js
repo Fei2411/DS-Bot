@@ -4,7 +4,9 @@
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { ALWAYS_AUX_RETRY_MAX, ALWAYS_RETRY_MAX } from './constants.js'
 import { normalize, splitRef } from './text.js'
+import { CHATGPT_PROVIDER } from './chatgpt.js'
 import { serviceOf } from './services.js'
+import { isLocalAgentRoute } from './local-agents/engines.js'
 import { isMissingSessionError, ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
@@ -237,7 +239,10 @@ export function install(rt) {
   // only with the provider, which also drops the catalog cache.
   const reasoningCache = new Map()
   let syncedKey
-  const dropCatalog = () => { catalogCache = { at: 0, value: [] }; reasoningCache.clear() }
+  const dropCatalog = () => {
+    catalogCache = { at: 0, value: [] }
+    reasoningCache.clear()
+  }
   // A key set or a sign-in may be the user's fix for a Bot's failed turn (turns.js); a
   // key removed or a sign-out is not. A provider added or removed changes whether a
   // Session's selection names a real adapter, so the team's models are applied again:
@@ -304,6 +309,16 @@ export function install(rt) {
     return value
   }
 
+  function mediumDefault(ref, reasoning) {
+    if (reasoning?.efforts.some(level => level.id === 'medium') && !isLocal(ref) && splitRef(ref)?.provider !== CHATGPT_PROVIDER) return 'medium'
+  }
+
+  async function botReasoningOf(ref) {
+    const reasoning = await reasoningOf(ref)
+    const effort = mediumDefault(ref, reasoning)
+    return effort === undefined ? reasoning : { ...reasoning, defaultEffort: effort }
+  }
+
   // A provider's model list can change in DSH settings without any event, so a picker
   // that is about to be used asks for a `fresh` one. Entries for models a Bot uses
   // also carry their `reasoning`, so the picker can offer thinking levels.
@@ -341,7 +356,7 @@ export function install(rt) {
     rt.unblockBots?.({ keyed: new Set(entries.filter(entry => !entry.needsKey).map(entry => entry.provider)) })
     const used = new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel].filter(Boolean)))
     await Promise.all(entries.filter(entry => used.has(entry.ref)).map(async (entry) => {
-      const reasoning = await reasoningOf(entry.ref)
+      const reasoning = await botReasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
     catalogCache = { at: Date.now(), value: entries }
@@ -357,7 +372,7 @@ export function install(rt) {
   }
   // A model whose provider has no key fails every turn, so no Bot is given one unasked.
   const keyed = entries => entries.filter(entry => entry.needsKey !== true)
-  const isLocal = ref => rt.isLocalAgentRef?.(ref) === true
+  const isLocal = ref => rt.isLocalAgentRef?.(ref) ?? isLocalAgentRoute(splitRef(ref)?.provider)
   // Matches DSH's attachment admission (commands.js): a model rejects images only when
   // its resolved `inputModalities` is defined and omits 'image'. When `listModels` omits
   // `inputModalities`, confirm via `resolveModelInfo` before picking the route for a room.
@@ -449,13 +464,11 @@ export function install(rt) {
     return usableOf(entries).some(entry => entry.ref === bot.appliedModel) ? bot.appliedModel : pickDefault(entries)
   }
 
-  // The thinking level a Bot asked for, when the model it runs on serves it; else the
-  // model's own default applies. A level the model does not have is ignored, never
-  // sent: an explicit effort a provider does not know is a hard refusal there.
+  // Sending a level the model does not offer can make the whole request fail.
   async function desiredEffort(bot, ref) {
-    if (bot.effort === undefined || ref === undefined) return undefined
+    if (ref === undefined || (!bot.effort && isLocal(ref))) return undefined
     const reasoning = await reasoningOf(ref)
-    return reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
+    return reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : mediumDefault(ref, reasoning)
   }
 
   // A thinking level id, or a name only one level of the model has, like resolveModel.
@@ -469,15 +482,6 @@ export function install(rt) {
     const named = efforts.filter(effort => normalize(effort.id) === key || normalize(effort.name) === key)
     if (named.length === 1) return named[0].id
     throw new Error(`Thinking level ${wanted} is not available for ${ref}. Available: ${efforts.map(effort => effort.name).join(', ')}`)
-  }
-
-  // The profile default model's thinking level, when the model a Bot starts on
-  // serves it. A level the model does not know is ignored, like an inherited
-  // `bot.effort` — the model's own default applies instead.
-  async function defaultEffort(ref) {
-    const wanted = ctx.get?.('agentDefaultModel')?.currentSelection?.()?.reasoningEffort
-    if (ref === undefined || wanted === undefined) return undefined
-    return resolveEffort(ref, wanted).catch(() => undefined)
   }
 
   // DSH's selectModel also saves the selection as the profile default model, in the
@@ -1083,7 +1087,7 @@ export function install(rt) {
     // Work that starts while the host runs can ask whether the host is still there.
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
-    defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
+    defaultRef, defaultModel, defaultBotModel, isUsable, resolveModel, desiredModel, reasoningOf, botReasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, retryModel, reapplyModel, routeRefused, dropCatalog, assembleLlm, forgetSessionModel,
   })
 }

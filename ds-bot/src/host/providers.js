@@ -3,6 +3,8 @@
 // it, the route's key in DSH's credential store under the reference the route names.
 // The providers to add are the ones DSH's directory of configurable providers offers.
 
+import { isDeepStrictEqual } from 'node:util'
+import { createEffortCatalog } from './model-effort-catalog.js'
 import { serviceOf } from './services.js'
 import { CHATGPT_PROVIDER } from './chatgpt.js'
 const PI_AI = 'llm-pi-ai'
@@ -13,17 +15,21 @@ const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 export const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
 // The protocols whose model-listing the pi-ai adapter can read. A route on any other
 // protocol has no refresh entry: the adapter would answer DISCOVERY_UNSUPPORTED.
-const LISTABLE_PROTOCOLS = new Set(PROTOCOLS)
+function canList(profile, section) {
+  const api = profile?.api ?? 'openai-completions'
+  return PROTOCOLS.includes(api) || (api === 'google-generative-ai' && protocolsOf(section).includes(api))
+}
 
-function protocolsOf(section) {
+function routeOptions(section, field) {
   const schema = section?.schema
   const refs = schema?.refs
   const at = node => (typeof node === 'number' || typeof node === 'string' ? refs?.[String(node)] : node)
   const root = at(schema?.uid ?? schema)
-  const api = at(at(at(root?.dict?.providers)?.inner)?.dict?.api)
-  const fromSchema = api?.list?.map(item => at(item)?.value).filter(item => typeof item === 'string' && item !== '')
-  return Array.isArray(fromSchema) && fromSchema.length > 0 ? fromSchema : PROTOCOLS
+  const union = at(at(at(root?.dict?.providers)?.inner)?.dict?.[field])
+  const options = union?.list?.map(item => at(item)?.value).filter(item => typeof item === 'string' && item !== '')
+  return options?.length ? options : undefined
 }
+const protocolsOf = section => routeOptions(section, 'api') ?? PROTOCOLS
 const MAX_MODELS = 500
 // pi-ai guesses compatibility from the endpoint hostname and treats any unrecognized
 // gateway as OpenAI's own server (sending the `developer` role, `store: false`, and
@@ -50,7 +56,12 @@ const COMPLETIONS_PROVIDERS = new Set([
   'xiaomi', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp',
   'zai', 'zai-coding-cn',
 ])
-const catalogProtocol = id => (RESPONSES_PROVIDERS.has(id) ? 'openai-responses' : COMPLETIONS_PROVIDERS.has(id) ? 'openai-completions' : undefined)
+function catalogProtocol(id) {
+  if (id === 'anthropic') return 'anthropic-messages'
+  if (id === 'google') return 'google-generative-ai'
+  if (RESPONSES_PROVIDERS.has(id)) return 'openai-responses'
+  if (COMPLETIONS_PROVIDERS.has(id)) return 'openai-completions'
+}
 
 // The reference DSH's own Models page derives for a route's key, so a provider added
 // here and one added there read the same key.
@@ -85,16 +96,16 @@ function lookupKnownModel(known, rawId) {
   return known.get(id) ?? known.get(bare) ?? (bare.startsWith('kimi-') ? known.get(bare.slice(5)) : known.get(`kimi-${bare}`))
 }
 
-const THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 
 // DSH's llm-pi-ai schema accepts `false` (explicit non-reasoning) or a dict of
 // pi-ai thinking levels with at least one level beyond `off`.
-function normalizeReasoningEfforts(raw) {
+function normalizeReasoningEfforts(raw, allowed = THINKING_LEVELS) {
   if (raw === false) return false
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const mapped = {}
   for (const [level, wire] of Object.entries(raw)) {
-    if (!THINKING_LEVELS.has(level)) continue
+    if (!allowed.includes(level)) continue
     if (wire === null && level === 'off') mapped.off = null
     else if (typeof wire === 'string' && wire.trim() !== '') mapped[level] = wire.trim()
   }
@@ -109,7 +120,7 @@ function openaiReasoningEfforts(info) {
     const id = typeof effort?.id === 'string' ? effort.id : ''
     // Omit 'off' unless the server explicitly confirmed default_reasoning_level === 'none',
     // so Default (unset effort) keeps omitting `reasoning` instead of sending effort='none'.
-    if (id === 'off' || !THINKING_LEVELS.has(id)) continue
+    if (id === 'off' || !THINKING_LEVELS.includes(id)) continue
     mapped[id] = id
   }
   return normalizeReasoningEfforts(mapped)
@@ -133,7 +144,7 @@ function fallbackChatGPTReasoningEfforts(rawId) {
 
 // A model as the route stores it: what discovery told about it, under pi-ai's names,
 // with any missing capacity or modalities filled from a known catalog model of the same id.
-function modelEntry(model, known) {
+function modelEntry(model, known, allowed) {
   const id = typeof model === 'string' ? model.trim() : typeof model?.id === 'string' ? model.id.trim() : ''
   if (id === '') throw invalid('Every model needs an id')
   const match = lookupKnownModel(known, id)
@@ -146,7 +157,7 @@ function modelEntry(model, known) {
       ? model.input
       : match?.inputModalities
   const input = Array.isArray(rawInput) ? rawInput.filter(kind => typeof kind === 'string') : []
-  const reasoningEfforts = normalizeReasoningEfforts(model?.reasoningEfforts)
+  const reasoningEfforts = normalizeReasoningEfforts(model?.reasoningEfforts, allowed)
   return {
     id,
     ...(typeof model?.name === 'string' && model.name.trim() !== '' ? { name: model.name.trim() } : {}),
@@ -169,6 +180,30 @@ function compatForRoute(id, profile) {
   return { ...defaults, ...current }
 }
 
+function catalogRoute(section, profile) {
+  const api = profile?.api ?? 'openai-completions'
+  const adaptive = api === 'anthropic-messages' && Object.values(section?.schema?.refs ?? {})
+    .some(node => node?.dict?.forceAdaptiveThinking !== undefined)
+  return {
+    api, baseURL: profile?.baseURL, allowed: routeOptions(section, 'reasoning'), adaptive,
+    routeAdaptive: profile?.compat?.forceAdaptiveThinking, thinkingBudgets: profile?.thinkingBudgets,
+    maxTokens: profile?.defaultMaxTokens,
+  }
+}
+
+// Earlier versions tracked only the level map. A wrapped entry also owns the
+// per-model adaptive switch, so a route-level override can take precedence later.
+const trackedLevels = entry => entry?.levels ?? entry
+function withAdaptive(model, previous, enable) {
+  if (enable) return model.compat?.forceAdaptiveThinking === true ? model
+    : { ...model, compat: { ...model.compat, forceAdaptiveThinking: true } }
+  if (!previous?.adaptive || model.compat?.forceAdaptiveThinking !== true) return model
+  const next = { ...model, compat: { ...model.compat } }
+  delete next.compat.forceAdaptiveThinking
+  if (!Object.keys(next.compat).length) delete next.compat
+  return next
+}
+
 export function install(rt) {
   const { ctx } = rt
 
@@ -186,6 +221,59 @@ export function install(rt) {
   const profileOf = (entry, map, layer = 'value') => entry.settingsPath.reduce((value, key) => value?.[key], map.get(entry.settingsNs)?.[layer])
   const refOf = profile => (typeof profile?.apiKeyEnv === 'string' && profile.apiKeyEnv !== '' ? profile.apiKeyEnv : undefined)
   const entryOf = provider => ctx.llm.listConfigurableProviders().find(entry => entry.provider === provider)
+  const usesGatewayCatalog = (entry, userProfile) => entry && entry.provider !== CHATGPT_PROVIDER &&
+    (entry.declared === true || (userProfile?.baseURL && (userProfile.api || catalogProtocol(entry.provider))))
+
+  const catalogEfforts = createEffortCatalog(rt.home)
+  const trackedEfforts = () => rt.state.prefs?.catalogEfforts ?? {}
+  async function rememberEfforts(changes) {
+    if (!changes.size) return
+    const next = { ...trackedEfforts() }
+    for (const [ref, value] of changes) {
+      if (value === undefined) delete next[ref]
+      else next[ref] = value
+    }
+    rt.state.prefs ??= {}
+    rt.state.prefs.catalogEfforts = next
+    await rt.save?.()
+  }
+
+  async function lookupEfforts(id, route, model, previous) {
+    const modelAdaptive = previous?.adaptive && model?.compat?.forceAdaptiveThinking === true
+      ? undefined : model?.compat?.forceAdaptiveThinking
+    const explicitAdaptive = modelAdaptive ?? route.routeAdaptive
+    const result = await catalogEfforts(id, { ...route, explicitAdaptive, maxTokens: model?.maxTokens ?? route.maxTokens })
+    return { levels: result && result.levels, ownAdaptive: result?.adaptive && explicitAdaptive === undefined }
+  }
+
+  // A saved map is user-owned unless it still matches our last write.
+  async function enrichModel(provider, route, model, changes, useCatalog = false) {
+    const id = typeof model === 'string' ? model : model.id
+    const ref = provider + '/' + id
+    const saved = model.reasoningEfforts
+    const previous = trackedEfforts()[ref]
+    const managed = trackedLevels(previous)
+    if (saved !== undefined && !useCatalog && !isDeepStrictEqual(saved, managed)) {
+      if (managed !== undefined) changes.set(ref, undefined)
+      return route.api === 'anthropic-messages' ? model : withAdaptive(model, previous, false)
+    }
+    const { levels, ownAdaptive } = await lookupEfforts(id, route, model, previous)
+    if (levels === undefined) return model
+    if (levels === null) {
+      if (managed === undefined) return model
+      changes.set(ref, undefined)
+      if (typeof model === 'string') return model
+      const next = { ...withAdaptive(model, previous, false) }
+      delete next.reasoningEfforts
+      return next
+    }
+    const record = ownAdaptive ? { levels, adaptive: true } : levels
+    if (!isDeepStrictEqual(previous, record)) changes.set(ref, record)
+    const current = typeof model === 'string' ? { id } : model
+    const next = withAdaptive(current, previous, ownAdaptive)
+    if (isDeepStrictEqual(saved, levels) && current === next) return model
+    return { ...next, reasoningEfforts: levels }
+  }
 
   let knownCache
   async function knownCatalogModels() {
@@ -216,26 +304,52 @@ export function install(rt) {
   // Backfill compatibility defaults onto custom routes (and catalog routes pointed at a
   // custom gateway) that were saved before DS Bot wrote `compat`, or added through DSH's
   // own Models page. Explicit user settings win per field.
-  let repairing = Promise.resolve()
-  async function ensureCustomCompat() {
+  async function ensureCustomCompat(retry = true) {
     const found = seams()
     if (found === undefined) return
     const section = sections(found.settings).get(PI_AI)
     const userProviders = section?.user?.providers
     if (!userProviders || typeof userProviders !== 'object') return
     const ops = []
+    const changes = new Map()
     for (const [id, profile] of Object.entries(userProviders)) {
       const nextCompat = compatForRoute(id, profile)
       if (nextCompat !== undefined) ops.push({ op: 'set', path: ['providers', id, 'compat'], value: nextCompat })
+      if (!rt.home || rt.readOnly?.() || rt.hasLoaded?.() === false || !Array.isArray(profile?.models) ||
+          !usesGatewayCatalog(entryOf(id), profile)) continue
+      const effective = section.value?.providers?.[id] ?? profile
+      const route = catalogRoute(section, { ...effective, api: effective.api ?? catalogProtocol(id) })
+      const models = await Promise.all(profile.models.map(model => enrichModel(id, route, model, changes)))
+      if (models.some((model, i) => model !== profile.models[i])) {
+        ops.push({ op: 'set', path: ['providers', id, 'models'], value: models })
+      }
     }
-    if (ops.length === 0) return
-    await found.settings.mutate(PI_AI, ops, section.revision)
-    rt.dropCatalog()
+    if (!ops.length && !changes.size) return
+    // A DSH settings editor can write while the public catalogs are loading.
+    if (sections(found.settings).get(PI_AI)?.revision !== section.revision) {
+      if (retry) await ensureCustomCompat(false)
+      return
+    }
+    if (ops.length) {
+      try {
+        await found.settings.mutate(PI_AI, ops, section.revision)
+      } catch (error) {
+        if (!retry || error?.code !== 'SETTINGS_CONFLICT') throw error
+        return ensureCustomCompat(false)
+      }
+      rt.dropCatalog()
+    }
+    await rememberEfforts(changes)
   }
-  function repairRoutes() {
-    repairing = repairing.then(ensureCustomCompat, ensureCustomCompat).catch(() => {})
-    return repairing
+  // Settings writes and the matching ownership records must finish together
+  // before another provider operation interprets a saved map as a manual edit.
+  let routeWrites = Promise.resolve()
+  function queueRouteWrite(work) {
+    const result = routeWrites.then(work)
+    routeWrites = result.catch(() => {})
+    return result
   }
+  const repairRoutes = () => queueRouteWrite(() => ensureCustomCompat()).catch(() => {})
   repairRoutes()
 
   // Per provider route, the credential its DSH settings name as its API key. A
@@ -293,7 +407,7 @@ export function install(rt) {
       // such entry; they are not named here.
       const listable = entry.settingsNs === PI_AI && profile !== undefined
         && typeof profile.baseURL === 'string' && profile.baseURL !== ''
-        && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+        && canList(profile, map.get(PI_AI))
       const refreshable = listable && profileOf(entry, map, 'user') !== undefined
       const declared = (Array.isArray(profile?.models) ? profile.models : []).map(model => {
         const id = typeof model === 'string' ? model : model?.id
@@ -343,7 +457,6 @@ export function install(rt) {
   // endpoint DSH ships nothing about. The route goes in first, then its key, as DSH's
   // own Models page does it: a failed key write leaves a provider that asks for one.
   async function addProvider(body) {
-    await repairing
     const { settings, credentials } = usable()
     const provider = String(body.provider ?? '').trim()
     if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in to add this connection.')
@@ -361,17 +474,23 @@ export function install(rt) {
     if (key !== undefined && info.writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
     // A blank key keeps a key that is already there, else the provider's own sign-in.
     const keyed = key !== undefined || info.configured === true
-    const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI))) : {}
+    const allowed = routeOptions(map.get(PI_AI), 'reasoning')
+    const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI)), allowed) : {}
+    const changes = new Map()
+    if (custom) {
+      const route = catalogRoute(map.get(PI_AI), profile)
+      profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, route, model, changes)))
+    }
     if (keyed) profile.apiKeyEnv = ref
     await settings.mutate(PI_AI, [{ op: 'set', path: entry?.settingsPath ?? ['providers', provider], value: profile }], map.get(PI_AI)?.revision)
+    await rememberEfforts(changes)
     if (key !== undefined) await credentials.set(ref, key)
     rt.dropCatalog()
-    return providersView()
   }
 
-  function customProfile(body, known, protocols = PROTOCOLS) {
+  function customProfile(body, known, protocols, allowed) {
     if (!protocols.includes(body.api)) throw invalid(`The protocol must be one of ${protocols.join(', ')}`)
-    const models = Array.isArray(body.models) ? body.models.slice(0, MAX_MODELS).map(model => modelEntry(model, known)) : []
+    const models = Array.isArray(body.models) ? body.models.slice(0, MAX_MODELS).map(model => modelEntry(model, known, allowed)) : []
     if (models.length === 0) throw invalid('Add at least one model')
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : ''
@@ -413,18 +532,34 @@ export function install(rt) {
         }
     const models = await ctx.llm.discoverModels(PI_AI, request)
     const known = request.provider === undefined ? await knownCatalogModels() : undefined
-    return models.slice(0, MAX_MODELS).map((model) => {
+    const existing = new Map((Array.isArray(profile?.models) ? profile.models : []).map(m => [typeof m === 'string' ? m : m.id, m]))
+    const route = catalogRoute(map.get(PI_AI), {
+      ...profile, baseURL: request.baseURL ?? profile?.baseURL, api: request.api ?? profile?.api ?? catalogProtocol(provider),
+    })
+    // The settings page lists IDs first. API callers can also preview the
+    // mappings or restore them on save with useCatalogLevels.
+    const fromCatalog = body.includeCatalogLevels !== false && (!provider || usesGatewayCatalog(entry, entry && profileOf(entry, map, 'user')))
+    return Promise.all(models.slice(0, MAX_MODELS).map(async model => {
+      const entryModel = existing.get(model.id)
+      const previous = trackedEfforts()[provider + '/' + model.id]
+      const { levels } = fromCatalog
+        ? await lookupEfforts(model.id, route, { ...entryModel, ...model }, previous) : {}
+      const saved = entryModel?.reasoningEfforts
+      const manual = saved !== undefined && !isDeepStrictEqual(saved, trackedLevels(previous))
+
       const match = lookupKnownModel(known, model.id)
       const contextWindow = model.contextWindow ?? match?.contextWindow
       const inputModalities = model.inputModalities ?? match?.inputModalities
       return {
         id: model.id,
+        ...(levels ? { catalogLevels: Object.keys(levels) } : {}),
+        ...(levels && manual && !isDeepStrictEqual(saved, levels) ? { hasCustomLevels: true } : {}),
         ...(model.name ? { name: model.name } : {}),
         ...(contextWindow ? { contextWindow } : {}),
         ...(model.maxTokens ? { maxTokens: model.maxTokens } : {}),
         ...(inputModalities ? { inputModalities: [...inputModalities] } : {}),
       }
-    })
+    }))
   }
 
   // Replace only one provider's models. The route, its endpoint, protocol, key
@@ -440,7 +575,7 @@ export function install(rt) {
     if (profileOf(entry, map, 'user') === undefined) throw invalid(`${provider} cannot be changed here`)
     const profile = profileOf(entry, map)
     const listable = typeof profile?.baseURL === 'string' && profile.baseURL !== ''
-      && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+      && canList(profile, map.get(PI_AI))
     if (!listable) throw invalid(`${provider} has no model list to refresh here`)
     const section = map.get(PI_AI)
     if (body.revision !== undefined && section !== undefined && body.revision !== section.revision) {
@@ -453,6 +588,8 @@ export function install(rt) {
     const current = new Map((Array.isArray(profile?.models) ? profile.models : [])
       .map(model => [typeof model === 'string' ? model : model?.id, model])
       .filter(([id]) => typeof id === 'string' && id !== ''))
+    const changes = new Map()
+    const route = catalogRoute(section, { ...profile, api: profile.api ?? catalogProtocol(provider) })
     const openaiEntry = provider === CHATGPT_PROVIDER ? entryOf('openai') : undefined
     const openaiProfile = openaiEntry ? profileOf(openaiEntry, map) : undefined
     const hasOfficialOpenAI = provider === CHATGPT_PROVIDER
@@ -462,7 +599,17 @@ export function install(rt) {
     const models = await Promise.all(list.map(async (model) => {
       const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
       const old = current.get(id)
-      const saved = typeof old === 'string' ? { id: old } : old
+      let saved = typeof old === 'string' ? { id: old } : old
+      const ref = provider + '/' + id
+      const managed = trackedLevels(trackedEfforts()[ref])
+      if (provider === CHATGPT_PROVIDER && managed !== undefined) {
+        // Older versions also filled the plan route from the custom gateway catalog.
+        changes.set(ref, undefined)
+        if (isDeepStrictEqual(saved?.reasoningEfforts, managed)) {
+          saved = { ...saved }
+          delete saved.reasoningEfforts
+        }
+      }
       const incoming = typeof model === 'string' ? { id: model } : model
       const incomingHasEfforts = Object.prototype.hasOwnProperty.call(incoming, 'reasoningEfforts') && incoming.reasoningEfforts !== undefined
       let fallbackEfforts
@@ -474,24 +621,29 @@ export function install(rt) {
         fallbackEfforts ??= fallbackChatGPTReasoningEfforts(id)
       }
       const mergedInput = { ...saved, ...incoming, ...(fallbackEfforts !== undefined ? { reasoningEfforts: fallbackEfforts } : {}) }
-      const next = modelEntry(mergedInput, known)
+      const next = modelEntry(mergedInput, known, route.allowed)
       const combined = { ...saved, ...next }
       // If the caller explicitly supplied reasoningEfforts that normalized to nothing
       // (e.g. invalid keys or off-only), do not resurrect a stale saved.reasoningEfforts.
       if (incomingHasEfforts && next.reasoningEfforts === undefined) delete combined.reasoningEfforts
-      return combined
+      if (!usesGatewayCatalog(entry, profileOf(entry, map, 'user'))) return combined
+      return enrichModel(provider, route, combined, changes, incoming.useCatalogLevels === true)
     }))
+    const kept = new Set(models.map(model => model.id))
+    for (const id of current.keys()) {
+      const ref = provider + '/' + id
+      if (!kept.has(id) && trackedEfforts()[ref] !== undefined) changes.set(ref, undefined)
+    }
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
+    await rememberEfforts(changes)
     rt.dropCatalog()
-    return providersView()
   }
 
   // Only a route the user added goes; its key goes with it when it is the one this page
   // derives and no other provider names it.
   async function removeProvider(provider) {
     if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-out to disconnect this connection; its model route is retained.')
-    await repairing
     const { settings, credentials } = usable()
     const map = sections(settings)
     const entry = entryOf(provider)
@@ -500,13 +652,16 @@ export function install(rt) {
     const ref = refOf(profileOf(entry, map))
     const shared = [...keyRefs()].some(([other, otherRef]) => other !== provider && otherRef === ref)
     await settings.mutate(PI_AI, [{ op: 'unset', path: entry.settingsPath }], map.get(PI_AI)?.revision)
+    const changes = new Map(Object.keys(trackedEfforts()).filter(ref => ref.startsWith(provider + '/')).map(ref => [ref, undefined]))
+    await rememberEfforts(changes)
+    rt.dropCatalog()
     if (ref === keyRefFor(provider) && !shared) {
       const info = await credentials.describe(ref)
       if (info.configured && info.writable) await credentials.unset(ref)
     }
-    rt.dropCatalog()
-    return providersView()
   }
 
-  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, saveProviderModels, removeProvider })
+  const editRoute = edit => input => queueRouteWrite(() => edit(input)).then(providersView)
+  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, discoverModels,
+    addProvider: editRoute(addProvider), saveProviderModels: editRoute(saveProviderModels), removeProvider: editRoute(removeProvider) })
 }

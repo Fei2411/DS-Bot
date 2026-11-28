@@ -899,6 +899,12 @@ export const DE = {
   // Model menu
   Default: 'Standard',
   'Thinking level': 'Denktiefe',
+  'Minimal': 'Minimal',
+  'Low': 'Niedrig',
+  'Medium': 'Mittel',
+  'High': 'Hoch',
+  'Xhigh': 'Sehr hoch',
+  'Max': 'Maximal',
   'Model: {model}': 'Modell: {model}',
   none: 'keine',
   'Choose a model': 'Modell wählen',

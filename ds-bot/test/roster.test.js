@@ -345,20 +345,19 @@ test('a Bot takes a thinking level its model serves, applied with the model', as
   assert.equal(selected.at(-1).reasoningEffort, 'high')
 })
 
-test('a new Bot inherits the profile default thinking level', async (t) => {
-  const reasoning = { 'deepseek/deepseek-v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } } }
+test('creating a Bot leaves the default effort to its model, even when the profile has a valid override', async (t) => {
+  const reasoning = { 'deepseek/deepseek-v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } } }
   const selection = { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }
   const { call, stop, selected } = start(undefined, { models: ['deepseek-v4-flash'], reasoning, selection })
   t.after(stop)
   const writer = (await call('create-bot', { name: 'Writer' })).value
   await settle()
   assert.equal(writer.model, 'deepseek/deepseek-v4-flash')
-  assert.equal(writer.effort, 'high')
-  assert.equal(selected.at(-1).reasoningEffort, 'high')
+  assert.equal(writer.effort, undefined)
+  assert.equal(selected.at(-1).reasoningEffort, undefined)
 
-  // An explicit level still wins, and a level the model does not serve is dropped.
-  const coder = (await call('create-bot', { name: 'Coder', effort: 'low' })).value
-  assert.equal(coder.effort, 'low')
+  const coder = (await call('create-bot', { name: 'Coder', effort: 'high' })).value
+  assert.equal(coder.effort, 'high')
 
   // An explicit Default pick (null) stays on the model's own level, and so does a
   // copy of a Bot that has no level of its own.

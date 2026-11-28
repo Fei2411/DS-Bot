@@ -320,7 +320,9 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
   // requests encrypted reasoning for stateless multi-turn cache continuity, keeps the
   // system prompt in `input[0]` as `developer` (no uncached top-level `instructions`),
   // and forwards session affinity headers + prompt_cache_key.
-  await runTurn('gpt-5.5', undefined)
+  const planRef = 'openai-chatgpt/gpt-5.5'
+  assert.equal((await rt.botReasoningOf(planRef)).defaultEffort, undefined)
+  await runTurn('gpt-5.5', await rt.desiredEffort({}, planRef))
   assert.equal(requests.at(-1).body.reasoning, undefined)
   assert.deepEqual(requests.at(-1).body.include, ['reasoning.encrypted_content'])
   assert.equal(requests.at(-1).body.instructions, undefined)

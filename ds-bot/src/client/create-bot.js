@@ -107,7 +107,9 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h(CliList, { ...localAgents, selected: routeOf(chosen), onPick: pickAgent, actions })) : null,
     !local || chosen !== '' ? h('div', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Model'), local && reading ? h(ReadingModels) : null),
-      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: chosen || undefined, effort: local ? undefined : effort }, roster, actions, wide: true, onPick: (ref) => { if (local) { setAgentModel(ref); return } setModel(ref); setEffort(undefined) }, onPickEffort: picked => setEffort(picked ?? null) }),
+      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: chosen || undefined, effort: local ? undefined : effort }, roster, actions, wide: true, inline: !local, withEfforts: !local,
+        onPick: (ref) => { if (local) { setAgentModel(ref); return } if (ref !== model) { setModel(ref); setEffort(undefined) } },
+        onPickEffort: picked => setEffort(picked ?? null) }),
       h('span', { className: 'bt-note' }, chosen
         ? t('The Bot runs on this model. You can change it later in its details.')
         : modelsFor(roster.models).length > 0

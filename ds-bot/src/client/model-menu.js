@@ -57,15 +57,16 @@ function useEfforts(served, ref, actions, version = 0) {
     setFetched(undefined)
     if (ref === undefined || served?.reasoning !== undefined || actions?.efforts === undefined) return undefined
     let live = true
-    if (effortCache.has(ref)) setFetched(lruGet(effortCache, ref))
-    else void Promise.resolve(actions.efforts(ref)).then((value) => {
+    if (effortCache.has(ref)) setFetched({ ref, reasoning: lruGet(effortCache, ref) })
+    void Promise.resolve(actions.efforts(ref)).then((value) => {
+      if (!live) return
       const reasoning = value?.efforts ? value : null
       lruSet(effortCache, ref, reasoning, MAX_EFFORT_CACHE)
-      if (live) setFetched(reasoning)
+      setFetched({ ref, reasoning })
     }).catch(() => {})
     return () => { live = false }
-  }, [ref, served?.reasoning !== undefined, actions, version])
-  return served?.reasoning ?? fetched
+  }, [ref, served?.reasoning !== undefined, actions?.efforts, version])
+  return served?.reasoning ?? (fetched?.ref === ref ? fetched?.reasoning : undefined)
 }
 
 // The stops along the thinking-level slider: when the model names its default level,
@@ -75,9 +76,14 @@ export function effortStops(reasoning) {
   const efforts = reasoning?.efforts ?? []
   if (efforts.length === 0) return []
   const hasDefault = efforts.some(effort => effort.id === reasoning.defaultEffort)
-  return hasDefault
-    ? efforts.map(effort => ({ effort: effort.id, label: effort.name }))
-    : [{ effort: undefined, label: t('Default') }, ...efforts.map(effort => ({ effort: effort.id, label: effort.name }))]
+  const levels = efforts.map(effort => ({ effort: effort.id, label: effortName(effort.name ?? effort.id) }))
+  return hasDefault ? levels : [{ effort: undefined, label: t('Default') }, ...levels]
+}
+
+const effortNames = new Map(['Off', 'Minimal', 'Low', 'Medium', 'High', 'Xhigh', 'Max'].map(name => [name.toLowerCase(), name]))
+function effortName(name) {
+  const key = effortNames.get(name?.toLowerCase())
+  return key ? t(key) : name
 }
 
 const ResetIcon = () => h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -455,7 +461,7 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   const currentEffort = picked ?? reasoning?.defaultEffort
   const effortLabel = currentEffort === undefined
     ? (reasoning?.efforts?.length > 0 ? t('Default') : undefined)
-    : reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort
+    : effortName(reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort)
   const models = modelsFor(roster.models, current)
   return {
     bot, roster, shown, current, inherited, local, reasoning, picked, effortLabel, models, opening, query, setQuery, reading, withEfforts,
@@ -611,7 +617,7 @@ function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPi
         modelSearch(picker, menu),
         modelScroll(picker, pick),
         manage ? h('div', { className: 'bt-model-foot' }, manageButton(manage, close)) : null)),
-    h(Collapse, { open: hasEfforts },
+    h(Collapse, { key: picker.current, open: hasEfforts },
       hasEfforts ? h('div', { className: 'bt-model-effort' }, h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null))
 }
 

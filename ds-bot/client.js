@@ -1005,6 +1005,12 @@ var JA = {
   "Create": "作成",
   "Default": "デフォルト",
   "Thinking level": "思考レベル",
+  "Minimal": "最小",
+  "Low": "低",
+  "Medium": "中",
+  "High": "高",
+  "Xhigh": "非常に高い",
+  "Max": "最大",
   "Model: {model}": "モデル: {model}",
   "none": "なし",
   "Choose a model": "モデルを選択",
@@ -4668,6 +4674,12 @@ var KO = {
   // Model menu
   Default: "기본값",
   "Thinking level": "사고 강도",
+  "Minimal": "최소",
+  "Low": "낮음",
+  "Medium": "중간",
+  "High": "높음",
+  "Xhigh": "매우 높음",
+  "Max": "최대",
   "Model: {model}": "모델: {model}",
   none: "없음",
   "Choose a model": "모델 선택",
@@ -8361,6 +8373,12 @@ var ES = {
   // Model menu
   Default: "Predeterminado",
   "Thinking level": "Nivel de razonamiento",
+  "Minimal": "Mínimo",
+  "Low": "Bajo",
+  "Medium": "Medio",
+  "High": "Alto",
+  "Xhigh": "Muy alto",
+  "Max": "Máximo",
   "Model: {model}": "Modelo: {model}",
   none: "ninguno",
   "Choose a model": "Elegir un modelo",
@@ -12039,6 +12057,12 @@ var FR = {
   "Create": "Créer",
   "Default": "Par défaut",
   "Thinking level": "Niveau de réflexion",
+  "Minimal": "Minimal",
+  "Low": "Faible",
+  "Medium": "Moyen",
+  "High": "Élevé",
+  "Xhigh": "Très élevé",
+  "Max": "Maximum",
   "Model: {model}": "Modèle : {model}",
   "none": "aucun",
   "Choose a model": "Choisir un modèle",
@@ -15702,6 +15726,12 @@ var DE = {
   // Model menu
   Default: "Standard",
   "Thinking level": "Denktiefe",
+  "Minimal": "Minimal",
+  "Low": "Niedrig",
+  "Medium": "Mittel",
+  "High": "Hoch",
+  "Xhigh": "Sehr hoch",
+  "Max": "Maximal",
   "Model: {model}": "Modell: {model}",
   none: "keine",
   "Choose a model": "Modell wählen",
@@ -19292,6 +19322,12 @@ var ZH = {
   // Model menu
   Default: "默认",
   "Thinking level": "思考强度",
+  "Minimal": "最低",
+  "Low": "低",
+  "Medium": "中",
+  "High": "高",
+  "Xhigh": "极高",
+  "Max": "最高",
   "Model: {model}": "模型：{model}",
   none: "无",
   "Choose a model": "选择模型",
@@ -38278,24 +38314,31 @@ function useEfforts(served, ref, actions, version = 0) {
     setFetched(void 0);
     if (ref === void 0 || served?.reasoning !== void 0 || actions?.efforts === void 0) return void 0;
     let live = true;
-    if (effortCache.has(ref)) setFetched(lruGet(effortCache, ref));
-    else void Promise.resolve(actions.efforts(ref)).then((value) => {
+    if (effortCache.has(ref)) setFetched({ ref, reasoning: lruGet(effortCache, ref) });
+    void Promise.resolve(actions.efforts(ref)).then((value) => {
+      if (!live) return;
       const reasoning = value?.efforts ? value : null;
       lruSet(effortCache, ref, reasoning, MAX_EFFORT_CACHE);
-      if (live) setFetched(reasoning);
+      setFetched({ ref, reasoning });
     }).catch(() => {
     });
     return () => {
       live = false;
     };
-  }, [ref, served?.reasoning !== void 0, actions, version]);
-  return served?.reasoning ?? fetched;
+  }, [ref, served?.reasoning !== void 0, actions?.efforts, version]);
+  return served?.reasoning ?? (fetched?.ref === ref ? fetched?.reasoning : void 0);
 }
 function effortStops(reasoning) {
   const efforts = reasoning?.efforts ?? [];
   if (efforts.length === 0) return [];
   const hasDefault = efforts.some((effort) => effort.id === reasoning.defaultEffort);
-  return hasDefault ? efforts.map((effort) => ({ effort: effort.id, label: effort.name })) : [{ effort: void 0, label: t("Default") }, ...efforts.map((effort) => ({ effort: effort.id, label: effort.name }))];
+  const levels = efforts.map((effort) => ({ effort: effort.id, label: effortName(effort.name ?? effort.id) }));
+  return hasDefault ? levels : [{ effort: void 0, label: t("Default") }, ...levels];
+}
+var effortNames = new Map(["Off", "Minimal", "Low", "Medium", "High", "Xhigh", "Max"].map((name) => [name.toLowerCase(), name]));
+function effortName(name) {
+  const key = effortNames.get(name?.toLowerCase());
+  return key ? t(key) : name;
 }
 var ResetIcon = () => (0, import_react22.createElement)(
   "svg",
@@ -38683,7 +38726,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions, opening);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
-  const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
+  const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : effortName(reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort);
   const models2 = modelsFor(roster.models, current2);
   return {
     bot,
@@ -38894,7 +38937,7 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
     ),
     (0, import_react22.createElement)(
       Collapse,
-      { open: hasEfforts },
+      { key: picker.current, open: hasEfforts },
       hasEfforts ? (0, import_react22.createElement)("div", { className: "bt-model-effort" }, (0, import_react22.createElement)(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null
     )
   );
@@ -51979,14 +52022,25 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
       "div",
       { className: "bt-field" },
       (0, import_react50.createElement)("span", { className: "bt-field-label" }, t("Model"), local && reading ? (0, import_react50.createElement)(ReadingModels) : null),
-      (0, import_react50.createElement)(ModelMenu, { bot: { id: "new-bot", name: finalName, model: chosen || void 0, effort: local ? void 0 : effort }, roster, actions, wide: true, onPick: (ref) => {
-        if (local) {
-          setAgentModel(ref);
-          return;
-        }
-        setModel(ref);
-        setEffort(void 0);
-      }, onPickEffort: (picked) => setEffort(picked ?? null) }),
+      (0, import_react50.createElement)(ModelMenu, {
+        bot: { id: "new-bot", name: finalName, model: chosen || void 0, effort: local ? void 0 : effort },
+        roster,
+        actions,
+        wide: true,
+        inline: !local,
+        withEfforts: !local,
+        onPick: (ref) => {
+          if (local) {
+            setAgentModel(ref);
+            return;
+          }
+          if (ref !== model) {
+            setModel(ref);
+            setEffort(void 0);
+          }
+        },
+        onPickEffort: (picked) => setEffort(picked ?? null)
+      }),
       (0, import_react50.createElement)("span", { className: "bt-note" }, chosen ? t("The Bot runs on this model. You can change it later in its details.") : modelsFor(roster.models).length > 0 ? t("Pick a model here, or the Bot asks for one in its chat.") : t("Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later."))
     ) : null,
     !local ? (0, import_react50.createElement)(
@@ -60807,7 +60861,7 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
       const view = await actions.providers();
       const fresh = view.providers.find((entry) => entry.id === provider.id);
       if (fresh === void 0) throw new Error("The provider is no longer available");
-      const list = await actions.providerModels({ provider: provider.id });
+      const list = await actions.providerModels({ provider: provider.id, includeCatalogLevels: false });
       await apply2(Promise.resolve(view));
       setDraft({ ...draftFrom(fresh, list), revision: view.revision, provider: fresh });
     })()).catch((error) => setRefreshError(error?.message ?? String(error))).finally(() => setRefreshing(false));
@@ -61072,9 +61126,22 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const [found, setFound] = (0, import_react68.useState)(null);
   const [picked, setPicked] = (0, import_react68.useState)([]);
   const [asking, setAsking] = (0, import_react68.useState)(false);
-  const set = (field, value) => setDraft((current2) => ({ ...current2, [field]: value }));
-  const typed = draft.typed.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean);
-  const models2 = [...(found ?? []).filter((model) => picked.includes(model.id)), ...typed.filter((id) => !picked.includes(id)).map((id) => ({ id }))];
+  const discovery = (0, import_react68.useRef)(0);
+  const set = (field, value) => {
+    if (field === "api" || field === "baseURL" || field === "key") {
+      discovery.current++;
+      setFound(null);
+      setPicked([]);
+      setAsking(false);
+    }
+    setDraft((current2) => ({ ...current2, [field]: value }));
+  };
+  const typed = [...new Set(draft.typed.split(/[\s,]+/).filter(Boolean))];
+  const manualIds = typed.filter((id) => !found?.some((model) => model.id === id));
+  const models2 = [
+    ...(found ?? []).filter((model) => picked.includes(model.id) || typed.includes(model.id)),
+    ...manualIds.map((id) => ({ id }))
+  ];
   const missing = [];
   if (draft.provider.trim() === "") missing.push(t("Provider ID"));
   if (draft.baseURL.trim() === "") missing.push(t("Endpoint"));
@@ -61088,11 +61155,16 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
     })
   );
   const fetchModels = () => {
+    const seq = ++discovery.current;
     setAsking(true);
-    void apply2(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
-      setFound(list);
-      setPicked([]);
-    })).finally(() => setAsking(false));
+    void apply2(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key, includeCatalogLevels: false })).then((list) => {
+      if (seq === discovery.current) {
+        setFound(list);
+        setPicked((current2) => current2.filter((id) => list.some((model) => model.id === id)));
+      }
+    })).finally(() => {
+      if (seq === discovery.current) setAsking(false);
+    });
   };
   const toggle = (id) => setPicked((list) => list.includes(id) ? list.filter((item) => item !== id) : [...list, id]);
   const add = () => {

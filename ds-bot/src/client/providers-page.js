@@ -1,7 +1,7 @@
 // The Models page of a window that has no DSH settings of its own: the model providers
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
@@ -188,7 +188,7 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       const view = await actions.providers()
       const fresh = view.providers.find(entry => entry.id === provider.id)
       if (fresh === undefined) throw new Error('The provider is no longer available')
-      const list = await actions.providerModels({ provider: provider.id })
+      const list = await actions.providerModels({ provider: provider.id, includeCatalogLevels: false })
       await apply(Promise.resolve(view))
       setDraft({ ...draftFrom(fresh, list), revision: view.revision, provider: fresh })
     })())
@@ -388,9 +388,22 @@ export function CustomForm({ view, apply, actions, onDone }) {
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
   const [asking, setAsking] = useState(false)
-  const set = (field, value) => setDraft(current => ({ ...current, [field]: value }))
-  const typed = draft.typed.split(/[\s,]+/).map(id => id.trim()).filter(Boolean)
-  const models = [...(found ?? []).filter(model => picked.includes(model.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
+  const discovery = useRef(0)
+  const set = (field, value) => {
+    if (field === 'api' || field === 'baseURL' || field === 'key') {
+      discovery.current++
+      setFound(null)
+      setPicked([])
+      setAsking(false)
+    }
+    setDraft(current => ({ ...current, [field]: value }))
+  }
+  const typed = [...new Set(draft.typed.split(/[\s,]+/).filter(Boolean))]
+  const manualIds = typed.filter(id => !found?.some(model => model.id === id))
+  const models = [
+    ...(found ?? []).filter(model => picked.includes(model.id) || typed.includes(model.id)),
+    ...manualIds.map(id => ({ id })),
+  ]
   const missing = []
   if (draft.provider.trim() === '') missing.push(t('Provider ID'))
   if (draft.baseURL.trim() === '') missing.push(t('Endpoint'))
@@ -401,9 +414,11 @@ export function CustomForm({ view, apply, actions, onDone }) {
       fields: missing.join(t(', ')),
     }))
   const fetchModels = () => {
+    const seq = ++discovery.current
     setAsking(true)
-    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => { setFound(list); setPicked([]) }))
-      .finally(() => setAsking(false))
+    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key, includeCatalogLevels: false })).then((list) => {
+      if (seq === discovery.current) { setFound(list); setPicked(current => current.filter(id => list.some(model => model.id === id))) }
+    })).finally(() => { if (seq === discovery.current) setAsking(false) })
   }
   const toggle = id => setPicked(list => (list.includes(id) ? list.filter(item => item !== id) : [...list, id]))
   const add = () => {
