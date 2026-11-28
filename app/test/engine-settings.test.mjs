@@ -26,7 +26,6 @@ const entryCode = `
     PluginsSettingsPage,
     AgentPresetsSettingsPage,
     ArchivedSessionsPage,
-    SessionLogGeneralItem,
   } from './ui/src/engine-settings.js'
   export {
     SETTINGS_SECTION_ICON_SLOT,
@@ -356,6 +355,15 @@ test('PluginsSettingsPage renders 3 clean sections, hides internal/banned subage
             removable: false,
             meta: { title: { en: 'Developer tools', zh: '开发者工具' }, description: { en: 'Troubleshoot sessions', zh: '排查会话' }, icon: 'javascript:alert(1)' },
           },
+          {
+            name: '@deepseek-ai/dsh-experimental-session-search',
+            version: '0.2.2',
+            official: true,
+            installed: true,
+            enabled: false,
+            removable: false,
+            meta: { title: { en: 'Session search', zh: '会话搜索' }, description: { en: 'Search earlier sessions', zh: '搜索历史会话' }, icon: 'javascript:alert(1)' },
+          },
         ],
         plugins: [
           { id: 'raw-cordis-1', moduleName: '@deepseek-ai/dsh-internal-foo', name: 'Raw cordis plugin', enabled: true },
@@ -481,16 +489,18 @@ test('PluginsSettingsPage renders 3 clean sections, hides internal/banned subage
   const builtinBtns = findAll(loaded, n => n.type === 'button' && n.props?.['data-builtin-config'])
   assert.deepEqual(Array.from(builtinBtns, b => b.props['data-builtin-config']), ['web-search', 'shell', 'agent-loop'])
 
-  // Experimental plugins shows primary Voice input first, hides More bundle (Developer tools) behind More button.
+  // Experimental plugins shows primary Voice input first, hides DSH UI-only Developer tools completely, and hides More bundle (Session search) behind More button.
   assert.equal(findAll(loaded, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-voice-input-bundle').length, 1)
   assert.equal(findAll(loaded, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile').length, 0)
+  assert.equal(findAll(loaded, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-session-search').length, 0)
   const moreBtn = findAll(loaded, n => n.type === 'button' && n.props?.className === 'dsb-plug-more-btn')[0]
   assert.ok(moreBtn, 'More toggle button renders')
   moreBtn.props.onClick()
   const expandedTree = harness.render()
-  const inspectorRow = findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile')[0]
-  assert.ok(inspectorRow, 'More bundle revealed after clicking More')
-  assert.equal(findAll(inspectorRow, n => n.type === 'img').length, 0, 'unsafe javascript: icon URI falls back to SVG icon')
+  assert.equal(findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile').length, 0, 'DSH UI-only inspector bundle stays hidden even after clicking More')
+  const searchRow = findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-session-search')[0]
+  assert.ok(searchRow, 'More engine bundle revealed after clicking More')
+  assert.equal(findAll(searchRow, n => n.type === 'img').length, 0, 'unsafe javascript: icon URI falls back to SVG icon')
 
   // Computer use bundle uses clean override with no process/PTC jargon.
   const cuaRow = findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-cua-bundle')[0]
@@ -1000,21 +1010,17 @@ test('Classic mode shows Subagents settings with model allowlist while Bot mode 
   ])
 })
 
-test('PluginsSettingsPage surfaces failed UI plugins with Retry button and SessionLogGeneralItem reports save and error state', async () => {
-  const { mod } = loadMod(async (endpoint, payload) => {
+test('PluginsSettingsPage surfaces failed UI plugins with Retry button and resets detail view when subTarget clears', async () => {
+  const { mod } = loadMod(async (endpoint) => {
     if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
     if (endpoint === 'engine-settings-list') {
       return {
         available: true,
         writable: true,
-        namespaces: [{ ns: 'session-log-deepseek', revision: 1, value: { enabled: false }, secrets: [], schema: { type: 'object', dict: {} } }],
+        namespaces: [
+          { ns: 'web-search-deepseek', autoGenerate: true, revision: 1, value: { maxUses: 5 }, secrets: [], schema: { type: 'object', dict: { maxUses: { type: 'number', meta: { default: 5 } } } } },
+        ],
       }
-    }
-    if (endpoint === 'engine-settings-mutate') {
-      if (payload.ops[0]?.value === true) {
-        return { ns: 'session-log-deepseek', revision: 2, value: { enabled: true }, secrets: [], schema: { type: 'object', dict: {} } }
-      }
-      throw new Error('Disk full')
     }
     return {}
   })
@@ -1043,24 +1049,34 @@ test('PluginsSettingsPage surfaces failed UI plugins with Retry button and Sessi
   assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.ui-broken').status, 'active')
   assert.equal(findAll(plugTree, n => n.props?.['data-ui-plugin'] === 'ext.ui-broken').length, 0)
 
-  // SessionLogGeneralItem displays Saved on success and alert error on failure.
-  const logHarness = createHarness(mod.SessionLogGeneralItem, { readOnly: false })
-  logHarness.render()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  let logTree = logHarness.render({ readOnly: false })
-  const sw = () => findAll(logTree, n => n.type === 'button' && n.props?.role === 'switch')[0]
-  assert.equal(sw().props['aria-checked'], false)
-  sw().props.onClick()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  logTree = logHarness.render({ readOnly: false })
-  assert.equal(sw().props['aria-checked'], true)
-  assert.ok(textOf(logTree).includes('Saved'))
+  // Navigating from a subTarget detail back to Engine plugins root clears detailId cleanly,
+  // and bumping `jump` re-applies the same destination even after local drill-down or Back.
+  plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 1 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 1 })
+  assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
 
-  // Toggle back -> fails with 'Disk full' -> renders visible alert.
-  sw().props.onClick()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  logTree = logHarness.render({ readOnly: false })
-  assert.ok(findAll(logTree, n => n.props?.role === 'alert' && textOf(n).includes('Disk full')).length === 1)
+  // Local Back clears detailId while route still holds subTarget='web-search'; a new ⌘K jump reopens it.
+  const backBtn = findAll(plugTree, n => n.type === 'button' && n.props?.className === 'dsb-plug-back')[0]
+  assert.ok(backBtn)
+  backBtn.props.onClick()
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 1 })
+  assert.equal(plugTree.props['data-plugin-detail'], undefined)
+  plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 2 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 2 })
+  assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
+
+  // Return to root, locally open Web search, then trigger ⌘K Engine plugins again (same subTarget=undefined, new jump).
+  plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 3 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 3 })
+  assert.equal(plugTree.props['data-plugin-detail'], undefined)
+  const webRow = findAll(plugTree, n => n.type === 'button' && textOf(n).includes('Web search'))[0]
+  assert.ok(webRow)
+  webRow.props.onClick()
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 3 })
+  assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
+  plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 4 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 4 })
+  assert.equal(plugTree.props['data-plugin-detail'], undefined)
 })
 
 test('Engine settings staged forms preserve unsaved drafts across revalidation, secret saves, partial multi-namespace failures, and hidden provider switches', async () => {
@@ -1317,4 +1333,512 @@ test('WebSearchDetailForm preserves unsaved hidden provider edits across full an
   pickMenu('Search provider', 'DeepSeek Search API')
   assert.equal(countInput().props.value, '18', 'hidden Results per search draft survives both partial and full saves')
   assert.equal(formSaveBtn().props.disabled, false)
+})
+
+test('WebSearchDetailForm labels registered auto fetch provider as Automatic without duplicates', async () => {
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-web-providers') {
+      return {
+        available: true,
+        search: [{ id: 'auto', kind: 'search', available: true }],
+        fetch: [
+          { id: 'auto', kind: 'fetch', available: true },
+          { id: 'http', kind: 'fetch', available: true },
+          { id: 'deepseek-fetch-api', kind: 'fetch', available: true },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [
+          { ns: 'web', autoGenerate: true, revision: 1, value: { searchProvider: 'auto', fetchProvider: 'auto' }, base: { searchProvider: 'auto', fetchProvider: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+        ],
+      }
+    }
+    return {}
+  })
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'web-search' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  harness.render({ readOnly: false, subTarget: 'web-search' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const fetchTrigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Fetch provider')[0]
+  assert.ok(fetchTrigger)
+  if (fetchTrigger.props.ref) {
+    fetchTrigger.props.ref.current = {
+      getBoundingClientRect: () => ({ left: 400, right: 620, top: 240, bottom: 272, width: 220, height: 32 }),
+      focus() {},
+    }
+  }
+  fetchTrigger.props.onClick({ detail: 1 })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const labels = findAll(tree, n => n.props?.role === 'option').map(n => textOf(n))
+  assert.deepEqual(labels, ['Automatic', 'Direct HTTP', 'DeepSeek Fetch API'])
+})
+
+test('extractSchemaFields preserves array/dict/tuple/union/any fields as config-file entries and renders Edit in config file action', async () => {
+  const calls = []
+  const complexSchema = {
+    type: 'object',
+    dict: {
+      timeoutMs: { type: 'number', meta: { default: 30000 } },
+      allowedHosts: { type: 'array', inner: { type: 'string' }, meta: {} },
+      extraHeaders: { type: 'dict', inner: { type: 'string' }, meta: {} },
+      bounds: { type: 'tuple', list: [{ type: 'number' }, { type: 'number' }], meta: {} },
+      auth: { type: 'union', list: [{ type: 'string' }, { type: 'object', dict: { token: { type: 'string' } } }], meta: {} },
+      rawOptions: { type: 'any', meta: {} },
+      fixedTag: { type: 'const', value: 'v1', meta: {} },
+      hiddenArray: { type: 'array', inner: { type: 'string' }, meta: { hidden: true } },
+    },
+  }
+  const { mod } = loadMod(async (endpoint, payload) => {
+    calls.push([endpoint, payload])
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        documentPath: '/tmp/profile/cordis.patch.yml',
+        namespaces: [{
+          ns: 'custom-plugin',
+          autoGenerate: true,
+          revision: 1,
+          value: { timeoutMs: 30000, allowedHosts: ['example.com'], extraHeaders: { 'x-a': '1' } },
+          base: { timeoutMs: 30000 },
+          user: {},
+          secrets: [],
+          schema: complexSchema,
+        }],
+      }
+    }
+    if (endpoint === 'engine-settings-open-file') {
+      return { ok: true, path: '/tmp/profile/cordis.patch.yml' }
+    }
+    return {}
+  })
+
+  const fields = mod.extractSchemaFields(complexSchema, { timeoutMs: 30000 }, [], 'custom-plugin')
+  assert.deepEqual(
+    Array.from(fields, f => [Array.from(f.path).join('.'), f.kind]),
+    [
+      ['timeoutMs', 'number'],
+      ['allowedHosts', 'config-file'],
+      ['extraHeaders', 'config-file'],
+      ['bounds', 'config-file'],
+      ['auth', 'config-file'],
+      ['rawOptions', 'config-file'],
+    ],
+  )
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'custom-plugin' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, subTarget: 'custom-plugin' })
+  const editBtns = findAll(tree, n => n.type === 'button' && textOf(n) === 'Edit in config file')
+  assert.equal(editBtns.length, 5, 'each complex field renders an Edit in config file button')
+  assert.equal(editBtns[0].props.disabled, false)
+  // Form stays clean (Save disabled) because config-file fields are not staged.
+  const saveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0]
+  assert.equal(saveBtn.props.disabled, true)
+
+  editBtns[0].props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(calls.some(([ep]) => ep === 'engine-settings-open-file'), true, 'clicking Edit in config file calls engine-settings-open-file')
+
+  // Read-only window disables the Edit in config file button.
+  const roHarness = createHarness(mod.PluginsSettingsPage, { readOnly: true, subTarget: 'custom-plugin' })
+  roHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const roTree = roHarness.render({ readOnly: true, subTarget: 'custom-plugin' })
+  const roEditBtns = findAll(roTree, n => n.type === 'button' && textOf(n) === 'Edit in config file')
+  assert.equal(roEditBtns.length, 5)
+  assert.equal(roEditBtns.every(btn => btn.props.disabled === true), true, 'read-only window disables Edit in config file')
+})
+
+test('extractSchemaFields emits config-file fallback for root non-object schemas and conditional intersect+union branches, and config-file-only groups hide Save/Discard bar', async () => {
+  const rootDictSchema = { type: 'dict', inner: { type: 'string' }, meta: {} }
+  const rootEmptyObjSchema = { type: 'object', dict: {}, meta: {} }
+  const conditionalIntersectSchema = {
+    type: 'intersect',
+    list: [
+      { type: 'object', dict: { mode: { type: 'union', list: [{ type: 'const', value: 'http' }, { type: 'const', value: 'stdio' }] } } },
+      {
+        type: 'union',
+        list: [
+          { type: 'object', dict: { mode: { type: 'const', value: 'http' }, url: { type: 'string' } } },
+          { type: 'object', dict: { mode: { type: 'const', value: 'stdio' }, command: { type: 'string' } } },
+        ],
+      },
+    ],
+  }
+
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: false,
+        documentPath: '/tmp/profile/cordis.patch.yml',
+        namespaces: [{
+          ns: 'mcp-manager',
+          autoGenerate: true,
+          revision: 1,
+          value: { servers: {} },
+          base: {},
+          user: {},
+          secrets: [],
+          schema: { type: 'object', dict: { servers: { type: 'dict', inner: { type: 'any' } } } },
+        }],
+      }
+    }
+    return {}
+  })
+
+  // Empty root object stays empty (plugin has no settings).
+  assert.deepEqual(Array.from(mod.extractSchemaFields(rootEmptyObjSchema, {}, [], 'empty-plugin')), [])
+
+  // Root-level non-object schema emits a single config-file fallback entry.
+  const dictFields = mod.extractSchemaFields(rootDictSchema, { a: '1' }, [], 'env-map')
+  assert.deepEqual(Array.from(dictFields, f => [f.key, f.kind, f.schemaType]), [['__root__', 'config-file', 'dict']])
+
+  // Root intersect with a conditional union branch preserves inline fields AND emits a config-file fallback for the union branch.
+  const condFields = mod.extractSchemaFields(conditionalIntersectSchema, { mode: 'http' }, [], 'transport')
+  assert.deepEqual(Array.from(condFields, f => [f.key, f.kind]), [['mode', 'select'], ['__root__', 'config-file']])
+
+  // Depth-4 non-empty object collapses into one config-file row instead of expanding into per-child rows,
+  // while a depth-4 primitive stays inline.
+  const depth4Schema = {
+    type: 'object',
+    dict: {
+      l1: {
+        type: 'object',
+        dict: {
+          l2: {
+            type: 'object',
+            dict: {
+              l3: {
+                type: 'object',
+                dict: {
+                  flag: { type: 'boolean', meta: { default: false } },
+                  deepObj: {
+                    type: 'object',
+                    dict: {
+                      a: { type: 'string' },
+                      b: { type: 'number' },
+                      c: { type: 'boolean' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+  const depth4Fields = mod.extractSchemaFields(depth4Schema, {}, [], 'deep-plugin')
+  assert.deepEqual(
+    Array.from(depth4Fields, f => [Array.from(f.path).join('.'), f.kind]),
+    [
+      ['l1.l2.l3.flag', 'boolean'],
+      ['l1.l2.l3.deepObj', 'config-file'],
+    ],
+  )
+
+  // Group containing ONLY config-file fields hides the Save/Discard bar, and read-only profile disables Edit in config file.
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'mcp-manager' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const tree = harness.render({ readOnly: false, subTarget: 'mcp-manager' })
+  const editBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Edit in config file')[0]
+  assert.ok(editBtn, 'config-file-only group renders Edit in config file')
+  assert.equal(editBtn.props.disabled, true, 'read-only profile (writable: false) disables Edit in config file')
+  assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').length, 0, 'config-file-only group hides Save button')
+  assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Discard').length, 0, 'config-file-only group hides Discard button')
+})
+
+test('Desktop PluginsSettingsPage hides disabled desktop-unsupported bundles while surfacing already-enabled ones under Installed plugins so users can disable them', async () => {
+  const desktopUnsupported = [
+    '@deepseek-ai/dsh-experimental-inspector-profile',
+    '@deepseek-ai/dsh-experimental-cot-translation-bundle',
+    '@deepseek-ai/dsh-experimental-plugin-market-bundle',
+    '@deepseek-ai/dsh-experimental-liveshare',
+    '@deepseek-ai/dsh-experimental-forge-bundle',
+    '@deepseek-ai/dsh-personalized-recommendations',
+    '@deepseek-ai/dsh-deepseek-chat-import',
+  ]
+  const toggled = []
+  let liveshareEnabled = true
+  const { mod } = loadMod(async (endpoint, payload) => {
+    if (endpoint === 'engine-settings-list') return { available: true, writable: true, namespaces: [] }
+    if (endpoint === 'engine-plugins-toggle-bundle') {
+      toggled.push(payload)
+      if (payload.name === '@deepseek-ai/dsh-experimental-liveshare') liveshareEnabled = payload.enabled
+      return { changed: true, application: 'applied' }
+    }
+    if (endpoint === 'engine-plugins-list') {
+      return {
+        available: true,
+        bundles: [
+          {
+            name: '@deepseek-ai/dsh-experimental-liveshare',
+            official: true,
+            availability: 'builtin',
+            installed: true,
+            enabled: liveshareEnabled,
+            removable: false,
+            meta: { title: 'Live share', description: 'Share live session' },
+            rows: [],
+          },
+          {
+            name: '@deepseek-ai/dsh-experimental-inspector-profile',
+            official: true,
+            availability: 'builtin',
+            installed: true,
+            enabled: false,
+            removable: false,
+            meta: { title: 'Inspector', description: 'Web inspector' },
+            rows: [],
+          },
+          {
+            name: '@deepseek-ai/dsh-base',
+            official: true,
+            availability: 'builtin',
+            installed: true,
+            enabled: true,
+            removable: false,
+            rows: [],
+          },
+        ],
+        plugins: [],
+      }
+    }
+    return {}
+  })
+
+  for (const name of desktopUnsupported) {
+    assert.equal(mod.isExcludedBundle(name), true, `${name} must be hidden when disabled`)
+    assert.equal(mod.isExcludedBundle({ name, enabled: false }), true, `${name} must be hidden when enabled=false`)
+    assert.equal(mod.isExcludedBundle({ name, installed: false, enabled: false, error: { code: 'unsupported-platform' } }), true, `${name} must stay hidden when not installed even if errored`)
+    assert.equal(mod.isExcludedBundle({ name, installed: true, enabled: false, error: { code: 'incompatible-version' } }), false, `${name} must stay visible when installed and errored`)
+    assert.equal(mod.isExcludedBundle({ name, enabled: true }), false, `${name} must remain visible when already enabled`)
+  }
+  // Internal / banned bundles stay hidden even when enabled.
+  assert.equal(mod.isExcludedBundle({ name: '@deepseek-ai/dsh-base', enabled: true }), true)
+  assert.equal(mod.isExcludedBundle({ name: '@deepseek-ai/dsh-subagent-codex', enabled: true }), true)
+  for (const keep of [
+    '@deepseek-ai/dsh-experimental-voice-input-bundle',
+    '@deepseek-ai/dsh-experimental-auto-review',
+    '@deepseek-ai/dsh-cua-bundle',
+    '@deepseek-ai/dsh-experimental-session-search',
+    '@deepseek-ai/dsh-experimental-session-titles-bundle',
+    '@deepseek-ai/dsh-experimental-badge-skill-bundle',
+  ]) {
+    assert.equal(mod.isExcludedBundle(keep), false, `${keep} must stay available on desktop`)
+  }
+
+  // Already-enabled liveshare renders under Installed plugins with a working Switch; disabled inspector stays hidden;
+  // once liveshare is toggled off, it disappears from Installed and optional lists.
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render()
+  const liveshareRow = findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-liveshare')[0]
+  assert.ok(liveshareRow, 'already-enabled desktop-unsupported bundle stays visible under Installed plugins')
+  assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile').length, 0, 'disabled desktop-unsupported bundle stays hidden')
+  assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-base').length, 0, 'internal dsh-base stays hidden even when enabled')
+
+  const liveshareSwitch = findAll(liveshareRow, n => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.ok(liveshareSwitch)
+  assert.equal(liveshareSwitch.props['aria-checked'], true)
+  liveshareSwitch.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render()
+  assert.deepEqual(Array.from(toggled, item => [item.name, item.enabled]), [['@deepseek-ai/dsh-experimental-liveshare', false]])
+  assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-liveshare').length, 0, 'once disabled, desktop-unsupported bundle disappears')
+})
+
+test('PluginsSettingsPage surfaces custom profile plugins, DSH Web UI-only labels, incompatible exemptions, and external window plugins', async () => {
+  const calls = []
+  let customEnabled = true
+  let exemptDone = false
+  const { mod, sandbox } = loadMod(async (endpoint, payload) => {
+    calls.push([endpoint, payload])
+    if (endpoint === 'engine-settings-list') {
+      return { available: true, writable: true, documentPath: '/tmp/profiles/ds-bot/cordis.patch.yml', namespaces: [] }
+    }
+    if (endpoint === 'engine-plugins-list') {
+      return {
+        available: true,
+        uiPluginsDir: '/tmp/dsh-home/ui-plugins',
+        patchPath: '/tmp/profiles/ds-bot/cordis.patch.yml',
+        bundles: [
+          {
+            name: 'my-dsh-skin',
+            official: false,
+            availability: 'profile',
+            version: '1.2.0',
+            installed: true,
+            enabled: true,
+            removable: true,
+            clientSurface: 'dsh-web-only',
+            rows: [],
+          },
+          {
+            name: 'old-tool-bundle',
+            official: false,
+            availability: 'profile',
+            version: '0.9.0',
+            installed: true,
+            enabled: exemptDone,
+            removable: true,
+            clientSurface: 'host',
+            ...(exemptDone
+              ? {}
+              : {
+                // Real DSH incompatible-version error shape (no `diagnostic` field).
+                error: {
+                  code: 'incompatible-version',
+                  incompatible: [{ name: 'old-tool-bundle', version: '0.9.0', runtimeVersion: '0.2.2-rc.5', requirements: { 'engines.dsh': '0.2.2-rc.1' } }],
+                },
+              }),
+            rows: [],
+          },
+        ],
+        plugins: [
+          {
+            id: 'entry-custom-1',
+            patchId: 'my-local-tool',
+            moduleName: '/tmp/my-local-tool/index.js',
+            name: 'My Local Tool',
+            enabled: customEnabled,
+            status: customEnabled ? 'active' : 'disabled',
+            custom: true,
+            clientSurface: 'host',
+          },
+        ],
+      }
+    }
+    if (endpoint === 'engine-plugins-toggle-plugin') {
+      customEnabled = payload.enabled
+      return { application: 'applied' }
+    }
+    if (endpoint === 'engine-plugins-exempt-version') {
+      exemptDone = true
+      return { application: 'restart-required' }
+    }
+    if (endpoint === 'engine-plugins-open-ui-dir') {
+      return { ok: true, path: '/tmp/dsh-home/ui-plugins' }
+    }
+    return {}
+  })
+
+  const runtime = mod.createPluginRuntime({ slots: mod.createSlotRegistry() })
+  runtime.use({
+    id: 'local:ocean-skin',
+    name: 'Ocean Skin',
+    source: 'local',
+    kind: 'theme',
+    external: true,
+  }, () => {})
+  runtime.use({
+    id: 'local:broken-widget',
+    name: 'Broken Widget',
+    source: 'local',
+    kind: 'esm',
+    external: true,
+    initialError: 'Broken manifest entry',
+  })
+
+  // Mock fetch for Window plugins Retry & Reload error surfacing.
+  let manifestShouldFail = true
+  sandbox.fetch = async (url) => {
+    if (String(url).includes('/api/ui-plugins/manifest')) {
+      if (manifestShouldFail) return { ok: false, status: 500, json: async () => ({}) }
+      return { ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/dsh-home/ui-plugins', plugins: [] }) }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, runtime })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render()
+
+  // Window plugins section displays external local theme plugin + Open folder button.
+  const uiRow = findAll(tree, n => n.props?.['data-ui-plugin'] === 'local:ocean-skin')[0]
+  assert.ok(uiRow, 'external local theme plugin is listed under Window plugins')
+  assert.match(textOf(uiRow), /Ocean Skin/)
+  assert.match(textOf(uiRow), /Theme/)
+  const openFolderBtn = findAll(tree, n => n.type === 'button' && /Open folder/.test(textOf(n)))[0]
+  assert.ok(openFolderBtn, 'Open folder button is rendered')
+  openFolderBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.ok(calls.some(([ep]) => ep === 'engine-plugins-open-ui-dir'))
+
+  // Clicking Retry on a broken external plugin surfaces reload HTTP error in the alert without unmounting Ocean Skin.
+  const brokenRow = findAll(tree, n => n.props?.['data-ui-plugin'] === 'local:broken-widget')[0]
+  assert.ok(brokenRow, 'broken external plugin is listed under Window plugins')
+  const retryBtn = findAll(brokenRow, n => n.type === 'button' && textOf(n) === 'Retry')[0]
+  assert.ok(retryBtn, 'Retry button renders for failed external plugin')
+  retryBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render()
+  assert.match(textOf(tree), /HTTP 500/, 'manifest HTTP failure surfaces in PluginsSettingsPage alert')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:ocean-skin')?.status, 'active', 'healthy Ocean Skin stays active on targeted retry')
+  manifestShouldFail = false
+
+  // Custom profile plugins section renders standalone cordis.patch.yml plugin with working Switch and Open config file.
+  const customRow = findAll(tree, n => n.props?.['data-custom-plugin'] === 'my-local-tool')[0]
+  assert.ok(customRow, 'custom profile plugin is rendered')
+  assert.match(textOf(customRow), /My Local Tool/)
+  assert.equal(findAll(tree, n => n.type === 'button' && /Open config file/.test(textOf(n))).length, 1, 'Open config file button renders when settingsData.writable is true')
+  const customSwitch = findAll(customRow, n => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.ok(customSwitch)
+  customSwitch.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render()
+  assert.ok(calls.some(([ep, p]) => ep === 'engine-plugins-toggle-plugin' && p?.id === 'entry-custom-1' && p?.enabled === false))
+
+  // DSH Web UI-only bundle displays explicit notice badge.
+  const dshSkinRow = findAll(tree, n => n.props?.['data-plugin-bundle'] === 'my-dsh-skin')[0]
+  assert.ok(dshSkinRow)
+  assert.match(textOf(dshSkinRow), /DSH Web UI only/)
+
+  // Incompatible bundle stays visible and supports two-step version exemption.
+  const incompatRow = findAll(tree, n => n.props?.['data-plugin-bundle'] === 'old-tool-bundle')[0]
+  assert.ok(incompatRow, 'incompatible bundle stays visible')
+  assert.match(textOf(incompatRow), /Incompatible/)
+  const allowBtn = findAll(incompatRow, n => n.type === 'button' && /Allow for this version/.test(textOf(n)))[0]
+  assert.ok(allowBtn)
+  allowBtn.props.onClick()
+  tree = harness.render()
+  const confirmBtn = findAll(tree, n => n.type === 'button' && /Confirm allow/.test(textOf(n)))[0]
+  assert.ok(confirmBtn, 'two-step confirmation button appears before exempting')
+  confirmBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(calls.some(([ep, p]) => ep === 'engine-plugins-exempt-version' && p?.target === 'old-tool-bundle@0.9.0' && p?.acceptRisk === true))
+
+  // When engine-settings-list reports writable: false, Open config file is hidden even if readOnly is false.
+  const { mod: roMod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-settings-list') return { available: true, writable: false, documentPath: '/tmp/profiles/ds-bot/cordis.patch.yml', namespaces: [] }
+    if (endpoint === 'engine-plugins-list') {
+      return {
+        available: true,
+        patchPath: '/tmp/profiles/ds-bot/cordis.patch.yml',
+        bundles: [],
+        plugins: [{ id: 'entry-custom-1', patchId: 'my-local-tool', moduleName: '/tmp/my-local-tool/index.js', name: 'My Local Tool', enabled: true, status: 'active', custom: true, clientSurface: 'host' }],
+      }
+    }
+    return {}
+  })
+  const roHarness = createHarness(roMod.PluginsSettingsPage, { readOnly: false })
+  roHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const roTree = roHarness.render()
+  assert.equal(findAll(roTree, n => n.type === 'button' && /Open config file/.test(textOf(n))).length, 0, 'Open config file button is hidden when settingsData.writable is false')
 })

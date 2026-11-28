@@ -498,8 +498,7 @@ function apply(next) {
   const effects = next.effects ?? 'full'
   if (root.dataset.effects !== effects) root.dataset.effects = effects
   // Linux draws a system title bar, so the page has no band of its own.
-  if (next.frame === 'system') root.dataset.frame = 'system'
-  else delete root.dataset.frame
+  root.dataset.frame = next.frame === 'system' ? 'system' : 'band'
   root.dataset.view = next.view
   shimmer()
   placeUI(next.place)

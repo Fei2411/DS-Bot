@@ -1,5 +1,97 @@
 [
   {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "intro": "重点提升 ChatGPT 订阅体验、macOS 原地自动更新与网页读取成功率，并修复输入框锁死、防死循环耗额度、定时任务入口与多处界面细节。",
+        "items": [
+          "优化 ChatGPT 订阅 Prompt Cache 命中率与思考强度切换：保留系统提示词缓存前缀、透传会话亲和头、支持多步工具调用保留加密推理，并可选择和记住推理思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "增强网页读取：新增自动抓取模式，直连失败或遇到动态渲染页时自动回退到隔离浏览器渲染",
+          "修复会话偶发无法输入与焦点抢占问题，并新增失控循环/重复重试可见暂停护栏，避免异常卡死消耗额度",
+          "修复桌面端账号菜单无法打开定时任务的问题，支持一键开启定时任务",
+          "全面修复窄宽卡片与设置行字体挤压、开关裁切和宽度溢出，支持弹窗打开时拖动窗口，并优化 Bot 侧边栏收起/展开动效",
+          "修复外部浏览器插件侧边栏状态判断、从内置插件目录移除 Ego Lite，并修复 DSH 插件态启动报错与退出时 SQLite 句柄竞态"
+        ]
+      },
+      "en": {
+        "intro": "Improves ChatGPT subscription caching and reasoning effort, adds macOS in-place auto-updates and resilient web fetching, and fixes input locks, runaway loop protection, scheduled tasks, and UI polish.",
+        "items": [
+          "Improved ChatGPT subscription prompt cache hit rates and added selectable, persisted reasoning effort levels across Bot settings and the model switcher",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement so macOS users no longer need to manually re-download DMGs",
+          "Added automatic web-fetch mode with an isolated, SSRF-guarded browser fallback for JS-heavy and anti-bot pages",
+          "Fixed composer input locks and focus stealing, and added visible pause guards with resume controls to prevent runaway tool loops and retry storms from burning quota",
+          "Fixed desktop Scheduled Tasks failing to open from the account menu and added one-click schedule enablement",
+          "Fixed narrow settings/switch label squeezing and layout overflows, kept the top window drag strip active while modals are open, and smoothed Bot sidebar collapse/expand motion",
+          "Fixed external browser plugin sidebar status detection, removed Ego Lite from the built-in catalog, and fixed DSH plugin-host startup crashes and SQLite shutdown handle races"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.4.1",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "intro": "快速热修：恢复 Bot 私聊清爽体验，优化进行中状态栏并修复邮箱连接器开关。",
+        "items": [
+          "修复 Bot 私聊误显示底层工具调用卡片（如 MCP、命令等）和压缩分隔条的问题，保留经典模式完整工具卡片与历史电脑截图显示",
+          "优化 Bot 活动状态行：静息态保持简洁，鼠标悬停或触屏点按时平滑浮现「转到后台」操作",
+          "修复单个 Bot 详情页关闭邮箱连接器后开关回弹的问题，关闭后同时隐藏该 Bot 的邮件工具"
+        ]
+      },
+      "en": {
+        "intro": "A quick hotfix restoring clean Bot private chats, refining the activity row, and fixing the per-Bot Mailbox toggle.",
+        "items": [
+          "Fixed Bot private chats showing raw tool call cards (such as MCP and shell tools) and compaction bars, while keeping persisted computer-use screenshots and full Classic Agent tool cards",
+          "Refined the Bot activity row to stay quiet at rest and reveal the borderless Move to background action on hover, focus, or touch tap",
+          "Fixed the per-Bot Mailbox switch bouncing back on and ensured turning Mailbox off removes mail tools for that Bot"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.4.0",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "intro": "全新自写桌面前端、统一收件箱、Bot 插件与全新 Bot 形象上线，安全与隐私升级，更轻、更稳、更开放。",
+        "items": [
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增 Fei 主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
+          "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
+          "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
+          "隐私与安全升级：默认拦截底层遥测，隐私 Bot 断网保护更安全；新增原子存盘防断电丢数据",
+          "自动审查与权限升级：可选审查模型自动把关审批，支持多文件夹授权与单 Bot 独立预设",
+          "统一外部 API：本机开放 MCP、OpenAI 兼容接口和 CLI，支持外部 Agent 调用，彻底打通工作流",
+          "协作与上下文重构：群聊与消息结构重构，上下文支持工具结果召回且更稳命中缓存，并可选开启代码模式编排多工具",
+          "账号、密钥与快捷键：支持 ChatGPT 登录、同 CLI 多账号、1Password（op://）与多行密钥、全局自定义快捷键",
+          "浏览器增强：新增可热切换的浏览器插件（目前可选 Ego Lite 浏览器、Playwright MCP、Chrome DevTools MCP），优化 Cookie 导入并支持 macOS Safari 批量导入",
+          "手机端升级：Android 支持应用内自动更新、原生通知与完整用量看板；对话内支持直接查看交互卡片、保留输入内容与回车发送",
+          "更多体验与修复：关于页新增自动更新开关与更新日志弹窗，并修复大量 IM、本地 CLI 与稳定性问题"
+        ]
+      },
+      "en": {
+        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, redesigned live avatars, and stronger privacy — lighter, steadier, and more open.",
+        "items": [
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Fei theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
+          "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
+          "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
+          "Privacy & durability: blocks underlying telemetry by default with fail-closed offline protection for private Bots, plus atomic saves against power loss",
+          "Auto Review & permissions: optional review model for approvals, multi-folder access, and per-Bot Agent presets",
+          "Unified External API: local MCP, OpenAI-compatible API, and CLI so external Agents can plug right into your workflow",
+          "Coordination & context overhaul: cleaner group and message coordination, tool-output recall with steadier prompt caching, and opt-in Code Mode",
+          "Accounts, Secrets & shortcuts: Sign in with ChatGPT, multiple profiles per local CLI, 1Password (op://) and multiline secrets, and customizable shortcuts",
+          "Browser upgrades: hot-swappable browser plugins (Ego Lite Browser, Playwright MCP, Chrome DevTools MCP) plus improved batch Cookie import with macOS Safari support",
+          "Phone upgrades: Android in-app auto-update, native notifications, and full Usage dashboard, plus inline interactive cards, saved drafts, and Enter-to-send",
+          "Polish & fixes: automatic updates toggle and in-app What's New dialog in About, plus stability fixes across IM platforms and local CLIs"
+        ]
+      }
+    }
+  },
+  {
     "version": "0.3.10",
     "date": "2026-11-22",
     "notes": {

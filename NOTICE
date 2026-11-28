@@ -65,6 +65,10 @@ MIT License, Copyright (c) 2026 DeepSeek
     in DeepSeek Harness (.agents/skills/record-browser-gif/): SKILL.md is
     adapted and translated for this repository; scripts/encode_gif.py and
     scripts/test_encode_gif.py are copied unchanged.
+  - ds-bot/src/host/workspace-panel.js windowsExplorerFileUri follows
+    explorerTarget in @deepseek-ai/dsh-native-command (src/path-opener.ts):
+    Windows file-URI encoding for Explorer (decoding percent-encoded non-ASCII
+    and escaping `,` and `=`).
 
   Full license text:
 
@@ -283,8 +287,8 @@ Devin, OpenAI and Antigravity marks from the vendors' application icons.
 Plugin logos (ds-bot/src/client/plugin-marks.js)
 The browser plugin marks identify their respective projects. Each is a trademark
 of its owner: Playwright (Microsoft, official SVG mark from playwright.dev,
-Apache-2.0), Ego (CitroLabs, official geometric mark from citrolabs/ego-lite),
-and Chrome (Google). DS Bot is not affiliated with or endorsed by these owners.
+Apache-2.0) and Chrome (Google). DS Bot is not affiliated with or endorsed by
+these owners.
 
 Browser logos (ds-bot/src/client/browser-marks.js)
 The browser marks identify browsers installed on the user's machine for cookie

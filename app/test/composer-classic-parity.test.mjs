@@ -16,6 +16,8 @@ const stubs = {
     export const ThinkingRow = ({ text }) => ({ type: 'thinking', props: { text, children: [text] } })
     export const EarlierParts = () => null
     export const PartLine = () => null
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = () => null
     export const Elapsed = () => null
@@ -548,7 +550,7 @@ test('Classic / menu loads commands lazily, toggles /plan off when active, avoid
     // Browsing a Classic session does NOT eagerly load sessionCommands (avoids waking cold Agents).
     assert.equal(cmdCatalogCalls.length, 0, 'sessionCommands is not called on mount')
 
-    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0]
     // Type `/` to open the Classic slash menu (triggers lazy load with wake: true).
     ta().props.onChange({ target: { value: '/', selectionStart: 1 } })
     tree = inst.render()
@@ -680,7 +682,7 @@ test('Classic / menu loads commands lazily, toggles /plan off when active, avoid
   const inst2 = mount(mod.Chat, { sessionId: 'classic-2', team: freshTeam })
   try {
     let tree2 = inst2.render()
-    const ta2 = () => all(tree2, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    const ta2 = () => all(tree2, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0]
     ta2().props.onChange({ target: { value: '/compact', selectionStart: 8 } })
     tree2 = inst2.render()
     all(tree2, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
@@ -701,7 +703,7 @@ test('Classic drafts persist across switching Classic sessions and switching Cla
   const inst = mount(mod.Chat, { sessionId: 'classic-1', team })
   try {
     let tree = inst.render()
-    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0]
     ta().props.onChange({ target: { value: 'classic one draft', selectionStart: 17 } })
     tree = inst.render()
 
@@ -1020,7 +1022,7 @@ test('DesktopQueueDock uses shared presenter defaults, supports cross-chat Withd
     assert.ok(textOf(head).includes('2 queued messages'))
 
     // Empty composer while running with queued items displays the Enter-to-steer cue and guards double-Enter.
-    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0]
     assert.equal(ta().props.placeholder, 'Press Enter to steer queued messages')
     ta().props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
     ta().props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
@@ -1147,7 +1149,7 @@ test('Failed send protects in-flight image URLs across unmount, re-keys restored
   const inst = mount(mod.Chat, { sessionId: 'b1', team })
   try {
     let tree = inst.render()
-    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0]
 
     // Send first message (stays in flight).
     ta().props.onChange({ target: { value: 'first important message', selectionStart: 23 } })
@@ -1204,12 +1206,12 @@ test('Failed send protects in-flight image URLs across unmount, re-keys restored
     tree = instA.render()
     imgUrl = createdUrls[0]
     assert.ok(imgUrl)
-    all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0].props.onChange({ target: { value: 'photo msg', selectionStart: 9 } })
+    all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0].props.onChange({ target: { value: 'photo msg', selectionStart: 9 } })
     tree = instA.render()
     all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
     await tick()
     // Simulate another draft written before send fails, then unmount while send is in flight!
-    all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0].props.onChange({ target: { value: 'newer draft', selectionStart: 11 } })
+    all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0].props.onChange({ target: { value: 'newer draft', selectionStart: 11 } })
     tree = instA.render()
   } finally {
     instA.unmount()
@@ -1255,7 +1257,7 @@ test('Failed send protects in-flight image URLs across unmount, re-keys restored
     b2Url = createdUrls[beforeLen]
     all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
     await tick()
-    all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0].props.onChange({ target: { value: 'keep typing', selectionStart: 11 } })
+    all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] === '')[0].props.onChange({ target: { value: 'keep typing', selectionStart: 11 } })
     tree = instC.render()
     rejectPrune(new Error('gone'))
     await tick()

@@ -64,6 +64,9 @@ export function createSlotRegistry() {
     list(name) {
       return snapshots.get(name) ?? EMPTY_LIST
     },
+    entries(name) {
+      return snapshots.get(name) ?? EMPTY_LIST
+    },
     resolveEntry(name, key) {
       const entries = bySlot.get(name)
       if (!entries || entries.length === 0) return undefined

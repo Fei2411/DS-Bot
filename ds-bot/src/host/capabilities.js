@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { encodeUrlComponent } from './secrets.js'
 import { matchSecretRefs } from './secret-refs.js'
+import { serviceOf } from './services.js'
 import { own } from './store.js'
-import { activeTasksOf } from './threads.js'
+import { activeTasksOf, isMissingSessionError } from './threads.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -714,25 +715,40 @@ export function install(rt) {
       mounts.delete(agent)
     }, `ds-bot: capabilities ${sessionId}`)
   }
-  const trackBotAgents = async bot => {
+  const liveAgentsService = () => {
+    const svc = serviceOf(ctx, 'agents')
+    return typeof svc?.get === 'function' ? svc : undefined
+  }
+  const trackBotAgents = async (bot, { liveOnly = false } = {}) => {
     const sessionIds = new Set()
+    const missing = typeof bot.sessionMissing === 'string' ? bot.sessionMissing : undefined
     try {
       const sessionId = rt.chatOf(bot.id)
-      if (typeof sessionId === 'string') sessionIds.add(sessionId)
+      if (typeof sessionId === 'string' && sessionId !== missing) sessionIds.add(sessionId)
     } catch (error) {
       rt.warn('ds-bot: capability chat session for %s could not be read: %s', bot.id, error)
     }
     try {
       for (const sessionId of rt.groupSessionsOf(bot.id) ?? []) {
-        if (typeof sessionId === 'string') sessionIds.add(sessionId)
+        if (typeof sessionId === 'string' && sessionId !== missing) sessionIds.add(sessionId)
       }
     } catch (error) {
       rt.warn('ds-bot: capability group sessions for %s could not be read: %s', bot.id, error)
     }
+    const agentsSvc = liveAgentsService()
     for (const sessionId of sessionIds) {
+      const live = agentsSvc?.get(sessionId)
+      if (live !== undefined) {
+        trackAgent(live)
+        continue
+      }
+      // Startup only tracks already-live Agents; cold Sessions mount capabilities via
+      // agent/created when activated instead of force-resuming every Bot at boot.
+      if (liveOnly && agentsSvc !== undefined) continue
       try {
         trackAgent(await rt.resolveAgent(sessionId))
       } catch (error) {
+        if (isMissingSessionError(error)) continue
         rt.warn('ds-bot: capability Agent for %s could not be resolved: %s', sessionId, error)
       }
     }
@@ -883,7 +899,7 @@ export function install(rt) {
   ctx.effect(() => {
     void rt.load().then(async () => {
       for (const bot of Object.values(state.bots)) {
-        if ((bot.capabilities ?? []).length > 0) await trackBotAgents(bot)
+        if ((bot.capabilities ?? []).length > 0) await trackBotAgents(bot, { liveOnly: true })
       }
       await scheduleReconcile()
     }).catch(error => rt.warn('ds-bot: capability startup failed: %s', error))

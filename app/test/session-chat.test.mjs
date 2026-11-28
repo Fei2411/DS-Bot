@@ -19,22 +19,46 @@ const stubs = {
     export const ThinkingRow = ({ text, live, ms, viewKey }) => ({ type: 'thinking', props: { text, live, ms, viewKey, children: [text] } })
     export const EarlierParts = ({ sessionId }) => ({ type: 'earlier-parts', props: { sessionId, children: ['earlier-parts:' + sessionId] } })
     export const PartLine = ({ time }) => ({ type: 'part-line', props: { time, children: [] } })
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
     export const Elapsed = () => null
     export const workPhrase = () => ''
     export const isBotTool = name => ['show_view', 'ask_user', 'request_secret', 'message_bot', 'cua', 'computer_handoff'].includes(name)
-    export const ToolCell = ({ node, sessionId, useHeldCards }) => {
+    export const ToolCell = ({ node, sessionId, useHeldCards, actions }) => {
       const root = node?.data?.root
       const heldCards = useHeldCards?.(state => state?.[sessionId])
-      const name = root?.name || root?.call?.name
-      if (name === 'show_view') {
-        return {
-          type: 'widget-cell',
-          props: { callId: root.callId, title: root.args?.text?.('title'), done: root.kind === 'tool-result', isError: root.isError === true, heldCards, children: ['widget:' + (root.args?.text?.('title') ?? root.callId)] },
-        }
+      const calls = []
+      const seen = new Set()
+      const visit = (c) => {
+        if (!c || seen.has(c)) return
+        seen.add(c)
+        calls.push(c)
+        for (const child of c.subCalls ?? []) visit(child)
       }
-      return { type: 'bot-tool-cell', props: { toolName: name, callId: root?.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+      visit(root)
+      const running = root?.kind === 'tool-result' ? undefined : calls.findLast(c => c.kind !== 'tool-result')
+      if (running && typeof actions?.noteLive === 'function') {
+        actions.noteLive(sessionId, 'tool:' + (root?.callId ?? node?.key), { label: running.name || running.call?.name || 'tool' })
+      }
+      const drawn = calls.filter(c => isBotTool(c.name || c.call?.name))
+      if (drawn.length === 0) return { type: 'span', props: { hidden: true, 'data-bt-empty': true, children: [] } }
+      return {
+        type: 'fragment',
+        props: {
+          children: drawn.map((call) => {
+            const name = call.name || call.call?.name
+            if (name === 'show_view') {
+              return {
+                type: 'widget-cell',
+                props: { callId: call.callId, title: call.args?.text?.('title'), done: call.kind === 'tool-result', isError: call.isError === true, heldCards, children: ['widget:' + (call.args?.text?.('title') ?? call.callId)] },
+              }
+            }
+            return { type: 'bot-tool-cell', props: { toolName: name, callId: call.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+          }),
+        },
+      }
     }
   `,
   'widget-cell.js': `
@@ -68,7 +92,7 @@ const entryCode = `
   export { createSlotRegistry, SlotErrorBoundary, TOOL_VIEW_SLOT, CHAT_NODE_SLOT } from './ui/src/slots.js'
   export { buildSessionRows, makeToolArgs, splitReasoning, streamReasoningMs } from './ui/src/session-transcript.js'
   export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
-  export { SessionTranscript, useSessionFollow } from './ui/src/session-chat.js'
+  export { SessionTranscript, advanceReplyWatermark, useSessionFollow } from './ui/src/session-chat.js'
   export { Chat } from './ui/src/chat.js'
   export { createTeam } from './ui/src/team.js'
 `
@@ -229,7 +253,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  SessionTranscript, useSessionFollow, Chat, createTeam,
+  SessionTranscript, advanceReplyWatermark, useSessionFollow, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -510,8 +534,8 @@ test('slots support React.memo, orphan tools skip unkeyed slots, streaming Parti
   const customMount = mount(ToolCallCard, { entry: listEntry, cwd: '/repo', registry })
   const customTree = customMount.render()
   assert.match(textOf(customTree), /custom:list_bots:false/)
-  assert.equal(customTree.props['data-chat-anchor-key'], 'call:c1')
-  assert.equal(customTree.props['data-chat-call-id'], 'c1')
+  assert.equal(customTree.props['data-bt-anchor-key'], 'call:c1')
+  assert.equal(customTree.props['data-bt-call-id'], 'c1')
   assert.deepEqual(plain(received[0]), { callId: 'c1', toolName: 'list_bots', cwd: '/repo', phase: 'result', keys: ['expanded', 'setExpanded', 'toggle'] })
 
   // Throwing slot is isolated by SlotErrorBoundary and recovers on Retry.
@@ -693,6 +717,233 @@ test('useSessionFollow resyncs once without the stale cursor and replaces rows w
   }
 })
 
+test('useSessionFollow preserves already-loaded earlier pages on bot/stale and fills only the gap', async () => {
+  fetchCtrl.reset()
+  const pageCalls = []
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+  sandbox.__testCall = async (name, body) => {
+    pageCalls.push([name, body])
+    if (name === 'session-page' && body.beforeSeq === 6) {
+      return { records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `earlier ${seq}`) })), hasMore: false }
+    }
+    if (name === 'session-page' && body.beforeSeq === 13) {
+      return { records: [11, 12].map(seq => ({ type: 'event', event: msg(seq, `gap ${seq}`) })), hasMore: true }
+    }
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    // Initial snapshot loads 6..10 with hasMore: true.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [6, 7, 8, 9, 10].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    // User scrolls up and loads earlier page 1..5 (hasMore becomes false).
+    await view.loadEarlier(null)
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert.equal(view.log.hasMore, false)
+
+    // bot/stale arrives -> reopens without cursor -> fresh snapshot starts at 13..15 (gap 11..12).
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale cursor' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 15, hasMore: true,
+      records: [13, 14, 15].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    // A live event 16 arrives right after the snapshot while gap fill is settling.
+    fetchCtrl.latest().push('frame', { type: 'event', event: msg(16, 'live 16') })
+    await tick()
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    assert.equal(view.log.hasMore, false, 'earlier loaded page boundary (hasMore: false) is preserved')
+    assert.equal(view.historyReloaded, false, 'gap fill preserves history without marking full reload')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow falls back cleanly when bot/stale gap fill fails and ignores stale gap fills after superseding snapshot', async () => {
+  fetchCtrl.reset()
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+
+  // Part 1: fillGap failure falls back to opening events + historyReloaded: true (never leaves a silent middle hole).
+  sandbox.__testCall = async (name) => {
+    if (name === 'session-page') throw new Error('network failed')
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [10, 11, 12], 'failed gap fill must drop unreachable prefix instead of leaving a permanent middle hole')
+    assert.equal(view.log.hasMore, true, 'failed gap fill restores snapshot hasMore so Load earlier works')
+    assert.equal(view.historyReloaded, true, 'failed gap fill surfaces historyReloaded banner')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+
+  // Part 2: superseding snapshot/rewind arriving while fillGap is in flight cancels the old gap fill.
+  let resolveGap
+  sandbox.__testCall = (name) => {
+    if (name === 'session-page') {
+      return new Promise((resolve) => { resolveGap = resolve })
+    }
+    return Promise.resolve({ records: [], hasMore: false })
+  }
+  const inst2 = mount(Probe, {})
+  try {
+    inst2.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    assert.equal(typeof resolveGap, 'function', 'fillGap should be in flight')
+
+    // Superseding rewind snapshot arrives while fillGap is still pending.
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'rewound' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 4, hasMore: false,
+      records: [2, 3, 4].map(seq => ({ type: 'event', event: msg(seq, `rewind ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+
+    // Old fillGap now resolves with outdated gap events 6..9 -> must be ignored!
+    resolveGap({ records: [6, 7, 8, 9].map(seq => ({ type: 'event', event: msg(seq, `stale-gap ${seq}`) })), hasMore: false })
+    await tick()
+    await tick()
+    inst2.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [2, 3, 4], 'stale in-flight fillGap must not splice outdated events into superseding snapshot')
+    assert.equal(view.log.cursor, 4)
+  } finally {
+    sandbox.__testCall = origCall
+    inst2.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow in read-only mode ignores hello { resumed: true }, reopens on hello { resumed: false } and catalog updatedAt change', async () => {
+  fetchCtrl.reset()
+  const listeners = new Set()
+  const feed = { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } }
+  const emit = (ev, data) => { for (const fn of listeners) fn(ev, data) }
+  let view
+  const Probe = ({ updatedAt }) => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, feed, readOnly: true, readOnlyUpdatedAt: updatedAt })
+    return null
+  }
+  const inst = mount(Probe, { updatedAt: 100 })
+  try {
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1)
+    emit('hello', { revision: 1, feedSeq: 1, resumed: true })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'resumed hello must not reopen read-only session follow')
+    // Same updatedAt keeps it idle.
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'unchanged updatedAt must not reopen read-only session follow')
+    // Advancing catalog updatedAt (same DM segment updated in writer process) reopens to pick up new messages.
+    inst.render({ updatedAt: 200 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'advancing readOnlyUpdatedAt reopens read-only session follow')
+    emit('hello', { revision: 1, feedSeq: 1, resumed: false })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 3, 'unresumed hello reopens read-only session follow')
+    void view
+  } finally {
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('openSessionFollow stops reconnecting and surfaces a terminal error when a single SSE frame exceeds the buffer limit', async () => {
+  fetchCtrl.reset()
+  recordedTimers.length = 0
+  const events = []
+  let cancelled = false
+  fetchCtrl.setImpl(async () => ({
+    ok: true,
+    body: {
+      getReader: () => {
+        let sent = false
+        return {
+          async read() {
+            if (!sent) {
+              sent = true
+              return { value: new TextEncoder().encode('data: ' + 'x'.repeat(8 * 1024 * 1024 + 64)), done: false }
+            }
+            return { value: undefined, done: true }
+          },
+          async cancel() { cancelled = true },
+        }
+      },
+    },
+  }))
+  const handle = openSessionFollow({ sessionId: 'b1' }, (event, data) => events.push([event, data]))
+  try {
+    await tick()
+    await tick()
+    assert.equal(cancelled, true)
+    assert.equal(recordedTimers.length, 0, 'oversized session SSE frame must not schedule a retry')
+    assert.equal(events.some(([ev, data]) => ev === 'error' && data?.code === 'bot/stream-overflow'), true)
+  } finally {
+    handle.close()
+    fetchCtrl.reset()
+  }
+})
+
 test('Chat DM renders real recorded session, show_view via WidgetCell, legacy reactions, EarlierParts across rollover, pagination, and pending dedup', async () => {
   fetchCtrl.reset()
   const listeners = new Set()
@@ -761,7 +1012,8 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     assert.match(rendered, /想想下一步/)
     assert.match(rendered, /目标、约束、下一步/)
     assert.match(rendered, /建议分三步走/)
-    assert.match(rendered, /list_bots/)
+    // Bot DM mode keeps non-Bot tool calls (such as `list_bots`) out of the chat transcript.
+    assert.doesNotMatch(rendered, /list_bots/)
     // Once snapshot landed with `hasMore: false` and `bot.parts` has 1 earlier segment, EarlierParts mounts.
     assert.equal(all(tree, n => n.type === 'earlier-parts').length, 1, 'EarlierParts must mount when bot.parts.length === 1')
     // Legacy saved reaction key `${sessionId}:${time}` is preserved on Turn 1's Bubbles.
@@ -1631,6 +1883,298 @@ test('createTeam followWork marks activeRooms running before member turns start 
     sandbox.setInterval = prevSetInterval
     sandbox.clearInterval = prevClearInterval
     sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
+})
+
+test('SessionTranscript hides non-Bot/MCP tool cards and compaction in Bot DM mode while keeping them in Classic Agent mode', () => {
+  const T0 = 1_700_000_000_000
+  const T_LATER = T0 + 45 * 60 * 1000
+  const snapshot = {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 16,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'user/message', seq: 1, time: T0, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'check github issues' }] } } },
+      // Compaction checkpoint + settled MCP/shell/custom/orphan tools sitting 45m after the user message.
+      { type: 'event', event: { type: 'compaction/summary', seq: 2, time: T_LATER - 5000, data: { compactionId: 'cmp-1', summary: 'Condensed context.', shadowedItemCount: 8 } } },
+      { type: 'event', event: { type: 'user/message', seq: 3, time: T_LATER - 4000, surfaceOp: 'replace', data: { source: { kind: 'compact-checkpoint', compactionId: 'cmp-1', itemCount: 8 }, content: [{ type: 'text', text: 'checkpoint' }] } } },
+      { type: 'event', event: { type: 'turn/start', seq: 4, time: T_LATER, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'tool/call', seq: 5, time: T_LATER + 100, data: { turn: 1, step: 1, callId: 'mcp-1', name: 'mcp__github__search_issues', arguments: '{"query":"bot_remember"}' } } },
+      { type: 'event', event: { type: 'tool/result', seq: 6, time: T_LATER + 200, data: { turn: 1, step: 1, message: { toolCallId: 'mcp-1', isError: true, content: [{ type: 'text', text: 'Error' }] } } } },
+      { type: 'event', event: { type: 'tool/call', seq: 7, time: T_LATER + 300, data: { turn: 1, step: 1, callId: 'prep-1', name: 'prepare_ds_bot_issue', arguments: '{"title":"bug"}' } } },
+      { type: 'event', event: { type: 'tool/result', seq: 8, time: T_LATER + 400, data: { turn: 1, step: 1, message: { toolCallId: 'prep-1', isError: false, content: [{ type: 'text', text: 'drafted' }] } } } },
+      // Orphan tool/result whose tool/call fell before the page window.
+      { type: 'event', event: { type: 'tool/result', seq: 9, time: T_LATER + 500, data: { turn: 1, step: 1, message: { toolCallId: 'orphan-1', isError: false, content: [{ type: 'text', text: 'stale' }] } } } },
+      // PTC run_code dispatching BOTH a hidden MCP tool AND a visible Bot tool (`ask_user`).
+      { type: 'event', event: { type: 'tool/call', seq: 10, time: T_LATER + 600, data: { turn: 1, step: 2, callId: 'ptc-mix', name: 'run_code', arguments: '{"code":"..."}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 11, time: T_LATER + 610, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-mcp', name: 'mcp__github__get_me', arguments: '{}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 12, time: T_LATER + 620, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-mcp', name: 'mcp__github__get_me', isError: false, content: [] } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 13, time: T_LATER + 630, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-ask', name: 'ask_user', arguments: '{"question":"Submit?"}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 14, time: T_LATER + 640, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-ask', name: 'ask_user', isError: false, content: [] } } },
+      { type: 'event', event: { type: 'tool/result', seq: 15, time: T_LATER + 650, data: { turn: 1, step: 2, message: { toolCallId: 'ptc-mix', isError: false, content: [{ type: 'text', text: 'ok' }] } } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 16, time: T_LATER + 700, data: { turn: 1, step: 3, message: { content: [{ type: 'text', text: 'Draft ready.' }] } } } },
+    ],
+  }
+  const { log } = applyFrame(emptyLog(), snapshot)
+  const bot = { id: 'b1', name: 'Chief', color: 'blue' }
+  const roster = {
+    bots: [bot],
+    byId: { b1: bot },
+    rooms: [],
+    roomsById: {},
+    prefs: { layout: 'flat' },
+    exchangeTurns: {},
+  }
+
+  // Bot DM mode (classic: false): no raw tool cards, no compaction pill, no run_code wrapper,
+  // flat SpeakerHead still lands on the assistant reply (not stolen by hidden tools), and ask_user renders via ToolCell.
+  const botInst = mount(SessionTranscript, {
+    log,
+    sessionId: 'b1',
+    bot,
+    roster,
+    actions: {},
+    classic: false,
+  })
+  try {
+    const tree = botInst.render()
+    const rendered = textOf(tree)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-tool').length, 0, 'Bot DM renders zero raw GenericToolCards')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-compaction').length, 0, 'Bot DM hides compaction checkpoints')
+    assert.doesNotMatch(rendered, /mcp__github__search_issues|prepare_ds_bot_issue|mcp__github__get_me|run_code|orphan-1|compacted/)
+    assert.equal(all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user').length, 1, 'PTC nested Bot tool still renders via ToolCell')
+    assert.equal(all(tree, n => n.props?.className === 'bt-group-name').length, 1, 'flat-layout SpeakerHead renders once on the assistant reply')
+    assert.match(rendered, /Draft ready\./)
+    // Time separators: 1 before user message (T0) + 1 before the first visible row after 45m gap (ptc-mix with ask_user).
+    assert.equal(all(tree, n => n.props?.className === 'bt-time-sep').length, 2, 'hidden compaction and non-Bot tools do not add extra time separators')
+  } finally {
+    botInst.unmount()
+  }
+
+  // Classic Agent mode (classic: true): retains full developer tool cards and compaction checkpoints.
+  const classicInst = mount(SessionTranscript, {
+    log,
+    sessionId: 'b1',
+    bot: undefined,
+    roster,
+    actions: {},
+    classic: true,
+  })
+  try {
+    const tree = classicInst.render()
+    const rendered = textOf(tree)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-compaction').length, 1, 'Classic Agent keeps compaction checkpoints')
+    assert.ok(all(tree, n => n.props?.className === 'dsb-tool').length >= 4, 'Classic Agent renders raw tool cards')
+    assert.match(rendered, /mcp__github__search_issues/)
+    assert.match(rendered, /prepare_ds_bot_issue/)
+    assert.match(rendered, /run_code/)
+  } finally {
+    classicInst.unmount()
+  }
+})
+
+test('SessionTranscript reply watermark ignores Load earlier prepends and only notifies on live tail replies', () => {
+  const msg = (seq, text = 'reply') => ({ kind: 'assistant', seq, texts: [text] })
+
+  // Pure helper contract: initial snapshot establishes baseline with 0 arrivals;
+  // prepending older rows (seq <= maxSeq) reports 0; live tail row (seq > maxSeq) reports +1.
+  const pre = advanceReplyWatermark({ sessionId: null, maxSeq: null }, 's1', false, [])
+  assert.equal(pre.added, 0)
+  const init = advanceReplyWatermark(pre.next, 's1', true, [msg(10), msg(20)])
+  assert.equal(init.added, 0)
+  assert.equal(init.next.maxSeq, 20)
+  const paged = advanceReplyWatermark(init.next, 's1', true, [msg(2), msg(4), msg(10), msg(20)])
+  assert.equal(paged.added, 0)
+  const live = advanceReplyWatermark(paged.next, 's1', true, [msg(2), msg(4), msg(10), msg(20), msg(25)])
+  assert.equal(live.added, 1)
+  assert.equal(live.next.maxSeq, 25)
+
+  // Real SessionTranscript lifecycle with addPage (Load earlier) + applyFrame (live tail arrival)
+  const bot = { id: 'b1', name: 'Helper', sessionId: 'b1', parts: [] }
+  const roster = { bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const arrivals = []
+  const actions = { noteReplyArrival: (sid, delta) => arrivals.push([sid, delta]) }
+
+  let { log } = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 11,
+    hasMore: true,
+    records: [
+      { type: 'event', event: { type: 'user/message', seq: 10, time: 2000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 11, time: 2100, data: { turn: 5, step: 1, message: { content: [{ type: 'text', text: 'initial reply' }] } } } },
+    ],
+  })
+  const inst = mount(SessionTranscript, { log, sessionId: 'b1', bot, roster, actions, classic: false })
+  try {
+    inst.render()
+    assert.deepEqual(arrivals, [], 'opening snapshot must not report new arrivals')
+
+    // Prepend an earlier history page (seq 1..2 < 11) via addPage (Load earlier)
+    log = addPage(log, {
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 1, time: 1000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'older q' }] } } },
+        { type: 'event', event: { type: 'assistant/message', seq: 2, time: 1100, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'older reply' }] } } } },
+      ],
+    })
+    inst.render({ log, sessionId: 'b1', bot, roster, actions, classic: false })
+    assert.deepEqual(arrivals, [], 'Load earlier prepended replies must NOT trigger new-message arrivals')
+
+    // Live reply arrives at the tail (seq 12 > 11)
+    ;({ log } = applyFrame(log, {
+      type: 'event',
+      event: { type: 'assistant/message', seq: 12, time: 3000, data: { turn: 6, step: 1, message: { content: [{ type: 'text', text: 'live reply' }] } } },
+    }))
+    inst.render({ log, sessionId: 'b1', bot, roster, actions, classic: false })
+    assert.deepEqual(arrivals, [['b1', 1]], 'live tail reply must report exactly +1 arrival')
+  } finally {
+    inst.unmount()
+  }
+})
+
+test('W3 gap-fill backfill, historyReloaded full reload, and resume snapshot replay do not inflate replyCount', async () => {
+  fetchCtrl.reset()
+  const origCall = sandbox.__testCall
+  const asst = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 100, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+  const user = (seq, text) => ({ type: 'user/message', seq, time: seq * 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
+
+  let gapMode = 'bridge'
+  sandbox.__testCall = async (name, body) => {
+    if (name === 'session-page' && body.beforeSeq === 13) {
+      if (gapMode === 'fail') throw new Error('gap page failed')
+      return { records: [11, 12].map(seq => ({ type: 'event', event: asst(seq, `backfilled gap ${seq}`) })), hasMore: true }
+    }
+    return { records: [], hasMore: false }
+  }
+
+  const bot = { id: 'b1', name: 'Helper', sessionId: 'b1', parts: [] }
+  const roster = {
+    ready: true,
+    bots: [bot],
+    byId: { b1: bot },
+    rooms: [],
+    roomsById: {},
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+    prefs: {},
+  }
+  let replyCount = 0
+  const arrivals = []
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      noteCards() {},
+      noteTurnTime() {},
+      noteReplyArrival: (sid, delta) => {
+        arrivals.push([sid, delta])
+        replyCount += delta
+      },
+      send: async () => {},
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useCards: select => select({}),
+      useHeldCards: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  const inst = mount(Chat, { sessionId: 'b1', team })
+  try {
+    inst.render()
+    await tick()
+
+    // 1. Opening snapshot (seq 6..10) establishes baseline with 0 arrivals.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [6, 7, 8, 9, 10].map(seq => ({ type: 'event', event: asst(seq, `init ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 0, 'opening snapshot must not increase replyCount')
+
+    // 2. bot/stale resync with forward gap where opening has ONLY user events (seq 13..15)
+    //    and fillGap asynchronously backfills older assistant events (seq 11..12).
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale cursor' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 15, hasMore: true,
+      records: [13, 14, 15].map(seq => ({ type: 'event', event: user(seq, `u ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 0, 'resync snapshot and fillGap backfilled assistant rows must not increase replyCount')
+
+    // 3. A genuine live tail reply after gap fill (seq 16) DOES increase replyCount by +1.
+    fetchCtrl.latest().push('frame', { type: 'event', event: asst(16, 'live after gap') })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'live tail reply after gap fill must increment replyCount by 1')
+
+    // 4. Reconnect snapshot replay covering already-seen seqs (14..16) must not double-count.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 16, hasMore: true,
+      records: [14, 15, 16].map(seq => ({ type: 'event', event: asst(seq, `replay ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'reconnect snapshot replay must not increase replyCount')
+
+    // 5. bot/stale with failed fillGap -> fallbackToOpening sets historyReloaded: true (must not increase replyCount).
+    gapMode = 'fail'
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale again' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 22, hasMore: true,
+      records: [20, 21, 22].map(seq => ({ type: 'event', event: asst(seq, `reloaded ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'historyReloaded fallbackToOpening must not increase replyCount')
+
+    // 6. bot/stale with rewound cursor (cursor 4 < 22, historyReloaded: true) resets watermark cleanly without increasing replyCount,
+    //    and a subsequent live reply (seq 5) after the rewind IS counted once.
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'rewound' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 4, hasMore: false,
+      records: [2, 3, 4].map(seq => ({ type: 'event', event: asst(seq, `rewound ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'rewound historyReloaded snapshot must not increase replyCount')
+
+    fetchCtrl.latest().push('frame', { type: 'event', event: asst(5, 'live after rewind') })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 2, 'live tail reply after rewind must still increment replyCount by 1')
+    assert.deepEqual(arrivals, [['b1', 1], ['b1', 1]])
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
     fetchCtrl.reset()
   }
 })

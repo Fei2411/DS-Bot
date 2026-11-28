@@ -9,6 +9,7 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme,
 import { createChatGPTSignIn } from './chatgpt-signin.mjs'
 import { createChatGPTRelay } from './chatgpt-relay.mjs'
 import { createChatGPTBridge } from './chatgpt-bridge.mjs'
+import { createWebFetchBridge } from './web-fetch.mjs'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
@@ -33,6 +34,8 @@ import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
+import { deferMaximizeOnShow, isAllowedWindowTitle, readWindowBounds, resolveRestoredBounds, watchWindowBounds, WINDOW_BOUNDS_FILE } from './window-bounds.mjs'
+import { pickPreferredLanguageTag } from './locale-match.mjs'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
@@ -65,6 +68,7 @@ const IPC = {
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
   syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
+  systemLanguage: 'ds-bot:system-language',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -95,12 +99,28 @@ const material = materialOf(process.platform, release())
 configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
+const windowBoundsFile = join(app.getPath('userData'), WINDOW_BOUNDS_FILE)
+let cachedSavedBounds
+const savedMainBounds = ({ refresh = false } = {}) => {
+  if (refresh || cachedSavedBounds === undefined) {
+    cachedSavedBounds = resolveRestoredBounds(
+      readWindowBounds(windowBoundsFile),
+      screen.getAllDisplays(),
+      { primary: screen.getPrimaryDisplay() },
+    ) ?? null
+  }
+  return cachedSavedBounds ?? undefined
+}
+const preferredSystemLanguage = () => pickPreferredLanguageTag(
+  app.getPreferredSystemLanguages?.(),
+  app.getLocale?.() || '',
+)
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
-let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
+let watchReleases, watchUpdates, RELEASE_PAGE, createMacUpdater, resolveMacAppBundle, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
 // Settles once the hidden team window exists.
@@ -111,6 +131,7 @@ let logs
 let rawOutput
 let host
 let chatgpt
+let webFetch
 // The Host's loopback origin, which the window loads.
 let origin
 let port
@@ -148,6 +169,8 @@ let attempt = 0
 let bootAbort = new AbortController()
 // The Host answered and the window may talk to it without the launch URL.
 let hostReady = false
+// Stops the active did-fail-load listener attached by onReload() on the team window.
+let stopReloadWatch
 // The Host's launch URL: the first window trades it for the Host's cookie.
 let launchUrl
 // The first load of the Host, which mints that cookie. It ends when the first load came
@@ -161,7 +184,9 @@ let downloadsBound = false
 // Quitting during the first run's import (its card or its copy) or a data move waits for it to
 // stop at a safe point, so that it leaves no half team and no temporary copy.
 let copying
+let relaunching = false
 const copyAbort = new AbortController()
+let modulesLoading
 let browserGuests
 let botViews
 let activeShortcuts = []
@@ -204,7 +229,7 @@ const shell = createShell({
   fallback: { show: options => boxInWindow(options, options.cancelId) },
 })
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
-app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); void chatgpt?.close() })
+app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); webFetch?.close(); void chatgpt?.close() })
 
 // A packaged app started through an 8.3 short path or a junction restarts once on the
 // canonical path: the lock below and every path the Host sees then agree with the long
@@ -220,6 +245,7 @@ if (canonical !== undefined) {
   rawOutput = captureStdio(logs)
   app.once('will-quit', () => { logs.flush() })
   console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
+  const bannerAt = Date.now()
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
@@ -229,8 +255,40 @@ if (canonical !== undefined) {
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
+    savedBounds: savedMainBounds,
     onRetry: () => { retry().catch(fail) },
-    onReload: () => { mainWindow?.webContents.reload() },
+    onReload: () => {
+      stopReloadWatch?.()
+      stopReloadWatch = undefined
+      const win = mainWindow
+      if (win === undefined || win.isDestroyed()) return
+      const mine = attempt
+      if (hostReady && win.webContents.getURL().startsWith(`${origin}/`)) {
+        const wc = win.webContents
+        const done = () => {
+          if (stopReloadWatch === done) stopReloadWatch = undefined
+          wc.removeListener?.('did-fail-load', onFail)
+          wc.removeListener?.('did-finish-load', done)
+          wc.removeListener?.('did-stop-loading', done)
+        }
+        const onFail = (_event, errorCode, errorDescription, _url, isMainFrame) => {
+          if (isMainFrame === false || errorCode === -3) return
+          done()
+          if (mine === attempt && !stopping) {
+            startWindow.teamViewFailed(new Error(`ERR_LOAD_${String(errorCode)}: ${errorDescription || 'reload failed'}`))
+          }
+        }
+        stopReloadWatch = done
+        wc.on?.('did-fail-load', onFail)
+        wc.once?.('did-finish-load', done)
+        wc.once?.('did-stop-loading', done)
+        wc.reload()
+        return
+      }
+      void connectHost(win).catch((error) => {
+        if (mine === attempt && !stopping && !isAbortedLoad(error)) startWindow.teamViewFailed(error)
+      })
+    },
     // Closing the start window before the hand-off quits: there is no team window yet to stay in
     // the tray with.
     onClose: () => { app.quit() },
@@ -277,7 +335,45 @@ if (canonical !== undefined) {
     if (stopping) { void (hostStop ?? Promise.resolve()).then(() => { app.quit() }); return }
     void stopHost().then(() => { app.quit() })
   })
-  app.whenReady().then(async () => { shell.install(); await start() }).catch(fail)
+  app.whenReady().then(async () => {
+    startupStep('whenReady', bannerAt)
+    const trayAt = Date.now()
+    shell.install()
+    startupStep('shell.install', trayAt)
+    await start()
+  }).catch(fail)
+}
+
+const startupStep = (step, since) => {
+  console.log(`DS Bot: startup: ${step} took ${String(Date.now() - since)} ms`)
+}
+
+const isAbortedLoad = error => error?.code === 'ERR_ABORTED' || error?.errno === -3
+
+function ensureChatGPT() {
+  if (!chatgpt) {
+    chatgpt = createChatGPTBridge({
+      getSignIn: async () => {
+        const since = Date.now()
+        const signIn = await createChatGPTSignIn({
+          userData: app.getPath('userData'),
+          safeStorage,
+          mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
+          onChange: status => host?.send({ type: 'chatgpt:changed', status }),
+        })
+        console.log(`DS Bot: chatgpt: signIn init took ${String(Date.now() - since)} ms`)
+        return signIn
+      },
+      getRelay: async (signIn) => {
+        const since = Date.now()
+        const relay = await createChatGPTRelay({ signIn })
+        console.log(`DS Bot: chatgpt: relay init took ${String(Date.now() - since)} ms`)
+        return relay
+      },
+      openExternal: url => electronShell.openExternal(url),
+    })
+  }
+  return chatgpt
 }
 
 function stopHost() {
@@ -298,34 +394,47 @@ function startKind() {
 }
 
 async function start() {
+  const menuAt = Date.now()
   setMenu()
   nativeTheme.themeSource = readStartFrame(frameFile).themeSource
   // A packaged app has the icon in its bundle; Electron's own run shows Electron's.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(iconFile)
+  startupStep('setMenu', menuAt)
   await prepare()
   run()
 }
 
 // What the boot needs; a retry after a failure here does what is still missing.
 async function prepare() {
-  if (!chatgpt) {
-    const signIn = await createChatGPTSignIn({ userData: app.getPath('userData'), safeStorage,
-      mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
-      onChange: status => host?.send({ type: 'chatgpt:changed', status }),
-    })
-    const relay = await createChatGPTRelay({ signIn })
-    chatgpt = createChatGPTBridge({ signIn, relay, openExternal: url => electronShell.openExternal(url) })
-  }
-  // Before the windows: the team window's page is told the Host's origin.
-  if (port === undefined) {
-    port = await hostPort(join(app.getPath('userData'), 'host-port.json'))
-    origin = `http://127.0.0.1:${String(port)}`
-  }
+  // Open the start window first so nothing async (port checks, dynamic imports, or OS keychain
+  // access) blocks the first paint (#2415, #2436). ChatGPT sign-in initializes lazily on first use.
+  const openAt = Date.now()
   startWindow.open(startKind())
-  if (browserGuests === undefined) {
-    await loadModules()
-    handleIpc()
+  startupStep('startWindow.open', openAt)
+  if (!webFetch) {
+    webFetch = createWebFetchBridge({ BrowserWindow, session })
   }
+  // Before the team window: its preload is told the Host's origin.
+  const portWork = port === undefined
+    ? (async () => {
+        const portAt = Date.now()
+        port = await hostPort(join(app.getPath('userData'), 'host-port.json'))
+        origin = `http://127.0.0.1:${String(port)}`
+        startupStep('hostPort', portAt)
+      })()
+    : Promise.resolve()
+  const modulesWork = (modulesLoading ??= (async () => {
+    const modulesAt = Date.now()
+    await loadModules()
+    startupStep('loadModules', modulesAt)
+    const ipcAt = Date.now()
+    handleIpc()
+    startupStep('handleIpc', ipcAt)
+  })().catch((error) => {
+    modulesLoading = undefined
+    throw error
+  }))
+  await Promise.all([portWork, modulesWork])
   // The team window is made once the start window has painted, already on its final rect, and
   // made again when it is gone for good (a cancelled shutdown kept the app without one), so
   // that the next engine has a window to load into.
@@ -333,11 +442,11 @@ async function prepare() {
 }
 
 async function loadModules() {
-  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, updatePrefsModule, boot, updater] = await Promise.all([
+  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, macUpdaterModule, updatePrefsModule, boot, updater] = await Promise.all([
     import('./bot-browser.mjs'), import('./bot-views.mjs'), import('./browser-sources.mjs'), import('./cookie-import.mjs'),
     import('./cookie-parse.mjs'), import('./downloads.mjs'), import('./first-run.mjs'), import('./host-process.mjs'),
     import('./import.mjs'), import('./import-flow.mjs'), import('./move-data.mjs'), import('./profile.mjs'), import('./updates.mjs'),
-    import('./update-prefs.mjs'), import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
+    import('./mac-updater.mjs'), import('./update-prefs.mjs'), import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
@@ -352,6 +461,7 @@ async function loadModules() {
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
+  ;({ createMacUpdater, resolveMacAppBundle } = macUpdaterModule)
   ;({ readAutoUpdate, writeAutoUpdate } = updatePrefsModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
@@ -402,6 +512,8 @@ async function retry() {
 // The handshake of the Host that goes: a window rebuilt before the next engine answers must not
 // load against a Host that is stopped, nor take its cookie for the new one's.
 function forgetHost() {
+  stopReloadWatch?.()
+  stopReloadWatch = undefined
   hostReady = false
   bootstrap = undefined
 }
@@ -486,7 +598,10 @@ async function boot(mine) {
   bootstrap = win.loadURL(engine.url).then(() => {
     if (mine === attempt) hostReady = true
     return true
-  }).catch(() => false)
+  }).catch((error) => {
+    if (mine === attempt && !stopping && !isAbortedLoad(error)) startWindow.teamViewFailed(error)
+    return false
+  })
 }
 
 function setPlaces(next) {
@@ -647,7 +762,10 @@ function newHost() {
     output: hostOutput,
     redactOutput: false,
   })
-  child.onMessage(message => { chatgpt?.handle(message, response => child.send(response)) })
+  child.onMessage(message => {
+    if (message?.type === 'ds-bot:chatgpt') ensureChatGPT().handle(message, response => child.send(response))
+    webFetch?.handle(message, response => child.send(response))
+  })
   return child
 }
 
@@ -877,6 +995,10 @@ function handleIpc() {
     powerMonitor.off?.('unlock-screen', onUnlockScreen)
     computerIndicator.dispose()
     computerCursor.dispose()
+  })
+  ipcMain.handle(IPC.systemLanguage, (event) => {
+    if (!fromWindow(event)) return ''
+    return preferredSystemLanguage()
   })
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // It has drawn the whale the start window hands over: the windows cross-fade.
@@ -1362,7 +1484,7 @@ async function runMove(to, workspace) {
     const reason = moveReason(to, workspace)
     if (reason !== undefined) {
       await askCard({ ...stay, why: 'place', place: reason, path: to }, { signal })
-      if (!signal.aborted) app.relaunch()
+      if (!signal.aborted) { relaunching = true; app.relaunch() }
       return
     }
     // Another DSH on the same data would go on writing while the copy is made.
@@ -1371,7 +1493,7 @@ async function runMove(to, workspace) {
       const answer = await askCard({ ...stay, why: 'inUse' }, { signal, settle: until(() => !teamInUse(from), free.signal) })
       free.abort()
       if (answer !== 'settled') {
-        if (!signal.aborted) app.relaunch()
+        if (!signal.aborted) { relaunching = true; app.relaunch() }
         return
       }
       startWindow.card(undefined)
@@ -1401,6 +1523,7 @@ async function runMove(to, workspace) {
         setProgress(-1)
       }
     }
+    relaunching = true
     app.relaunch()
   })()
   await copying
@@ -1410,14 +1533,33 @@ async function runMove(to, workspace) {
 
 const updatePrefsFile = () => join(app.getPath('userData'), 'update-prefs.json')
 
-// Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
-// version. Throwaway runs check only a given feed and never ask.
+// Windows, writable macOS .app bundles and Linux AppImages update themselves; read-only or
+// translocated macOS installs and Linux debs ask to download the new version. Throwaway runs
+// check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
   const throwaway = Boolean(process.env.DS_BOT_HOME)
   if (!app.isPackaged || (throwaway && feed === undefined)) return undefined
   const autoUpdate = readAutoUpdate(updatePrefsFile())
   if (process.platform === 'darwin') {
+    const bundle = resolveMacAppBundle(process.execPath)
+    if (bundle.eligible) {
+      const macUpdater = createMacUpdater({
+        current: app.getVersion(),
+        arch: process.arch,
+        appPath: bundle.appPath,
+        stagingRoot: join(app.getPath('userData'), 'mac-updates'),
+        logFile: join(app.getPath('userData'), 'logs', 'mac-updater.log'),
+        quit: () => { app.quit() },
+        onWillQuit: (fn) => { app.once('will-quit', fn) },
+        shouldInstallOnQuit: () => !relaunching && !shell.isSessionEnding(),
+      })
+      return watchUpdates({
+        updater: macUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => restartPrompt.prompt(version, info),
+        beforeInstall: () => { shell.beginQuit(); return stopHost() },
+      })
+    }
+    console.log(`DS Bot: macOS in-place update unavailable (${bundle.reason}); falling back to release page`)
     return watchReleases({
       current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
     })
@@ -1579,13 +1721,18 @@ async function flushDeferredUpdate() {
 
 // Hidden, on the rect the start window grows into; the start window shows it at the hand-off.
 function createWindow() {
+  const rebuilt = startWindow.revealed
+  const savedBounds = savedMainBounds({ refresh: rebuilt })
   const dark = nativeTheme.shouldUseDarkColors
   const frameless = framelessOn(process.platform)
   const sidebarFill = () => (nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb')
+  const initialBounds = savedBounds
+    ? { x: savedBounds.x, y: savedBounds.y, width: savedBounds.width, height: savedBounds.height }
+    : startWindow.mainBounds()
   const win = new BrowserWindow({
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
-    ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
+    ...initialBounds, minWidth: 508, minHeight: 480,
     title: 'DS Bot', show: false, icon: windowIcon,
     backgroundColor: material ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
     // Frameless as in DSH Desktop: the window controls overlay the page's band. On Windows the
@@ -1599,11 +1746,28 @@ function createWindow() {
   })
   if (material === 'vibrancy') keepVibrancy(win, sidebarFill)
   mainWindow = win
-  startWindow.placeMain(win)
+  if (!rebuilt) startWindow.placeMain(win)
+  else win.setBounds(initialBounds)
+  let rebuiltReady = !(rebuilt && savedBounds?.maximized === true)
+  const boundsWatcher = watchWindowBounds(win, {
+    file: windowBoundsFile,
+    initial: savedBounds,
+    ready: () => (rebuilt ? rebuiltReady : startWindow.boundsReady),
+    onSave: (next) => { cachedSavedBounds = next },
+  })
+  const flushBounds = () => { boundsWatcher.flush() }
+  app.on('before-quit', flushBounds)
+  if (rebuilt && savedBounds?.maximized === true) {
+    deferMaximizeOnShow(win, () => { rebuiltReady = true })
+  }
   // No ready-to-show here: the first window shows at the hand-off (start-window.mjs), a window
   // built anew when the shell opens it.
-  win.on('page-title-updated', (event) => { event.preventDefault() })
+  win.on('page-title-updated', (event, title) => {
+    if (!isAllowedWindowTitle(title)) event.preventDefault()
+  })
   win.on('closed', () => {
+    app.off('before-quit', flushBounds)
+    boundsWatcher.dispose()
     if (mainWindow !== win) return
     mainWindow = undefined
     // The Bot browsers' tabs belonged to this window; they wait for the next one.
@@ -1625,6 +1789,13 @@ function createWindow() {
       getPath: name => app.getPath(name),
     }))
   }
+  const sendSystemLanguage = () => {
+    if (win !== mainWindow || win.isDestroyed() || contents.isDestroyed()) return
+    const tag = preferredSystemLanguage()
+    if (tag) contents.send(IPC.systemLanguage, tag)
+  }
+  win.on('focus', sendSystemLanguage)
+  contents.on('did-finish-load', sendSystemLanguage)
   if (frameless) {
     // Fullscreen hides the window controls, and the page drops its band meanwhile. A reload
     // registers the page's listener again, so the state goes out after every load too.

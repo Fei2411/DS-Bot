@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { buildPluginShortcutCommands, registerPluginShortcuts } from '../src/client/plugin-shortcuts.js'
+import { pluginShortcutDefaults, shortcutsForHost } from '../src/client/shortcuts-model.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
 
@@ -552,4 +553,15 @@ test('registerPluginShortcuts reports registration errors visibly instead of swa
   registerPluginShortcuts(reporting, { ...deps, onError: (id, err) => seen.push([id, err.message]) })
   assert.deepEqual(seen, [['ds-bot.open-browser', 'boom: conflict']])
   assert.equal(registered.length, 12)
+})
+
+test('plugin shortcut commands derive 1-to-1 from the unified shortcutsForHost("plugin") table', () => {
+  const { deps } = makeDeps()
+  const unified = shortcutsForHost('plugin')
+  const built = buildPluginShortcutCommands(deps)
+  assert.deepEqual(built.map(cmd => cmd.id), unified.map(def => def.plugin.id))
+  for (let i = 0; i < unified.length; i += 1) {
+    assert.deepEqual(built[i].defaults, pluginShortcutDefaults(unified[i]))
+    assert.deepEqual(built[i].aliases, unified[i].plugin.aliases)
+  }
 })

@@ -1,6 +1,6 @@
 // Lazy-loaded Engine settings pages for the desktop app's own interface:
 // Account, Plugins (with in-page built-in plugin settings), Agent presets,
-// Archived sessions, and Session log upload.
+// and Archived sessions.
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
@@ -16,8 +16,10 @@ import {
   CloseIcon,
   CodeIcon,
   CopyIcon,
+  FolderIcon,
   GlobeIcon,
   LayersIcon,
+  PaletteIcon,
   PlusIcon,
   PuzzleIcon,
   SlidersIcon,
@@ -28,11 +30,18 @@ import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
+import { isBlockedEngineBundle } from '../../../ds-bot/src/shared/engine-bundles.js'
+import { getDesktopAccountState, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
 import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { writeClipboard } from './primitives.js'
+import { reloadExternalUiPlugins } from './ui-plugin-loader.js'
 
 // Module-level stale-while-revalidate caches so reopening Engine settings tabs never flashes "Loading…".
 let accountCache = null
+subscribeDesktopAccountState((reply, meta) => {
+  if (meta?.source === 'settings') return
+  accountCache = reply
+})
 let pluginsCache = null
 let settingsCache = null
 let presetsCache = null
@@ -71,36 +80,18 @@ const BANNED_NAMESPACES = new Set([
   'subagent-model-selection-settings',
 ])
 
-const HIDDEN_BUNDLES = new Set([
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-  'dsbot-engine',
-  '@deepseek-ai/dsh-headless',
-  '@deepseek-ai/dsh-sdk-app',
-  '@deepseek-ai/dsh-acp-app',
-  '@deepseek-ai/dsh-sdk-minimal',
-  '@deepseek-ai/dsh-experimental-terminal-bundle',
-  '@deepseek-ai/dsh-experimental-tool-worktree',
-])
-
-const BANNED_BUNDLES = new Set([
-  '@deepseek-ai/dsh-subagent-codex',
-  '@deepseek-ai/dsh-subagent-claude-code',
-  '@deepseek-ai/dsh-experimental-agent-team-profile',
-  '@deepseek-ai/dsh-experimental-ralph-bundle',
-])
-
+// DSH official optional bundles with host/engine functionality usable on DS Bot Desktop.
+// Desktop-unsupported DSH Web bundles (inspector, cot-translation, plugin-market, liveshare,
+// forge, personalized-recommendations, chat-import) are excluded from discovery when disabled
+// via `isBlockedEngineBundle({ desktop: true, enabled })`, while already-enabled ones stay
+// visible under Installed plugins so users can disable or remove them.
 const EXTENSION_BUNDLES = [
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
-  '@deepseek-ai/dsh-experimental-plugin-market-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
 ]
 
 const MORE_BUNDLES = [
-  '@deepseek-ai/dsh-personalized-recommendations',
-  '@deepseek-ai/dsh-experimental-inspector-profile',
   '@deepseek-ai/dsh-cua-bundle',
-  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
   '@deepseek-ai/dsh-experimental-session-search',
   '@deepseek-ai/dsh-experimental-session-titles-bundle',
   '@deepseek-ai/dsh-experimental-badge-skill-bundle',
@@ -109,18 +100,12 @@ const MORE_BUNDLES = [
 const MORE_BUNDLE_SET = new Set(MORE_BUNDLES)
 
 const EXPERIMENTAL_BUNDLES = new Set([
-  '@deepseek-ai/dsh-personalized-recommendations',
   '@deepseek-ai/dsh-cua-bundle',
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
-  '@deepseek-ai/dsh-experimental-inspector-profile',
-  '@deepseek-ai/dsh-experimental-forge-bundle',
-  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
   '@deepseek-ai/dsh-experimental-session-search',
   '@deepseek-ai/dsh-experimental-session-titles-bundle',
   '@deepseek-ai/dsh-experimental-badge-skill-bundle',
-  '@deepseek-ai/dsh-experimental-plugin-market-bundle',
-  '@deepseek-ai/dsh-experimental-liveshare',
 ])
 
 const BUILTIN_CONFIG_GROUPS = [
@@ -170,8 +155,11 @@ export function isBannedNamespace(ns, surfaceMode = 'bot') {
 
 export function isExcludedBundle(bundle) {
   const name = typeof bundle === 'string' ? bundle : bundle?.name
-  if (typeof name !== 'string' || name === '') return true
-  return HIDDEN_BUNDLES.has(name) || BANNED_BUNDLES.has(name) || /subagent/i.test(name)
+  if (typeof name !== 'string' || name.trim() === '') return true
+  const enabled = typeof bundle === 'object' && bundle !== null
+    ? Boolean(bundle.enabled || (bundle.installed && bundle.error))
+    : false
+  return isBlockedEngineBundle(name, { desktop: true, enabled })
 }
 
 const CORE_DS_BOT_IDS = new Set(['ds-bot', '@deepseek-ai/ds-bot'])
@@ -363,30 +351,61 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
     return values.length > 0 ? values : null
   }
 
+  let hasRootConfigFallback = false
+  const pushRootConfigFallback = (node) => {
+    if (hasRootConfigFallback) return
+    hasRootConfigFallback = true
+    fields.push({
+      path: [],
+      key: '__root__',
+      kind: 'config-file',
+      schemaType: node.type || 'any',
+      label: ns ? namespaceTitle(ns) : t('Settings'),
+      description: typeof node.meta?.description === 'string' ? node.meta.description : '',
+      defaultValue: node.meta?.default,
+      value,
+    })
+  }
+
   const walk = (target, path, seen, depth) => {
-    if (depth > 4) return
     const resolved = resolveRef(refs, target, seen)
     if (!resolved) return
     const { node, seen: nextSeen } = resolved
     if (isHiddenNode(node)) return
 
-    if (node.type === 'intersect' && Array.isArray(node.list)) {
-      for (const item of node.list) walk(item, path, nextSeen, depth)
-      return
-    }
-    if (node.type === 'object' && node.dict && typeof node.dict === 'object') {
-      for (const [key, childTarget] of Object.entries(node.dict)) {
-        walk(childTarget, [...path, key], nextSeen, depth + 1)
+    if (depth <= 4) {
+      if (path.length === 0) {
+        const unwrapped = unwrapNullableUnion(node, nextSeen)
+        if (unwrapped) {
+          const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
+          walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
+          return
+        }
       }
+      if (node.type === 'intersect' && Array.isArray(node.list)) {
+        for (const item of node.list) walk(item, path, nextSeen, depth)
+        return
+      }
+      if (depth < 4 && node.type === 'object' && node.dict && typeof node.dict === 'object' && Object.keys(node.dict).length > 0) {
+        for (const [key, childTarget] of Object.entries(node.dict)) {
+          walk(childTarget, [...path, key], nextSeen, depth + 1)
+        }
+        return
+      }
+    }
+    if (path.length === 0) {
+      if (node.type === 'object' || node.type === 'const') return
+      pushRootConfigFallback(node)
       return
     }
-    if (path.length === 0) return
 
-    const unwrapped = unwrapNullableUnion(node, nextSeen)
-    if (unwrapped) {
-      const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
-      walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
-      return
+    if (depth <= 4) {
+      const unwrapped = unwrapNullableUnion(node, nextSeen)
+      if (unwrapped) {
+        const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
+        walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
+        return
+      }
     }
 
     const pathKey = path.join('\0')
@@ -407,6 +426,22 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
       })
       return
     }
+
+    if (depth > 4) {
+      fields.push({
+        path,
+        key: pathKey,
+        kind: 'config-file',
+        schemaType: node.type || 'nested',
+        label,
+        description,
+        defaultValue: fallbackDefault,
+        value: current,
+      })
+      return
+    }
+
+    if (node.type === 'const') return
 
     const enumOptions = enumValuesOf(node, nextSeen)
     if (enumOptions) {
@@ -462,7 +497,21 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         defaultValue: fallbackDefault,
         value: typeof current === 'string' ? current : (typeof fallbackDefault === 'string' ? fallbackDefault : ''),
       })
+      return
     }
+
+    // Complex schema types (array, dict, tuple, non-enum union, any, etc.) stay visible
+    // with a direct config-file editing action instead of being silently dropped.
+    fields.push({
+      path,
+      key: pathKey,
+      kind: 'config-file',
+      schemaType: node.type || 'any',
+      label,
+      description,
+      defaultValue: fallbackDefault,
+      value: current,
+    })
   }
 
   walk(rootTarget, [], new Set(), 0)
@@ -498,8 +547,8 @@ function formatWallets(wallets) {
 }
 
 export function AccountSettingsPage({ readOnly = false }) {
-  const [data, setData] = useState(() => accountCache)
-  const [loading, setLoading] = useState(() => !accountCache)
+  const [data, setData] = useState(() => accountCache ?? getDesktopAccountState())
+  const [loading, setLoading] = useState(() => !(accountCache ?? getDesktopAccountState()))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const mounted = useRef(true)
@@ -517,6 +566,7 @@ export function AccountSettingsPage({ readOnly = false }) {
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
       accountCache = next
+      publishDesktopAccountState(next, { source: 'settings' })
       if (mounted.current) setData(next)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
@@ -526,6 +576,18 @@ export function AccountSettingsPage({ readOnly = false }) {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => subscribeDesktopAccountState((reply, meta) => {
+    if (meta?.source === 'settings') return
+    accountCache = reply
+    if (mounted.current) {
+      setData(reply)
+      setLoading(false)
+    }
+    if (reply?.view?.status === 'credential-stored' && !reply.view?.profile && !reply.view?.balance) {
+      void load()
+    }
+  }), [load])
 
   const attemptPhase = data?.view?.attempt?.phase
   const signingIn = attemptPhase === 'initializing' || attemptPhase === 'waiting-browser' || attemptPhase === 'exchanging' || attemptPhase === 'committing'
@@ -753,7 +815,18 @@ function dropNamespacesFromMap(map, nsSet) {
   return changed ? next : map
 }
 
-function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, onSaveNamespaces, onSecretMutate }) {
+function StagedSchemaGroupForm({
+  groupKey = '',
+  entries,
+  detailTitle,
+  disabled,
+  canOpenConfigFile = false,
+  configFilePath = '',
+  openingConfigFile = false,
+  onOpenConfigFile,
+  onSaveNamespaces,
+  onSecretMutate,
+}) {
   const [overrides, setOverrides] = useState({})
   const [resets, setResets] = useState({})
   const [saving, setSaving] = useState(false)
@@ -804,7 +877,7 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
   for (const { descriptor, fields } of entries) {
     const ops = []
     for (const field of fields) {
-      if (field.kind === 'secret') continue
+      if (field.kind === 'secret' || field.kind === 'config-file') continue
       const compound = `${descriptor.ns}:${field.key}`
       const curRaw = readPath(descriptor.value, field.path)
       const defVal = defaultForField(descriptor, field)
@@ -897,6 +970,8 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
     }
   }
 
+  const hasStagedFields = entries.some(({ fields }) => fields.some(field => field.kind !== 'secret' && field.kind !== 'config-file'))
+
   return h(Fragment, null,
     entries.map(({ descriptor, fields }) => {
       const nsTitle = entries.length > 1 ? namespaceTitle(descriptor.ns) : undefined
@@ -910,6 +985,17 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
           return h('div', { key: field.key, className: 'dsb-engine-field-wrap' },
             h(EngineRow, { label: field.label },
               h(SchemaSecretField, { field, disabled: disabled || saving, onSave: op => onSecretMutate(descriptor, op) })))
+        }
+        if (field.kind === 'config-file') {
+          return h('div', { key: field.key, className: 'dsb-engine-field-wrap', 'data-schema-kind': field.schemaType },
+            h(EngineRow, { label: field.label },
+              h('button', {
+                type: 'button',
+                className: 'bt-soft bt-soft-sm',
+                disabled: disabled || !canOpenConfigFile || openingConfigFile || saving,
+                title: configFilePath || undefined,
+                onClick: () => { onOpenConfigFile?.() },
+              }, t('Edit in config file'))))
         }
         const err = errorsByKey[compound]
         const defVal = defaultForField(descriptor, field)
@@ -974,7 +1060,7 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
           err ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, err) : null)
       }))
     }),
-    h(EngineFormBar, {
+    hasStagedFields ? h(EngineFormBar, {
       dirty,
       invalid,
       saving,
@@ -982,11 +1068,11 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
       disabled,
       onSave: () => { void handleSave() },
       onDiscard: handleDiscard,
-    }))
+    }) : null)
 }
 
 const SEARCH_PROVIDER_ORDER = ['deepseek-search-api', 'deepseek-official']
-const FETCH_PROVIDER_ORDER = ['http', 'deepseek-fetch-api']
+const FETCH_PROVIDER_ORDER = ['auto', 'http', 'deepseek-fetch-api']
 
 function webProviderLabel(kind, id, provider) {
   if (id === '') return t('Automatic')
@@ -996,6 +1082,7 @@ function webProviderLabel(kind, id, provider) {
     if (id === 'deepseek-official') return t('DeepSeek Messages search')
   }
   if (kind === 'fetch') {
+    if (id === 'auto') return provider?.title || t('Automatic')
     if (id === 'http') return t('Direct HTTP')
     if (id === 'deepseek-fetch-api') return t('DeepSeek Fetch API')
   }
@@ -1010,9 +1097,10 @@ function buildWebProviderOptions(kind, registered, currentId, baseId = '') {
     return idx === -1 ? order.length : idx
   }
   const sorted = [...list].sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id))
-  const hasAutoProvider = kind === 'search' && list.some(item => item?.id === 'auto')
+  const hasAutoProvider = list.some(item => item?.id === 'auto')
   const includeUnsetAuto = (!baseId && !hasAutoProvider) || currentId === ''
-  const options = includeUnsetAuto ? [{ value: '', label: t('Automatic') }] : []
+  const unsetLabel = hasAutoProvider ? t('Default') : t('Automatic')
+  const options = includeUnsetAuto ? [{ value: '', label: unsetLabel }] : []
   const seen = new Set(includeUnsetAuto ? [''] : [])
   for (const item of sorted) {
     if (!item?.id || seen.has(item.id)) continue
@@ -1767,7 +1855,7 @@ function PluginIconBox({ src, fallback, accent = false }) {
     : (fallback || h(PuzzleIcon)))
 }
 
-export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfaceMode = 'bot', runtime = pluginRuntime }) {
+export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump = 0, surfaceMode = 'bot', runtime = pluginRuntime }) {
   const uiPlugins = usePlugins(runtime)
   const [data, setData] = useState(() => pluginsCache)
   const [settingsData, setSettingsData] = useState(() => settingsCache)
@@ -1778,6 +1866,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
   const [detailId, setDetailId] = useState(() => normalizeDetailTarget(subTarget, surfaceMode))
   const [busyKey, setBusyKey] = useState('')
   const [armedRemove, setArmedRemove] = useState('')
+  const [armedExempt, setArmedExempt] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const activeLang = language()
@@ -1787,12 +1876,17 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     return () => { mounted.current = false }
   }, [])
 
+  const prevNav = useRef({ subTarget, jump })
   useEffect(() => {
-    const next = normalizeDetailTarget(subTarget, surfaceMode)
-    if (next) setDetailId(next)
-  }, [subTarget, surfaceMode])
+    if (prevNav.current.subTarget !== subTarget || prevNav.current.jump !== jump) {
+      prevNav.current = { subTarget, jump }
+      setDetailId(normalizeDetailTarget(subTarget, surfaceMode))
+    } else if (detailId && isBannedNamespace(detailId, surfaceMode)) {
+      setDetailId('')
+    }
+  }, [subTarget, jump, surfaceMode, detailId])
 
-  useEscape(() => setArmedRemove(''), Boolean(armedRemove), { priority: ESCAPE_PRIORITY.INLINE_ACTION })
+  useEscape(() => { setArmedRemove(''); setArmedExempt('') }, Boolean(armedRemove || armedExempt), { priority: ESCAPE_PRIORITY.INLINE_ACTION })
 
   const load = useCallback(async () => {
     if (!pluginsCache && !settingsCache) setLoading(true)
@@ -1829,14 +1923,81 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
   const toggleBundle = async (bundle, enabled) => {
     if (busyKey || readOnly || isCoreDsBotEntry(bundle)) return
     setArmedRemove('')
+    setArmedExempt('')
     setBusyKey(`bundle:${bundle.name}`)
     setError('')
     try {
       const res = await call('engine-plugins-toggle-bundle', { name: bundle.name, enabled })
       if (mounted.current) noteOutcome(res)
       await load()
+      void reloadExternalUiPlugins(runtime)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const toggleCustomPlugin = async (plugin, enabled) => {
+    if (busyKey || readOnly || !plugin?.id || plugin.readOnlyReason) return
+    setBusyKey(`plugin:${plugin.id}`)
+    setError('')
+    try {
+      const res = await call('engine-plugins-toggle-plugin', { id: plugin.id, enabled })
+      if (mounted.current) noteOutcome(res)
+      await load()
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const exemptIncompatibleBundle = async (bundle) => {
+    const first = Array.isArray(bundle?.error?.incompatible) ? bundle.error.incompatible[0] : null
+    if (!first?.name || !first?.version || !first?.runtimeVersion || busyKey || readOnly) return
+    setBusyKey(`exempt:${bundle.name}`)
+    setError('')
+    try {
+      const res = await call('engine-plugins-exempt-version', {
+        target: `${first.name}@${first.version}`,
+        runtimeVersion: first.runtimeVersion,
+        enabled: true,
+        acceptRisk: true,
+      })
+      if (mounted.current) {
+        setArmedExempt('')
+        noteOutcome(res)
+      }
+      await load()
+      void reloadExternalUiPlugins(runtime)
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const openUiPluginsFolder = async () => {
+    if (busyKey || readOnly) return
+    setBusyKey('ui-plugins:open')
+    setError('')
+    try {
+      await call('engine-plugins-open-ui-dir')
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const reloadWindowPlugins = async () => {
+    if (busyKey) return
+    setBusyKey('ui-plugins:reload')
+    setError('')
+    try {
+      const meta = await reloadExternalUiPlugins(runtime)
+      if (mounted.current && meta?.error) setError(hostText(meta.error))
     } finally {
       if (mounted.current) setBusyKey('')
     }
@@ -1847,6 +2008,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     const clean = spec.trim()
     if (!clean || busyKey || readOnly) return
     setArmedRemove('')
+    setArmedExempt('')
     setBusyKey('install')
     setError('')
     setNotice('')
@@ -1858,6 +2020,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
         noteOutcome(res)
       }
       await load()
+      void reloadExternalUiPlugins(runtime)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
@@ -1876,6 +2039,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
         noteOutcome(res)
       }
       await load()
+      void reloadExternalUiPlugins(runtime)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
@@ -1951,6 +2115,19 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     }
   }
 
+  const openConfigFile = async () => {
+    if (busyKey || !settingsData?.documentPath) return
+    setBusyKey('cfg:open-file')
+    setError('')
+    try {
+      await call('engine-settings-open-file')
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
   const configItems = useMemo(() => {
     void activeLang
     const activeGroups = configGroupsForSurface(surfaceMode)
@@ -2003,7 +2180,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     const optional = []
     for (const bundle of eligible) {
       const core = isCoreDsBotEntry(bundle)
-      if (core || bundle.enabled || (!bundle.official && bundle.installed)) {
+      if (core || bundle.enabled || (!bundle.official && bundle.installed) || (bundle.installed && bundle.error)) {
         installed.push(bundle)
       } else if (bundle.official || EXTENSION_BUNDLES.includes(bundle.name) || MORE_BUNDLE_SET.has(bundle.name)) {
         if (bundle.listedByDefault !== false || EXTENSION_BUNDLES.includes(bundle.name) || MORE_BUNDLE_SET.has(bundle.name)) {
@@ -2035,6 +2212,16 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     more.sort((a, b) => rankIn(MORE_BUNDLES, a.name) - rankIn(MORE_BUNDLES, b.name))
     return { installedBundles: installed, primaryOptional: primary, moreOptional: more }
   }, [data, activeLang])
+
+  const customPlugins = useMemo(() => (
+    (data?.plugins ?? [])
+      .filter(plugin => plugin && plugin.custom === true && !isCoreDsBotEntry(plugin))
+      .sort((a, b) => String(a.name || a.id || a.moduleName).localeCompare(String(b.name || b.id || b.moduleName)))
+  ), [data])
+
+  const windowPluginRows = useMemo(() => (
+    uiPlugins.filter(entry => entry.status === 'error' || entry.external === true)
+  ), [uiPlugins])
 
   if (loading && !data && !settingsData) {
     return h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
@@ -2082,23 +2269,46 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
                 entries: activeItem.entries,
                 detailTitle,
                 disabled: cfgDisabled,
+                canOpenConfigFile: Boolean(settingsData?.documentPath),
+                configFilePath: settingsData?.documentPath || '',
+                openingConfigFile: busyKey === 'cfg:open-file',
+                onOpenConfigFile: () => { void openConfigFile() },
                 onSaveNamespaces: saveNamespaces,
                 onSecretMutate: (descriptor, op) => { void mutateField(descriptor, op) },
               }))
   }
 
-  const failedUiPlugins = uiPlugins.filter(entry => entry.status === 'error')
-  if (data && data.available === false && configItems.length === 0 && failedUiPlugins.length === 0) {
+  if (data && data.available === false && configItems.length === 0 && windowPluginRows.length === 0) {
     return h('div', { className: 'dsb-engine-empty' }, t('Plugin management is not available on this host.'))
+  }
+
+  const bundleErrorDetail = (bundle) => {
+    const err = bundle?.error
+    if (!err) return ''
+    if (err.code === 'incompatible-version' && Array.isArray(err.incompatible) && err.incompatible.length > 0) {
+      const item = err.incompatible[0]
+      const reqs = Object.entries(item.requirements ?? {}).map(([k, v]) => `${k} ${v}`).join(', ')
+      return reqs
+        ? `${item.name}@${item.version} (${reqs}; DSH ${item.runtimeVersion})`
+        : (err.diagnostic || '')
+    }
+    return typeof err.diagnostic === 'string' ? err.diagnostic : ''
   }
 
   const renderBundleRow = (bundle, { showExperimentalBadge = false } = {}) => {
     const core = isCoreDsBotEntry(bundle)
     const { title, description } = bundleDisplayMeta(bundle, activeLang)
     const armed = armedRemove === bundle.name
+    const armedVersionExempt = armedExempt === bundle.name
     const removing = busyKey === `remove:${bundle.name}`
+    const exempting = busyKey === `exempt:${bundle.name}`
     const unsupported = bundle.error?.code === 'unsupported-platform'
+    const incompatible = bundle.error?.code === 'incompatible-version'
+    const hasIncompatibleTarget = incompatible && Array.isArray(bundle.error?.incompatible) && bundle.error.incompatible.length > 0
     const experimental = EXPERIMENTAL_BUNDLES.has(bundle.name)
+    const dshWebOnly = !core && bundle.clientSurface === 'dsh-web-only'
+    const hasDesktopUi = !core && (bundle.clientSurface === 'ds-bot' || bundle.clientSurface === 'both')
+    const errorText = bundleErrorDetail(bundle)
     return h('div', { key: bundle.name, className: 'dsb-plug-row', 'data-plugin-bundle': bundle.name },
       h(PluginIconBox, {
         src: core ? null : bundle.meta?.icon,
@@ -2109,12 +2319,41 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
         h('div', { className: 'dsb-plug-title-row' },
           h('span', { className: 'dsb-plug-name' }, title),
           bundle.version ? h('span', { className: 'dsb-plug-ver' }, `v${bundle.version}`) : null,
-          experimental && !core && showExperimentalBadge ? h('span', { className: 'dsb-preset-badge' }, t('Experimental')) : null),
-        description ? h('span', { className: 'dsb-plug-desc' }, description) : null),
+          experimental && !core && showExperimentalBadge ? h('span', { className: 'dsb-preset-badge' }, t('Experimental')) : null,
+          hasDesktopUi ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'active' }, t('Desktop UI')) : null,
+          dshWebOnly ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'warn' }, t('DSH Web UI only')) : null,
+          incompatible ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'error' }, t('Incompatible')) : null,
+          !incompatible && bundle.error ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'error' }, t('Failed to load')) : null),
+        description ? h('span', { className: 'dsb-plug-desc' }, description) : null,
+        dshWebOnly ? h('span', { className: 'dsb-plug-note', 'data-tone': 'warn' }, t('Host tools still run; DSH Web UI and skins are not loaded in Desktop.')) : null,
+        errorText ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, errorText) : null),
       h('div', { className: 'bt-set-control' },
         core
           ? h('span', { className: 'dsb-preset-badge', 'data-core-plugin': '' }, t('Core'))
           : h('div', { className: 'dsb-engine-inline' },
+            hasIncompatibleTarget
+              ? (armedVersionExempt
+                ? h(Fragment, null,
+                  h('button', {
+                    type: 'button',
+                    className: 'bt-soft bt-soft-sm',
+                    'data-armed': '',
+                    disabled: Boolean(busyKey) || readOnly,
+                    onClick: () => { void exemptIncompatibleBundle(bundle) },
+                  }, exempting ? t('Loading…') : t('Confirm allow')),
+                  h('button', {
+                    type: 'button',
+                    className: 'bt-soft bt-soft-sm',
+                    disabled: Boolean(busyKey) || readOnly,
+                    onClick: () => setArmedExempt(''),
+                  }, t('Cancel')))
+                : h('button', {
+                  type: 'button',
+                  className: 'bt-soft bt-soft-sm',
+                  disabled: Boolean(busyKey) || readOnly,
+                  onClick: () => { setArmedRemove(''); setArmedExempt(bundle.name) },
+                }, t('Allow for this version')))
+              : null,
             bundle.removable
               ? (armed
                 ? h(Fragment, null,
@@ -2136,7 +2375,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
                   type: 'button',
                   className: 'bt-soft bt-soft-sm bt-danger',
                   disabled: Boolean(busyKey) || readOnly,
-                  onClick: () => setArmedRemove(bundle.name),
+                  onClick: () => { setArmedExempt(''); setArmedRemove(bundle.name) },
                 }, t('Remove')))
               : null,
             h(Switch, {
@@ -2157,25 +2396,90 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     if (status === 'error') return t('Failed to load')
     if (status === 'loading') return t('Loading…')
     if (status === 'idle') return t('Idle')
+    if (status === 'disabled') return t('Disabled')
     return t('Waiting')
   }
 
+  const showWindowPluginsSection = windowPluginRows.length > 0 || Boolean(data?.uiPluginsDir)
+
   return h('div', { className: 'dsb-engine-page', 'data-engine-section': 'plugins' },
     h(StatusAlert, { error, notice }),
-    failedUiPlugins.length > 0 ? h(EngineSection, { title: t('Window plugins') },
-      failedUiPlugins.map(entry => h('div', { key: entry.id, className: 'dsb-plug-row', 'data-ui-plugin': entry.id, 'data-ui-plugin-status': entry.status },
-        h(PluginIconBox, { fallback: h(PuzzleIcon) }),
+    showWindowPluginsSection ? h(EngineSection, {
+      title: t('Window plugins'),
+      action: h('div', { className: 'dsb-engine-inline' },
+        data?.uiPluginsDir && !readOnly ? h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm bt-with-icon',
+          disabled: Boolean(busyKey),
+          onClick: () => { void openUiPluginsFolder() },
+        }, h(FolderIcon), t('Open folder')) : null,
+        h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm',
+          disabled: Boolean(busyKey),
+          onClick: () => { void reloadWindowPlugins() },
+        }, busyKey === 'ui-plugins:reload' ? t('Loading…') : t('Reload'))),
+    },
+    windowPluginRows.length > 0
+      ? windowPluginRows.map(entry => h('div', { key: entry.id, className: 'dsb-plug-row', 'data-ui-plugin': entry.id, 'data-ui-plugin-status': entry.status },
+        h(PluginIconBox, { fallback: entry.kind === 'theme' ? h(PaletteIcon) : h(PuzzleIcon) }),
         h('div', { className: 'dsb-plug-copy' },
           h('div', { className: 'dsb-plug-title-row' },
             h('span', { className: 'dsb-plug-name' }, entry.name || entry.id),
+            entry.external ? h('span', { className: 'dsb-preset-badge' }, entry.kind === 'theme' ? t('Theme') : t('UI')) : null,
+            entry.source === 'local' ? h('span', { className: 'dsb-plug-ver' }, t('Local')) : null,
+            entry.packageName ? h('span', { className: 'dsb-plug-ver' }, entry.packageName) : null,
             h('span', { className: 'dsb-ui-plug-status', 'data-status': entry.status }, uiPluginStatusLabel(entry.status))),
-          entry.error ? h('span', { className: 'dsb-plug-desc', role: 'alert' }, entry.error) : null),
+          entry.error ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, entry.error) : null),
+        entry.status === 'error'
+          ? h('div', { className: 'bt-set-control' },
+            h('button', {
+              type: 'button',
+              className: 'bt-soft bt-soft-sm',
+              onClick: () => {
+                if (entry.external) {
+                  void reloadExternalUiPlugins(runtime, { onlyId: entry.id }).then((meta) => {
+                    if (mounted.current && meta?.error) setError(hostText(meta.error))
+                  })
+                } else {
+                  runtime.retry(entry.id)
+                }
+              },
+            }, t('Retry')))
+          : null))
+      : h('div', { className: 'dsb-engine-empty' }, data?.uiPluginsDir || '')) : null,
+    customPlugins.length > 0 ? h(EngineSection, {
+      title: t('Custom profile plugins'),
+      action: settingsData?.documentPath && settingsData?.writable && !readOnly ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: Boolean(busyKey),
+        onClick: () => { void openConfigFile() },
+      }, t('Open config file')) : null,
+    },
+    customPlugins.map((plugin) => {
+      const title = resolveLocalizedMetaText(plugin.meta?.title, activeLang) || plugin.name || plugin.patchId || plugin.id || plugin.moduleName
+      const status = plugin.enabled === false ? 'disabled' : (plugin.status || 'inactive')
+      const dshWebOnly = plugin.clientSurface === 'dsh-web-only'
+      const errText = plugin.error?.diagnostic || ''
+      return h('div', { key: plugin.id || plugin.moduleName, className: 'dsb-plug-row', 'data-custom-plugin': plugin.patchId || plugin.id || plugin.moduleName },
+        h(PluginIconBox, { fallback: h(CodeIcon) }),
+        h('div', { className: 'dsb-plug-copy' },
+          h('div', { className: 'dsb-plug-title-row' },
+            h('span', { className: 'dsb-plug-name' }, title),
+            h('span', { className: 'dsb-ui-plug-status', 'data-status': status === 'error' ? 'error' : (status === 'active' ? 'active' : 'idle') }, uiPluginStatusLabel(status)),
+            dshWebOnly ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'warn' }, t('DSH Web UI only')) : null),
+          plugin.moduleName && plugin.moduleName !== title ? h('span', { className: 'dsb-plug-ver' }, plugin.moduleName) : null,
+          dshWebOnly ? h('span', { className: 'dsb-plug-note', 'data-tone': 'warn' }, t('Host tools still run; DSH Web UI and skins are not loaded in Desktop.')) : null,
+          errText ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, errText) : null),
         h('div', { className: 'bt-set-control' },
-          h('button', {
-            type: 'button',
-            className: 'bt-soft bt-soft-sm',
-            onClick: () => { runtime.retry(entry.id) },
-          }, t('Retry')))))) : null,
+          h(Switch, {
+            label: title,
+            on: plugin.enabled !== false,
+            disabled: Boolean(busyKey) || readOnly || Boolean(plugin.readOnlyReason),
+            onChange: next => { void toggleCustomPlugin(plugin, next) },
+          })))
+    })) : null,
     data?.available !== false ? h(EngineSection, {
       title: t('Installed plugins'),
       action: !readOnly ? h('button', {
@@ -2250,7 +2554,7 @@ const BUILTIN_PRESET_COPY = {
   },
   cordis: {
     name: 'Creator mode',
-    description: 'Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.',
+    description: 'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.',
   },
 }
 
@@ -2576,73 +2880,4 @@ function namespaceTitle(ns) {
   const known = ENGINE_NAMESPACE_META[ns]
   if (known) return t(known.titleKey)
   return formatSegment(ns)
-}
-
-export function SessionLogGeneralItem({ readOnly = false }) {
-  const [descriptor, setDescriptor] = useState(null)
-  const [writable, setWritable] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
-  const mounted = useRef(true)
-  const savedTimer = useRef(0)
-
-  const reload = useCallback(async () => {
-    try {
-      const res = await call('engine-settings-list')
-      if (!mounted.current || !res?.available) return
-      setWritable(Boolean(res.writable))
-      const found = (res.namespaces ?? []).find(entry => entry.ns === 'session-log-deepseek')
-      setDescriptor(found ?? null)
-    } catch { /* host unavailable leaves item absent */ }
-  }, [])
-
-  useEffect(() => {
-    mounted.current = true
-    void reload()
-    return () => {
-      mounted.current = false
-      clearTimeout(savedTimer.current)
-    }
-  }, [reload])
-
-  if (!descriptor) return null
-  const enabled = descriptor.value?.enabled === true
-  const toggle = async (next) => {
-    if (busy || readOnly || !writable) return
-    setBusy(true)
-    setError('')
-    setSaved(false)
-    try {
-      const updated = await call('engine-settings-mutate', {
-        ns: 'session-log-deepseek',
-        ops: [{ op: 'set', path: ['enabled'], value: next }],
-        expectedRevision: descriptor.revision,
-      })
-      if (mounted.current) {
-        setDescriptor(updated)
-        setSaved(true)
-        clearTimeout(savedTimer.current)
-        savedTimer.current = setTimeout(() => { if (mounted.current) setSaved(false) }, 2200)
-      }
-    } catch (failure) {
-      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
-      if (failure?.code === 'bot/stale') await reload()
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
-  }
-  return h('div', { className: 'dsb-session-log-wrap' },
-    h('div', { className: 'bt-set-row' },
-      h('div', { className: 'bt-set-copy' }, h('span', null, t('Session log upload'))),
-      h('div', { className: 'bt-set-control' },
-        h('div', { className: 'dsb-engine-inline' },
-          saved ? h('span', { className: 'dsb-session-log-status', role: 'status' }, t('Saved')) : null,
-          h(Switch, {
-            label: t('Session log upload'),
-            on: enabled,
-            disabled: busy || readOnly || !writable,
-            onChange: next => { void toggle(next) },
-          })))),
-    error ? h('div', { className: 'dsb-session-log-err', role: 'alert' }, error) : null)
 }

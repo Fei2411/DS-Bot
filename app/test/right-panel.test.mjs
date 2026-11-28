@@ -974,6 +974,13 @@ test('WorkspaceTerminal resumes numbered output after feed reconnects and marks 
     team.chat.emit('terminal', { id: 'term-1', chunk: 'line-3\n', start: 3, end: 3, parts: [{ seq: 3, text: 'line-3\n' }] })
     assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\n')
 
+    // Clean resumed hello does NOT trigger a redundant terminal-list sync.
+    const listsBeforeResumed = listRequests.length
+    team.chat.emit('hello', { resumed: true })
+    await tick()
+    await tick()
+    assert.equal(listRequests.length, listsBeforeResumed, 'hello { resumed: true } must not re-sync terminal-list')
+
     // A feed hello sends the held position and the answer fills exactly the missing tail.
     listAnswers.push([entry([{ seq: 4, text: 'line-4\n' }, { seq: 5, text: 'line-5\n' }], { start: 4, end: 5 })])
     team.chat.emit('hello', {})
@@ -1328,14 +1335,25 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
     tree = panel.render()
     assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses file tree context menu')
 
-    // SSE 'hello' reconnect triggers silent refresh so changes across the 6s SSE recycle gap are never missed.
+    // Clean resumed hello does NOT trigger a redundant full tree refresh or watch re-registration.
+    const listsBeforeResumed = calls.filter(([ep]) => ep === 'workspace-list').length
+    const watchesBeforeResumed = calls.filter(([ep]) => ep === 'workspace-watch').length
+    team.chat.emit('hello', { resumed: true })
+    await tick()
+    await tick()
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-list').length, listsBeforeResumed, 'hello { resumed: true } must not refresh file tree')
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-watch').length, watchesBeforeResumed, 'hello { resumed: true } must not re-register workspace watch')
+
+    // SSE 'hello' (resumed: false) renews workspace-watch (in case orphan cleanup expired it) and refreshes tree.
     const listsBeforeHello = calls.filter(([ep]) => ep === 'workspace-list').length
+    const watchesBeforeHello = calls.filter(([ep]) => ep === 'workspace-watch').length
     subDirTruncated = true
     team.chat.emit('hello', {})
     await tick()
     await tick()
     tree = panel.render()
     assert.ok(calls.filter(([ep]) => ep === 'workspace-list').length > listsBeforeHello, 'SSE hello triggers tree catch-up refresh')
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-watch').length > watchesBeforeHello, 'unresumed SSE hello renews workspace watch')
     assert.match(textOf(tree), /Showing first 500 entries/, 'truncated subfolder renders visible truncation notice')
 
     // Toggling "Show hidden" must NOT tear down or restart the OS watcher!
@@ -1576,5 +1594,245 @@ test('WorkspacePaneBody plugin tab Retry calls runtime.retry(), FileTree syncs m
     ftInst.unmount()
     if (prevFetch === undefined) delete sandbox.fetch
     else sandbox.fetch = prevFetch
+  }
+})
+
+test('WorkspaceTerminal does not steal focus when hidden or while user is typing in the chat composer', async () => {
+  sandbox.__xterms.length = 0
+  let openCalls = 0
+  let listPayload = [{ id: 'term-bg', cwd: '/repo', title: 'repo', pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null }]
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'terminal-list') return listPayload
+    if (endpoint === 'terminal-open') {
+      openCalls += 1
+      return { id: `term-opened-${openCalls}`, cwd: '/repo', title: 'repo', cols: 88, rows: 26, pty: true }
+    }
+    return {}
+  }
+  const team = createTeam()
+
+  // 1. Hidden terminal pane (active: false) must never call xterm.focus(), even on SSE hello sync.
+  const hiddenTerm = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: false })
+  try {
+    hiddenTerm.render()
+    await tick()
+    hiddenTerm.render()
+    assert.equal(openCalls, 0, 'real array terminal-list contract must not trigger terminal-open')
+    assert.equal(sandbox.__xterms.length, 1)
+    assert.equal(sandbox.__xterms[0].focused, 0, 'hidden terminal must not steal focus on mount')
+    team.chat.emit('hello', {})
+    await tick()
+    hiddenTerm.render()
+    assert.equal(sandbox.__xterms[0].focused, 0, 'hidden terminal must not steal focus on SSE hello reconnect')
+  } finally {
+    hiddenTerm.unmount()
+  }
+
+  // 2. Visible terminal pane must not yank focus away from an active chat composer textarea on async sync,
+  //    and once an explicit focusNonce is consumed, later synced terminals must not steal focus either.
+  sandbox.__xterms.length = 0
+  const prevActive = sandbox.document.activeElement
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
+  const visibleTerm = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true, focusNonce: 1 })
+  try {
+    visibleTerm.render()
+    await tick()
+    visibleTerm.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    assert.equal(sandbox.__xterms[0].focused, 1, 'explicit focusNonce focuses the active terminal once')
+    // Now SSE hello syncs a newly discovered terminal while user is back in composer: must NOT steal focus!
+    listPayload = [
+      ...listPayload,
+      { id: 'term-bg-2', cwd: '/repo', title: 'repo', pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null },
+    ]
+    team.chat.emit('hello', {})
+    await tick()
+    visibleTerm.render()
+    assert.equal(sandbox.__xterms.length, 2)
+    assert.equal(sandbox.__xterms[1].focused, 0, 'consumed focusNonce must not let a later synced terminal steal composer focus')
+  } finally {
+    sandbox.document.activeElement = prevActive
+    visibleTerm.unmount()
+  }
+
+  // 3. Clicking "New terminal" while an existing terminal is active must NOT refocus the old terminal
+  //    while `terminal-open` is pending, and MUST focus the newly created terminal once it resolves
+  //    (even when Chromium still reports the old hidden terminal's textarea as `document.activeElement`).
+  sandbox.__xterms.length = 0
+  let resolvePendingOpen
+  const singleList = [{ id: 'term-old', cwd: '/repo-a', title: 'repo-a', pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null }]
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.resolve(singleList)
+    if (endpoint === 'terminal-open') return new Promise(resolve => { resolvePendingOpen = resolve })
+    return Promise.resolve({})
+  }
+  const newTermInst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true })
+  try {
+    newTermInst.render()
+    await tick()
+    let tree = newTermInst.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    const oldXterm = sandbox.__xterms[0]
+    const initialOldFocus = oldXterm.focused
+    // Model real Chromium: old terminal's xterm textarea remains document.activeElement until next frame.
+    const prevActiveEl = sandbox.document.activeElement
+    sandbox.document.activeElement = {
+      tagName: 'TEXTAREA',
+      closest: sel => (sel.includes('textarea') ? {} : null),
+    }
+    try {
+      const plusBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'New terminal')[0]
+      assert.ok(plusBtn)
+      plusBtn.props.onClick()
+      newTermInst.render()
+      assert.equal(oldXterm.focused, initialOldFocus, 'old terminal must NOT be refocused while terminal-open is in flight')
+
+      resolvePendingOpen({ id: 'term-new', cwd: '/repo-b', title: 'repo-b', cols: 88, rows: 26, pty: true })
+      await tick()
+      newTermInst.render()
+      assert.equal(sandbox.__xterms.length, 2)
+      assert.equal(oldXterm.focused, initialOldFocus, 'old terminal must still not receive focus when new terminal mounts')
+      assert.equal(sandbox.__xterms[1].focused, 1, 'new terminal must receive explicit focus even while old xterm textarea is activeElement')
+    } finally {
+      sandbox.document.activeElement = prevActiveEl
+    }
+  } finally {
+    newTermInst.unmount()
+  }
+
+  // 4. Consuming an external shortcut focusNonce notifies parent so unmounting/remounting
+  //    a folded workspace panel never steals focus from an active composer.
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint) => (endpoint === 'terminal-list' ? singleList : {})
+  let parentFocusNonce = 1
+  const onConsumeFocusNonce = (nonce) => {
+    if (parentFocusNonce === nonce) parentFocusNonce = 0
+  }
+  const prevActive4 = sandbox.document.activeElement
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
+  const firstMount = mount(WorkspaceTerminal, {
+    sessionId: 'b1',
+    feed: team.chat,
+    active: true,
+    focusNonce: parentFocusNonce,
+    onConsumeFocusNonce,
+  })
+  try {
+    firstMount.render()
+    await tick()
+    firstMount.render()
+    assert.equal(sandbox.__xterms[0].focused, 1, 'initial Ctrl+` focuses active terminal')
+    assert.equal(parentFocusNonce, 0, 'parent focusNonce is cleared once handled by visible terminal')
+  } finally {
+    firstMount.unmount()
+  }
+  // Panel folds away and later remounts while user is typing in chat composer.
+  sandbox.__xterms.length = 0
+  const remounted = mount(WorkspaceTerminal, {
+    sessionId: 'b1',
+    feed: team.chat,
+    active: true,
+    focusNonce: parentFocusNonce,
+    onConsumeFocusNonce,
+  })
+  try {
+    remounted.render()
+    await tick()
+    remounted.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    assert.equal(sandbox.__xterms[0].focused, 0, 'remounted folded workspace panel must not steal composer focus')
+  } finally {
+    sandbox.document.activeElement = prevActive4
+    remounted.unmount()
+  }
+
+  // 5. Consuming autoOpenNonce clears rightPanel.terminalNonce so unmounting and remounting
+  //    WorkspaceTerminal does not spawn an extra PTY or steal composer focus; and an in-flight
+  //    openNew({ focus: true }) that resolves while paneVisible=false does not leave a stale focus request.
+  sandbox.__xterms.length = 0
+  let autoOpenCalls = 0
+  let resolveHiddenOpen
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.resolve(singleList)
+    if (endpoint === 'terminal-open') {
+      autoOpenCalls += 1
+      if (autoOpenCalls === 1) {
+        return Promise.resolve({ id: 'term-auto-1', cwd: '/repo', title: 'repo', cols: 88, rows: 26, pty: true })
+      }
+      return new Promise(resolve => { resolveHiddenOpen = resolve })
+    }
+    return Promise.resolve({})
+  }
+  const team5 = createTeam()
+  team5.actions.newTerminal()
+  const uiProbe5 = mount(() => ({ type: 'probe', props: team5.hooks.useUi(s => s.rightPanel) }), {})
+  const firstNonce = uiProbe5.render().props.terminalNonce
+  assert.ok(firstNonce > 0)
+  const prevActive5 = sandbox.document.activeElement
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
+  const autoInst = mount(WorkspaceTerminal, {
+    sessionId: 'b1',
+    feed: team5.chat,
+    active: true,
+    autoOpenNonce: firstNonce,
+    onConsumeAutoOpenNonce: nonce => team5.actions.consumeTerminalNonce(nonce),
+  })
+  try {
+    autoInst.render()
+    await tick()
+    autoInst.render()
+    assert.equal(autoOpenCalls, 1)
+    assert.equal(uiProbe5.render().props.terminalNonce, 0, 'autoOpenNonce must be cleared once consumed')
+  } finally {
+    autoInst.unmount()
+  }
+  // Remount with the cleared terminalNonce while typing in composer -> no extra PTY, no focus steal!
+  sandbox.__xterms.length = 0
+  const remountAuto = mount(WorkspaceTerminal, {
+    sessionId: 'b1',
+    feed: team5.chat,
+    active: true,
+    autoOpenNonce: uiProbe5.render().props.terminalNonce,
+    onConsumeAutoOpenNonce: nonce => team5.actions.consumeTerminalNonce(nonce),
+  })
+  try {
+    remountAuto.render()
+    await tick()
+    remountAuto.render()
+    assert.equal(autoOpenCalls, 1, 'remounting after consumed autoOpenNonce must not spawn a duplicate PTY')
+    assert.equal(sandbox.__xterms.every(x => x.focused === 0), true, 'remounting after consumed autoOpenNonce must not steal composer focus')
+
+    // Trigger New terminal, then hide the pane before terminal-open resolves; when shown again later
+    // while composer is focused, it must not steal focus.
+    const plusBtn = all(remountAuto.render(), n => n.type === 'button' && n.props?.['aria-label'] === 'New terminal')[0]
+    plusBtn.props.onClick()
+    remountAuto.render({
+      sessionId: 'b1',
+      feed: team5.chat,
+      active: false,
+      autoOpenNonce: 0,
+      onConsumeAutoOpenNonce: nonce => team5.actions.consumeTerminalNonce(nonce),
+    })
+    resolveHiddenOpen({ id: 'term-hidden-2', cwd: '/repo', title: 'repo', cols: 88, rows: 26, pty: true })
+    await tick()
+    remountAuto.render({
+      sessionId: 'b1',
+      feed: team5.chat,
+      active: false,
+      autoOpenNonce: 0,
+      onConsumeAutoOpenNonce: nonce => team5.actions.consumeTerminalNonce(nonce),
+    })
+    remountAuto.render({
+      sessionId: 'b1',
+      feed: team5.chat,
+      active: true,
+      autoOpenNonce: 0,
+      onConsumeAutoOpenNonce: nonce => team5.actions.consumeTerminalNonce(nonce),
+    })
+    assert.equal(sandbox.__xterms.every(x => x.focused === 0), true, 'openNew resolving while pane is hidden must not steal composer focus when later shown')
+  } finally {
+    sandbox.document.activeElement = prevActive5
+    remountAuto.unmount()
+    uiProbe5.unmount()
   }
 })

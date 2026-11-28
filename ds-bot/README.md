@@ -33,8 +33,8 @@ Tested with dsh `0.2.2-rc.5` (Web and Desktop).
 - **Usage**: Settings → Usage shows token usage by time (24 hours to 12 months, or days picked on a calendar), by Bot and by model, with a page for each Bot and each model. Calls that a Session logs are read from the logs, so older chats count too. Calls that leave no log (checkpoints, handoff notes, the steward, image readings, dsh titles and compaction) are counted while they stream, from the time the plugin runs. Tokens only, no cost.
 - **Async background work**: foreground chat always stays responsive. Slow shell commands move to background jobs automatically after a configurable timeout (default 5 seconds), Bots can start background tasks (`task_start` / `task_send` / `task_stop` / `task_list` / `task_read`), and sending a new message to a busy Bot hands the in-flight turn to the background. Progress, approvals, follow-ups and stop controls appear in the chat header island, the details **Tasks** tab and mobile.
 - **Feature packs**: team-library MCP servers, skills and packs can be set per Bot to **Always**, **Catalog** (one-line prompt index loaded on demand with `use_pack` / `drop_pack`), or **Off**. Main-only admin tools (`team-admin`) are hidden from ordinary Bots automatically.
-- **Local agents, IM, phone/browser remote, computer use & MCP access**: connect local coding-agent CLIs as Bots, bridge Bots/groups to 8 IM platforms (WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord, Slack), pair iOS/Android/browser clients over Noise IK, grant per-Bot desktop app control, or expose selected Bots/groups to local MCP clients on `127.0.0.1:8797/mcp`.
-- **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; a theme, an accent color, a message layout (bubble or flat) with width sliders, interface motion tiers (full / reduced / off), avatar animation levels (quiet / normal / lively), and 8 UI languages. Settings opens on an **Overview** console with `⌘K` / `Ctrl+K` search and grouped scrolling domains: **Overview**, **General**, **Appearance**, **Models** (Providers, Local agents, Bot models, DeepSeek services), **Team** (Bots, Group chats, Scheduled tasks), **Connect** (Connectors, IM, Phone, MCP access), **Tools** (Computer use, Browser, Capabilities, Secrets), **Usage**, and **About DS Bot** (About DS Bot, Feedback).
+- **Local agents, IM, phone/browser remote, computer use & External API**: connect local coding-agent CLIs as Bots, bridge Bots/groups to 8 IM platforms (WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord, Slack), pair iOS/Android/browser clients over Noise IK, grant per-Bot desktop app control, or expose selected Bots/groups via the unified local External API on `127.0.0.1:8788` (CLI, OpenAI-compatible HTTP, and Streamable HTTP MCP).
+- **Make it yours**: name, role, instructions, model and look (20 3D characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; themes including Fei, 2-color derivation, VS Code theme import, and custom stylesheets; a message layout (bubble or flat) with width sliders, interface motion tiers (full / reduced / off), avatar animation levels (quiet / normal / lively), customizable shortcuts, and 8 UI languages. Settings opens on an **Overview** console with `⌘K` / `Ctrl+K` search and grouped scrolling domains: **Overview**, **General**, **Appearance**, **Models** (Providers, Local agents, Bot models, DeepSeek services), **Team** (Bots, Group chats, Scheduled tasks), **Connect** (Connectors, IM, Phone, API), **Tools** (Computer use, Browser, Capabilities, Secrets), **Usage**, and **About DS Bot** (About DS Bot, Feedback).
 
 ## Install
 
@@ -165,10 +165,19 @@ Each result starts with a `Search backend: …` line that names the path it took
   name: '@deepseek-ai/dsh-web'
   config:
     searchProvider: deepseek-official
-    fetchProvider: http
+    fetchProvider: auto
 ```
 
 Another plugin can also set the search provider while dsh runs, after the profile patch. When you turn such a plugin off, check this setting again.
+
+## Web fetch
+
+The package also includes `ds-bot/web-fetch`. It registers the fetch provider `auto`, and `cordis.patch.yml` makes it the default (`fetchProvider: auto`). Each `web_fetch` runs in two stages:
+
+1. Direct HTTP(S) retrieval with browser-compatible headers, HTTP and HTML `<meta charset>` decoding, and safe cross-origin redirect following (public origins cannot redirect to loopback, private, or link-local addresses).
+2. Automatic fallback to an isolated, ephemeral browser fetch when direct HTTP is blocked by WAF/anti-bot status codes (`403`/`406`/`429`/`503`/`52x`), hits a bot challenge or empty JavaScript SPA shell, or fails on transport (for example when the OS system proxy is not in environment variables). In the desktop app this uses an ephemeral non-persistent Electron window; outside the desktop app it uses headless Chromium via `playwright-core` when a local Chromium/Chrome/Edge binary is present. User and Bot profiles/cookies are never touched, and CAPTCHAs are never solved or bypassed.
+
+To switch back to DSH's plain HTTP fetcher or DeepSeek Fetch API, choose another provider in **Settings → Plugins → Web search and fetch** or set `fetchProvider: http` in `cordis.patch.yml`. If you disable `web-fetch-auto`, set `fetchProvider: http` on the `web` row as well (the desktop app reconciles this automatically on the next launch).
 
 ## Bot browser
 
@@ -181,7 +190,7 @@ In dsh Desktop and the desktop app, each Bot has its own browser panel in the ri
   - It never reads the values of password, credit card (`autocomplete="cc-*"`) or one-time code fields.
   - Limits: 400,000 characters, 150,000 nodes, 5,000 rows per table, 3,000 links and controls, 1.5 seconds. A cut result says so.
   - It cannot read cross-origin iframes (one line with the address), closed shadow roots, canvas content (online editors, maps), or text in CSS `::before` / `::after`. On pages that render on demand, only the rendered part is read.
-  - Without a browser plugin, `read_browser` is read-only. Set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart (see [`browser-plugins/`](../browser-plugins/)); **Settings → Tools → Browser** explains setup and manages grants, but does not enable the plugin. Interactive plugins use each Bot's profile (`bot/browser-profiles/<botId>/`); in the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
+  - Without a browser control plugin, `read_browser` is read-only. You can install or hot-swap a `browser-control` Bot plugin from the **Plugins** panel (or set `browserPlugin` to `refs`, `script` or `task` in the DSH profile; see [`browser-plugins/`](../browser-plugins/)); **Settings → Tools → Browser** manages per-Bot grants and cookie import. Interactive plugins use each Bot's profile (`bot/browser-profiles/<botId>/`); in the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
 - **Addresses**: http and https only. localhost and LAN addresses are allowed; cloud metadata addresses (such as `169.254.x.x`) and dsh's own ports are not.
 - The browser panel and the details drawer share the right column; opening one closes the other. Switching chats switches the panel to that Bot. Deleting a Bot clears its browser and saved address.
 - **Cookie import (desktop app only)**: the import button previews cookies from a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`, DevTools Copy as cURL or a URL-scoped Cookie header) or an installed Chromium/Firefox profile, then writes them into the Bot's partition. Playwright storageState and supported browser imports also carry localStorage; passkeys do not come along. Live remote debugging can import Windows v20 cookies without closing the browser; fallback copying can require closing and reopening it.

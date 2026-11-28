@@ -1,6 +1,6 @@
 import { currentPart, turnOutlineOf } from './text.js'
 
-export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
+export function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconcile }) {
   const seen = new Map()
   let lastTarget = null
   let pendingTarget = null
@@ -62,6 +62,15 @@ export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) 
   const offSessions = sessions.subscribe(sync)
   const offStatus = statuses?.subscribe(sync)
   const offUi = ui?.subscribe?.(sync)
+  const offReconcile = typeof onReconcile === 'function'
+    ? onReconcile((sessionId, maxTurn) => {
+      if (!seen.has(sessionId) || !Number.isInteger(maxTurn)) return
+      if (seen.get(sessionId) > maxTurn) {
+        seen.set(sessionId, maxTurn)
+        sync()
+      }
+    })
+    : null
   sync()
-  return () => { offRoster(); offSessions(); offStatus?.(); offUi?.() }
+  return () => { offRoster(); offSessions(); offStatus?.(); offUi?.(); offReconcile?.() }
 }

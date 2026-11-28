@@ -51,7 +51,7 @@ export function modelOf(bot, roster) {
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
 // has none. The catalog carries them for models Bots use; any other ref asks the host.
 export const effortCache = new Map()
-function useEfforts(served, ref, actions) {
+function useEfforts(served, ref, actions, version = 0) {
   const [fetched, setFetched] = useState(undefined)
   useEffect(() => {
     setFetched(undefined)
@@ -64,7 +64,7 @@ function useEfforts(served, ref, actions) {
       if (live) setFetched(reasoning)
     }).catch(() => {})
     return () => { live = false }
-  }, [ref, served?.reasoning !== undefined, actions])
+  }, [ref, served?.reasoning !== undefined, actions, version])
   return served?.reasoning ?? fetched
 }
 
@@ -447,17 +447,15 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   const shown = modelOf({ ...bot, model: current }, roster)
   const local = isLocalRoute(current)
   const served = servedOf(roster, current)
-  const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
+  const [opening, setOpening] = useState(0)
+  const [query, setQuery] = useState('')
+  const reasoning = useEfforts(served, withEfforts ? current : undefined, actions, opening)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
   const picked = reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
   const currentEffort = picked ?? reasoning?.defaultEffort
   const effortLabel = currentEffort === undefined
     ? (reasoning?.efforts?.length > 0 ? t('Default') : undefined)
     : reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort
-  // Each opening is a new number, so the rows start from the current model again even
-  // when the previous menu is still playing its exit animation under a quick reopen.
-  const [opening, setOpening] = useState(0)
-  const [query, setQuery] = useState('')
   const models = modelsFor(roster.models, current)
   return {
     bot, roster, shown, current, inherited, local, reasoning, picked, effortLabel, models, opening, query, setQuery, reading, withEfforts,
@@ -466,7 +464,10 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current))
-      else void actions?.refreshModels?.()
+      else {
+        effortCache.clear()
+        void actions?.refreshModels?.()
+      }
       setQuery('')
       setOpening(count => count + 1)
     },
@@ -724,9 +725,10 @@ function setupChoices(actions) {
 // plugin's model sign-in entry renders here with the plugin's own operations.
 export function DeepSeekSignIn({ useUi, actions }) {
   const open = useUi(state => state.signIn)
-  const entry = open ? actions.signInEntry?.() : null
+  const [shown, leaving] = useLinger(open, 160)
+  const entry = shown ? actions.signInEntry?.() : null
   if (!entry) return null
-  return h(SignInHost, { key: open, entry, actions })
+  return h(SignInHost, { key: shown, entry, actions, leaving })
 }
 
 function makeSourceHook(source) {
@@ -735,21 +737,26 @@ function makeSourceHook(source) {
   }
 }
 
-function SignInHost({ entry, actions }) {
+function SignInHost({ entry, actions, leaving = false }) {
   const [ops] = useState(() => entry.inject?.() ?? {})
   const close = () => actions.closeSignIn()
   const [hooks] = useState(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }))
   return h(entry.component, {
     ...ops,
     ...hooks,
+    leaving,
     t: actions.accountT(),
     complete: close,
-    useApiKey: () => { close(); actions.openHarnessOnboarding('deepseek-official') },
+    useApiKey: () => {
+      close()
+      if (typeof actions.openHarnessOnboarding === 'function') actions.openHarnessOnboarding('deepseek-official')
+      else actions.openModels?.()
+    },
   })
 }
 
 export const MODEL_CSS = `
-.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
+.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
@@ -832,7 +839,7 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 /* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
-.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+.bt-model-dock{width:100%;max-width:var(--bt-chat-w,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 /* The scroll box clips at its padding edge, so 3px of padding keeps the chips' focus rings visible; the negative margins cancel it so the chips stay in place. */
 .bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;box-sizing:border-box;padding:3px;margin:-3px 0 -3px 27px;max-width:min(566px,calc(100% - 27px));max-height:min(246px,calc(36vh + 6px));max-height:min(246px,calc(36dvh + 6px));overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}

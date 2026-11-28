@@ -1,4 +1,4 @@
-import { createElement as h } from 'react'
+import { Fragment, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ABOUT_CSS } from '../../../ds-bot/src/client/about.js'
 import { AGENT_CARDS_CSS } from '../../../ds-bot/src/client/agent-cards.js'
@@ -51,20 +51,40 @@ import { registerMathStyleLoader } from './math-render.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
+import { loadExternalUiPlugins } from './ui-plugin-loader.js'
 import './app.css'
 import './composer-classic.css'
 import './message-parity.css'
 
 registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
-const appLocale = createLocale(navigator.language)
+// Keep liveSystemTag empty until main-process IPC reports an OS language so browser
+// `navigator.language` updates on `languagechange` are never shadowed when IPC is absent.
+let liveSystemTag = ''
+const refreshSystemTag = typeof globalThis.dsBotApp?.systemLanguage === 'function'
+  ? () => Promise.resolve(globalThis.dsBotApp.systemLanguage()).then((tag) => {
+    if (typeof tag === 'string' && tag.trim() !== '') liveSystemTag = tag
+    return tag
+  }).catch(() => undefined)
+  : null
+const appLocale = createLocale(navigator.language, {
+  getSystemTag: () => liveSystemTag || navigator.language,
+  refreshSystemTag,
+})
+globalThis.dsBotApp?.onSystemLanguage?.((tag) => {
+  if (typeof tag !== 'string' || tag.trim() === '') return
+  liveSystemTag = tag
+  appLocale.syncSystemTag(tag)
+})
 setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()
 pluginRuntime.provide('slots', slots)
+pluginRuntime.provide('react', Object.freeze({ createElement: h, Fragment, useState, useEffect, useMemo, useCallback, useRef }))
 pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views', pages: ['chat'] }, () => registerBuiltinToolViews(slots))
 pluginRuntime.use({ id: 'ds-bot.classic-plan-view', name: 'Classic plan card', pages: ['chat'] }, () => registerClassicPlanView(slots))
 registerEngineSettingsPlugin(pluginRuntime, { pages: ['settings'] })
+void loadExternalUiPlugins(pluginRuntime)
 globalThis.dsBotPlugins = pluginRuntime
 document.documentElement.lang = appLocale.getLocale().active
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).
@@ -84,4 +104,18 @@ for (const [tag, text] of [
 // Light or dark before the team arrives; then the team's choice (mode.js).
 paintMode(undefined)
 
-createRoot(document.getElementById('root')).render(h(App))
+const root = createRoot(document.getElementById('root'))
+const initialSystemLanguage = refreshSystemTag
+  ? Promise.race([
+    refreshSystemTag().then((tag) => {
+      if (typeof tag === 'string' && tag.trim() !== '') appLocale.syncSystemTag(tag)
+    }),
+    new Promise(resolve => { setTimeout(resolve, 150) }),
+  ])
+  : null
+const mount = () => {
+  document.documentElement.lang = appLocale.getLocale().active
+  root.render(h(App))
+}
+if (initialSystemLanguage) void initialSystemLanguage.finally(mount)
+else mount()

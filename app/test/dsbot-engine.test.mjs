@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { after, before, describe, test } from 'node:test'
@@ -8,6 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import * as connectionPlugin from '@deepseek-ai/dsh-client-connection'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as enginePlugin from '../engine/index.js'
+import { createUiPluginsResource, discoverUiPlugins, inspectPackageUiMeta } from '../engine/ui-plugins.js'
 
 const { createUiResource, resolveDistDir, shouldUseNativeDirectoryPicker } = enginePlugin
 
@@ -175,10 +177,18 @@ describe('dsbot-engine UI static resource', () => {
         return records.get(key)
       },
     })
+    const uiPluginsDir = join(root, 'live-ui-plugins')
+    mkdirSync(join(uiPluginsDir, 'demo-skin'), { recursive: true })
+    writeFileSync(join(uiPluginsDir, 'demo-skin', 'manifest.json'), JSON.stringify({
+      id: 'demo-skin',
+      name: 'Demo Skin',
+      entry: './index.js',
+    }))
+    writeFileSync(join(uiPluginsDir, 'demo-skin', 'index.js'), 'export function apply() {}')
     try {
       const ws = ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
       const conn = ctx.plugin(connectionPlugin, { trustedHosts: [] })
-      const eng = ctx.plugin(enginePlugin, { distDir })
+      const eng = ctx.plugin(enginePlugin, { distDir, uiPluginsDir })
       await Promise.all([ws.await(), conn.await(), eng.await()])
       // Wait one turn for child plugin (`NativeDirectoryPicker`/`BrowseDirectoryPicker`) mounted inside `eng`.
       await new Promise(resolve => setImmediate(resolve))
@@ -230,11 +240,209 @@ describe('dsbot-engine UI static resource', () => {
         })
         assert.equal(apiRes.status, 200)
         assert.deepEqual(await apiRes.json(), { ok: true, value: { ping: 'pong' } })
+
+        // 5. /api/ui-plugins/* outranks connection's /api prefix, enforces Host/Origin/CSRF/owner fences, and serves local UI plugins.
+        assert.equal((await fetch(`${origin}/api/ui-plugins/manifest`)).status, 401)
+        assert.equal((await fetch(`${origin}/api/ui-plugins/manifest?token=bad`, { headers: { cookie } })).status, 401)
+        assert.equal((await fetch(`${origin}/api/ui-plugins/manifest`, {
+          headers: { cookie, 'sec-fetch-site': 'cross-site' },
+        })).status, 403, 'cross-site Sec-Fetch-Site must be rejected by connection.admit')
+        assert.equal((await fetch(`${origin}/api/ui-plugins/manifest`, {
+          headers: { cookie, origin: 'https://evil.example' },
+        })).status, 403, 'foreign Origin must be rejected by connection.admit')
+        const badHostStatus = await new Promise((resolveStatus, rejectReq) => {
+          const req = http.request({
+            host: '127.0.0.1',
+            port: ctx.webServer.port,
+            path: '/api/ui-plugins/manifest',
+            method: 'GET',
+            headers: { host: 'evil.example', cookie },
+          }, (res) => {
+            res.resume()
+            resolveStatus(res.statusCode)
+          })
+          req.on('error', rejectReq)
+          req.end()
+        })
+        assert.equal(badHostStatus, 403, 'untrusted Host header must be rejected (DNS rebinding fence)')
+
+        // Non-owner peer passed through WebServer.readResource must be denied with 403; owner peer succeeds.
+        const nonOwnerRes = await ctx.webServer.readResource(
+          new Request(`${origin}/api/ui-plugins/manifest`),
+          { principal: { kind: 'guest' } },
+        )
+        assert.equal(nonOwnerRes.status, 403, 'non-owner peer must be denied')
+        const ownerPeerRes = await ctx.webServer.readResource(
+          new Request(`${origin}/api/ui-plugins/manifest`),
+          { principal: { kind: 'owner' } },
+        )
+        assert.equal(ownerPeerRes.status, 200, 'owner peer must succeed')
+
+        const manifestRes = await fetch(`${origin}/api/ui-plugins/manifest`, { headers: { cookie } })
+        assert.equal(manifestRes.status, 200)
+        const manifest = await manifestRes.json()
+        assert.equal(manifest.plugins.length, 1)
+        assert.equal(manifest.plugins[0].id, 'local:demo-skin')
+        const entryRes = await fetch(`${origin}${manifest.plugins[0].url}`, { headers: { cookie } })
+        assert.equal(entryRes.status, 200)
+        assert.match(await entryRes.text(), /export function apply/)
       } finally {
         stopApi?.()
       }
     } finally {
       await ctx.fiber.dispose()
+    }
+  })
+
+  test('discoverUiPlugins and /api/ui-plugins serve local themes, ESM plugins, and dsBot.ui bundles safely with auth and containment', async () => {
+    const pluginRoot = mkdtempSync(join(tmpdir(), 'ds-bot-ui-plugins-'))
+    try {
+      const uiDir = join(pluginRoot, 'ui-plugins')
+      const themeDir = join(uiDir, 'ocean-skin')
+      const esmDir = join(uiDir, 'hello-widget')
+      const badDir = join(uiDir, 'broken-plugin')
+      const symManifestDir = join(uiDir, 'symlink-manifest')
+      const bundleDir = join(pluginRoot, 'bundle-with-ui')
+      const scopedBundleDir = join(pluginRoot, 'scoped-bundle-with-ui')
+      const outsideFile = join(pluginRoot, 'outside.js')
+      const outsideManifest = join(pluginRoot, 'outside-manifest.json')
+      mkdirSync(themeDir, { recursive: true })
+      mkdirSync(esmDir, { recursive: true })
+      mkdirSync(badDir, { recursive: true })
+      mkdirSync(join(bundleDir, 'ui'), { recursive: true })
+      mkdirSync(join(scopedBundleDir, 'ui'), { recursive: true })
+      writeFileSync(outsideFile, 'export const leak = true')
+      writeFileSync(outsideManifest, JSON.stringify({ id: 'escaped', name: 'Escaped', entry: './index.js' }))
+      let createdManifestSymlink = false
+      if (process.platform !== 'win32') {
+        mkdirSync(symManifestDir, { recursive: true })
+        try {
+          symlinkSync(outsideManifest, join(symManifestDir, 'manifest.json'))
+          createdManifestSymlink = true
+        } catch { /* symlink unsupported */ }
+      }
+
+      writeFileSync(join(themeDir, 'manifest.json'), JSON.stringify({
+        id: 'ocean-skin',
+        name: 'Ocean Skin',
+        theme: {
+          id: 'ocean',
+          label: 'Ocean',
+          light: { bg: '#f4f8fc', sidebar: '#e9f1f8', bubble: '#dfeaf5', card: '#ffffff', text: '#102030', user: '#1d4ed8', userText: '#ffffff', accent: '#2563eb' },
+          dark: { bg: '#0c1420', sidebar: '#121d2e', bubble: '#192840', card: '#142033', text: '#e8f0fa', user: '#3b82f6', userText: '#ffffff', accent: '#60a5fa' },
+          css: '.bt-bubble { letter-spacing: 0.01em; }',
+        },
+      }))
+      writeFileSync(join(esmDir, 'manifest.json'), JSON.stringify({
+        id: 'hello-widget',
+        name: 'Hello Widget',
+        entry: './index.js',
+        pages: ['chat'],
+      }))
+      writeFileSync(join(esmDir, 'index.js'), 'export function apply(ctx) { return () => {} }')
+      writeFileSync(join(esmDir, 'notes.txt'), 'not allowed mime')
+      try { symlinkSync(outsideFile, join(esmDir, 'escape.js')) } catch { /* Windows without symlink perms */ }
+
+      // Broken plugin manifest must surface an error record without aborting other plugins.
+      writeFileSync(join(badDir, 'manifest.json'), JSON.stringify({ id: 'broken-plugin', entry: '../outside.js' }))
+
+      // Enabled profile bundles with dsBot.ui (unscoped + scoped @scope/pkg)
+      writeFileSync(join(bundleDir, 'package.json'), JSON.stringify({
+        name: 'community-desktop-ext',
+        dsBot: { ui: { entry: './ui/panel.js', name: 'Community Panel' } },
+      }))
+      writeFileSync(join(bundleDir, 'ui', 'panel.js'), 'export function apply() {}')
+      writeFileSync(join(scopedBundleDir, 'package.json'), JSON.stringify({
+        name: '@scope/desktop-skin',
+        dsBot: { ui: { entry: './ui/index.js', name: 'Scoped Skin' } },
+      }))
+      writeFileSync(join(scopedBundleDir, 'ui', 'index.js'), 'export function apply() { return "scoped" }')
+
+      assert.equal(inspectPackageUiMeta(bundleDir).hasDshClient, false)
+      assert.equal(inspectPackageUiMeta(bundleDir).dsBotUi?.entry, './ui/panel.js')
+
+      const snapshot = await discoverUiPlugins({
+        uiPluginsDir: uiDir,
+        bundles: [
+          { name: 'community-desktop-ext', enabled: true },
+          { name: '@scope/desktop-skin', enabled: true },
+          { name: 'disabled-desktop-ext', enabled: false },
+        ],
+        resolveBundleDir: (name) => {
+          if (name === 'community-desktop-ext') return bundleDir
+          if (name === '@scope/desktop-skin') return scopedBundleDir
+          return null
+        },
+      })
+
+      const expectedCount = createdManifestSymlink ? 6 : 5
+      assert.equal(snapshot.plugins.length, expectedCount)
+      const ocean = snapshot.plugins.find(p => p.id === 'local:ocean-skin')
+      assert.equal(ocean?.kind, 'theme')
+      assert.equal(ocean?.theme?.id, 'ocean')
+      const widget = snapshot.plugins.find(p => p.id === 'local:hello-widget')
+      assert.equal(widget?.kind, 'esm')
+      assert.equal(widget?.url, '/api/ui-plugins/files/local%3Ahello-widget/index.js')
+      const broken = snapshot.plugins.find(p => p.id === 'local:broken-plugin')
+      assert.ok(broken?.error)
+      if (createdManifestSymlink) {
+        const symManifestRec = snapshot.plugins.find(p => p.id === 'local:symlink-manifest')
+        assert.ok(symManifestRec?.error, 'symlinked manifest.json pointing outside plugin folder must fail with error')
+        assert.equal(symManifestRec?.url, undefined)
+      }
+      const bundleUi = snapshot.plugins.find(p => p.id === 'bundle:community-desktop-ext')
+      assert.equal(bundleUi?.source, 'bundle')
+      assert.equal(bundleUi?.url, '/api/ui-plugins/files/bundle%3Acommunity-desktop-ext/ui/panel.js')
+      const scopedUi = snapshot.plugins.find(p => p.id === 'bundle:@scope/desktop-skin')
+      assert.equal(scopedUi?.source, 'bundle')
+      assert.equal(scopedUi?.url, '/api/ui-plugins/files/bundle%3A%40scope%2Fdesktop-skin/ui/index.js')
+
+      const authGate = request => (request.headers.get('cookie') === 'dsh=1' ? undefined : new Response('unauthorized', { status: 401 }))
+      const uiPluginsResource = createUiPluginsResource({
+        getSnapshot: async () => snapshot,
+        authorizeRequest: authGate,
+      })
+      const resource = createUiResource({ distDir, authorizeIndex: authGate, uiPluginsResource })
+
+      // Unauthenticated, query-token, and non-owner peer requests to /api/ui-plugins/* must be rejected.
+      assert.equal((await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/manifest'))).status, 401)
+      assert.equal((await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/manifest?token=good', { headers: { cookie: 'dsh=1' } }))).status, 401)
+      assert.equal((await uiPluginsResource(new Request('http://127.0.0.1:4123/api/ui-plugins/manifest'), { principal: { kind: 'guest' } })).status, 403)
+      assert.equal((await uiPluginsResource(new Request('http://127.0.0.1:4123/api/ui-plugins/manifest'), { principal: { kind: 'owner' } })).status, 200)
+
+      // Authenticated manifest returns discovered plugins with no-store.
+      const manifestRes = await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/manifest', { headers: { cookie: 'dsh=1' } }))
+      assert.equal(manifestRes.status, 200)
+      assert.equal(manifestRes.headers.get('cache-control'), 'no-store')
+      assert.equal(manifestRes.headers.get('x-content-type-options'), 'nosniff')
+      const manifestJson = await manifestRes.json()
+      assert.equal(manifestJson.plugins.length, expectedCount)
+
+      // Authenticated JS entry serves cleanly for both local and scoped @scope/pkg bundles.
+      const jsRes = await resource(new Request(`http://127.0.0.1:4123${widget.url}`, { headers: { cookie: 'dsh=1' } }))
+      assert.equal(jsRes.status, 200)
+      assert.equal(jsRes.headers.get('content-type'), 'text/javascript; charset=utf-8')
+      assert.match(await jsRes.text(), /export function apply/)
+
+      const scopedRes = await resource(new Request(`http://127.0.0.1:4123${scopedUi.url}`, { headers: { cookie: 'dsh=1' } }))
+      assert.equal(scopedRes.status, 200, 'scoped @scope/pkg bundle entry must serve 200 instead of 404')
+      assert.match(await scopedRes.text(), /return "scoped"/)
+
+      // Disallowed extensions, encoded separators (%2F/%5C), traversal, and symlink escapes are blocked.
+      const txtRes = await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/files/local%3Ahello-widget/notes.txt', { headers: { cookie: 'dsh=1' } }))
+      assert.equal(txtRes.status, 403)
+      const travRes = await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/files/local%3Ahello-widget/..%2F..%2Foutside.js', { headers: { cookie: 'dsh=1' } }))
+      assert.equal(travRes.status, 403)
+      const encSlashRes = await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/files/bundle%3A%40scope%2Fdesktop-skin/ui%2Findex.js', { headers: { cookie: 'dsh=1' } }))
+      assert.equal(encSlashRes.status, 403, 'encoded %2F inside relative path segment must return 403')
+      const encBackslashRes = await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/files/local%3Ahello-widget/..%5Coutside.js', { headers: { cookie: 'dsh=1' } }))
+      assert.equal(encBackslashRes.status, 403, 'encoded %5C inside relative path segment must return 403')
+      if (process.platform !== 'win32') {
+        const symRes = await resource(new Request('http://127.0.0.1:4123/api/ui-plugins/files/local%3Ahello-widget/escape.js', { headers: { cookie: 'dsh=1' } }))
+        assert.equal(symRes.status, 403)
+      }
+    } finally {
+      rmSync(pluginRoot, { recursive: true, force: true })
     }
   })
 })

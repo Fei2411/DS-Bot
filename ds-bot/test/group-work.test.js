@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { afterRound } from './relay-rows.js'
+import { afterRound, loopTurn } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
@@ -72,9 +72,11 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
   rt = createRuntime(ctx, { home })
+  const roundStops = []
   t.after(async () => {
+    for (const stop of roundStops) stop.abort()
     await ctx.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   })
   let seq = 0
   const turns = new Map()
@@ -110,8 +112,10 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
     emit(sessionId, 'user/message', message)
     let result
     const stop = new AbortController()
-    t.after(() => stop.abort())
-    void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then(async (value) => { result = await afterRound(rt, sessionId, value) })
+    roundStops.push(stop)
+    const done = tool('group_relay', {}, sessionId, { callId, signal: stop.signal })
+      .then(async (value) => (result = await afterRound(rt, sessionId, value)))
+    done.catch(() => {})
     const read = () => result
     read.cancel = () => { stop.abort(); rt.stopRoomRound(rt.roomOf(sessionId)?.id ?? sessionId) }
     return read
@@ -125,16 +129,25 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
   return { home, ctx, agentOf, emit, emitScoped, tool, call, begin, finish, round, say, takePost, selected }
 }
 
-// The save before a group post runs on a timer; waiting with setImmediate starves it.
-const until = async (check, ms = 3000) => {
+// The save before a group post runs on a real timer/threadpool turn; waiting with
+// setImmediate starves it, and mocked setTimeout must not freeze polling.
+const until = async (check, ms = 15_000, stepMs = 20) => {
   const stop = Date.now() + ms
-  while (!check() && Date.now() < stop) await new Promise(resolve => setTimeout(resolve, 20))
-  assert.ok(check(), 'condition not reached')
+  let ok = await check()
+  while (!ok && Date.now() < stop) {
+    await loopTurn(stepMs)
+    ok = await check()
+  }
+  assert.ok(ok, 'condition not reached')
 }
-const settle = async (check) => {
-  const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
-  assert.ok(check(), 'condition not reached')
+const settle = async (check, ms = 15_000) => {
+  const stop = Date.now() + ms
+  let ok = await check()
+  while (!ok && Date.now() < stop) {
+    await loopTurn()
+    ok = await check()
+  }
+  assert.ok(ok, 'condition not reached')
 }
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const kinds = result => result.replies.map(reply => [reply.kind ?? 'message', reply.name])
@@ -743,7 +756,14 @@ test('a late reply during a running round is logged at once, called in that roun
   host.begin('ga')
   host.emit('gb', 'tool/result', { callId: 'k1' })
   host.finish('gb', '整理好了，在 docs/ 下。')
-  await settle(() => logLines(host).some(line => line.who === 'Writer' && line.text === '整理好了，在 docs/ 下。'))
+  await settle(() => rt.roomOf('r1').log.some(line => line.who === 'Writer' && line.text === '整理好了，在 docs/ 下。'))
+  await until(() => {
+    try {
+      return logLines(host).some(line => line.who === 'Writer' && line.text === '整理好了，在 docs/ 下。')
+    } catch {
+      return false
+    }
+  }, 15_000, 50)
   assert.deepEqual(host.agentOf('r1').calls, [])
   // The Chief, which asked for it, answers the result in this round once its own turn ends.
   host.finish('ga', '确认过了。')
@@ -2698,12 +2718,12 @@ test('a reply announcing work with nothing running is marked, with its missing l
 // A member that started real work or handed work to a peer is not marked, and an existing file in a spaced folder passes.
 test('work that did run, a peer handoff and an existing file in a spaced folder carry no marker (#977)', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-file-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const spaced = join(root, 'DS Bot')
   mkdirSync(spaced, { recursive: true })
   const done = join(spaced, 'report.pptx')
   writeFileSync(done, 'x')
   const host = await start(t, { workDir: spaced })
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   const first = host.round('c1', host.say('@Chief 导出报告'))
   await settle(() => host.agentOf('ga').calls.length === 1)
   host.begin('ga')
@@ -2731,8 +2751,8 @@ test('a relative file link is checked in the group folder (#977)', async (t) => 
   mkdirSync(join(group, 'out'), { recursive: true })
   mkdirSync(member, { recursive: true })
   writeFileSync(join(group, 'out', 'report.pptx'), 'x')
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const host = await start(t, { workDir: group }, {}, {}, { b: { workDir: member } })
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   const first = host.round('c1', host.say('@Writer 导出报告'))
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
@@ -2747,8 +2767,8 @@ test('a relative file link is checked in the member\'s own folder (#977)', async
   const member = join(root, 'member')
   mkdirSync(join(member, 'out'), { recursive: true })
   writeFileSync(join(member, 'out', 'report.pptx'), 'x')
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const host = await start(t, {}, {}, {}, { b: { workDir: member } })
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   const first = host.round('c1', host.say('@Writer 导出报告'))
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
@@ -2760,8 +2780,8 @@ test('a relative file link is checked in the member\'s own folder (#977)', async
 
 test('a late reply and post_to_group keep missing-file claims when opening a group round', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-post-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const host = await start(t, {}, {}, {}, { a: { workDir: root } })
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   const missing = join(host.home, 'missing-report.md')
   await rt.lateRoomReply('gb', {}, `Report is at [missing-report.md](<${missing}>).`)
   const post = host.takePost()
@@ -3922,7 +3942,6 @@ test('hard-signal stagnation pauses and resumes cleanly, stopRoomWork clears pau
 
 test('mid-turn group member part switch resolves live activeSid, turnChanges by turn, and real Session header for claimsOf', async (t) => {
   const workDir = mkdtempSync(join(tmpdir(), 'ds-bot-claims-'))
-  t.after(() => rmSync(workDir, { recursive: true, force: true }))
   writeFileSync(join(workDir, 'report.md'), '# ok\n')
   const changeSummary = {
     turn: 1, cwd: workDir, total: 1, added: 4, deleted: 0,
@@ -3933,6 +3952,7 @@ test('mid-turn group member part switch resolves live activeSid, turnChanges by 
     workspaceChanges: { summary: (id, seq) => (id === 'gb2' && seq > 0 ? changeSummary : undefined) },
     agents: { get: id => agentsMap.get(id), list: () => [...agentsMap.values()] },
   })
+  t.after(() => rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   // Register live DSH agent for the post-switch session 'gb2' with real header.cwd = workDir.
   agentsMap.set('gb2', { id: 'gb2', session: { id: 'gb2', header: { cwd: workDir } } })
 
@@ -3968,11 +3988,11 @@ test('mid-turn group member part switch resolves live activeSid, turnChanges by 
 test('group member part switch in parts.js migrates pending state.questions and state.views to the fresh part', async (t) => {
   const dir1 = mkdtempSync(join(tmpdir(), 'ds-bot-dir1-'))
   const dir2 = mkdtempSync(join(tmpdir(), 'ds-bot-dir2-'))
-  t.after(() => {
-    rmSync(dir1, { recursive: true, force: true })
-    rmSync(dir2, { recursive: true, force: true })
-  })
   const host = await start(t, { workDir: dir2 })
+  t.after(() => {
+    rmSync(dir1, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+    rmSync(dir2, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
   const gbAgent = host.agentOf('gb')
   gbAgent.id = 'gb'
   gbAgent.status = 'idle'

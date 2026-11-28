@@ -101,6 +101,7 @@ var PHRASES = [
   ["标准", "標準"],
   ["为准", "為準"],
   ["关系", "關係"],
+  ["配置文件", "設定檔"],
   ["折叠", "摺疊"]
 ];
 var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
@@ -131,6 +132,10 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Reconnecting…": "再接続中…",
+  "Reconnect": "再接続",
+  "Waiting to confirm…": "確認待ち…",
+  "Live updates paused: message too large": "ライブ更新が一時停止されました：メッセージが大きすぎます",
   "Auto review": "自動審査",
   "Session only": "このセッションのみ",
   "Permission preset": "権限プリセット",
@@ -381,6 +386,7 @@ var JA = {
   "Search": "検索",
   "New chat": "新しいチャット",
   "Back to chat": "チャットに戻る",
+  "Back to bottom": "一番下へ戻る",
   "New…": "新規…",
   "New section": "新しいセクション",
   "Rename section": "セクション名を変更",
@@ -721,6 +727,11 @@ var JA = {
   "Top up ↗": "チャージする ↗",
   "Retry": "再試行",
   "Retrying…": "再試行中…",
+  "Continuing…": "再開中…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} は連続して複数回の自動パート切り替えを行ったため一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "Paused to prevent a repeating loop": "反復ループを防ぐため一時停止しました",
+  "Paused after repeated automatic part switches": "連続した自動パート切り替え後に一時停止しました",
   "Technical details": "技術的な詳細",
   "Code": "コード",
   "HTTP status": "HTTP ステータス",
@@ -1054,7 +1065,7 @@ var JA = {
   "Mono": "モノクロ",
   "Paper": "ペーパー",
   "Moonlight": "ムーンライト",
-  "Celadon": "青磁",
+  "Fei": "Fei",
   "General": "一般",
   "Bots": "Bot",
   "Group chats": "グループチャット",
@@ -1258,7 +1269,11 @@ var JA = {
   "Cache hit {hit}%": "キャッシュヒット {hit}%",
   "Context {percent}%": "コンテキスト {percent}%",
   "{used} of {total} tokens of context in use": "コンテキスト使用量: {used} / {total} トークン",
+  "Quote": "引用",
   "Annotate": "注釈",
+  "Sign out of your DeepSeek account?": "DeepSeek アカウントからサインアウトしますか？",
+  "Some Bots are still working. Signing out will stop them.": "一部の Bot が作業中です。サインアウトすると停止します。",
+  "Signing out may stop running work.": "サインアウトすると進行中の作業が停止する場合があります。",
   "Annotate quote": "引用に注釈",
   "Annotation": "注釈",
   "Add an annotation…": "注釈を入力…",
@@ -1874,6 +1889,20 @@ var JA = {
   "Create task": "タスクを作成",
   "Turn on Automation tasks in DSH": "DSH で「自動化タスク」をオンにしてください",
   "Switch on Automation tasks on the Plugins page in Settings.": "設定のプラグインページで「自動化タスク」を有効にしてください。",
+  "Scheduled tasks are off": "定期タスクはオフになっています",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "定期タスクをオンにすると、設定したスケジュールで自動的に実行されます。",
+  "Turn on scheduled tasks": "定期タスクをオンにする",
+  "Turning on…": "有効化中…",
+  "Restart DS Bot for scheduled tasks to take effect.": "定期タスクを有効にするには DS Bot を再起動してください。",
+  "Scheduled tasks failed to start": "定期タスクの起動に失敗しました",
+  "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot を再起動するか、問題解決後に状態を更新してください。",
+  "Refresh status": "状態を更新",
+  "Starting scheduled tasks…": "定期タスクを起動しています…",
+  "Scheduled tasks cannot be turned on from here.": "ここでは定期タスクをオンにできません。",
+  "Scheduled tasks are not available in this installation.": "このインストールでは定期タスクを利用できません。",
+  "Scheduled tasks cannot be changed here.": "ここでは定期タスクを変更できません。",
+  "Scheduled tasks are locked by your configuration.": "定期タスクは設定によってロックされています。",
+  "Could not turn on scheduled tasks.": "定期タスクをオンにできませんでした。",
   "New task": "新しいタスク",
   "No scheduled tasks yet.": "定期タスクはまだありません。",
   "No scheduled tasks yet. Add one": "定期タスクはまだありません。追加する",
@@ -1962,6 +1991,11 @@ var JA = {
   "Teammate request": "仲間からの依頼",
   "{count} background tasks · {waiting} needs approval": "バックグラウンドタスク {count} 件・承認待ち {waiting} 件",
   "{count} background tasks running": "バックグラウンドタスク {count} 件を実行中",
+  "In background · {title}": "バックグラウンドで実行中 · {title}",
+  "Working in background": "バックグラウンドで作業中",
+  "Waiting for approval · {title}": "承認待ち · {title}",
+  "Waiting for teammate · {title}": "仲間の返答待ち · {title}",
+  "View background tasks": "バックグラウンドタスクを表示",
   "Sent to background task": "バックグラウンドタスクへ送信しました",
   "Background tasks": "バックグラウンドタスク",
   "Active": "実行中",
@@ -2435,9 +2469,11 @@ var JA = {
   "Fast": "高速",
   "Multi-step": "複数ステップ",
   "Autonomous": "自律実行",
-  "Shared login": "ログイン共有",
-  "Real Chromium": "実Chromium",
-  "Human + AI": "人＋AI協働",
+  "Sidebar browser": "サイドバーブラウザ",
+  "External window": "外部ウィンドウ",
+  "Browser window": "ブラウザウィンドウ",
+  "{name} opens in an external window, not this sidebar": "{name} は外部ウィンドウで開き、このサイドバーには表示されません",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} は外部ウィンドウで動作するため、{name} はここで開いたページを使いません。このサイドバーで操作するには内蔵ブラウザプラグインに切り替えてください。",
   "Accessibility tree": "アクセシビリティツリー",
   "Standard MCP": "標準MCP",
   "DOM & console": "DOM・コンソール",
@@ -2693,6 +2729,7 @@ var JA = {
   "Usage details": "利用状況の詳細",
   "Web": "Web",
   "Web search API": "Web 検索 API",
+  "Edit in config file": "設定ファイルで編集",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",
   "This chat uses the team background.": "このチャットはチームの背景を使います。",
@@ -2983,6 +3020,18 @@ var JA = {
   "Toggle browser": "ブラウザーを開閉",
   "Waiting": "待機中",
   "Window plugins": "ウィンドウプラグイン",
+  "Allow for this version": "このバージョンで許可",
+  "Confirm allow": "許可を確定",
+  "Custom profile plugins": "カスタムプロファイルプラグイン",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "会話でエンジンをカスタマイズします。ホストプラグインやツール、カスタムモードを作成できます。デスクトップのテーマや UI には外観設定または ui-plugins を使ってください。",
+  "DSH Web UI only": "DSH Web UI 専用",
+  "Desktop UI": "デスクトップ UI",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "ホストツールは引き続き動作しますが、DSH Web UI とスキンはデスクトップでは読み込まれません。",
+  "Incompatible": "非互換",
+  "Local": "ローカル",
+  "Open config file": "設定ファイルを開く",
+  "Open folder": "フォルダーを開く",
+  "UI": "UI",
   // The inbox.
   "Inbox": "受信トレイ",
   "Inbox, {count} waiting for you": "受信トレイ、対応待ち {count} 件",
@@ -3752,6 +3801,10 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Reconnecting…": "다시 연결하는 중…",
+  "Reconnect": "다시 연결",
+  "Waiting to confirm…": "확인 대기 중…",
+  "Live updates paused: message too large": "실시간 업데이트 일시 중지됨: 메시지가 너무 큽니다",
   "Auto review": "자동 검토",
   "Session only": "이 세션만",
   "Permission preset": "권한 프리셋",
@@ -4003,6 +4056,7 @@ var KO = {
   Search: "검색",
   "New chat": "새 대화",
   "Back to chat": "대화로 돌아가기",
+  "Back to bottom": "맨 아래로 이동",
   "New…": "새로 만들기…",
   "New section": "새 섹션",
   "Rename section": "섹션 이름 변경",
@@ -4348,6 +4402,11 @@ var KO = {
   "Top up ↗": "충전하기 ↗",
   Retry: "재시도",
   "Retrying…": "재시도 중…",
+  "Continuing…": "계속하는 중…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name}이(가) 여러 번 연속으로 대화 구간을 전환해 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "Paused to prevent a repeating loop": "반복 루프를 방지하기 위해 일시 중지됨",
+  "Paused after repeated automatic part switches": "반복된 자동 대화 구간 전환 후 일시 중지됨",
   "Technical details": "기술 세부 정보",
   Code: "코드",
   "HTTP status": "HTTP 상태 코드",
@@ -4693,7 +4752,7 @@ var KO = {
   Mono: "모노",
   Paper: "페이퍼",
   Moonlight: "문라이트",
-  Celadon: "청자",
+  Fei: "Fei",
   // Settings dialog
   General: "일반",
   Bots: "Bot",
@@ -4908,7 +4967,11 @@ var KO = {
   "Context {percent}%": "컨텍스트 {percent}%",
   "{used} of {total} tokens of context in use": "컨텍스트 {total} 토큰 중 {used} 사용 중",
   // Transcript
+  Quote: "인용",
   Annotate: "주석 달기",
+  "Sign out of your DeepSeek account?": "DeepSeek 계정에서 로그아웃할까요?",
+  "Some Bots are still working. Signing out will stop them.": "일부 Bot이 아직 작업 중입니다. 로그아웃하면 중지됩니다.",
+  "Signing out may stop running work.": "로그아웃하면 진행 중인 작업이 중지될 수 있습니다.",
   "Annotate quote": "인용 주석",
   Annotation: "주석",
   "Add an annotation…": "주석을 입력하세요…",
@@ -5537,6 +5600,20 @@ var KO = {
   "Create task": "작업 만들기",
   "Turn on Automation tasks in DSH": 'DSH에서 "자동화 작업" 켜기',
   "Switch on Automation tasks on the Plugins page in Settings.": '설정의 플러그인 페이지에서 "자동화 작업"을 활성화하세요.',
+  "Scheduled tasks are off": "예약 작업이 꺼져 있습니다",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "예약 작업을 켜면 정해진 일정에 따라 자동으로 작업을 실행합니다.",
+  "Turn on scheduled tasks": "예약 작업 켜기",
+  "Turning on…": "켜는 중…",
+  "Restart DS Bot for scheduled tasks to take effect.": "예약 작업을 적용하려면 DS Bot을 다시 시작하세요.",
+  "Scheduled tasks failed to start": "예약 작업을 시작하지 못했습니다",
+  "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot을 다시 시작하거나 문제를 해결한 뒤 상태를 새로 고치세요.",
+  "Refresh status": "상태 새로 고침",
+  "Starting scheduled tasks…": "예약 작업을 시작하는 중…",
+  "Scheduled tasks cannot be turned on from here.": "여기에서는 예약 작업을 켤 수 없습니다.",
+  "Scheduled tasks are not available in this installation.": "이 설치에서는 예약 작업을 사용할 수 없습니다.",
+  "Scheduled tasks cannot be changed here.": "여기에서는 예약 작업을 변경할 수 없습니다.",
+  "Scheduled tasks are locked by your configuration.": "예약 작업이 설정으로 잠겨 있습니다.",
+  "Could not turn on scheduled tasks.": "예약 작업을 켤 수 없습니다.",
   "New task": "새 작업",
   "No scheduled tasks yet.": "아직 예약 작업이 없습니다.",
   "No scheduled tasks yet. Add one": "아직 예약 작업이 없습니다. 추가하기",
@@ -5625,6 +5702,11 @@ var KO = {
   "Teammate request": "동료 요청",
   "{count} background tasks · {waiting} needs approval": "백그라운드 작업 {count}개 · 승인 대기 {waiting}건",
   "{count} background tasks running": "백그라운드 작업 {count}개 실행 중",
+  "In background · {title}": "백그라운드 실행 중 · {title}",
+  "Working in background": "백그라운드에서 작업 중",
+  "Waiting for approval · {title}": "승인 대기 중 · {title}",
+  "Waiting for teammate · {title}": "동료 응답 대기 중 · {title}",
+  "View background tasks": "백그라운드 작업 보기",
   "Sent to background task": "백그라운드 작업으로 보냄",
   "Background tasks": "백그라운드 작업",
   "Active": "진행 중",
@@ -6100,9 +6182,11 @@ var KO = {
   "Fast": "빠른 실행",
   "Multi-step": "다단계",
   "Autonomous": "자율 수행",
-  "Shared login": "로그인 공유",
-  "Real Chromium": "실제 Chromium",
-  "Human + AI": "사람 + AI",
+  "Sidebar browser": "사이드바 브라우저",
+  "External window": "외부 창",
+  "Browser window": "브라우저 창",
+  "{name} opens in an external window, not this sidebar": "{name}은(는) 외부 창에서 열리며 이 사이드바에 표시되지 않습니다",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin}은(는) 외부 창에서 실행되므로 {name}은(는) 여기서 연 페이지를 사용하지 않습니다. 이 사이드바에서 탐색하려면 내장 브라우저 플러그인으로 전환하세요.",
   "Accessibility tree": "접근성 트리",
   "Standard MCP": "표준 MCP",
   "DOM & console": "DOM 및 콘솔",
@@ -6358,6 +6442,7 @@ var KO = {
   "Usage details": "사용 내역",
   "Web": "웹",
   "Web search API": "웹 검색 API",
+  "Edit in config file": "설정 파일에서 편집",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",
   "This chat uses the team background.": "이 채팅은 팀 배경을 씁니다.",
@@ -6648,6 +6733,18 @@ var KO = {
   "Toggle browser": "브라우저 열기/닫기",
   "Waiting": "대기 중",
   "Window plugins": "창 플러그인",
+  "Allow for this version": "이 버전에서 허용",
+  "Confirm allow": "허용 확인",
+  "Custom profile plugins": "사용자 지정 프로필 플러그인",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "대화로 엔진을 맞춤 설정합니다. 호스트 플러그인, 도구 또는 사용자 지정 모드를 작성할 수 있으며 데스크톱 테마와 UI는 모양 설정 또는 ui-plugins를 사용하세요.",
+  "DSH Web UI only": "DSH 웹 UI 전용",
+  "Desktop UI": "데스크톱 UI",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "호스트 도구는 계속 실행되지만 DSH 웹 UI와 스킨은 데스크톱에서 로드되지 않습니다.",
+  "Incompatible": "호환되지 않음",
+  "Local": "로컬",
+  "Open config file": "설정 파일 열기",
+  "Open folder": "폴더 열기",
+  "UI": "UI",
   // The inbox.
   "Inbox": "받은편지함",
   "Inbox, {count} waiting for you": "받은편지함, 확인 대기 {count}건",
@@ -7418,6 +7515,10 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Reconnecting…": "Reconectando…",
+  "Reconnect": "Reconectar",
+  "Waiting to confirm…": "Esperando confirmación…",
+  "Live updates paused: message too large": "Actualizaciones en vivo en pausa: mensaje demasiado grande",
   "Auto review": "Revisión automática",
   "Session only": "Solo esta sesión",
   "Permission preset": "Preajuste de permisos",
@@ -7669,6 +7770,7 @@ var ES = {
   Search: "Buscar",
   "New chat": "Nuevo chat",
   "Back to chat": "Volver al chat",
+  "Back to bottom": "Ir al final",
   "New…": "Nuevo…",
   "New section": "Nueva sección",
   "Rename section": "Renombrar sección",
@@ -8014,6 +8116,11 @@ var ES = {
   "Top up ↗": "Recargar ↗",
   Retry: "Reintentar",
   "Retrying…": "Reintentando…",
+  "Continuing…": "Continuando…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} se pausó tras cambiar de segmento varias veces seguidas. Responde con indicaciones o haz clic en Continuar.",
+  "Paused to prevent a repeating loop": "Pausado para evitar un bucle repetitivo",
+  "Paused after repeated automatic part switches": "Pausado tras varios cambios automáticos de segmento",
   "Technical details": "Detalles técnicos",
   Code: "Código",
   "HTTP status": "Estado HTTP",
@@ -8359,7 +8466,7 @@ var ES = {
   Mono: "Mono",
   Paper: "Papel",
   Moonlight: "Luz de luna",
-  Celadon: "Celadón",
+  Fei: "Fei",
   // Settings dialog
   General: "General",
   Bots: "Bots",
@@ -8574,7 +8681,11 @@ var ES = {
   "Context {percent}%": "Contexto {percent}%",
   "{used} of {total} tokens of context in use": "{used} de {total} tokens de contexto en uso",
   // Transcript
+  Quote: "Citar",
   Annotate: "Anotar",
+  "Sign out of your DeepSeek account?": "¿Cerrar sesión en tu cuenta de DeepSeek?",
+  "Some Bots are still working. Signing out will stop them.": "Algunos Bots siguen trabajando. Cerrar sesión los detendrá.",
+  "Signing out may stop running work.": "Cerrar sesión puede detener el trabajo en curso.",
   "Annotate quote": "Anotar cita",
   Annotation: "Anotación",
   "Add an annotation…": "Añade una anotación…",
@@ -9203,6 +9314,20 @@ var ES = {
   "Create task": "Crear tarea",
   "Turn on Automation tasks in DSH": "Activa las Tareas de automatización en DSH",
   "Switch on Automation tasks on the Plugins page in Settings.": "Activa las Tareas de automatización en la página de Plugins en Ajustes.",
+  "Scheduled tasks are off": "Las tareas programadas están desactivadas",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activa las tareas programadas para ejecutar instrucciones automáticamente según un horario.",
+  "Turn on scheduled tasks": "Activar tareas programadas",
+  "Turning on…": "Activando…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Reinicia DS Bot para que las tareas programadas surtan efecto.",
+  "Scheduled tasks failed to start": "No se pudieron iniciar las tareas programadas",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Reinicia DS Bot o actualiza el estado después de corregir el problema.",
+  "Refresh status": "Actualizar estado",
+  "Starting scheduled tasks…": "Iniciando tareas programadas…",
+  "Scheduled tasks cannot be turned on from here.": "No se pueden activar las tareas programadas desde aquí.",
+  "Scheduled tasks are not available in this installation.": "Las tareas programadas no están disponibles en esta instalación.",
+  "Scheduled tasks cannot be changed here.": "Las tareas programadas no se pueden cambiar aquí.",
+  "Scheduled tasks are locked by your configuration.": "Las tareas programadas están bloqueadas por tu configuración.",
+  "Could not turn on scheduled tasks.": "No se pudieron activar las tareas programadas.",
   "New task": "Nueva tarea",
   "No scheduled tasks yet.": "Aún no hay tareas programadas.",
   "No scheduled tasks yet. Add one": "Aún no hay tareas programadas. Añade una",
@@ -9291,6 +9416,11 @@ var ES = {
   "Teammate request": "Solicitud de compañero",
   "{count} background tasks · {waiting} needs approval": "{count} tareas en segundo plano · {waiting} requieren aprobación",
   "{count} background tasks running": "{count} tareas en segundo plano en curso",
+  "In background · {title}": "En segundo plano · {title}",
+  "Working in background": "Trabajando en segundo plano",
+  "Waiting for approval · {title}": "Esperando aprobación · {title}",
+  "Waiting for teammate · {title}": "Esperando a un compañero · {title}",
+  "View background tasks": "Ver tareas en segundo plano",
   "Sent to background task": "Enviado a la tarea en segundo plano",
   "Background tasks": "Tareas en segundo plano",
   "Active": "Activas",
@@ -9766,9 +9896,11 @@ var ES = {
   "Fast": "Rápido",
   "Multi-step": "Multipasos",
   "Autonomous": "Autónomo",
-  "Shared login": "Sesión compartida",
-  "Real Chromium": "Chromium real",
-  "Human + AI": "Humano + IA",
+  "Sidebar browser": "Navegador lateral",
+  "External window": "Ventana externa",
+  "Browser window": "Ventana del navegador",
+  "{name} opens in an external window, not this sidebar": "{name} se abre en una ventana externa, no en esta barra lateral",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} se ejecuta en una ventana externa, por lo que {name} no usa las páginas abiertas aquí. Cambia a un plugin de navegador integrado para navegar en esta barra lateral.",
   "Accessibility tree": "Árbol de accesibilidad",
   "Standard MCP": "MCP estándar",
   "DOM & console": "DOM y consola",
@@ -10024,6 +10156,7 @@ var ES = {
   "Usage details": "Detalles de uso",
   "Web": "Web",
   "Web search API": "API de búsqueda web",
+  "Edit in config file": "Editar en el archivo de configuración",
   "Chat background": "Fondo del chat",
   "While this chat is open, its background takes the place of the team background.": "Mientras este chat está abierto, su fondo sustituye al fondo del equipo.",
   "This chat uses the team background.": "Este chat usa el fondo del equipo.",
@@ -10314,6 +10447,18 @@ var ES = {
   "Toggle browser": "Mostrar/ocultar navegador",
   "Waiting": "En espera",
   "Window plugins": "Complementos de ventana",
+  "Allow for this version": "Permitir para esta versión",
+  "Confirm allow": "Confirmar permiso",
+  "Custom profile plugins": "Complementos personalizados del perfil",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "Personaliza el motor mediante conversación. Escribe complementos de host, herramientas o modos propios; usa Apariencia o ui-plugins para temas e interfaz de escritorio.",
+  "DSH Web UI only": "Solo DSH Web UI",
+  "Desktop UI": "Interfaz de escritorio",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "Las herramientas del host siguen funcionando; la interfaz web de DSH y los temas de DSH no se cargan en el escritorio.",
+  "Incompatible": "Incompatible",
+  "Local": "Local",
+  "Open config file": "Abrir archivo de configuración",
+  "Open folder": "Abrir carpeta",
+  "UI": "UI",
   // The inbox.
   "Inbox": "Bandeja de entrada",
   "Inbox, {count} waiting for you": "Bandeja de entrada, {count} esperándote",
@@ -11084,6 +11229,10 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Reconnecting…": "Reconnexion…",
+  "Reconnect": "Reconnecter",
+  "Waiting to confirm…": "En attente de confirmation…",
+  "Live updates paused: message too large": "Mises à jour en direct en pause : message trop volumineux",
   "Auto review": "Validation automatique",
   "Session only": "Cette session uniquement",
   "Permission preset": "Préréglage de permissions",
@@ -11334,6 +11483,7 @@ var FR = {
   "Search": "Rechercher",
   "New chat": "Nouvelle discussion",
   "Back to chat": "Retour à la discussion",
+  "Back to bottom": "Aller en bas",
   "New…": "Nouveau…",
   "New section": "Nouvelle section",
   "Rename section": "Renommer la section",
@@ -11674,6 +11824,11 @@ var FR = {
   "Top up ↗": "Recharger ↗",
   "Retry": "Réessayer",
   "Retrying…": "Nouvelle tentative…",
+  "Continuing…": "Reprise…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} s’est mis en pause après plusieurs changements automatiques de segment consécutifs. Répondez avec des instructions ou cliquez sur Continuer.",
+  "Paused to prevent a repeating loop": "Mis en pause pour éviter une boucle répétitive",
+  "Paused after repeated automatic part switches": "Mis en pause après plusieurs changements automatiques de segment",
   "Technical details": "Détails techniques",
   "Code": "Code",
   "HTTP status": "Statut HTTP",
@@ -12007,7 +12162,7 @@ var FR = {
   "Mono": "Mono",
   "Paper": "Papier",
   "Moonlight": "Clair de lune",
-  "Celadon": "Céladon",
+  "Fei": "Fei",
   "General": "Général",
   "Bots": "Bots",
   "Group chats": "Discussions de groupe",
@@ -12211,7 +12366,11 @@ var FR = {
   "Cache hit {hit}%": "Cache {hit} %",
   "Context {percent}%": "Contexte {percent} %",
   "{used} of {total} tokens of context in use": "{used} sur {total} jetons de contexte utilisés",
+  "Quote": "Citer",
   "Annotate": "Annoter",
+  "Sign out of your DeepSeek account?": "Se déconnecter de votre compte DeepSeek ?",
+  "Some Bots are still working. Signing out will stop them.": "Certains Bots travaillent encore. La déconnexion les arrêtera.",
+  "Signing out may stop running work.": "La déconnexion peut arrêter le travail en cours.",
   "Annotate quote": "Annoter la citation",
   "Annotation": "Annotation",
   "Add an annotation…": "Ajouter une annotation…",
@@ -12827,6 +12986,20 @@ var FR = {
   "Create task": "Créer la tâche",
   "Turn on Automation tasks in DSH": "Activer les « Tâches d’automatisation » dans DSH",
   "Switch on Automation tasks on the Plugins page in Settings.": "Activez « Tâches d’automatisation » sur la page Extensions dans les Paramètres.",
+  "Scheduled tasks are off": "Les tâches planifiées sont désactivées",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activez les tâches planifiées pour exécuter automatiquement des consignes selon un calendrier.",
+  "Turn on scheduled tasks": "Activer les tâches planifiées",
+  "Turning on…": "Activation…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Redémarrez DS Bot pour que les tâches planifiées prennent effet.",
+  "Scheduled tasks failed to start": "Échec du démarrage des tâches planifiées",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Redémarrez DS Bot ou actualisez l’état après avoir corrigé le problème.",
+  "Refresh status": "Actualiser l’état",
+  "Starting scheduled tasks…": "Démarrage des tâches planifiées…",
+  "Scheduled tasks cannot be turned on from here.": "Impossible d’activer les tâches planifiées depuis ici.",
+  "Scheduled tasks are not available in this installation.": "Les tâches planifiées ne sont pas disponibles dans cette installation.",
+  "Scheduled tasks cannot be changed here.": "Les tâches planifiées ne peuvent pas être modifiées ici.",
+  "Scheduled tasks are locked by your configuration.": "Les tâches planifiées sont verrouillées par votre configuration.",
+  "Could not turn on scheduled tasks.": "Impossible d’activer les tâches planifiées.",
   "New task": "Nouvelle tâche",
   "No scheduled tasks yet.": "Aucune tâche planifiée pour le moment.",
   "No scheduled tasks yet. Add one": "Aucune tâche planifiée. En ajouter une",
@@ -12915,6 +13088,11 @@ var FR = {
   "Teammate request": "Demande d'un coéquipier",
   "{count} background tasks · {waiting} needs approval": "{count} tâches en arrière-plan · {waiting} en attente d'approbation",
   "{count} background tasks running": "{count} tâches en arrière-plan en cours",
+  "In background · {title}": "En arrière-plan · {title}",
+  "Working in background": "Travaille en arrière-plan",
+  "Waiting for approval · {title}": "En attente d'approbation · {title}",
+  "Waiting for teammate · {title}": "En attente d'un coéquipier · {title}",
+  "View background tasks": "Voir les tâches en arrière-plan",
   "Sent to background task": "Envoyé à la tâche en arrière-plan",
   "Background tasks": "Tâches en arrière-plan",
   "Active": "En cours",
@@ -13388,9 +13566,11 @@ var FR = {
   "Fast": "Rapide",
   "Multi-step": "Multi-étapes",
   "Autonomous": "Autonome",
-  "Shared login": "Session partagée",
-  "Real Chromium": "Vrai Chromium",
-  "Human + AI": "Humain + IA",
+  "Sidebar browser": "Navigateur latéral",
+  "External window": "Fenêtre externe",
+  "Browser window": "Fenêtre du navigateur",
+  "{name} opens in an external window, not this sidebar": "{name} s’ouvre dans une fenêtre externe, pas dans cette barre latérale",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} s’exécute dans une fenêtre externe : {name} n’utilise pas les pages ouvertes ici. Passez à un plugin de navigateur intégré pour naviguer dans cette barre latérale.",
   "Accessibility tree": "Arbre d'accessibilité",
   "Standard MCP": "MCP standard",
   "DOM & console": "DOM et console",
@@ -13646,6 +13826,7 @@ var FR = {
   "Usage details": "Détails d'utilisation",
   "Web": "Web",
   "Web search API": "API de recherche web",
+  "Edit in config file": "Modifier dans le fichier de configuration",
   "Chat background": "Fond de la discussion",
   "While this chat is open, its background takes the place of the team background.": "Tant que cette discussion est ouverte, son fond remplace celui de l'équipe.",
   "This chat uses the team background.": "Cette discussion utilise le fond de l'équipe.",
@@ -13936,6 +14117,18 @@ var FR = {
   "Toggle browser": "Afficher/masquer le navigateur",
   "Waiting": "En attente",
   "Window plugins": "Extensions de fenêtre",
+  "Allow for this version": "Autoriser pour cette version",
+  "Confirm allow": "Confirmer l’autorisation",
+  "Custom profile plugins": "Extensions personnalisées du profil",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "Personnalisez le moteur par la conversation. Créez des extensions hôte, des outils ou des modes personnalisés ; utilisez Apparence ou ui-plugins pour les thèmes et l’interface de bureau.",
+  "DSH Web UI only": "DSH Web UI uniquement",
+  "Desktop UI": "Interface de bureau",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "Les outils hôte continuent de fonctionner ; l’interface web DSH et les thèmes DSH ne sont pas chargés dans l’application de bureau.",
+  "Incompatible": "Incompatible",
+  "Local": "Local",
+  "Open config file": "Ouvrir le fichier de configuration",
+  "Open folder": "Ouvrir le dossier",
+  "UI": "UI",
   // The inbox.
   "Inbox": "Boîte de réception",
   "Inbox, {count} waiting for you": "Boîte de réception, {count} en attente de vous",
@@ -14705,6 +14898,10 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Reconnecting…": "Verbindung wird wiederhergestellt…",
+  "Reconnect": "Neu verbinden",
+  "Waiting to confirm…": "Warte auf Bestätigung…",
+  "Live updates paused: message too large": "Live-Updates pausiert: Nachricht zu groß",
   "Auto review": "Automatische Prüfung",
   "Session only": "Nur diese Sitzung",
   "Permission preset": "Berechtigungsprofil",
@@ -14956,6 +15153,7 @@ var DE = {
   Search: "Suchen",
   "New chat": "Neuer Chat",
   "Back to chat": "Zurück zum Chat",
+  "Back to bottom": "Nach unten scrollen",
   "New…": "Neu…",
   "New section": "Neuer Abschnitt",
   "Rename section": "Abschnitt umbenennen",
@@ -15301,6 +15499,11 @@ var DE = {
   "Top up ↗": "Aufladen ↗",
   Retry: "Erneut versuchen",
   "Retrying…": "Wird erneut versucht…",
+  "Continuing…": "Wird fortgesetzt…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} wurde pausiert, weil Tool-Aufrufe wiederholt fehlschlugen oder sich wiederholten. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} wurde nach mehreren automatischen Abschnittswechseln pausiert. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "Paused to prevent a repeating loop": "Pausiert, um eine Wiederholungsschleife zu verhindern",
+  "Paused after repeated automatic part switches": "Nach wiederholten automatischen Abschnittswechseln pausiert",
   "Technical details": "Technische Details",
   Code: "Code",
   "HTTP status": "HTTP-Status",
@@ -15646,7 +15849,7 @@ var DE = {
   Mono: "Monochrom",
   Paper: "Papier",
   Moonlight: "Mondlicht",
-  Celadon: "Seladon",
+  Fei: "Fei",
   // Settings dialog
   General: "Allgemein",
   Bots: "Bots",
@@ -15861,7 +16064,11 @@ var DE = {
   "Context {percent}%": "Kontext {percent}%",
   "{used} of {total} tokens of context in use": "{used} von {total} Kontext-Tokens belegt",
   // Transcript
+  Quote: "Zitieren",
   Annotate: "Kommentieren",
+  "Sign out of your DeepSeek account?": "Von deinem DeepSeek-Konto abmelden?",
+  "Some Bots are still working. Signing out will stop them.": "Einige Bots arbeiten noch. Durch das Abmelden werden sie gestoppt.",
+  "Signing out may stop running work.": "Durch das Abmelden kann laufende Arbeit gestoppt werden.",
   "Annotate quote": "Zitat kommentieren",
   Annotation: "Anmerkung",
   "Add an annotation…": "Anmerkung hinzufügen…",
@@ -16490,6 +16697,20 @@ var DE = {
   "Create task": "Aufgabe erstellen",
   "Turn on Automation tasks in DSH": "„Automatisierungsaufgaben“ in DSH aktivieren",
   "Switch on Automation tasks on the Plugins page in Settings.": "Aktiviere „Automatisierungsaufgaben“ auf der Seite „Plugins“ in den Einstellungen.",
+  "Scheduled tasks are off": "Geplante Aufgaben sind deaktiviert",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Aktiviere geplante Aufgaben, um Aufträge automatisch nach Zeitplan auszuführen.",
+  "Turn on scheduled tasks": "Geplante Aufgaben aktivieren",
+  "Turning on…": "Wird aktiviert…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Starte DS Bot neu, damit geplante Aufgaben wirksam werden.",
+  "Scheduled tasks failed to start": "Geplante Aufgaben konnten nicht gestartet werden",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Starte DS Bot neu oder aktualisiere den Status nach der Behebung.",
+  "Refresh status": "Status aktualisieren",
+  "Starting scheduled tasks…": "Geplante Aufgaben werden gestartet…",
+  "Scheduled tasks cannot be turned on from here.": "Geplante Aufgaben können hier nicht aktiviert werden.",
+  "Scheduled tasks are not available in this installation.": "Geplante Aufgaben sind in dieser Installation nicht verfügbar.",
+  "Scheduled tasks cannot be changed here.": "Geplante Aufgaben können hier nicht geändert werden.",
+  "Scheduled tasks are locked by your configuration.": "Geplante Aufgaben sind durch deine Konfiguration gesperrt.",
+  "Could not turn on scheduled tasks.": "Geplante Aufgaben konnten nicht aktiviert werden.",
   "New task": "Neue Aufgabe",
   "No scheduled tasks yet.": "Noch keine geplanten Aufgaben.",
   "No scheduled tasks yet. Add one": "Noch keine geplanten Aufgaben. Jetzt hinzufügen",
@@ -16578,6 +16799,11 @@ var DE = {
   "Teammate request": "Anfrage eines Teammitglieds",
   "{count} background tasks · {waiting} needs approval": "{count} Hintergrundaufgaben · {waiting} warten auf Freigabe",
   "{count} background tasks running": "{count} Hintergrundaufgaben aktiv",
+  "In background · {title}": "Im Hintergrund · {title}",
+  "Working in background": "Arbeitet im Hintergrund",
+  "Waiting for approval · {title}": "Wartet auf Freigabe · {title}",
+  "Waiting for teammate · {title}": "Wartet auf Teammitglied · {title}",
+  "View background tasks": "Hintergrundaufgaben ansehen",
   "Sent to background task": "An Hintergrundaufgabe gesendet",
   "Background tasks": "Hintergrundaufgaben",
   "Active": "Aktiv",
@@ -17053,9 +17279,11 @@ var DE = {
   "Fast": "Schnell",
   "Multi-step": "Mehrstufig",
   "Autonomous": "Autonom",
-  "Shared login": "Geteilter Login",
-  "Real Chromium": "Echtes Chromium",
-  "Human + AI": "Mensch + KI",
+  "Sidebar browser": "Seitenleisten-Browser",
+  "External window": "Externes Fenster",
+  "Browser window": "Browserfenster",
+  "{name} opens in an external window, not this sidebar": "{name} öffnet sich in einem externen Fenster, nicht in dieser Seitenleiste",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} läuft in einem externen Fenster, daher nutzt {name} hier geöffnete Seiten nicht. Wechsle zu einem integrierten Browser-Plugin, um in dieser Seitenleiste zu surfen.",
   "Accessibility tree": "Barrierefreiheitsbaum",
   "Standard MCP": "Standard-MCP",
   "DOM & console": "DOM & Konsole",
@@ -17311,6 +17539,7 @@ var DE = {
   "Usage details": "Nutzungsdetails",
   "Web": "Web",
   "Web search API": "Websuche-API",
+  "Edit in config file": "In Konfigurationsdatei bearbeiten",
   "Chat background": "Chat-Hintergrund",
   "While this chat is open, its background takes the place of the team background.": "Solange dieser Chat offen ist, ersetzt sein Hintergrund den des Teams.",
   "This chat uses the team background.": "Dieser Chat nutzt den Hintergrund des Teams.",
@@ -17601,6 +17830,18 @@ var DE = {
   "Toggle browser": "Browser ein-/ausblenden",
   "Waiting": "Wartend",
   "Window plugins": "Fenster-Plugins",
+  "Allow for this version": "Für diese Version zulassen",
+  "Confirm allow": "Zulassen bestätigen",
+  "Custom profile plugins": "Benutzerdefinierte Profil-Plugins",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "Passe die Engine im Gespräch an. Schreibe Host-Plugins, Werkzeuge oder eigene Modi; nutze Darstellung oder ui-plugins für Desktop-Themes und UI.",
+  "DSH Web UI only": "Nur DSH Web UI",
+  "Desktop UI": "Desktop-UI",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "Host-Werkzeuge laufen weiter; DSH Web UI und DSH-Themes werden in der Desktop-App nicht geladen.",
+  "Incompatible": "Inkompatibel",
+  "Local": "Lokal",
+  "Open config file": "Konfigurationsdatei öffnen",
+  "Open folder": "Ordner öffnen",
+  "UI": "UI",
   // The inbox.
   "Inbox": "Posteingang",
   "Inbox, {count} waiting for you": "Posteingang, {count} warten auf dich",
@@ -18372,6 +18613,10 @@ var DSH_DE = {
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Reconnecting…": "正在重新连接…",
+  "Reconnect": "重新连接",
+  "Waiting to confirm…": "等待确认…",
+  "Live updates paused: message too large": "实时推送已暂停：单条消息超过上限",
   "Auto review": "自动审批",
   "Session only": "仅本次会话",
   "Permission preset": "权限模式",
@@ -18490,6 +18735,7 @@ var ZH = {
   Search: "搜索",
   "New chat": "新对话",
   "Back to chat": "返回对话",
+  "Back to bottom": "回到底部",
   "New…": "新建",
   "New section": "新建分组",
   "Rename section": "重命名分组",
@@ -18842,6 +19088,11 @@ var ZH = {
   "Top up ↗": "去充值 ↗",
   Retry: "重试",
   "Retrying…": "正在重试…",
+  "Continuing…": "正在继续…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} 已连续多次自动换段仍未结束，已自动暂停。回复指导或点击「继续」。",
+  "Paused to prevent a repeating loop": "已自动暂停以防重复循环",
+  "Paused after repeated automatic part switches": "连续多次自动换段后已暂停",
   "Technical details": "技术详情",
   Code: "代码",
   "HTTP status": "HTTP 状态码",
@@ -19209,7 +19460,7 @@ var ZH = {
   Mono: "黑白",
   Paper: "纸张",
   Moonlight: "月光",
-  Celadon: "天青",
+  Fei: "Fei",
   // Settings dialog
   General: "通用",
   Bots: "Bot",
@@ -19596,7 +19847,11 @@ var ZH = {
   "Context {percent}%": "上下文 {percent}%",
   "{used} of {total} tokens of context in use": "上下文已用 {used} / {total} tokens",
   // Transcript
+  Quote: "引用",
   Annotate: "批注",
+  "Sign out of your DeepSeek account?": "确定要退出当前 DeepSeek 账号吗？",
+  "Some Bots are still working. Signing out will stop them.": "部分 Bot 正在工作中，退出登录会停止它们。",
+  "Signing out may stop running work.": "退出登录可能会停止正在进行的工作。",
   "Annotate quote": "批注引用",
   Annotation: "批注",
   "Add an annotation…": "写下批注…",
@@ -20234,6 +20489,20 @@ var ZH = {
   "Create task": "创建任务",
   "Turn on Automation tasks in DSH": "在 DSH 里打开「自动化任务」",
   "Switch on Automation tasks on the Plugins page in Settings.": "在设置的插件页启用「自动化任务」。",
+  "Scheduled tasks are off": "定时任务已关闭",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "开启后，Bot 会按设定时间自动运行任务。",
+  "Turn on scheduled tasks": "开启定时任务",
+  "Turning on…": "正在开启…",
+  "Restart DS Bot for scheduled tasks to take effect.": "请重启 DS Bot 使定时任务生效。",
+  "Scheduled tasks failed to start": "定时任务启动失败",
+  "Restart DS Bot, or refresh status after fixing the issue.": "请重启 DS Bot，或在排查后刷新状态。",
+  "Refresh status": "刷新状态",
+  "Starting scheduled tasks…": "正在启动定时任务…",
+  "Scheduled tasks cannot be turned on from here.": "当前环境无法直接开启定时任务。",
+  "Scheduled tasks are not available in this installation.": "当前安装未包含定时任务组件。",
+  "Scheduled tasks cannot be changed here.": "当前配置不允许在此修改定时任务。",
+  "Scheduled tasks are locked by your configuration.": "定时任务已被当前配置锁定。",
+  "Could not turn on scheduled tasks.": "无法开启定时任务。",
   "New task": "新建任务",
   "No scheduled tasks yet.": "还没有定时任务。",
   "No scheduled tasks yet. Add one": "还没有定时任务，去添加",
@@ -20322,6 +20591,11 @@ var ZH = {
   "Teammate request": "同伴请求",
   "{count} background tasks · {waiting} needs approval": "{count} 个后台任务 · {waiting} 项待批准",
   "{count} background tasks running": "{count} 个后台任务运行中",
+  "In background · {title}": "后台运行 · {title}",
+  "Working in background": "正在后台运行",
+  "Waiting for approval · {title}": "等你允许 · {title}",
+  "Waiting for teammate · {title}": "等待同伴 · {title}",
+  "View background tasks": "查看后台任务",
   "Sent to background task": "已发给后台任务",
   "Background tasks": "后台任务",
   "Active": "进行中",
@@ -20520,9 +20794,11 @@ var ZH = {
   "Fast": "高速执行",
   "Multi-step": "多步规划",
   "Autonomous": "自主完成",
-  "Shared login": "共享登录态",
-  "Real Chromium": "真实浏览器",
-  "Human + AI": "人机协作",
+  "Sidebar browser": "侧边栏浏览器",
+  "External window": "外部窗口",
+  "Browser window": "浏览器窗口",
+  "{name} opens in an external window, not this sidebar": "{name} 在外部窗口运行，不在此侧边栏显示",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} 在外部独立窗口运行，{name} 不会使用这里打开的网页。切换为内置浏览器插件即可在此侧边栏里直接浏览与操控。",
   "Accessibility tree": "可访问性树",
   "Standard MCP": "标准 MCP",
   "DOM & console": "DOM 与控制台",
@@ -20778,6 +21054,7 @@ var ZH = {
   "Usage details": "用量明细",
   "Web": "网页",
   "Web search API": "网页搜索 API",
+  "Edit in config file": "在配置文件中编辑",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",
   "This chat uses the team background.": "这个聊天用团队背景。",
@@ -21411,8 +21688,20 @@ var HOST_ZH = {
   "Showing first {shown} of {total} sheets": "仅显示前 {shown} / {total} 个工作表",
   "Some model providers could not be loaded.": "部分模型提供方未能加载。",
   "Toggle browser": "打开/关闭浏览器",
+  "UI": "界面",
   "Waiting": "等待中",
-  "Window plugins": "窗口界面插件"
+  "Window plugins": "窗口界面插件",
+  "Allow for this version": "在此版本启用",
+  "Confirm allow": "确认启用",
+  "Custom profile plugins": "自定义引擎插件",
+  "Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.": "用对话定制引擎：编写后端插件、工具或自定义模式；桌面端主题与界面请使用外观设置或 ui-plugins。",
+  "DSH Web UI only": "仅支持 DSH 网页前端",
+  "Desktop UI": "桌面端界面",
+  "Host tools still run; DSH Web UI and skins are not loaded in Desktop.": "引擎工具仍可运行；DSH 网页界面与皮肤不会在桌面端加载。",
+  "Incompatible": "版本不兼容",
+  "Local": "本地",
+  "Open config file": "打开配置文件",
+  "Open folder": "打开文件夹"
 };
 Object.assign(ZH, HOST_ZH);
 var ZH_TW = convertDict(ZH);
@@ -21628,7 +21917,7 @@ var clearClientErrors = () => {
 var clientErrors = () => entries.map((entry) => entry.count > 1 ? { ...entry, text: `${entry.text} (×${entry.count})` } : { ...entry });
 function clientFacts() {
   return {
-    surface: window.dshDesktop ? "DSH Desktop" : "DSH Web",
+    surface: globalThis.dsBotApp ? "DS Bot Desktop" : window.dshDesktop ? "DSH Desktop" : "DSH Web",
     language: language(),
     userAgent: navigator.userAgent
   };
@@ -21653,6 +21942,8 @@ var FAILURES = {
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
+  TURN_PAUSED_LOOP: "Paused to prevent a repeating loop",
+  TURN_PAUSED_SWITCH_LIMIT: "Paused after repeated automatic part switches",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -21857,7 +22148,7 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h94, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h94 / 2}" width="${w}" height="${h94}" rx="${w / 2}"/></g>`;
+var eyeMarkup = ([cx, cy, w, h95, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h95 / 2}" width="${w}" height="${h95}" rx="${w / 2}"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -21971,7 +22262,7 @@ var STORAGE = {
 };
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
-var LEGACY_THEMES = { grok: "mono" };
+var LEGACY_THEMES = { grok: "mono", celadon: "fei" };
 function legacyKeys(key) {
   if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
   const name = key.slice(key.indexOf(":") + 1);
@@ -23063,7 +23354,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
         const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id);
         const details = force || !sameSubject || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
-        return { ...state, renaming: false, tab: null, details, view: "details", ...details === null && state.rightPanel !== void 0 ? { rightPanel: null } : {} };
+        return { ...state, renaming: false, tab: null, details, view: "details", ...details !== null ? { panelYield: yieldTo(state, "details") } : {}, ...details === null && state.rightPanel !== void 0 ? { rightPanel: null } : {} };
       });
     },
     // The open panel follows the main view; a subject with no browser (a group
@@ -23436,6 +23727,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     pluginsSourceRemove: (id) => after(call2("plugins-source-remove", { id })),
     pluginsRetry: () => after(call2("plugins-retry", {})),
     schedules: () => call2("schedules"),
+    scheduleEnable: () => call2("schedule-enable"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
     schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
@@ -23752,7 +24044,7 @@ var REPLY_FACES = [["normal", FONT_FILES.latin], ["italic", FONT_FILES.latinItal
 // src/client/themes.js
 var fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`;
 var SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join("\n")}
-.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble .bt-md,.bt-bubble .bt-md :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--bt-reply-font,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--bt-reply-font-default,sans-serif)}`;
 var THEMES = {
   deepseek: {
     label: "DeepSeek",
@@ -23774,8 +24066,8 @@ var THEMES = {
     light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
     dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
   },
-  celadon: {
-    label: "Celadon",
+  fei: {
+    label: "Fei",
     light: { bg: "#faf6ee", sidebar: "#f3ede2", bubble: "#efe8db", card: "#fdfbf7", text: "#211f1b", user: "#e2eeec", userText: "#163f46", accent: "#1e8294" },
     dark: { bg: "#1d1c19", sidebar: "#23221e", bubble: "#2d2b26", card: "#27251f", text: "#f2ede3", user: "#1f4a51", userText: "#e6f1f0", accent: "#3fa9ba" },
     css: SERIF_REPLIES
@@ -23836,14 +24128,14 @@ var hslOf = (hex) => {
   if (hi === lo) return [0, 0, l];
   const d = hi - lo;
   const s = d / (1 - Math.abs(2 * l - 1));
-  const h94 = hi === r ? 60 * ((g - b2) / d % 6) : hi === g ? 60 * ((b2 - r) / d + 2) : 60 * ((r - g) / d + 4);
-  return [h94 < 0 ? h94 + 360 : h94, s, l];
+  const h95 = hi === r ? 60 * ((g - b2) / d % 6) : hi === g ? 60 * ((b2 - r) / d + 2) : 60 * ((r - g) / d + 4);
+  return [h95 < 0 ? h95 + 360 : h95, s, l];
 };
-var hexOfHsl = (h94, s, l) => {
+var hexOfHsl = (h95, s, l) => {
   const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(h94 / 60 % 2 - 1));
+  const x = c * (1 - Math.abs(h95 / 60 % 2 - 1));
   const m = l - c / 2;
-  const rgb = h94 < 60 ? [c, x, 0] : h94 < 120 ? [x, c, 0] : h94 < 180 ? [0, c, x] : h94 < 240 ? [0, x, c] : h94 < 300 ? [x, 0, c] : [c, 0, x];
+  const rgb = h95 < 60 ? [c, x, 0] : h95 < 120 ? [x, c, 0] : h95 < 180 ? [0, c, x] : h95 < 240 ? [0, x, c] : h95 < 300 ? [x, 0, c] : [c, 0, x];
   return toHex(rgb.map((value) => (value + m) * 255));
 };
 var toward = (from, to, ratio) => toHex(channels(from).map((value, index) => value + (channels(to)[index] - value) * ratio));
@@ -24401,16 +24693,16 @@ function appearanceCss({ appearance, theme, background, pictureUrl: pictureUrl2 
   const rules = [];
   if (look.radius !== void 0) vars.push(`--bt-r:${look.radius / 100}`);
   if (look.uiFont) {
-    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`, `--bt-font:${fontStack(look.uiFont)},${SYSTEM_UI}`);
+    vars.push(`--bt-reply-font:${fontStack(look.uiFont)}`, `--bt-font:${fontStack(look.uiFont)},${SYSTEM_UI}`);
     rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`);
   }
   if (look.codeFont) {
-    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`, `--bt-mono:${fontStack(look.codeFont)},${SYSTEM_CODE}`);
+    vars.push(`--bt-mono:${fontStack(look.codeFont)},${SYSTEM_CODE}`);
     rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`);
   }
   if (fonts) {
-    if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`, `--dsh-content-font-size:${look.fontSize}px`);
-    if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`);
+    if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`, `--bt-content-fs:${look.fontSize}px`);
+    if (look.lineHeight) rules.push(`html body .bt-md,html body .md_markdown{line-height:${look.lineHeight}}`);
   }
   if (look.density !== void 0) rules.push(scoped(DENSITY[look.density], "html body"));
   const { shown, paint } = painted({ appearance, background, pictureUrl: pictureUrl2, safe: safe2 });
@@ -24547,6 +24839,16 @@ function triggerColorMorph(durationMs = 280, targetDocument = globalThis.documen
   return true;
 }
 var DEFAULT_APPEARANCE_CHANGE = { theme: "deepseek", accent: null, appearance: { radius: null, density: null, background: null, css: null, mode: null, uiFont: null, codeFont: null, fontSize: null, lineHeight: null, material: null } };
+
+// src/client/appearance-dsh.js
+function dshAppearanceCss({ appearance, fonts = false } = {}) {
+  const look = readAppearance(appearance);
+  const vars = [];
+  if (look.uiFont) vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`);
+  if (look.codeFont) vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`);
+  if (fonts && look.fontSize) vars.push(`--dsh-content-font-size:${look.fontSize}px`);
+  return vars.length > 0 ? `html body{${vars.join(";")}}` : "";
+}
 
 // src/client/skin.js
 var MIN_SKIN_ALPHA = 0.7;
@@ -24721,6 +25023,7 @@ var SPRING_POP = springEasing(500, 22);
 var SPRING_LEAD = springEasing(784, 48.2);
 var SPRING_TRAIL = springEasing(289, 29.2);
 var SPRING_GLIDE = springEasing(1e3, 63);
+var SPRING_SLIDE = springEasing(784, 56);
 var QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) };
 var spring = (curve, ...properties) => properties.map((property) => `${property} ${curve.duration}ms ${curve.easing}`).join(",");
 function liveSprings(apply2) {
@@ -24728,16 +25031,21 @@ function liveSprings(apply2) {
   const current2 = {};
   let frame3 = 0;
   let last = 0;
+  const cancel = () => {
+    if (frame3 && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame3);
+    frame3 = 0;
+  };
   const step = (now2) => {
-    const dt = Math.min(0.5, Math.max(1e-3, (now2 - last) / 1e3));
-    last = now2;
+    const stamp = Number.isFinite(now2) ? now2 : performance.now();
+    const dt = Math.min(0.5, Math.max(1e-3, (stamp - last) / 1e3));
+    last = stamp;
     const steps = Math.ceil(dt * 240);
-    const h94 = dt / steps;
+    const h95 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h94;
-        value.x += value.v * h94;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h95;
+        value.x += value.v * h95;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -24745,8 +25053,8 @@ function liveSprings(apply2) {
       } else moving = true;
       current2[key] = value.x;
     }
-    apply2(current2);
     frame3 = moving ? requestAnimationFrame(step) : 0;
+    apply2(current2, moving);
   };
   return {
     target: () => {
@@ -24755,19 +25063,33 @@ function liveSprings(apply2) {
       for (const [key, value] of values) out[key] = value.to;
       return out;
     },
+    current: () => values.size ? { ...current2 } : null,
+    isRunning: () => frame3 !== 0,
+    seed(initial) {
+      cancel();
+      for (const [key, x] of Object.entries(initial)) {
+        const value = values.get(key);
+        if (value) {
+          value.x = x;
+          value.v = 0;
+          value.to = x;
+        } else values.set(key, { x, v: 0, to: x, k: 0, c: 0 });
+        current2[key] = x;
+      }
+    },
     set(targets, curves, jump) {
+      const immediate = jump || typeof requestAnimationFrame !== "function";
       for (const [key, to] of Object.entries(targets)) {
         const value = values.get(key);
         const { stiffness: k, damping: c } = curves[key];
-        if (!value || jump) {
+        if (!value || immediate) {
           values.set(key, { x: to, v: 0, to, k, c });
           current2[key] = to;
         } else Object.assign(value, { to, k, c });
       }
-      if (jump) {
-        cancelAnimationFrame(frame3);
-        frame3 = 0;
-        apply2(current2);
+      if (immediate) {
+        cancel();
+        apply2(current2, false);
         return;
       }
       if (!frame3) {
@@ -24778,13 +25100,9 @@ function liveSprings(apply2) {
     reset: () => {
       values.clear();
       for (const key of Object.keys(current2)) delete current2[key];
-      cancelAnimationFrame(frame3);
-      frame3 = 0;
+      cancel();
     },
-    stop: () => {
-      cancelAnimationFrame(frame3);
-      frame3 = 0;
-    }
+    stop: cancel
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -25163,10 +25481,10 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 
 // src/client/styles.js
 var SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-seg-track:var(--bt-hover);--bt-seg-thumb:var(--bt-card);--bt-seg-shadow:0 1px 3px rgba(0,0,0,.08);--bt-palette-scrim:rgba(0,0,0,.28);--bt-cli-tile:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-island-rim:rgba(255,255,255,.92);--bt-island-shadow:0 22px 54px -16px rgba(15,23,42,.15),0 6px 20px -6px rgba(15,23,42,.07),0 0 0 .5px rgba(15,23,42,.08),inset 0 1px 0 rgba(255,255,255,1),inset 0 -1px 0 rgba(15,23,42,.04);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.06) 34%,transparent 60%);--bt-island-well:rgba(20,20,20,.045);--bt-island-well-focus:rgba(255,255,255,.92);--bt-island-btn:rgba(255,255,255,.75);--bt-island-btn-hover:rgba(20,20,20,.07);--bt-island-btn-shadow:0 2px 8px -2px rgba(0,0,0,.22);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-btn-shadow:0 1px 2px rgba(20,20,20,.04);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.07),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 22%,var(--bt-line-2));--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);--bt-mono:var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-seg-track:var(--bt-hover);--bt-seg-thumb:var(--bt-card);--bt-seg-shadow:0 1px 3px rgba(0,0,0,.08);--bt-palette-scrim:rgba(0,0,0,.28);--bt-cli-tile:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-island-rim:rgba(255,255,255,.92);--bt-island-shadow:0 22px 54px -16px rgba(15,23,42,.15),0 6px 20px -6px rgba(15,23,42,.07),0 0 0 .5px rgba(15,23,42,.08),inset 0 1px 0 rgba(255,255,255,1),inset 0 -1px 0 rgba(15,23,42,.04);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.06) 34%,transparent 60%);--bt-island-well:rgba(20,20,20,.045);--bt-island-well-focus:rgba(255,255,255,.92);--bt-island-btn:rgba(255,255,255,.75);--bt-island-btn-hover:rgba(20,20,20,.07);--bt-island-btn-shadow:0 2px 8px -2px rgba(0,0,0,.22);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-btn-shadow:0 1px 2px rgba(20,20,20,.04);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.07),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 22%,var(--bt-line-2));--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);--bt-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-sel){touch-action:manipulation}
-:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.bt-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-btn,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
+:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-typing-bg,.bt-typing-task,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-sel){touch-action:manipulation}
+:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.bt-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-typing-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-btn,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-danger:#ff6b72;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-seg-track:rgba(0,0,0,.32);--bt-seg-thumb:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-card));--bt-seg-shadow:0 1px 3px rgba(0,0,0,.32),inset 0 .5px 0 rgba(255,255,255,.1);--bt-palette-scrim:rgba(0,0,0,.64);--bt-cli-tile:#f0f0f2;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-island-rim:rgba(255,255,255,.14);--bt-island-shadow:0 26px 64px -14px rgba(0,0,0,.68),0 8px 24px -6px rgba(0,0,0,.4),0 0 0 .5px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.35);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.09) 0%,rgba(255,255,255,.015) 32%,transparent 56%);--bt-island-well:rgba(0,0,0,.28);--bt-island-well-focus:rgba(0,0,0,.36);--bt-island-btn:rgba(255,255,255,.07);--bt-island-btn-hover:rgba(255,255,255,.14);--bt-island-btn-shadow:0 2px 10px -2px rgba(0,0,0,.45);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-btn-shadow:0 1px 2px rgba(0,0,0,.2);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 18%,rgba(255,255,255,.07));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 30%,rgba(255,255,255,.12));--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join("")}
@@ -25247,29 +25565,13 @@ body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert
    Mica the app styles DSH's sidebar the same way, via --bt-leftcol-fill there);
    it stays under the shell's title-bar switch (z 30) and the popovers (z 60),
    and the floating drawer keeps the opaque fill over the conversation. */
-.bt-leftcol{position:fixed;left:0;top:0;bottom:0;z-index:25;display:flex;--bt-lc-clear:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));background:var(--bt-leftcol-fill,var(--bt-sidebar));border-right:.5px solid var(--bt-line);box-sizing:border-box;padding:calc(var(--bt-lc-clear) + 6px) 12px 6px;color:var(--bt-ink);font-family:var(--bt-font)}
+.bt-leftcol{position:fixed;left:0;top:0;bottom:0;z-index:25;display:flex;--bt-lc-clear:var(--bt-top-clearance,var(--bt-titlebar-h,0px));background:var(--bt-leftcol-fill,var(--bt-sidebar));border-right:.5px solid var(--bt-line);box-sizing:border-box;padding:calc(var(--bt-lc-clear) + 6px) 12px 6px;color:var(--bt-ink);font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{border-right:none}
-.bt-leftcol[data-entering]{animation:bt-leftcol-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-leftcol[data-leaving]{transform:translateX(-100%);transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};pointer-events:none}
-@keyframes bt-leftcol-in{from{transform:translateX(-100%)}}
-@media (prefers-reduced-motion:reduce){.bt-leftcol[data-entering]{animation:none}.bt-leftcol[data-leaving],[class*="_centerCol"]{transition:none}}
+.bt-leftcol[data-sliding]{will-change:transform}
+.bt-leftcol[data-leaving]{pointer-events:none}
+@media (prefers-reduced-motion:reduce){.bt-leftcol[data-folding],[data-bt-center]{transition:none}}
 .bt-leftcol-grip{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-leftcol-grip:hover,.bt-leftcol-grip:active{background:linear-gradient(to right,transparent 3px,var(--bt-line-2) 3px,var(--bt-line-2) 5px,transparent 5px)}
-/* The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
-   column leaves nothing behind (the shell's right column, when open, keeps its
-   own geometry). Narrow hosts may put the conversation in the first track,
-   so only the desktop layout can force that track to zero. */
-@media (min-width:${DSH_NARROW}px){
-[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
-}
-/* Bot mode owns the left column while both shell tracks are collapsed. Keep
-   the center's explicit second grid column, but yield when a shell track opens.
-   A responsive skin's single track otherwise creates an implicit center column. */
-@media (max-width:${DSH_NARROW - 1}px){
-[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
-[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head)>[class*="_centerCol"]{grid-column:2!important;width:auto!important}
-}
-html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
 .bt-leftcol-foot{display:flex;align-items:center;gap:9px;padding-top:8px;flex:none}
@@ -25292,7 +25594,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol-foot-rail{flex-direction:column;gap:8px}
 /* A drag that crosses the rail's snap line rides the spring to its target: the
    content is pinned at the target size so only the column's edge moves. */
-.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -25325,19 +25627,19 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 /* The width settings: the share of the column a bubble may take, and the flat text. */
 body{--bt-msg-w:.8;--bt-flat-w:1}
 .bt-astack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:0}
-.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-bubble);color:var(--bt-ink);border-radius:12px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
+.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-bubble);color:var(--bt-ink);border-radius:12px;padding:7px 12px;font-size:var(--bt-content-fs,14px);line-height:calc(var(--bt-content-fs,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-msg[data-join-top]>.bt-msg-line>.bt-bubble{border-start-start-radius:4px}
 .bt-msg[data-join-bottom]>.bt-msg-line>.bt-bubble{border-end-start-radius:4px}
-.bt-bubble [class*="_markdown"]>*+*{margin-top:10px}
-.bt-bubble [class*="_markdown"]{color:inherit!important;font-size:inherit!important;line-height:inherit!important}
+.bt-bubble .bt-md>*+*{margin-top:10px}
+.bt-bubble .bt-md{color:inherit!important;font-size:inherit!important;line-height:inherit!important}
 .bt-bubble p{margin:0}
 .bt-bubble p + p{margin-top:6px}
 .bt-bubble ul,.bt-bubble ol{margin:4px 0;padding-left:20px}
-.bt-bubble [class*="_markdown"] li+li{margin-top:6px}
-.bt-bubble [class*="_markdown"] li::marker{color:var(--bt-ink-2)}
+.bt-bubble .bt-md li+li{margin-top:6px}
+.bt-bubble .bt-md li::marker{color:var(--bt-ink-2)}
 /* line-height:1 keeps the monospace line box from making an inline code line taller. */
-.bt-bubble [class*="_markdown"] :not(pre)>code{line-height:1;-webkit-box-decoration-break:clone;box-decoration-break:clone}
-.bt-bubble :is(img,video),.bt-ububble :is(img,video),[data-chat-flow] [class*="_bubble"] :is(img,video){max-width:100%;height:auto}
+.bt-bubble .bt-md :not(pre)>code{line-height:1;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.bt-bubble :is(img,video),.bt-ububble :is(img,video){max-width:100%;height:auto}
 .bt-bubble a[href^="${MENTION_ORIGIN}"]{text-decoration:none;font-weight:400;cursor:pointer;white-space:nowrap}
 .bt-bubble a[href^="${MENTION_ORIGIN}"]::before{content:"";display:inline-block;width:16px;height:16px;margin-right:3px;vertical-align:-3px;background:currentColor;-webkit-mask:${DEFAULT_MASK} center/contain no-repeat;mask:${DEFAULT_MASK} center/contain no-repeat}
 .bt-group-msg{display:flex;flex-direction:column;gap:4px;margin:16px 0 0}
@@ -25347,8 +25649,8 @@ body{--bt-msg-w:.8;--bt-flat-w:1}
 body:not([data-bt-layout=flat]) .bt-group-msg[data-chain-next] .bt-lead{visibility:hidden}
 body:not([data-bt-layout=flat]) .bt-group-msg[data-chain-prev]>.bt-astack>.bt-msg[data-first]>.bt-msg-line>.bt-bubble{border-start-start-radius:4px}
 body:not([data-bt-layout=flat]) .bt-group-msg[data-chain-next]>.bt-astack>.bt-msg[data-last]>.bt-msg-line>.bt-bubble{border-end-start-radius:4px}
-[data-chat-flow]>[data-chat-group-key][data-bt-chain-next]{padding-bottom:2px!important;margin-bottom:0!important}
-[data-chat-flow]>[data-chat-group-key][data-bt-chain-prev]{padding-top:2px!important;margin-top:0!important}
+[data-bt-flow]>[data-bt-group-key][data-bt-chain-next]{padding-bottom:2px!important;margin-bottom:0!important}
+[data-bt-flow]>[data-bt-group-key][data-bt-chain-prev]{padding-top:2px!important;margin-top:0!important}
 .bt-lead{flex:none;display:flex;margin-bottom:1px}
 button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 /* Rows without the avatar start where the bubble beside it starts: 22px avatar + 8px gap. */
@@ -25361,11 +25663,11 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-x{position:relative;flex:none;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
-.bt-q{margin:0 auto 8px;width:100%;max-width:var(--dsh-chat-content-width,748px);display:flex;flex-direction:column;gap:12px;--bt-q-edge:color-mix(in srgb,var(--bt-ink) 10%,transparent);--bt-q-rule:color-mix(in srgb,var(--bt-ink) 8%,transparent);--bt-q-rule-2:color-mix(in srgb,var(--bt-ink) 5%,transparent);background:var(--bt-card);box-shadow:0 1px 3px rgba(20,20,20,.04),inset 0 0 0 1px var(--bt-q-edge);border-radius:16px;padding:14px 16px;box-sizing:border-box;color:var(--bt-ink);font-family:var(--bt-font);animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
+.bt-q{margin:0 auto 8px;width:100%;max-width:var(--bt-chat-w,748px);display:flex;flex-direction:column;gap:12px;--bt-q-edge:color-mix(in srgb,var(--bt-ink) 10%,transparent);--bt-q-rule:color-mix(in srgb,var(--bt-ink) 8%,transparent);--bt-q-rule-2:color-mix(in srgb,var(--bt-ink) 5%,transparent);background:var(--bt-card);box-shadow:0 1px 3px rgba(20,20,20,.04),inset 0 0 0 1px var(--bt-q-edge);border-radius:16px;padding:14px 16px;box-sizing:border-box;color:var(--bt-ink);font-family:var(--bt-font);animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
 body[data-ds-dark-theme] .bt-q{--bt-q-edge:rgba(255,255,255,.16);--bt-q-rule:rgba(255,255,255,.12);--bt-q-rule-2:rgba(255,255,255,.08)}
 @keyframes bt-q-in{from{transform:translateY(10px) scale(.97)}}
 .bt-q-settled{animation:none}
@@ -25454,7 +25756,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 .bt-q-btn:hover{background:var(--bt-active)}
 .bt-q-submit:focus-visible,.bt-q-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-q-foot{display:flex;justify-content:flex-end;gap:8px}
-.bt-q-raised{width:calc(var(--dsh-chat-content-width,748px) - 32px);max-width:calc(100% - 32px);gap:0;padding:0;box-shadow:0 2px 8px rgba(20,20,20,.035),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 5%,transparent)}
+.bt-q-raised{width:calc(var(--bt-chat-w,748px) - 32px);max-width:calc(100% - 32px);gap:0;padding:0;box-shadow:0 2px 8px rgba(20,20,20,.035),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 5%,transparent)}
 .bt-q-raised .bt-q-head{padding:14px 16px 4px 20px}
 .bt-q-raised .bt-q-head:last-child{padding-bottom:16px}
 .bt-q-raised .bt-q-list{gap:1px;margin:0;padding:8px}
@@ -25491,7 +25793,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 .bt-boot-failed{display:flex;flex-direction:column;align-items:center;gap:10px}
 .bt-nc-spacer{flex:1}
 .bt-nc-compose{padding:0 16px 14px;display:flex;justify-content:center}
-.bt-nc-card{display:flex;align-items:flex-end;gap:6px;width:100%;max-width:var(--dsh-chat-content-width,748px);min-height:44px;padding:4px 6px;border-radius:22px;border:1px solid var(--bt-line-2);background:var(--bt-main);box-shadow:0 2px 8px -2px rgba(0,0,0,.06);box-sizing:border-box}
+.bt-nc-card{display:flex;align-items:flex-end;gap:6px;width:100%;max-width:var(--bt-chat-w,748px);min-height:44px;padding:4px 6px;border-radius:22px;border:1px solid var(--bt-line-2);background:var(--bt-main);box-shadow:0 2px 8px -2px rgba(0,0,0,.06);box-sizing:border-box}
 .bt-nc-plus{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-2);background:var(--bt-hover);flex:none}
 .bt-nc-card textarea{flex:1;resize:none;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;padding:7px 4px;min-height:34px;max-height:140px;box-sizing:border-box}
 .bt-nc-send{width:34px;height:34px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
@@ -25507,7 +25809,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 @keyframes bt-create-pop{from{transform:scale(.72);opacity:.4}}
 .bt-create-name{font-size:17px;line-height:24px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-create-step{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-bottom:-10px}
-.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);box-sizing:border-box}
 .bt-create-lookbar{justify-content:center}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
@@ -25520,8 +25822,23 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    chrome top to 0 so that dialog masks also cover the caption band; the panel then reaches
    the top edge, its own surface under the buttons, and the band over it still drags the
    window. Where the chrome top already clears the title bar the band is 0. */
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--bt-titlebar-h,0px) - var(--bt-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* Full-window modal layers and opening covers sit directly under body, which frameless hosts
+   mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
+   regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
+   child place the top drag strip on that child's ::before (after the scrim, before the dialog)
+   while scrim-less layers use their own ::before. Dialog cards stay after the strip as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(var(--bt-titlebar-h,0px) - var(--bt-chrome-top,0px)))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(40px - var(--bt-chrome-top,0px)))}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:var(--bt-titlebar-h,40px);padding-top:max(16px,var(--bt-modal-drag-h))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:40px;padding-top:max(16px,var(--bt-modal-drag-h))}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)[data-leaving]>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is([role=dialog],[role=alertdialog]){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-tour-layer{-webkit-app-region:initial;app-region:initial}
+:is(.bt-set-palette,.bt-tour-card){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-opening>.bt-opening-card{position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 /* On macOS a side panel reaches the window's top edge, where the window drag strip is.
    Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
    that strip: it drags where no chip or button covers it, and controls stay no-drag. The
@@ -25530,10 +25847,10 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 html[data-platform=darwin] .bt-browser-layer{-webkit-app-region:initial}
 html[data-platform=darwin] .bt-panel>[data-window-drag],html[data-platform=darwin] .bt-panel>.bt-panel-view>[data-window-drag]{-webkit-app-region:drag}
 html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,button,input,textarea,select,[role=button],[role=tab],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
-.bt-pane{position:fixed;top:var(--dsh-frame-chrome-top,0px);right:0;bottom:0;z-index:45;pointer-events:auto;background:var(--bt-main);color:var(--bt-ink);display:flex;font-family:var(--bt-font)}
+.bt-pane{position:fixed;top:var(--bt-chrome-top,0px);right:0;bottom:0;z-index:45;pointer-events:auto;background:var(--bt-main);color:var(--bt-ink);display:flex;font-family:var(--bt-font)}
 .bt-dialog{flex:1;display:flex;flex-direction:column;min-width:0}
 .bt-dialog .bt-head{height:62px}
-.bt-dialog-log{flex:1;overflow-y:auto;padding:8px 16px 20px;width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
+.bt-dialog-log{flex:1;overflow-y:auto;padding:8px 16px 20px;width:100%;max-width:var(--bt-chat-w,748px);margin:0 auto;box-sizing:border-box}
 .bt-dialog-foot{display:flex;justify-content:center;padding:10px 10px 16px}
 .bt-exchange{animation:bt-sheet-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} both,bt-veil-in .24s ease-out both}
 .bt-exchange[data-leaving]{animation:bt-sheet-out .22s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
@@ -25565,14 +25882,15 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-soft:hover{background:var(--bt-active)}
 .bt-time{display:block;text-align:center;font-size:12px;line-height:16px;color:var(--bt-ink-2);padding:6px 0}
 
-.bt-panel{position:fixed;top:var(--dsh-frame-chrome-top,0px);right:0;bottom:0;width:var(--bt-panel-w,320px);pointer-events:auto;z-index:40;background:var(--bt-main);border-left:.5px solid var(--bt-line-2);display:flex;flex-direction:column;color:var(--bt-ink);font-family:var(--bt-font);box-sizing:border-box;animation:bt-pane-in .3s cubic-bezier(.2,0,0,1);transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-panel{position:fixed;top:var(--bt-chrome-top,0px);right:0;bottom:0;width:var(--bt-panel-w,320px);pointer-events:auto;z-index:40;background:var(--bt-main);border-left:.5px solid var(--bt-line-2);display:flex;flex-direction:column;color:var(--bt-ink);font-family:var(--bt-font);box-sizing:border-box;animation:bt-pane-in .3s cubic-bezier(.2,0,0,1);transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-panel[data-leaving]{transform:translateX(100%);transition:transform .3s cubic-bezier(.2,0,0,1);pointer-events:none}
 .bt-panel[data-instant]{transition:none}
 @keyframes bt-pane-in{from{transform:translateX(100%)}}
 @media (prefers-reduced-motion:reduce){.bt-panel{animation:none;transition:none}.bt-panel[data-leaving]{transition:none}}
-/* The conversation's margins glide with the Bot panel's slide and with our left
-   column's slide in and out. */
-[class*="_centerCol"]{transition:margin-right ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+/* The conversation's right margin glides with the Bot panel on a critically damped
+   spring (zero overshoot, issue 2412); the left margin is driven atomically with
+   .bt-leftcol by TeamSidebar's spring so both stay locked. */
+[data-bt-center]{transition:margin-right ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-panel-grip{position:absolute;left:-5px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-panel-grip:hover,.bt-panel[data-dragging] .bt-panel-grip{background:linear-gradient(to right,transparent 4px,var(--bt-line-2) 4px,var(--bt-line-2) 6px,transparent 6px)}
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}
@@ -25670,10 +25988,10 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-seg button.bt-perm-danger,.bt-seg button.bt-perm-danger[aria-pressed=true],.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
 
 /* Settings dialog: a 212px searchable nav rail beside the page. */
-.bt-settings-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:60;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
+.bt-settings-layer{position:fixed;inset:var(--bt-chrome-top,0px) 0 0;z-index:60;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
 .bt-scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);animation:bt-fade .22s ease-out}
 body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
-.bt-settings{--bt-set-nav-w:212px;--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-dialog-shadow);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-settings{--bt-set-nav-w:212px;--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--bt-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-dialog-shadow);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
@@ -25712,31 +26030,19 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-icon{display:inline-flex;flex:none;width:15px;height:15px;align-items:center;justify-content:center;transition:color .14s ease}
 /* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
 .bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
-/* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
-.bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-settings-head-end{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions{display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-tour-trigger{color:var(--bt-ink-2);border-radius:999px;padding:0 10px}
 .bt-tour-trigger:hover{color:var(--bt-ink)}
 .bt-tab-tag{font-size:10px;line-height:14px;padding:1px 5px}
-/* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
-   An auto basis without shrinking keeps natural-height content inside its section. */
 .bt-dsh-section{min-width:0;display:flex;flex-direction:column;flex:1 0 auto}
-/* A DSH page opens on its own title, which the dialog head already shows. */
-.bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
-/* DSH's General rows draw their own row inside DS Bot's card: the card's inset and
-   rules apply, an empty row takes no line, and Appearance is already the section title. */
-.bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
-.bt-dsh-item>[data-slot]>.bt-set-row{padding:12px 16px}
-.bt-dsh-item:has(>[data-slot]:empty){display:none}
 /* DS Bot's own preference rows sit directly in the item: an item that renders nothing takes no
    line, and rows (or a note) stacked in one item are divided like the card's own rows. */
 .bt-dsh-item:empty{display:none}
 .bt-dsh-item>.bt-set-row+:is(.bt-set-row,.bt-set-note){border-top:.5px solid var(--bt-line)}
 .bt-set-note{padding:12px 16px;font-size:12px;line-height:17px;color:var(--bt-danger)}
-.bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
 .bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
@@ -25885,7 +26191,7 @@ body[data-ds-dark-theme] .bt-set-palette{border-color:var(--bt-line-2)}
 .bt-look-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 .bt-look-row[data-on]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
 .bt-look-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt-look-chat{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;padding:16px 18px 12px;box-sizing:border-box;font-size:var(--dsh-content-font-size,14px);line-height:1.57}
+.bt-look-chat{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;padding:16px 18px 12px;box-sizing:border-box;font-size:var(--bt-content-fs,14px);line-height:1.57}
 .bt-look-user{align-self:flex-end;padding:8px 14px;border-radius:12px;background:var(--bt-user);color:var(--bt-user-ink);box-sizing:border-box;transition:max-width .3s ease}
 .bt-look-think{display:flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-look-think svg{width:13px;height:13px}
@@ -25970,10 +26276,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-card>.bt-set-row:first-child,.bt-set-card>:first-child>.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
-.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:break-word}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
+.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-control{flex:none}
 .bt-set-row:where(:not(.bt-bs-stack))>.bt-set-control:where(:has(>.bt-seg)){max-width:72%}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
@@ -26248,40 +26555,15 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-mail-rule{display:flex;align-items:center;gap:12px;min-height:36px}
 .bt-mail-rule-name{font-size:13px;line-height:18px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* Shell chrome reshaped for the team view. Selectors use stable data attributes where the
-   shell offers them and CSS-module name suffixes elsewhere. */
-[class*="_newSession"],nav[class*="_panelList"],[class*="_logoRow"]>[class*="_brand"],[class*="_logoRow"]:not(:has([class*="_toggle"])){display:none!important}
-/* An open sidebar uses the team's own top row; under a Windows title bar the shell's
-   logo row stays, flattened to nothing. */
-html:not([data-windows-titlebar]) :not([class*="_collapsed"])>[class*="_logoRow"]{display:none!important}
-html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{height:0!important;margin:0!important}
 html[data-windows-titlebar] .bt-side-collapse{display:none}
-/* The sidebar switch is always the team view's own, so the shell's is hidden wherever it
-   sits: in the logo row, or in the top strip of a macOS desktop window. The strip stays,
-   as the window's drag area. Left showing, the shell's toggle expands the shell sidebar
-   first, and pulling it back afterwards is a visible flash of the shell's column; its
-   tooltip also casts a shadow across the rail's edge. */
-[class*="_logoRow"]>[class*="_toggle"],[class*="_topStrip"]>[class*="_toggle"]{display:none!important}
 /* Under a Windows title bar our own switch takes the shell's place in the band. A host
    whose window controls stand at the band's left (the macOS traffic lights) sets
    --bt-caption-start to the room they take. */
-html[data-windows-titlebar] .bt-title-toggle{position:fixed;left:calc(12px + var(--bt-caption-start,0px));top:calc((var(--dsh-windows-titlebar-height,0px) - 28px) / 2);width:28px;height:28px;z-index:30;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;padding:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:var(--bt-font)}
+html[data-windows-titlebar] .bt-title-toggle{position:fixed;left:calc(12px + var(--bt-caption-start,0px));top:calc((var(--bt-titlebar-h,0px) - 28px) / 2);width:28px;height:28px;z-index:30;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;padding:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-title-toggle:hover{background:var(--bt-hover)}
 /* Elsewhere the switch shows only while the column is hidden, where the column's
    own top row had it. */
-html:not([data-windows-titlebar]) .bt-title-toggle{position:fixed;left:12px;top:calc(var(--dsh-frame-top-clearance,0px) + 6px);z-index:30}
-/* The footer ends in the Bot row: the whale's settings seat, then the account menu
-   when no plugin holds that seat. Every other plugin's entry takes a whole row above
-   it, in the shell's order, so none of them squeezes the Bot row. */
-[class*="_footArea"]{grid-template-columns:auto minmax(0,1fr);grid-auto-flow:row dense;align-items:center;gap:4px 9px;padding:8px 6px 6px!important}
-/* DSH hides the footer of a collapsed sidebar under a Windows title bar; the grid
-   stays out of that one place. */
-html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"])>[class*="_footArea"]{display:grid!important}
-[class*="_footArea"]>[class*="_footerActions"],[class*="_footArea"]>[class*="_footerActions"]>div{display:contents!important}
-[class*="_footArea"]>[class*="_footerActions"]>div>*{grid-column:1/-1}
-[class*="_footArea"]>[class*="_settingsArea"]{grid-column:1;order:1;width:auto!important}
-[class*="_footArea"] button[aria-label="Settings"]{width:auto!important;padding:0!important;background:none!important;border-radius:50%!important;height:auto!important}
-[class*="_widthHandle"]{display:none!important}
+html:not([data-windows-titlebar]) .bt-title-toggle{position:fixed;left:12px;top:calc(var(--bt-top-clearance,0px) + 6px);z-index:30}
 
 .bt-voice-pane{flex-direction:column;align-items:center;justify-content:center;animation:bt-fade .2s ease-out}
 .bt-voice-stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;max-width:560px;text-align:center}
@@ -26380,7 +26662,7 @@ body[data-ds-dark-theme] .bt-menu{background:color-mix(in srgb,var(--bt-card) 96
 .bt-menu[data-leaving]{pointer-events:none;animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards}
 .bt-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-menu-hint{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
-.bt-palette-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:70;pointer-events:auto;font-family:var(--bt-font)}
+.bt-palette-layer{position:fixed;inset:var(--bt-chrome-top,0px) 0 0;z-index:70;pointer-events:auto;font-family:var(--bt-font)}
 .bt-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.46);animation:bt-fade .22s ease-out}
 .bt-palette{position:absolute;top:50%;left:50%;width:min(560px,92vw);transform:translate(-50%,-50%);display:flex;flex-direction:column;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(28px) saturate(180%);backdrop-filter:blur(28px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);overflow:hidden;color:var(--bt-ink);animation:bt-palette-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-palette-layer[data-leaving]{pointer-events:none}
@@ -26505,7 +26787,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
+.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
@@ -26541,9 +26823,9 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-mem-row>svg{flex:none;color:var(--bt-ink-2)}
 .bt-mem-row-copy{flex:1;text-align:left}
 .bt-mem-row-go{display:inline-flex;align-items:center;gap:2px;color:var(--bt-ink-3);font-size:12px;flex:none;white-space:nowrap}
-.bt-mem-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
+.bt-mem-layer{position:fixed;inset:var(--bt-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
 .bt-mem-scrim{animation:bt-fade .2s ease-out}
-.bt-mem{position:relative;width:min(680px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-mem{position:relative;width:min(680px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--bt-overlay-top,32px))));background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-mem-head{position:relative;display:flex;align-items:center;gap:8px;height:60px;flex:none;padding:0 14px 0 24px;border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
 .bt-mem-head .bt-icon-btn{width:32px;height:32px;flex:none}
 .bt-mem-head [aria-haspopup] svg{width:18px;height:18px;stroke-width:2.6}
@@ -26633,9 +26915,9 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 /* Follow the visible viewport, not the layout one: dvh where the browser knows
    it (the earlier vh value is the fallback). Kept before the <=640px rules so
    narrow viewports keep full-screen heights. */
-.bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-.bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
+.bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--bt-overlay-top,32px))))}
+.bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--bt-overlay-top,32px))))}
+@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem-layer[data-leaving] .bt-mem::before{-webkit-app-region:initial;app-region:initial}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li svg{animation:none}}
 
 .bt-thumb{position:absolute;left:0;top:0;z-index:0;pointer-events:none;transition:opacity .14s ease}
@@ -26679,15 +26961,17 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
    from their own width instead of relying on viewport media queries. */
 @container (max-width:440px){
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control,.bt-set-places .bt-set-control{max-width:none}
+  .bt-set-row .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-motion-seg,.bt-look-seg{min-width:0;width:100%}
   .bt-range{width:100%}
 }
@@ -26700,6 +26984,13 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
 @media (max-width:768px){
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-settings::before{-webkit-app-region:initial;app-region:initial}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-close{top:calc(14px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-layer{padding-top:calc(12px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-set-palette-scrim::before{-webkit-app-region:initial;app-region:initial}
   .bt-settings-rail{display:none}
   .bt-ov-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:0;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-3);font:inherit;font-size:15px;text-align:left;cursor:pointer}
   .bt-ov-search svg{width:16px;height:16px}
@@ -26723,14 +27014,15 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
@@ -26744,14 +27036,14 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
 body[data-bt-effects=reduced],body[data-bt-effects=off],body[data-bt-os=windows]{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;--dsw-specific-menu:var(--bt-main);--dsw-menu-surface-fill:var(--bt-main);--bt-glass-bg:var(--bt-card);--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}
 body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) :is(.bt-pill,.bt-island,.bt-drop,.bt-avedit,.bt-scrim,.bt-react-strip,.bt-menu,.bt-palette,.bt-import-menu,.bt-cbar,.bt-pmenu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip,.bt-reading){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 /* Windows: one backdrop-filter on the page turns all of its ClearType text to grayscale, which reads as blurry. */
-body[data-bt-os=windows] :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body[data-bt-os=windows] :is([data-bt-composer],.bt-to-bottom){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .bt-bcard-x{background:var(--bt-main)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .bt-us-tip,body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .bt-menu.bt-sel-menu{background:var(--bt-card)}
-body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-typing-bg,.bt-toast[data-leaving]){filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-shimmer{animation:none!important;background:none;color:var(--bt-ink-2)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-mem-skel-block span,.bt-us-skel,.bt-im-qr-blank){animation:none!important;background:var(--bt-hover)}
 body[data-bt-effects=reduced] :is(.bt-badge-alert,.bt-voice-ring,.bt-us-note::before,.bt-im-dot[data-state=connecting],.bt-agent-ava.bt-run,.bt-mic[aria-pressed=true]){animation:none!important}
-body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
+body[data-bt-effects=off] [data-bt-center]{transition:none!important}
 body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
 .bt-rn-layer{position:fixed;inset:0;z-index:66;display:flex;align-items:center;justify-content:center;padding:16px}
 .bt-rn-layer[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-out}
@@ -26782,16 +27074,6 @@ body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `;
 var CONVERSATION_CSS = `
-/* The menus above the composer ("@", "/", and the picker a command such as /model
-   opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
-   behind them unreadable. Where the blur does not take, the chat shows through the
-   rows (issues 1113 and 935), so they get a solid fill. The "@" menu is the trigger
-   menu, whose root carries data-trigger-menu rather than data-menu-material, so it
-   needs naming too (issue 1698). */
-[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
-/* DSH's row spans share no semantic hooks beyond the option; keep descriptions
-   beside their labels without changing their flex sizing or overflow. */
-[data-trigger-menu] [role=option]>span{text-align:left}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -26817,77 +27099,12 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 /* Keep message tools outside paint containment. */
 .bt-bubble,.bt-ububble{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
-[class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
 .bt-group-replies{display:contents}
-/* A Bot chat is flat in every work-details mode, without changing the user's mode
-   (it is a DSH-wide setting): step groups lose their header and stay open, and what a
-   mode folds away in a finished turn stays shown. TurnProcessCell also opens that
-   fold; these rules cover the first frame before it does. */
-[data-step-process]>div:first-child{display:none!important}
-[data-step-process]>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
-:is([data-step-process],[data-turn-process-hidden])[hidden]{content-visibility:visible!important}
-[class*="_flowItem"]:has(> [data-slot="conversation.chat.node"]:empty, > [data-slot="conversation.chat.node"][data-bt-emptied]){display:none!important}
-/* A turn's process seat is a flow child of its own, not a flowItem: a seat whose
-   member cells all emptied themselves (a hidden exchange turn, a turn whose
-   calls draw nothing) still kept its margin, stacking a blank band per hidden
-   call. Only the slot a DS Bot cell marked counts, so a seat another renderer
-   fills — even with plain text and no element child — is never taken for empty. */
-[data-step-process]:has(> [data-step-process-body] [data-slot="conversation.chat.node"][data-bt-emptied]):not(:has(> [data-step-process-body] [data-slot="conversation.chat.node"]:not([data-bt-emptied]))){display:none!important}
-[class*="_header"]:has(.bt-head){border-bottom-color:transparent!important;box-shadow:none!important}
-/* The transcript runs under a floating header pill. */
-header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;right:0;z-index:8;display:flex!important;padding:10px 0 0!important;background:transparent!important;pointer-events:none;justify-content:center}
-header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
-header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;z-index:1;pointer-events:auto}
-header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
-header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
-header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
-header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
-/* In a native mobile shell, the floating ::before gradient does not reliably occlude
-   scrolled cards behind the Bot title and passes hits through; give the bar an opaque
-   theme fill that captures pointer events across its full width. Keep .bt-head itself
-   pointer-events:none so it never covers the earlier _headerLeading menu/back button. */
-html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head),header[class*="_header"][data-dsh-mobile-header]:has(.bt-head){width:auto!important;margin:0!important;padding:calc(10px + env(safe-area-inset-top,0px)) 0 10px!important;background:var(--bt-main)!important;pointer-events:auto}
-html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)::before,header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)::before{content:none}
-html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"],header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)>[class*="_headerLeading"]{top:calc(10px + env(safe-area-inset-top,0px))}
-/* On macOS the shell's header row is the window's drag strip (data-window-drag
-   becomes -webkit-app-region:drag). The floating header stays click-through, so
-   the transcript under it still takes links and the wheel. Only the 40px .bt-head
-   bar the pill sits in is hit again and carries the drag mark; controls inside
-   keep no-drag. The data-slot anchor must not take no-drag, or the bar inherits it. */
-html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
-html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
-[data-slot="main.conversation"]>[class*="_root"]>[class*="_body"]{--dsh-chat-content-width:min(960px,100%)}
-/* The shell writes the column's width on the conversation root at every resize, only to
-   derive the content width that the rule above replaces. Inherited, each write restyled
-   the whole conversation: once a frame while the details panel glides, most in a long
-   group chat. Kept on the root alone, a write restyles one element. */
-@property --dsh-conversation-column-width{syntax:"*";inherits:false}
-@property --dsh-chat-user-width{syntax:"*";inherits:false}
-/* DSH's turn tail keeps what plugins put in it (delivered files, the Bot's separators),
-   without its copy and branch row; a tail with nothing in it takes no room. */
-[data-turn-tail]>:not([data-slot="conversation.chat.turnTail"]){display:none!important}
-[class*="_flowItem"][data-chat-flow-kind="turn-tail"]:not(:has([data-slot="conversation.chat.turnTail"]:not(:empty))){display:none!important}
-/* Every team Session belongs to a Bot or a group, so a blank one is an empty chat, not
-   the shell's new-session hero: no headline, no workspace or mode picker, and the
-   composer stays docked at the bottom. */
-[data-content-phase=hero] [class*="_scrollBody"]{justify-content:flex-end!important}
-[data-content-phase=hero] [class*="_composerHero"]{align-self:stretch!important;width:auto!important;padding-bottom:0!important}
-[data-content-phase=hero] [class*="_composerHero"]>[class$="_root"],[data-content-phase=hero] [class*="_heroWorkspaceRow"]{display:none!important}
-[data-content-phase=hero] [class*="_composerHero"] [class*="_input"]{min-height:0!important}
-/* The right sides give back the scrollbar gutter so both edges sit 16px from the column. */
-[class*="_scroll"]:has(> [class*="_column"]){padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))!important}
-/* The goal/approval island's pod hangs off the header over the transcript's first message. */
-body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(90px + env(safe-area-inset-top,0px))!important}
-body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(120px + env(safe-area-inset-top,0px))!important}
-/* The shell's running status keeps its slot but hosts nothing visible: the activity
-   row mounts at the flow's end, after the shell's pending rows, so an interjection's
-   echo always draws above it and the row never jumps. The slot keeps the shell's
-   accessible status text. */
-[data-chat-running]{display:block!important;width:100%;min-height:0!important;margin:0!important;padding:0!important}
-[data-chat-running]>span:not([role=status]){display:none!important}
-[data-chat-flow]>.bt-typing{margin-top:var(--dsh-chat-flow-gap,12px)!important}
-.bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
+[data-bt-running]{display:block!important;width:100%;min-height:0!important;margin:0!important;padding:0!important}
+[data-bt-running]>span:not([role=status]){display:none!important}
+[data-bt-flow]>.bt-typing{margin-top:var(--bt-flow-gap,12px)!important}
+.bt-typing{display:flex;align-items:center;gap:12px;width:fit-content;max-width:100%;height:36px;min-width:0;box-sizing:border-box;padding-inline:8px 4px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
 .bt-typing>.bt-typing-mark{display:inline-flex;flex-shrink:0}
 .bt-typing>.bt-mark,.bt-typing>.bt-cluster,.bt-typing>.bt-typing-mark>.bt-mark,.bt-typing>.bt-typing-mark>.bt-cluster{flex-shrink:0}
@@ -26897,12 +27114,31 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px 0 8px;margin-left:2px;border:.5px solid var(--bt-line-2);border-radius:999px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
-.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink);border-color:color-mix(in srgb,var(--bt-ink) 22%,transparent)}
-.bt-typing-bg:active:not(:disabled){background:var(--bt-active)}
+.bt-typing-task{height:28px;margin-left:-8px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing-task:hover:not(:disabled){background:var(--bt-hover)}
+.bt-typing-task:active:not(:disabled){background:var(--bt-active);scale:.98}
+.bt-typing-task:disabled{cursor:default}
+.bt-typing-task:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-typing-dot{flex:none;width:6px;height:6px;margin-right:8px;border-radius:50%;background:var(--bt-star)}
+.bt-typing-bg-wrap{flex:none;display:inline-grid;grid-template-columns:0fr;margin-left:-12px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s,margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s}
+.bt-typing-bg-in{min-width:0;overflow:hidden;display:inline-flex;align-items:center;padding:4px 0;margin:-4px 0}
+.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translate(-10px,4px) scale(.92);transform-origin:0 50%;pointer-events:none;transition:opacity .16s ease,filter .16s ease,transform .18s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing:focus-within .bt-typing-bg-in{overflow:visible}
+.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-typing-bg:active:not(:disabled){background:var(--bt-active);scale:.96}
 .bt-typing-bg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-typing-bg:disabled{opacity:.55;cursor:default}
-.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.8}
+.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.75;transform:translateX(-3px);transition:opacity .14s ease,transform ${SPRING_POP.duration}ms ${SPRING_POP.easing} .05s}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg-ico{transform:none}
+@media (hover:hover){
+.bt-typing:hover:not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg-ico{transform:none}
+}
+.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{opacity:1;transform:translateX(1.5px);transition:opacity .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
 .bt-typing-bg-ico>svg{width:13px;height:13px}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
 @keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
@@ -26919,66 +27155,30 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-typing,.bt-typing[data-exiting]{animation-name:bt-fade-in;animation-duration:.12s;transform:none}
 .bt-typing[data-exiting]{animation-name:bt-fade-out}
 .bt-typing-text,.bt-typing-label{animation-name:bt-fade-in;animation-delay:0s}
+.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task{transition:none!important}
+.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{filter:none;transform:none}
+.bt-typing-bg:active:not(:disabled){scale:none}
+.bt-typing-task:active:not(:disabled){scale:none}
 .bt-shimmer{animation:none;background:none;color:var(--bt-ink-2)}
 [data-bt-enter="new"]{animation:none}
 [data-bt-enter="after-collapse"]{animation:bt-fade-in .12s ease-out}
 }
 @keyframes bt-fade-in{from{opacity:0}to{opacity:1}}
 @keyframes bt-fade-out{from{opacity:1}to{opacity:0}}
-[data-composer-card]{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;gap:0!important;min-height:44px!important;border-radius:22px!important;padding:7.5px!important;box-sizing:border-box;background:var(--bt-glass-bg)!important;-webkit-backdrop-filter:blur(20px) saturate(180%)!important;backdrop-filter:blur(20px) saturate(180%)!important;border:.5px solid var(--bt-glass-rim)!important;box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04)!important;transition:border-color .15s ease,background-color .15s ease,${spring(SPRING_SHAPE, "border-radius")}!important}
-[data-composer-card]:hover,[data-composer-card]:focus-within{border-color:var(--bt-line-2)!important}
-[data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
-[class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
-[class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+[data-bt-composer]{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;gap:0!important;min-height:44px!important;border-radius:22px!important;padding:7.5px!important;box-sizing:border-box;background:var(--bt-glass-bg)!important;-webkit-backdrop-filter:blur(20px) saturate(180%)!important;backdrop-filter:blur(20px) saturate(180%)!important;border:.5px solid var(--bt-glass-rim)!important;box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04)!important;transition:border-color .15s ease,background-color .15s ease,${spring(SPRING_SHAPE, "border-radius")}!important}
+[data-bt-composer]:hover,[data-bt-composer]:focus-within{border-color:var(--bt-line-2)!important}
 /* Embedded phone browsers may report zero safe-area insets even when the screen
    corners clip content. Keep a minimum gutter as well as honoring larger insets. */
 @media (max-width:${DSH_NARROW - 1}px) and (pointer:coarse){
 .bt-leftcol,.bt-leftcol[data-left=rail]{padding-bottom:max(24px,env(safe-area-inset-bottom,0px))}
-[class*="_root"]:has(> [data-composer-card]){padding-left:max(16px,env(safe-area-inset-left,0px))!important;padding-right:max(16px,env(safe-area-inset-right,0px))!important;padding-bottom:max(24px,env(safe-area-inset-bottom,0px))!important}
 }
-[data-composer-card]>[class*="_row"]{display:contents!important}
-[data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
-[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important;box-sizing:border-box}
-[data-composer-card] [class*="_trailing"]{order:3!important;flex:none!important;align-self:flex-end!important;margin:0!important}
-/* The slot anchor is display:contents, so the rail inside it is the flex item. */
-[data-composer-card]>[data-slot="conversation.input.attachments"]>[class*="_rail"]{order:0!important;flex:0 0 100%!important;margin:0!important;padding:2px 8px 6px!important}
-[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"])>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
-[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_tools"]{order:2!important}
-[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_trailing"]{margin-left:auto!important}
-/* On phones the optional tools can consume the whole line before an empty editor
-   has any intrinsic width. Give typing its own line, including before the first tap. */
-@media (max-width:600px), (max-width:${DSH_NARROW - 1}px) and (max-height:500px) and (pointer:coarse){
-[data-composer-card]>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
-[data-composer-card] [class*="_tools"]{order:2!important}
-[data-composer-card] [class*="_trailing"]{margin-left:auto!important}
-}
-[data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
-[data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
-[data-composer-placeholder]{font-size:0!important;line-height:0!important}
-/* The name sits on ::before so that ::after stays free for other composer skins. */
-[data-composer-placeholder]::before{content:var(--bt-placeholder,"Message")!important;display:block!important;font-size:14px!important;line-height:24px!important;color:color-mix(in srgb,var(--bt-ink) 36%,transparent)!important}
-/* The team's "+" (ComposerPlus) takes the seat of the shell's command-menu button. */
-[data-composer-card] button[class*="_add"]{display:none!important}
 .bt-plus{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--bt-ink) 5%,transparent);box-shadow:inset 0 0 0 .5px var(--bt-line);color:var(--bt-ink-2);cursor:pointer;transition:background-color .15s ease,color .15s ease,${spring(SPRING_TAP, "scale")}}
 .bt-plus:hover,.bt-plus[aria-expanded=true]{background:color-mix(in srgb,var(--bt-ink) 10%,transparent);color:var(--bt-ink)}
 .bt-plus:active{scale:.9}
 .bt-plus svg{width:14px;height:14px;transition:${spring(SPRING_POP, "rotate")}}
 .bt-plus[aria-expanded=true] svg{rotate:45deg}
 .bt-plus-menu{min-width:180px}
-[data-composer-card] [class*="_tools"]{gap:0!important}
-[data-composer-card] [class*="_modes"]:empty{display:none!important}
-[data-composer-card] [class*="_activity"]:not(:has([data-slot] > *)){display:none!important}
-[data-composer-card] [class*="_trailing"]{gap:8px!important}
-/* No display here: DSH hides these controls with [hidden] while the Bot works. */
-[data-composer-card] [class*="_standardControls"]{align-items:center!important;gap:8px!important}
-[data-composer-card] button[class*="_primary"]{width:28px!important;height:28px!important;background:var(--bt-accent)!important;color:var(--bt-accent-ink,#fff)!important;border-radius:50%!important;transition:background-color .15s ease,${spring(SPRING_TAP, "scale")};animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-/* Hover tints the background instead of lowering opacity: an opacity change inside the blurred composer is suspected of making Windows repaint the whole window, so the UI flickers (#901). */
-[data-composer-card] button[class*="_primary"]:hover:not(:disabled){background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)!important}
-[data-composer-card] button[class*="_primary"]:active:not(:disabled){scale:.9}
 @keyframes bt-icon-swap{from{opacity:0;transform:scale(.5) rotate(-30deg)}}
-[data-composer-card] button[class*="_primary"] svg{width:14px;height:14px}
-[data-composer-card] button[class*="_primary"]:disabled{display:none!important}
-[data-composer-dock]{display:none!important}
 .bt-mic,.bt-voice{position:relative;flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;display:inline-grid;place-items:center;cursor:pointer;transition:background-color .15s ease,color .15s ease,${spring(SPRING_TAP, "scale")}}
 .bt-mic{background:color-mix(in srgb,var(--bt-ink) 5%,transparent);box-shadow:inset 0 0 0 .5px var(--bt-line);color:var(--bt-ink-2)}
 .bt-mic:hover{background:color-mix(in srgb,var(--bt-ink) 10%,transparent);color:var(--bt-ink)}
@@ -27004,41 +27204,17 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
   .bt-menu button,.bt-menu [role=menuitem],.bt-react-strip button{min-height:44px}
   .bt-utools[data-open]{opacity:1;visibility:visible}
   .bt-utools button{width:44px;height:44px}
-  [data-chat-flow-kind=user] [class*="_actions"] button{width:44px;height:44px}
 }
-[data-composer-card]:has(button[class*="_primary"]:disabled) .bt-voice{display:inline-grid}
 body[data-bt-room] .bt-voice{display:none!important}
-body[data-bt-room] [data-composer-card]:has(button[class*="_primary"]:disabled) .bt-mic:not([aria-pressed=true]){background:var(--bt-accent);color:var(--bt-accent-ink,#fff)}
 .bt-mic-note{position:absolute;right:12px;bottom:calc(100% + 8px);padding:5px 10px;border-radius:8px;background:var(--bt-user);color:var(--bt-user-ink);font-size:12px;line-height:16px;white-space:nowrap;pointer-events:none;animation:bt-rise .16s ease-out}
 [data-chain-overlay-fallback="conversation.composer"]:has(~ .bt-q){display:block!important;order:2}
 .bt-q{order:1}
-div:has(> nav [class*="_marks"]){display:none!important}
-/* Every user-side bubble (sent, steering mid-turn, not yet admitted, question replies)
-   takes its surface and its text from the one --bt-user pair: a skin that repaints
-   the host's bubble surface alone would otherwise leave the text unreadable. The
-   surface is also laid as an image layer: a skin's more specific background-color
-   with !important (a glass fill) then changes the color under the layer, not the
-   surface the text sits on. */
-[class*="_userRow"] [class*="_bubble"],.bt-uhost [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:12px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
-[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a,.bt-uhost [class*="_bubble"] a{color:inherit}
-/* Sent messages get the hover toolbar below; steering and unsent bubbles keep none. */
-[class*="_userRow"] [class*="_actions"]{display:none!important}
 /* A steering message the Bot has not read yet shows a small unread label under
    its bubble's right edge; --bt-steer-unread is set per window (header.js), and
    the none fallback means no English can leak into a Chinese window. */
 [data-pending-steering]{flex-wrap:wrap}
 [data-pending-steering]::after{content:var(--bt-steer-unread,none);display:block;flex-basis:100%;width:100%;order:99;margin-top:4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
-[data-chat-flow-kind=user] [class*="_userRow"]{flex-direction:row-reverse;align-items:center;justify-content:flex-start}
-[data-chat-flow-kind=user] [class*="_actions"]{display:flex!important;height:24px!important;gap:2px!important;opacity:0!important;visibility:hidden;transition:opacity .12s ease,visibility .12s!important;flex:none}
-[data-chat-flow-kind=user] [class*="_userRow"]:hover [class*="_actions"],[data-chat-flow-kind=user] [class*="_userRow"]:focus-within [class*="_actions"]{opacity:1!important;visibility:visible}
-@media (hover:none){[data-chat-flow-kind=user] [class*="_actions"]{opacity:1!important;visibility:visible}}
-[data-chat-flow-kind=user] [class*="_actions"] [class*="_timeStart"]{display:none}
-[data-chat-flow-kind=user] [class*="_actions"] button{width:24px;height:24px;border-radius:6px;color:var(--bt-ink-2)}
-[data-chat-flow-kind=user] [class*="_actions"] button:hover{background:var(--bt-hover);color:var(--bt-ink)}
-[data-chat-flow-kind=user] [class*="_actions"] svg{width:15px;height:15px}
 .bt-q-inline{display:flex;margin:4px 0 6px}
-[data-chat-flow-kind=assistant-step]+[data-step-process]:has(.bt-q-inline){margin-top:0!important}
-[data-chat-flow-kind=question-reply]:has(.bt-q-inline),[data-chat-group-key]:has([data-chat-flow-kind=question-reply] .bt-q-inline),[data-chat-group-key]:has(.bt-q-gone){margin-top:0!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-dialog-log .bt-q-inline{margin:8px 0 4px}
 .bt-dialog-log .bt-q-inline .bt-work-pause{width:100%;max-width:100%}
@@ -27047,7 +27223,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-dock .bt-q{margin:0 auto 8px}
 .bt-q-dock[data-leaving]{pointer-events:none;animation:bt-dock-out .15s ease-out forwards}
 @keyframes bt-dock-out{to{opacity:0;transform:translateY(6px) scale(.985)}}
-[data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
+[data-bt-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 /* Phones: the conversation flow gets the whole screen instead of the desktop
    shares. A Bot message may take the width beside its avatar, a card the width of
    the flow, and long text or a wide block wraps inside it instead of running off
@@ -27058,7 +27234,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-msg-line{position:static}
 .bt-tools{top:100%;bottom:auto;left:auto;right:4px;margin-left:0;margin-top:2px;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
 .bt-tools::after{top:-6px;bottom:auto;left:0;right:0;width:auto;height:8px}
-.bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+.bt-bubble{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .bt-group-msg,.bt-group-name{max-width:100%}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
 .bt-q.bt-q-settled{--bt-q-px:14px}
@@ -27068,15 +27244,13 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-dialog-log{padding-left:12px;padding-right:12px}
 .bt-exchange .bt-dialog-log{padding-left:12px;padding-right:12px}
 }
-[class*="_toBottomSlot"]{justify-content:center!important;padding-right:0!important}
-[data-conversation-scroll] [class*="_toBottomSlot"]{bottom:calc(var(--dsh-composer-height,152px) + 8px)!important}
-[class*="_toBottomSlot"]>button{width:36px!important;height:36px!important;margin-top:-36px!important;background:var(--bt-glass-bg)!important;-webkit-backdrop-filter:blur(16px) saturate(180%)!important;backdrop-filter:blur(16px) saturate(180%)!important;color:var(--bt-ink)!important;box-shadow:var(--bt-glass-shadow)!important;animation:bt-tobottom-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
-[class*="_toBottomSlot"]>button:active{scale:.9}
-[class*="_toBottomSlot"]>button:hover{background:color-mix(in srgb,var(--bt-ink) 4%,var(--bt-main))!important}
-[class*="_toBottomSlot"]>button svg{display:none}
-[class*="_toBottomSlot"]>button::before{content:"";width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4v12M5 11l5 5 5-5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4v12M5 11l5 5 5-5'/%3E%3C/svg%3E") center/contain no-repeat}
+.bt-to-bottom{position:absolute;left:50%;bottom:calc(var(--bt-composer-h,64px) + 8px);transform:translateX(-50%);z-index:10;width:36px;height:36px;padding:0;border:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(16px) saturate(180%);backdrop-filter:blur(16px) saturate(180%);color:var(--bt-ink);box-shadow:inset 0 0 0 .5px var(--bt-glass-rim),var(--bt-glass-shadow);cursor:pointer;animation:bt-tobottom-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-to-bottom:hover{background:color-mix(in srgb,var(--bt-ink) 4%,var(--bt-main))}
+.bt-to-bottom:active{scale:.9}
+.bt-to-bottom:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-to-bottom svg{width:18px;height:18px}
+:has(>[data-bt-scroll][data-bt-news])>.bt-to-bottom{visibility:hidden;pointer-events:none}
 @keyframes bt-tobottom-in{from{translate:0 8px;scale:.8}}
-[data-bt-news] [class*="_toBottomSlot"]>button{visibility:hidden!important;pointer-events:none!important}
 .bt-news{position:fixed;z-index:30;transform:translateX(-50%);display:inline-flex;align-items:center;overflow:hidden;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);box-shadow:inset 0 0 0 1px rgba(20,20,20,.05),0 1px 3px 0 rgba(0,0,0,.12);font-family:var(--bt-font);animation:bt-news-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 @keyframes bt-news-in{from{translate:0 8px;scale:.9}}
 .bt-news[data-direction=up]{animation-name:bt-news-in-up,bt-veil-in}
@@ -27088,7 +27262,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-news-x::after{content:"";position:absolute;inset:-4px}
 .bt-news-x svg{width:12px;height:12px}
 .bt-news-x:hover{opacity:1;background:color-mix(in srgb,currentColor 18%,transparent)}
-@media (prefers-reduced-motion:reduce){.bt-news,[class*="_toBottomSlot"]>button{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-news,.bt-to-bottom{animation:none}}
 /* The pill over a long reply whose start has scrolled away (reading.js). */
 .bt-reading{position:fixed;z-index:29;display:inline-flex;align-items:center;max-width:min(360px,calc(100vw - 32px));height:28px;padding:0 2px;box-sizing:border-box;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:inset 0 0 0 .5px var(--bt-glass-rim),var(--bt-glass-shadow);font-family:var(--bt-font);transform-origin:top left;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 .bt-reading[data-leaving]{pointer-events:none;animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards}
@@ -27113,8 +27287,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-earlier-top:empty{display:none}
 .bt-earlier-top .bt-soft{height:28px;font-size:12px;padding:0 12px}
 .bt-urow{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin:6px 0}
-.bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
-.bt-ububble [class*="_markdown"],.bt-ububble a{color:inherit!important}
+.bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--bt-content-fs,14px);line-height:calc(var(--bt-content-fs,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
+.bt-ububble .bt-md,.bt-ububble a{color:inherit!important}
 .bt-ububble p{margin:0;line-height:inherit}
 .bt-uimages{display:block;font-size:12px;opacity:.7}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -27126,10 +27300,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-act code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink)}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
-/* The dock wrapper also holds the context meter, so it stays hidden until a side question is in it. */
-[data-composer-dock]:has(.bt-btw){display:flex!important;flex-direction:column;align-items:center;width:100%;max-width:var(--dsh-composer-card-max-width,748px)}
-[data-composer-dock]:has(.bt-btw)>:not([data-slot="conversation.composer.dock"]){display:none!important}
-.bt-btw-dock,.bt-btw-stack{display:flex;flex-direction:column;gap:6px;width:100%;max-width:var(--dsh-composer-card-max-width,748px)}
+.bt-btw-dock,.bt-btw-stack{display:flex;flex-direction:column;gap:6px;width:100%;max-width:var(--bt-composer-max-w,748px)}
 .bt-btw{box-sizing:border-box;width:100%;margin:6px auto;padding:8px 12px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);color:var(--bt-ink)}
 .bt-btw-dock .bt-btw,.bt-btw-stack .bt-btw{margin:0}
 .bt-btw-compact{padding:6px 10px}
@@ -27147,9 +27318,12 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-answer p{margin:0}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
-body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-body[data-bt-effects=off] :is([data-composer-card],[data-chat-flow-kind=user] [class*="_actions"],[class*="_toBottomSlot"]>button,.bt-news){transition:none!important}
-body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],[class*="_toBottomSlot"]>button,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-bt-composer],.bt-to-bottom){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task){transition:none!important}
+body[data-bt-effects=off] :is(.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico){transform:none!important}
+body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled){scale:none!important}
+body[data-bt-effects=off] .bt-typing-task:active:not(:disabled){scale:none!important}
+body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],.bt-to-bottom,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `;
 var PLUGIN_ID = "ds-bot";
 var ROOT_SELECTOR = /^(?:html\s+)?(?:body|:root)(?:\[[^\]]*\])*$/;
@@ -27357,6 +27531,430 @@ var RETURN_TOKENS = `
 body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
 `;
 
+// src/client/styles-dsh.js
+var DSH_SHELL_CSS = `
+:root{--bt-chrome-top:var(--dsh-frame-chrome-top,0px);--bt-top-clearance:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));--bt-overlay-top:var(--dsh-frame-overlay-top,32px);--bt-titlebar-h:var(--dsh-windows-titlebar-height,0px);--bt-reply-font-default:var(--dsh-font-family-text-default,sans-serif)}
+html body{--bt-content-fs:var(--dsh-content-font-size,14px);--bt-reply-font:var(--dsh-font-family-text);--bt-mono:var(--dsh-font-family-code,var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace))}
+[class*="_body"],[class*="_embeddedBody"]{--bt-chat-w:var(--dsh-chat-content-width,748px);--bt-composer-max-w:var(--dsh-composer-card-max-width,748px);--bt-composer-side:var(--dsh-composer-side-clearance,0px);--bt-composer-dock-inset:var(--dsh-composer-dock-inset,8px)}
+[class*="_composerStack"]{--bt-composer-gap:var(--dsh-composer-stack-gap,8px)}
+[data-chat-flow],[data-chat-flow]>*,[data-chat-group-key]{--bt-flow-gap:var(--dsh-chat-flow-gap,12px)}
+@media (prefers-reduced-motion:reduce){[class*="_centerCol"]{transition:none}}
+@media (min-width:${DSH_NARROW}px){
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
+}
+@media (max-width:${DSH_NARROW - 1}px){
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head)>[class*="_centerCol"]{grid-column:2!important;width:auto!important}
+}
+html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
+.bt-bubble [class*="_markdown"]>*+*{margin-top:10px}
+.bt-bubble [class*="_markdown"]{color:inherit!important;font-size:inherit!important;line-height:inherit!important}
+.bt-bubble [class*="_markdown"] li+li{margin-top:6px}
+.bt-bubble [class*="_markdown"] li::marker{color:var(--bt-ink-2)}
+.bt-bubble [class*="_markdown"] :not(pre)>code{line-height:1;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+[data-chat-flow] [class*="_bubble"] :is(img,video){max-width:100%;height:auto}
+[class*="_centerCol"]{transition:margin-right ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
+.bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
+.bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
+.bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
+.bt-dsh-item>[data-slot]>.bt-set-row{padding:12px 16px}
+.bt-dsh-item:has(>[data-slot]:empty){display:none}
+.bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
+[class*="_newSession"],nav[class*="_panelList"],[class*="_logoRow"]>[class*="_brand"],[class*="_logoRow"]:not(:has([class*="_toggle"])){display:none!important}
+html:not([data-windows-titlebar]) :not([class*="_collapsed"])>[class*="_logoRow"]{display:none!important}
+html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{height:0!important;margin:0!important}
+/* Hide DSH's own sidebar toggles everywhere they mount: logoRow, macOS topStrip, and the
+   shell.leading seat (narrow drawers <768px and collapsed macOS frames, which also carries
+   DSH's New Session button on desktop). Left visible, the leading opener bleeds through
+   translucent Bot sidebars and stays underneath our top buttons. */
+[class*="_logoRow"]>[class*="_toggle"],[class*="_topStrip"]>[class*="_toggle"],[data-shell-leading],[data-sidebar-opener]{display:none!important}
+[class*="_footArea"]{grid-template-columns:auto minmax(0,1fr);grid-auto-flow:row dense;align-items:center;gap:4px 9px;padding:8px 6px 6px!important}
+html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"])>[class*="_footArea"]{display:grid!important}
+[class*="_footArea"]>[class*="_footerActions"],[class*="_footArea"]>[class*="_footerActions"]>div{display:contents!important}
+[class*="_footArea"]>[class*="_footerActions"]>div>*{grid-column:1/-1}
+[class*="_footArea"]>[class*="_settingsArea"]{grid-column:1;order:1;width:auto!important}
+[class*="_footArea"] button[aria-label="Settings"]{width:auto!important;padding:0!important;background:none!important;border-radius:50%!important;height:auto!important}
+[class*="_footArea"]:has(.bt-foot-account){grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px}
+[class*="_footArea"]>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;order:1;display:inline-flex}
+[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"]{grid-column:3}
+[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"] button[class*="_trigger"] [class*="_label"]{display:none!important}
+[class*="_widthHandle"]{display:none!important}
+body[data-bt-os=windows] :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
+[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
+`;
+var DSH_CONVERSATION_CSS = `
+[data-trigger-menu] [role=option]>span{text-align:left}
+[data-conversation-scroll]{--bt-composer-h:var(--dsh-composer-height,152px);--bt-composer-inset:var(--dsh-composer-height,152px)}
+[class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
+[data-step-process]>div:first-child{display:none!important}
+[data-step-process]>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
+[data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
+[data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
+:is([data-step-process],[data-turn-process-hidden])[hidden]{content-visibility:visible!important}
+[class*="_flowItem"]:has(> [data-slot="conversation.chat.node"]:empty, > [data-slot="conversation.chat.node"][data-bt-emptied]){display:none!important}
+[data-step-process]:has(> [data-step-process-body] [data-slot="conversation.chat.node"][data-bt-emptied]):not(:has(> [data-step-process-body] [data-slot="conversation.chat.node"]:not([data-bt-emptied]))){display:none!important}
+[class*="_header"]:has(.bt-head){border-bottom-color:transparent!important;box-shadow:none!important}
+header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;right:0;z-index:8;display:flex!important;padding:10px 0 0!important;background:transparent!important;pointer-events:none;justify-content:center}
+header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
+header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;z-index:1;pointer-events:auto}
+header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head),header[class*="_header"][data-dsh-mobile-header]:has(.bt-head){width:auto!important;margin:0!important;padding:calc(10px + env(safe-area-inset-top,0px)) 0 10px!important;background:var(--bt-main)!important;pointer-events:auto}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)::before,header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)::before{content:none}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"],header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)>[class*="_headerLeading"]{top:calc(10px + env(safe-area-inset-top,0px))}
+html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
+html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
+[data-slot="main.conversation"]>[class*="_root"]>[class*="_body"]{--dsh-chat-content-width:min(960px,100%);--bt-chat-w:min(960px,100%)}
+@property --dsh-conversation-column-width{syntax:"*";inherits:false}
+@property --dsh-chat-user-width{syntax:"*";inherits:false}
+[data-turn-tail]>:not([data-slot="conversation.chat.turnTail"]){display:none!important}
+[class*="_flowItem"][data-chat-flow-kind="turn-tail"]:not(:has([data-slot="conversation.chat.turnTail"]:not(:empty))){display:none!important}
+[data-content-phase=hero] [class*="_scrollBody"]{justify-content:flex-end!important}
+[data-content-phase=hero] [class*="_composerHero"]{align-self:stretch!important;width:auto!important;padding-bottom:0!important}
+[data-content-phase=hero] [class*="_composerHero"]>[class$="_root"],[data-content-phase=hero] [class*="_heroWorkspaceRow"]{display:none!important}
+[data-content-phase=hero] [class*="_composerHero"] [class*="_input"]{min-height:0!important}
+[class*="_scroll"]:has(> [class*="_column"]){padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))!important}
+body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(90px + env(safe-area-inset-top,0px))!important}
+body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(120px + env(safe-area-inset-top,0px))!important}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
+[class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
+[class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+@media (max-width:${DSH_NARROW - 1}px) and (pointer:coarse){
+[class*="_root"]:has(> [data-composer-card]){padding-left:max(16px,env(safe-area-inset-left,0px))!important;padding-right:max(16px,env(safe-area-inset-right,0px))!important;padding-bottom:max(24px,env(safe-area-inset-bottom,0px))!important}
+}
+[data-composer-card]>[class*="_row"]{display:contents!important}
+[data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
+[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important;box-sizing:border-box}
+[data-composer-card] [class*="_trailing"]{order:3!important;flex:none!important;align-self:flex-end!important;margin:0!important}
+[data-composer-card]>[data-slot="conversation.input.attachments"]>[class*="_rail"]{order:0!important;flex:0 0 100%!important;margin:0!important;padding:2px 8px 6px!important}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"])>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_tools"]{order:2!important}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_trailing"]{margin-left:auto!important}
+@media (max-width:600px), (max-width:${DSH_NARROW - 1}px) and (max-height:500px) and (pointer:coarse){
+[data-composer-card]>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
+[data-composer-card] [class*="_tools"]{order:2!important}
+[data-composer-card] [class*="_trailing"]{margin-left:auto!important}
+}
+[data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
+[data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
+[data-composer-placeholder]{font-size:0!important;line-height:0!important}
+[data-composer-placeholder]::before{content:var(--bt-placeholder,"Message")!important;display:block!important;font-size:14px!important;line-height:24px!important;color:color-mix(in srgb,var(--bt-ink) 36%,transparent)!important}
+[data-composer-card] button[class*="_add"]{display:none!important}
+[data-composer-card] [class*="_tools"]{gap:0!important}
+[data-composer-card] [class*="_modes"]:empty{display:none!important}
+[data-composer-card] [class*="_activity"]:not(:has([data-slot] > *)){display:none!important}
+[data-composer-card] [class*="_trailing"]{gap:8px!important}
+[data-composer-card] [class*="_standardControls"]{align-items:center!important;gap:8px!important}
+[data-composer-card] button[class*="_primary"]{width:28px!important;height:28px!important;background:var(--bt-accent)!important;color:var(--bt-accent-ink)!important;border-radius:50%!important;transition:background-color .15s ease,${spring(SPRING_TAP, "scale")};animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+[data-composer-card] button[class*="_primary"]:hover:not(:disabled){background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)!important}
+[data-composer-card] button[class*="_primary"]:active:not(:disabled){scale:.9}
+[data-composer-card] button[class*="_primary"] svg{width:14px;height:14px}
+[data-composer-card] button[class*="_primary"]:disabled{display:none!important}
+[data-composer-dock]{display:none!important}
+@media (hover:none){
+  [data-chat-flow-kind=user] [class*="_actions"] button{width:44px;height:44px}
+}
+[data-composer-card]:has(button[class*="_primary"]:disabled) .bt-voice{display:inline-grid}
+body[data-bt-room] [data-composer-card]:has(button[class*="_primary"]:disabled) .bt-mic:not([aria-pressed=true]){background:var(--bt-accent);color:var(--bt-accent-ink)}
+div:has(> nav [class*="_marks"]){display:none!important}
+.bt-uhost [class*="_userStack"]{max-width:100%}
+[class*="_userRow"] [class*="_bubble"],.bt-uhost [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:12px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
+[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a,.bt-uhost [class*="_bubble"] a{color:inherit}
+[class*="_userRow"] [class*="_actions"]{display:none!important}
+[data-chat-flow-kind=user] [class*="_userRow"]{flex-direction:row-reverse;align-items:center;justify-content:flex-start}
+[data-chat-flow-kind=user] [class*="_actions"]{display:flex!important;height:24px!important;gap:2px!important;opacity:0!important;visibility:hidden;transition:opacity .12s ease,visibility .12s!important;flex:none}
+[data-chat-flow-kind=user] [class*="_userRow"]:hover [class*="_actions"],[data-chat-flow-kind=user] [class*="_userRow"]:focus-within [class*="_actions"]{opacity:1!important;visibility:visible}
+@media (hover:none){[data-chat-flow-kind=user] [class*="_actions"]{opacity:1!important;visibility:visible}}
+[data-chat-flow-kind=user] [class*="_actions"] [class*="_timeStart"]{display:none}
+[data-chat-flow-kind=user] [class*="_actions"] button{width:24px;height:24px;border-radius:6px;color:var(--bt-ink-2)}
+[data-chat-flow-kind=user] [class*="_actions"] button:hover{background:var(--bt-hover);color:var(--bt-ink)}
+[data-chat-flow-kind=user] [class*="_actions"] svg{width:15px;height:15px}
+[data-chat-flow-kind=assistant-step]+[data-step-process]:has(.bt-q-inline){margin-top:0!important}
+[data-chat-flow-kind=question-reply]:has(.bt-q-inline),[data-chat-group-key]:has([data-chat-flow-kind=question-reply] .bt-q-inline),[data-chat-group-key]:has(.bt-q-gone){margin-top:0!important}
+@media (max-width:640px){
+[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+}
+[class*="_toBottomSlot"]{justify-content:center!important;padding-right:0!important}
+[data-conversation-scroll] [class*="_toBottomSlot"]{bottom:calc(var(--dsh-composer-height,152px) + 8px)!important}
+[class*="_toBottomSlot"]>button{width:36px!important;height:36px!important;margin-top:-36px!important;background:var(--bt-glass-bg)!important;-webkit-backdrop-filter:blur(16px) saturate(180%)!important;backdrop-filter:blur(16px) saturate(180%)!important;color:var(--bt-ink)!important;box-shadow:var(--bt-glass-shadow)!important;animation:bt-tobottom-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
+[class*="_toBottomSlot"]>button:active{scale:.9}
+[class*="_toBottomSlot"]>button:hover{background:color-mix(in srgb,var(--bt-ink) 4%,var(--bt-main))!important}
+[class*="_toBottomSlot"]>button svg{display:none}
+[class*="_toBottomSlot"]>button::before{content:"";width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4v12M5 11l5 5 5-5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4v12M5 11l5 5 5-5'/%3E%3C/svg%3E") center/contain no-repeat}
+[data-bt-news] [class*="_toBottomSlot"]>button{visibility:hidden!important;pointer-events:none!important}
+@media (prefers-reduced-motion:reduce){[class*="_toBottomSlot"]>button{animation:none}}
+.bt-ububble [class*="_markdown"]{color:inherit!important}
+[data-composer-dock]:has(.bt-btw){display:flex!important;flex-direction:column;align-items:center;width:100%;max-width:var(--dsh-composer-card-max-width,748px)}
+[data-composer-dock]:has(.bt-btw)>:not([data-slot="conversation.composer.dock"]){display:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body[data-bt-effects=off] :is([data-composer-card],[data-chat-flow-kind=user] [class*="_actions"],[class*="_toBottomSlot"]>button){transition:none!important}
+body[data-bt-effects=off] [class*="_toBottomSlot"]>button{animation:none!important}
+`;
+function dshThemeCss(theme) {
+  if (!theme?.css || !theme.css.includes(SERIF_REPLIES)) return "";
+  return `.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
+}
+
+// src/client/chat-room.js
+var hostCollapsedReader = null;
+var hostNodeSync = null;
+function registerHostCollapsed(reader) {
+  hostCollapsedReader = typeof reader === "function" ? reader : null;
+  return () => {
+    if (hostCollapsedReader === reader) hostCollapsedReader = null;
+  };
+}
+function dshCollapsed() {
+  return hostCollapsedReader ? hostCollapsedReader() : null;
+}
+function registerHostNodeSync(sync) {
+  hostNodeSync = typeof sync === "function" ? sync : null;
+  return () => {
+    if (hostNodeSync === sync) hostNodeSync = null;
+  };
+}
+function syncHostAncestors(node) {
+  if (hostNodeSync && node) hostNodeSync(node);
+}
+var room = { rule: null };
+var roomRule = () => {
+  const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected;
+  if (live) return room.rule;
+  const declarations2 = room.rule?.style.cssText ?? "";
+  room.rule?.parentStyleSheet?.ownerNode?.remove();
+  const style = installStyles(`[data-bt-center]{${declarations2}}`, "chat-room");
+  room.rule = style.sheet.cssRules[0];
+  return room.rule;
+};
+var margin = (side2, width, style) => {
+  if (width === null) style.removeProperty(`margin-${side2}`);
+  else style.setProperty(`margin-${side2}`, `${width}px`, "important");
+  if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
+  else style.removeProperty("width");
+};
+var roomHold = 0;
+var chatRoom = {
+  /** The margin the Bot panel takes on the right, in px, or null for the shell's own. */
+  setRight(width) {
+    margin("right", width, roomRule().style);
+  },
+  /** The margin our own left column takes while the shell sidebar is collapsed. */
+  setLeft(width) {
+    margin("left", width, roomRule().style);
+  },
+  /** While on, a margin change lands at once instead of gliding. */
+  hold(on) {
+    cancelAnimationFrame(roomHold);
+    if (on) {
+      roomRule().style.setProperty("transition", "none", "important");
+      return;
+    }
+    roomHold = requestAnimationFrame(() => {
+      roomHold = requestAnimationFrame(() => roomRule().style.removeProperty("transition"));
+    });
+  },
+  /** The columns themselves, for a drag's per-frame writes. */
+  columns() {
+    roomRule();
+    return [...document.querySelectorAll("[data-bt-center]")];
+  }
+};
+
+// src/client/adapter-dsh.js
+var MIRROR_ATTRS = [
+  ["data-chat-flow-key", "data-bt-flow-key"],
+  ["data-chat-flow-kind", "data-bt-flow-kind"],
+  ["data-chat-group-key", "data-bt-group-key"],
+  ["data-slot", "data-bt-slot"]
+];
+var MIRROR_BY_SOURCE = new Map(MIRROR_ATTRS);
+var FLAG_RULES = [
+  ["data-bt-center", ['[class*="_centerCol"]']],
+  ["data-bt-scroll", ["[data-conversation-scroll]"]],
+  ["data-bt-to-bottom", ['[class*="_toBottomSlot"] > button']],
+  ["data-bt-flow", ["[data-chat-flow]"]],
+  ["data-bt-running", ["[data-chat-running]"]],
+  ["data-bt-composer", ["[data-composer-card]"]],
+  ["data-bt-composer-input", ["[data-composer-input]", '[data-composer-card] [role="textbox"][contenteditable="true"]']],
+  ["data-bt-composing", ["[data-composer-composing]"]]
+];
+var ALL_SOURCE_SELECTOR = [
+  ...FLAG_RULES.flatMap(([, sels]) => sels),
+  ...MIRROR_ATTRS.map(([from]) => `[${from}]`)
+].join(",");
+var TAIL_NODE_SELECTOR = '[data-chat-following-tail],[class*="_toBottomSlot"],[class*="_toBottomSlot"] > button';
+var TAIL_DESCENDANT_SELECTOR = '[data-chat-following-tail],[class*="_toBottomSlot"] > button';
+var isElement = (node) => node != null && node.nodeType === 1;
+function setAttrIfChanged(el, name, value) {
+  if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+}
+function removeAttrIfPresent(el, name) {
+  if (el.hasAttribute(name)) el.removeAttribute(name);
+}
+function syncTailState(scroller) {
+  if (!isElement(scroller)) return;
+  if (!scroller.hasAttribute("data-conversation-scroll")) {
+    removeAttrIfPresent(scroller, "data-bt-following-tail");
+    return;
+  }
+  const following = scroller.querySelector("[data-chat-following-tail]") !== null ? "true" : scroller.querySelector('[class*="_toBottomSlot"] > button') !== null ? "false" : "true";
+  setAttrIfChanged(scroller, "data-bt-following-tail", following);
+}
+function syncFlag(el, attr, selectors) {
+  let matched = false;
+  for (const sel of selectors) {
+    if (el.matches?.(sel)) {
+      matched = true;
+      break;
+    }
+  }
+  if (matched) setAttrIfChanged(el, attr, "");
+  else removeAttrIfPresent(el, attr);
+}
+function stampOne(el) {
+  if (!isElement(el)) return;
+  for (const [attr, selectors] of FLAG_RULES) syncFlag(el, attr, selectors);
+  for (const [from, to] of MIRROR_ATTRS) {
+    if (el.hasAttribute(from)) setAttrIfChanged(el, to, el.getAttribute(from) ?? "");
+    else removeAttrIfPresent(el, to);
+  }
+  syncTailState(el);
+}
+function syncDshAncestors(node) {
+  for (let cur = isElement(node) ? node : node?.parentElement; isElement(cur); cur = cur.parentElement) {
+    stampOne(cur);
+  }
+}
+function syncDshNode(root) {
+  if (!root) return;
+  if (isElement(root)) stampOne(root);
+  if (typeof root.querySelectorAll !== "function") return;
+  const matched = root.querySelectorAll(ALL_SOURCE_SELECTOR);
+  for (const el of matched) stampOne(el);
+}
+function touchesTailNode(node) {
+  if (!isElement(node)) return false;
+  if (node.matches?.(TAIL_NODE_SELECTOR)) return true;
+  return Boolean(node.querySelector?.(TAIL_DESCENDANT_SELECTOR));
+}
+var DIRECT_FLAG_ATTRS = /* @__PURE__ */ new Map([
+  ["data-conversation-scroll", "data-bt-scroll"],
+  ["data-chat-flow", "data-bt-flow"],
+  ["data-chat-running", "data-bt-running"],
+  ["data-composer-card", "data-bt-composer"],
+  ["data-composer-composing", "data-bt-composing"]
+]);
+var COMPOSER_INPUT_SELS = FLAG_RULES.find(([attr]) => attr === "data-bt-composer-input")[1];
+var TO_BOTTOM_SELS = FLAG_RULES.find(([attr]) => attr === "data-bt-to-bottom")[1];
+function installDshAdapter(doc = document) {
+  if (!doc) return () => {
+  };
+  const root = doc.body ?? doc.documentElement;
+  if (!root) return () => {
+  };
+  syncDshNode(root);
+  const unregisterSync = registerHostNodeSync(syncDshAncestors);
+  if (typeof MutationObserver !== "function") return unregisterSync;
+  const observer2 = new MutationObserver((records) => {
+    const dirtyScrollers = /* @__PURE__ */ new Set();
+    for (const record of records) {
+      if (record.type === "attributes") {
+        const target2 = record.target;
+        if (!isElement(target2)) continue;
+        const name = record.attributeName;
+        if (name === "class") {
+          const cls = typeof target2.className === "string" ? target2.className : "";
+          if (cls.includes("_centerCol")) setAttrIfChanged(target2, "data-bt-center", "");
+          else if (target2.hasAttribute("data-bt-center")) removeAttrIfPresent(target2, "data-bt-center");
+          const isSlot = cls.includes("_toBottomSlot");
+          const hadSlotBtn = !isSlot && target2.querySelector?.(":scope > button[data-bt-to-bottom]") !== null;
+          if (isSlot || hadSlotBtn) {
+            for (const child of target2.children ?? []) {
+              if (child.tagName === "BUTTON") syncFlag(child, "data-bt-to-bottom", TO_BOTTOM_SELS);
+            }
+            const scroller = target2.closest?.("[data-conversation-scroll]");
+            if (scroller) dirtyScrollers.add(scroller);
+          }
+          continue;
+        }
+        if (name === "data-chat-following-tail") {
+          const scroller = target2.closest?.("[data-conversation-scroll]");
+          if (scroller) dirtyScrollers.add(scroller);
+          continue;
+        }
+        const mirrored = MIRROR_BY_SOURCE.get(name);
+        if (mirrored) {
+          if (target2.hasAttribute(name)) setAttrIfChanged(target2, mirrored, target2.getAttribute(name) ?? "");
+          else removeAttrIfPresent(target2, mirrored);
+          continue;
+        }
+        const flag = DIRECT_FLAG_ATTRS.get(name);
+        if (flag) {
+          if (target2.hasAttribute(name)) setAttrIfChanged(target2, flag, "");
+          else removeAttrIfPresent(target2, flag);
+          if (name === "data-conversation-scroll") syncTailState(target2);
+          if (name === "data-composer-card") {
+            for (const tb of target2.querySelectorAll?.('[role="textbox"][contenteditable="true"], [data-bt-composer-input]') ?? []) {
+              syncFlag(tb, "data-bt-composer-input", COMPOSER_INPUT_SELS);
+            }
+          }
+          continue;
+        }
+        if (name === "data-composer-input" || name === "role" || name === "contenteditable") {
+          syncFlag(target2, "data-bt-composer-input", COMPOSER_INPUT_SELS);
+        }
+        continue;
+      }
+      if (record.type !== "childList") continue;
+      const target = isElement(record.target) ? record.target : null;
+      for (const added of record.addedNodes) {
+        if (!isElement(added)) continue;
+        syncDshNode(added);
+        if (touchesTailNode(added)) {
+          const scroller = added.closest?.("[data-conversation-scroll]") ?? target?.closest?.("[data-conversation-scroll]");
+          if (scroller) dirtyScrollers.add(scroller);
+        }
+      }
+      for (const removed of record.removedNodes) {
+        if (!isElement(removed)) continue;
+        if (touchesTailNode(removed)) {
+          const scroller = target?.closest?.("[data-conversation-scroll]");
+          if (scroller) dirtyScrollers.add(scroller);
+        }
+      }
+    }
+    for (const scroller of dirtyScrollers) syncTailState(scroller);
+  });
+  observer2.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: [
+      "class",
+      "role",
+      "contenteditable",
+      "data-conversation-scroll",
+      "data-chat-following-tail",
+      "data-chat-flow",
+      "data-chat-running",
+      "data-chat-flow-key",
+      "data-chat-flow-kind",
+      "data-chat-group-key",
+      "data-slot",
+      "data-composer-card",
+      "data-composer-input",
+      "data-composer-composing"
+    ]
+  });
+  return () => {
+    unregisterSync();
+    observer2.disconnect();
+  };
+}
+
 // src/client/avatar/clips.js
 var TURN = 5;
 function bezier(x1, y1, x2, y2) {
@@ -27414,9 +28012,9 @@ var mirror = (made, s) => {
 };
 var at = (keys, k) => keys.map(([t2, v, e]) => [t2 * k, v, e]);
 var HOP = 0.84;
-function hopTracks(h94, pace = 1) {
+function hopTracks(h95, pace = 1) {
   return {
-    y: at([[0, 0], [0.1, 0.8, "out"], [0.3, -h94, "out"], [0.36, -h94, "linear"], [0.54, 0, "in"], [0.84, 0, "linear"]], pace),
+    y: at([[0, 0], [0.1, 0.8, "out"], [0.3, -h95, "out"], [0.36, -h95, "linear"], [0.54, 0, "in"], [0.84, 0, "linear"]], pace),
     sq: at([[0, 0], [0.1, 0.09, "out"], [0.2, -0.09, "out"], [0.36, 0, "inOut"], [0.54, 0, "linear"], [0.6, 0.12, "out"], [0.72, -0.035, "inOut"], [0.84, 0, "inOut"]], pace),
     pitch: at([[0, 0], [0.1, 3], [0.3, -4], [0.56, 2.5], [0.76, 0]], pace)
   };
@@ -27809,13 +28407,13 @@ function capsule(W, H) {
 }
 var LID_ROUND = 0.6;
 var EYE_POINTS = 56;
-function liddedEye(w, h94, top, bottom) {
+function liddedEye(w, h95, top, bottom) {
   const r = w / 2;
-  const a = Math.max(0, h94 / 2 - r);
-  const ry2 = Math.min(r, h94 / 2);
+  const a = Math.max(0, h95 / 2 - r);
+  const ry2 = Math.min(r, h95 / 2);
   const deepest = (lid) => [-r, 0, r].map((x) => lid.at(x));
-  const kTop = top ? Math.min(LID_ROUND * w, Math.max(0, Math.max(...deepest(top)) + h94 / 2)) : 0;
-  const kBottom = bottom ? Math.min(LID_ROUND * w, Math.max(0, h94 / 2 - Math.min(...deepest(bottom)))) : 0;
+  const kTop = top ? Math.min(LID_ROUND * w, Math.max(0, Math.max(...deepest(top)) + h95 / 2)) : 0;
+  const kBottom = bottom ? Math.min(LID_ROUND * w, Math.max(0, h95 / 2 - Math.min(...deepest(bottom)))) : 0;
   const body = (x, y) => a > 0 ? Math.hypot(x, Math.max(Math.abs(y) - a, 0)) - r : (Math.hypot(x / r, y / ry2) - 1) * ry2;
   const inside = (x, y) => {
     let d = body(x, y);
@@ -27823,10 +28421,10 @@ function liddedEye(w, h94, top, bottom) {
     if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), kBottom);
     return d;
   };
-  const upper = top ? Math.max(-h94 / 2, top.at(0)) : -h94 / 2;
-  const lower = bottom ? Math.min(h94 / 2, bottom.at(0)) : h94 / 2;
+  const upper = top ? Math.max(-h95 / 2, top.at(0)) : -h95 / 2;
+  const lower = bottom ? Math.min(h95 / 2, bottom.at(0)) : h95 / 2;
   const cy = (upper + lower) / 2;
-  const reach = Math.hypot(w, h94);
+  const reach = Math.hypot(w, h95);
   const points = [];
   for (let i = 0; i < EYE_POINTS; i += 1) {
     const angle = Math.PI + 2 * Math.PI * i / EYE_POINTS;
@@ -27874,8 +28472,8 @@ function lidOf(y0, slope, bow, width) {
 }
 function smoothMax(a, b2, k) {
   if (k <= 0) return Math.max(a, b2);
-  const h94 = Math.max(k - Math.abs(a - b2), 0) / k;
-  return Math.max(a, b2) + h94 * h94 * k / 4;
+  const h95 = Math.max(k - Math.abs(a - b2), 0) / k;
+  return Math.max(a, b2) + h95 * h95 * k / 4;
 }
 function stroke(centerline, width, out) {
   const n = centerline.length / 2;
@@ -27922,11 +28520,11 @@ function eyePolygons(shape, W, H, side2, closed = 0) {
   const out = [];
   if (shape.kind === "capsule") {
     const w = W * shape.w;
-    const h94 = H * shape.h;
+    const h95 = H * shape.h;
     const inner = -side2;
-    const top = shape.top > 0 ? lidOf(-h94 / 2 + shape.top * h94, Math.tan(shape.topTilt * Math.PI / 180) * -inner, 0, w) : null;
-    const bottom = shape.bottom > 0 ? lidOf(h94 / 2 - shape.bottom * h94, Math.tan(shape.bottomTilt * Math.PI / 180) * -inner, shape.bottomCurve * h94, w) : null;
-    const points = top || bottom ? liddedEye(w, h94, top, bottom) : capsule(w, h94);
+    const top = shape.top > 0 ? lidOf(-h95 / 2 + shape.top * h95, Math.tan(shape.topTilt * Math.PI / 180) * -inner, 0, w) : null;
+    const bottom = shape.bottom > 0 ? lidOf(h95 / 2 - shape.bottom * h95, Math.tan(shape.bottomTilt * Math.PI / 180) * -inner, shape.bottomCurve * h95, w) : null;
+    const points = top || bottom ? liddedEye(w, h95, top, bottom) : capsule(w, h95);
     for (let i = 0; i < points.length; i += 2) {
       points[i] += shape.dx * W;
       points[i + 1] += shape.dy * H;
@@ -28285,11 +28883,11 @@ var Avatar = class {
       const w = w0 * settle;
       let rest = dt;
       while (rest > 0) {
-        const h94 = Math.min(rest, 1 / 240);
+        const h95 = Math.min(rest, 1 / 240);
         const a = w * w * (spring2.target - spring2.x) - 2 * zeta * w * spring2.v;
-        spring2.v += a * h94;
-        spring2.x += spring2.v * h94;
-        rest -= h94;
+        spring2.v += a * h95;
+        spring2.x += spring2.v * h95;
+        rest -= h95;
       }
       if (Math.abs(spring2.target - spring2.x) > 1e-3 || Math.abs(spring2.v) > 1e-3) moving = true;
       else {
@@ -28627,8 +29225,8 @@ function capsule2(a, b2, r) {
   const ba = sub(b2, a);
   return (p) => {
     const pa = sub(p, a);
-    const h94 = Math.max(0, Math.min(1, dot(pa, ba) / dot(ba, ba)));
-    return len(sub(pa, ba.map((v) => v * h94))) - r;
+    const h95 = Math.max(0, Math.min(1, dot(pa, ba) / dot(ba, ba)));
+    return len(sub(pa, ba.map((v) => v * h95))) - r;
   };
 }
 function roundCone(a, b2, r1, r2) {
@@ -28668,8 +29266,8 @@ var box2 = (cx, cy, hx, hy) => (x, y) => {
 };
 var circle2 = (cx, cy, r) => (x, y) => Math.hypot(x - cx, y - cy) - r;
 var smin = (k, ...parts) => (p) => parts.map((f) => f(p)).reduce((a, b2) => {
-  const h94 = Math.max(k - Math.abs(a - b2), 0) / k;
-  return Math.min(a, b2) - h94 * h94 * k / 4;
+  const h95 = Math.max(k - Math.abs(a - b2), 0) / k;
+  return Math.min(a, b2) - h95 * h95 * k / 4;
 });
 var clipBelow = (f, y) => (p) => Math.max(f(p), y - p[1]);
 function flatten(d) {
@@ -28810,8 +29408,8 @@ function polygonDistance(loops, x, y) {
       const [x2, y2] = loop2[a];
       const dx = x2 - x1;
       const dy = y2 - y1;
-      const h94 = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy || 1)));
-      best = Math.min(best, Math.hypot(x - x1 - dx * h94, y - y1 - dy * h94));
+      const h95 = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy || 1)));
+      best = Math.min(best, Math.hypot(x - x1 - dx * h95, y - y1 - dy * h95));
       if (y1 > y !== y2 > y && x < x1 + (y - y1) * dx / dy) inside = !inside;
     }
   }
@@ -28936,8 +29534,8 @@ function createModels({ grid = 260 } = {}) {
         const outer = circle2(0.06, 0, 0.88)(x, y);
         const inner = circle2(-0.52, 0.24, 0.69)(x, y);
         const k = 0.14;
-        const h94 = Math.max(k - Math.abs(outer + inner), 0) / k;
-        return Math.max(outer, -inner) + h94 * h94 * k / 4;
+        const h95 = Math.max(k - Math.abs(outer + inner), 0) / k;
+        return Math.max(outer, -inner) + h95 * h95 * k / 4;
       }, 0.14, 0.22),
       eyes: [[0.14, -0.1], [0.48, -0.1]],
       eye: 0.82
@@ -32285,7 +32883,8 @@ function CellEmpty({ className }) {
   const ref = (0, import_react8.useRef)(null);
   (0, import_react8.useLayoutEffect)(() => {
     const marker = ref.current;
-    const slot = marker?.closest("[data-slot]");
+    syncHostAncestors(marker);
+    const slot = marker?.closest("[data-bt-slot]");
     if (!slot) return void 0;
     const sync = (gone) => emptied(slot, gone) ? slot.dataset.btEmptied = "" : delete slot.dataset.btEmptied;
     sync();
@@ -34651,8 +35250,8 @@ var isImeComposing = (event) => Boolean(
 function insertComposerNewline(event, inputActions) {
   if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || isImeComposing(event) || event.getModifierState?.("AltGraph")) return false;
   const target = event.target;
-  if (typeof target?.closest !== "function" || !target.closest('[data-composer-card] [role="textbox"]')) return false;
-  if (target.closest("[data-composer-composing]")) return false;
+  if (typeof target?.closest !== "function" || !target.closest("[data-bt-composer] [data-bt-composer-input]")) return false;
+  if (target.closest("[data-bt-composing]")) return false;
   if (target.ownerDocument?.querySelector('[role="listbox"]')) return false;
   if (typeof inputActions?.captureInsertion !== "function" || typeof inputActions?.insertText !== "function") return false;
   event.preventDefault();
@@ -36428,7 +37027,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
 }
 var COMPUTER_CSS = `
 .bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-level-pick{max-width:200px}
+.bt-sel.bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}
 .bt-cview{display:flex;flex-direction:column;gap:12px}
@@ -36463,6 +37062,8 @@ var COMPUTER_CSS = `
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
+@container (max-width:440px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@media (max-width:768px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
 `;
 
 // node_modules/deep-view/src/core/reply.js
@@ -37723,10 +38324,6 @@ var SECRET_CSS = `
 .bt-secret-seg{position:relative;z-index:1;height:28px;padding:0 14px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:color .16s ease}
 .bt-secret-seg[aria-checked=true]{color:var(--bt-ink);font-weight:500}
 .bt-secret-seg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-/* A key card asks the user to act, so the process group carrying it stays open in every
-   work-details mode (same override as .bt-group-replies in styles.js). */
-[data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
-[data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 .bt-secret-ok{display:flex;align-items:center;gap:4px;margin-top:6px;animation:bt-secret-in .22s cubic-bezier(.22,1,.36,1)}
 .bt-secret-ok svg{width:13px;height:13px;color:var(--bt-green)}
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
@@ -37809,7 +38406,7 @@ function modelOf(bot, roster) {
   return { ref, name: served === void 0 ? rest.join("/") : nameOf(served), provider: served?.providerName ?? provider, served: served !== void 0 };
 }
 var effortCache = /* @__PURE__ */ new Map();
-function useEfforts(served, ref, actions) {
+function useEfforts(served, ref, actions, version = 0) {
   const [fetched, setFetched] = (0, import_react22.useState)(void 0);
   (0, import_react22.useEffect)(() => {
     setFetched(void 0);
@@ -37825,7 +38422,7 @@ function useEfforts(served, ref, actions) {
     return () => {
       live = false;
     };
-  }, [ref, served?.reasoning !== void 0, actions]);
+  }, [ref, served?.reasoning !== void 0, actions, version]);
   return served?.reasoning ?? fetched;
 }
 function effortStops(reasoning) {
@@ -38215,12 +38812,12 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const shown = modelOf({ ...bot, model: current2 }, roster);
   const local = isLocalRoute(current2);
   const served = servedOf(roster, current2);
-  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions);
+  const [opening, setOpening] = (0, import_react22.useState)(0);
+  const [query, setQuery] = (0, import_react22.useState)("");
+  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions, opening);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
-  const [opening, setOpening] = (0, import_react22.useState)(0);
-  const [query, setQuery] = (0, import_react22.useState)("");
   const models2 = modelsFor(roster.models, current2);
   return {
     bot,
@@ -38243,7 +38840,10 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current2));
-      else void actions?.refreshModels?.();
+      else {
+        effortCache.clear();
+        void actions?.refreshModels?.();
+      }
       setQuery("");
       setOpening((count) => count + 1);
     },
@@ -38546,32 +39146,35 @@ function setupChoices(actions) {
 }
 function DeepSeekSignIn({ useUi, actions }) {
   const open = useUi((state) => state.signIn);
-  const entry = open ? actions.signInEntry?.() : null;
+  const [shown, leaving] = useLinger(open, 160);
+  const entry = shown ? actions.signInEntry?.() : null;
   if (!entry) return null;
-  return (0, import_react22.createElement)(SignInHost, { key: open, entry, actions });
+  return (0, import_react22.createElement)(SignInHost, { key: shown, entry, actions, leaving });
 }
 function makeSourceHook(source) {
   return function useBoundSource(selector) {
     return (0, import_react22.useSyncExternalStore)(source.subscribe, () => selector(source.getSnapshot()));
   };
 }
-function SignInHost({ entry, actions }) {
+function SignInHost({ entry, actions, leaving = false }) {
   const [ops] = (0, import_react22.useState)(() => entry.inject?.() ?? {});
   const close = () => actions.closeSignIn();
   const [hooks] = (0, import_react22.useState)(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }));
   return (0, import_react22.createElement)(entry.component, {
     ...ops,
     ...hooks,
+    leaving,
     t: actions.accountT(),
     complete: close,
     useApiKey: () => {
       close();
-      actions.openHarnessOnboarding("deepseek-official");
+      if (typeof actions.openHarnessOnboarding === "function") actions.openHarnessOnboarding("deepseek-official");
+      else actions.openModels?.();
     }
   });
 }
 var MODEL_CSS = `
-.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
+.bt-model-trigger{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;max-width:100%;min-width:0;height:auto;min-height:32px;padding:4px 8px 4px 10px;border:0;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-model-trigger:hover,.bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
@@ -38654,7 +39257,7 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 /* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
-.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+.bt-model-dock{width:100%;max-width:var(--bt-chat-w,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 /* The scroll box clips at its padding edge, so 3px of padding keeps the chips' focus rings visible; the negative margins cancel it so the chips stay in place. */
 .bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;box-sizing:border-box;padding:3px;margin:-3px 0 -3px 27px;max-width:min(566px,calc(100% - 27px));max-height:min(246px,calc(36vh + 6px));max-height:min(246px,calc(36dvh + 6px));overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
@@ -39325,36 +39928,59 @@ var FOLDER_CSS = `
 // src/client/schedules.js
 var import_react26 = require("react");
 var POLL_MS = 3e4;
+var PENDING_POLL_MS = 1e3;
 var shared = null;
+var publishSeq = 0;
 var listeners = /* @__PURE__ */ new Set();
+var rescheduleListeners = /* @__PURE__ */ new Set();
 function publish(view) {
+  publishSeq += 1;
   shared = view;
   for (const listener of listeners) listener(view);
+  for (const listener of rescheduleListeners) listener(view);
 }
-function useSchedules(actions) {
+function useSchedulesState(actions) {
   const [view, setView] = (0, import_react26.useState)(shared);
+  const [error, setError] = (0, import_react26.useState)("");
+  const loadRef = (0, import_react26.useRef)(null);
   (0, import_react26.useEffect)(() => {
     listeners.add(setView);
     let stopped = false;
     let inFlight = false;
     let timer2;
-    const schedule = () => {
+    const schedule = (nextView) => {
       clearTimeout(timer2);
       if (stopped || typeof document !== "undefined" && document.hidden) return;
-      timer2 = setTimeout(load, POLL_MS);
+      timer2 = setTimeout(load, nextView?.pending === true ? PENDING_POLL_MS : POLL_MS);
     };
+    const onPublish = (nextView) => {
+      if (!stopped && !inFlight && nextView?.pending === true) schedule(nextView);
+    };
+    rescheduleListeners.add(onPublish);
     const load = () => {
       if (stopped || inFlight) return;
       if (typeof document !== "undefined" && document.hidden) return;
       inFlight = true;
+      const seq = publishSeq;
+      let latest = shared;
       Promise.resolve(actions.schedules?.()).then((next) => {
-        if (!stopped && next !== void 0) publish(next);
-      }).catch(() => {
+        if (stopped) return;
+        setError("");
+        if (next !== void 0 && publishSeq === seq) {
+          latest = next;
+          publish(next);
+        } else {
+          latest = shared;
+        }
+      }).catch((failure) => {
+        if (!stopped && publishSeq === seq) setError(hostText(failure?.message ?? String(failure)));
+        latest = shared;
       }).finally(() => {
         inFlight = false;
-        schedule();
+        schedule(latest);
       });
     };
+    loadRef.current = load;
     const onVisibility2 = () => {
       if (document.hidden) clearTimeout(timer2);
       else if (!stopped) load();
@@ -39363,12 +39989,20 @@ function useSchedules(actions) {
     load();
     return () => {
       stopped = true;
+      loadRef.current = null;
       clearTimeout(timer2);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
       listeners.delete(setView);
+      rescheduleListeners.delete(onPublish);
     };
   }, []);
-  return view;
+  return { view, error, retry: () => {
+    setError("");
+    loadRef.current?.();
+  } };
+}
+function useSchedules(actions) {
+  return useSchedulesState(actions).view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 var clock3 = (time) => {
@@ -39621,7 +40255,66 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     )
   );
 }
-function AutomationOff({ actions }) {
+function AutomationOff({ view, actions, readOnly, onEnabled, onRetry }) {
+  const [busy, setBusy] = (0, import_react26.useState)(false);
+  const [error, setError] = (0, import_react26.useState)("");
+  const restartRequired = view?.restartRequired === true;
+  const canEnable = !restartRequired && view?.canEnable === true && typeof actions.scheduleEnable === "function";
+  const failed = view?.reason === "error";
+  const lockedDisabled = !restartRequired && !canEnable && view?.reason === "disabled";
+  const enable = () => {
+    if (busy || !canEnable || readOnly) return;
+    setBusy(true);
+    setError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setBusy(false);
+      if (next?.error) setError(hostText(next.error));
+      if (next !== void 0) onEnabled?.(next);
+    }, (failure) => {
+      setBusy(false);
+      setError(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  if (restartRequired) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot for scheduled tasks to take effect."))
+    );
+  }
+  if (canEnable) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Turn on scheduled tasks to run prompts automatically on a schedule.")),
+      error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, error) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", "data-tour": "open-plugins", disabled: busy || readOnly, onClick: enable }, busy ? t("Turning on…") : t("Turn on scheduled tasks"))
+    );
+  }
+  if (failed) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks failed to start")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot, or refresh status after fixing the issue.")),
+      view?.error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, hostText(view.error)) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => onRetry?.() }, t("Refresh status"))
+    );
+  }
+  if (lockedDisabled) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Scheduled tasks cannot be changed here."))
+    );
+  }
   return (0, import_react26.createElement)(
     "div",
     { className: "bt-set-card bt-task-off" },
@@ -39632,12 +40325,26 @@ function AutomationOff({ actions }) {
   );
 }
 function SchedulesPage({ roster, actions, start }) {
-  const view = useSchedules(actions);
+  const { view, error: loadError, retry } = useSchedulesState(actions);
   const [owner, setOwner] = (0, import_react26.useState)(() => start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null);
   const filter = start?.startsWith("bot:") || start?.startsWith("room:");
   const [adding, setAdding] = (0, import_react26.useState)(Boolean(start) && !filter);
-  if (view === null) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
-  if (!view.available) return (0, import_react26.createElement)(AutomationOff, { actions });
+  if (view === null) {
+    if (loadError) {
+      return (0, import_react26.createElement)(
+        "div",
+        { className: "bt-set-card bt-task-off" },
+        (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+        (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, loadError),
+        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: retry }, t("Retry"))
+      );
+    }
+    return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
+  }
+  if (!view.available) {
+    if (view.pending === true) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Starting scheduled tasks…"));
+    return (0, import_react26.createElement)(AutomationOff, { view, actions, readOnly: Boolean(roster?.readOnly), onEnabled: publish, onRetry: retry });
+  }
   const shown = (next) => {
     publish(next);
     setAdding(false);
@@ -39669,8 +40376,28 @@ function SchedulesPage({ roster, actions, start }) {
 }
 function BotSchedules({ bot, roster, actions }) {
   const view = useSchedules(actions);
+  const [enabling, setEnabling] = (0, import_react26.useState)(false);
+  const [enableError, setEnableError] = (0, import_react26.useState)("");
   if (view === null) return null;
   const tasks = view.available ? view.tasks.filter((task) => task.botId === bot.id) : [];
+  const readOnly = Boolean(roster?.readOnly);
+  const restartRequired = !view.available && view.restartRequired === true;
+  const pending = !view.available && view.pending === true;
+  const canEnable = !view.available && !restartRequired && !pending && view.canEnable === true && typeof actions.scheduleEnable === "function";
+  const lockedDisabled = !view.available && !restartRequired && !pending && !canEnable && view.reason === "disabled";
+  const enable = () => {
+    if (enabling || !canEnable || readOnly) return;
+    setEnabling(true);
+    setEnableError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setEnabling(false);
+      if (next?.error) setEnableError(hostText(next.error));
+      if (next !== void 0) publish(next);
+    }, (failure) => {
+      setEnabling(false);
+      setEnableError(hostText(failure?.message ?? String(failure)));
+    });
+  };
   return (0, import_react26.createElement)(
     "section",
     { className: "bt-set-section" },
@@ -39678,12 +40405,19 @@ function BotSchedules({ bot, roster, actions }) {
     (0, import_react26.createElement)(
       "div",
       { className: "bt-set-card" },
-      !view.available ? (0, import_react26.createElement)(
-        "div",
-        { className: "bt-set-row bt-bs-row" },
-        (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
-        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
-      ) : [
+      !view.available ? [
+        (0, import_react26.createElement)(
+          "div",
+          { key: "off", className: "bt-set-row bt-bs-row" },
+          (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)(
+            "span",
+            { className: "bt-set-hint" },
+            pending ? t("Starting scheduled tasks…") : restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : canEnable || lockedDisabled ? t("Scheduled tasks are off") : view.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.")
+          )),
+          pending || restartRequired || lockedDisabled ? null : canEnable ? (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: enabling || readOnly, onClick: enable }, enabling ? t("Turning on…") : t("Turn on scheduled tasks")) : view.reason === "error" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules", bot.id) }, t("Scheduled tasks")) : (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
+        ),
+        enableError ? (0, import_react26.createElement)("div", { key: "err", className: "bt-set-row bt-task-failed", role: "alert" }, (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint" }, enableError)) : null
+      ] : [
         ...tasks.map((task) => (0, import_react26.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react26.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react26.createElement)(PlusIcon), t("New task"))
       ]
@@ -39693,11 +40427,12 @@ function BotSchedules({ bot, roster, actions }) {
 function ScheduleSummary({ bot, actions }) {
   const view = useSchedules(actions);
   const tasks = view?.available ? view.tasks.filter((task) => task.botId === bot.id && task.status === "active") : [];
+  const offLabel = view?.pending ? t("Starting scheduled tasks…") : view?.restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : view?.canEnable || view?.reason === "disabled" ? t("Scheduled tasks are off") : view?.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.");
   return (0, import_react26.createElement)(
     "div",
     null,
     (0, import_react26.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
-    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
+    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? offLabel : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
       "button",
       { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react26.createElement)(ClockIcon),
@@ -39721,8 +40456,8 @@ var SCHEDULE_CSS = `
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
-.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
-.bt-task-bot{width:auto;min-width:220px;max-width:58%}
+.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px;max-width:58%}
+.bt-sel.bt-task-bot{width:auto;min-width:min(220px,58%);max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}
@@ -39748,10 +40483,17 @@ var SCHEDULE_CSS = `
 .bt-task-line-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-line-when{flex:none;font-size:12px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
+@container (max-width:440px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
+@media (max-width:768px){
+  .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%}
+  .bt-sel.bt-task-bot{min-width:0;max-width:100%;width:100%}
+}
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */
 @media (max-width:640px){
-  .bt-task-bot{min-width:0;width:100%}
   .bt-task-time{min-width:0;flex:1 1 110px}
   .bt-task-count{width:auto!important;flex:1 1 72px}
 }
@@ -40908,14 +41650,14 @@ var hslOf2 = (hex) => {
   if (hi === lo) return [0, 0, l];
   const d = hi - lo;
   const s = d / (1 - Math.abs(2 * l - 1));
-  const h94 = hi === r ? 60 * ((g - b2) / d % 6) : hi === g ? 60 * ((b2 - r) / d + 2) : 60 * ((r - g) / d + 4);
-  return [h94 < 0 ? h94 + 360 : h94, s, l];
+  const h95 = hi === r ? 60 * ((g - b2) / d % 6) : hi === g ? 60 * ((b2 - r) / d + 2) : 60 * ((r - g) / d + 4);
+  return [h95 < 0 ? h95 + 360 : h95, s, l];
 };
-var hexOfHsl2 = (h94, s, l) => {
+var hexOfHsl2 = (h95, s, l) => {
   const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(h94 / 60 % 2 - 1));
+  const x = c * (1 - Math.abs(h95 / 60 % 2 - 1));
   const m = l - c / 2;
-  const rgb = h94 < 60 ? [c, x, 0] : h94 < 120 ? [x, c, 0] : h94 < 180 ? [0, c, x] : h94 < 240 ? [0, x, c] : h94 < 300 ? [x, 0, c] : [c, 0, x];
+  const rgb = h95 < 60 ? [c, x, 0] : h95 < 120 ? [x, c, 0] : h95 < 180 ? [0, c, x] : h95 < 240 ? [0, x, c] : h95 < 300 ? [x, 0, c] : [c, 0, x];
   return toHex2(rgb.map((value) => (value + m) * 255));
 };
 var MAP = {
@@ -40996,8 +41738,8 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
     else if (textReplaced && contrast(mode.text, mode[key]) < READABLE) mode[key] = canvas;
   }
   const flipped = hexOfHsl2(...(() => {
-    const [h94, s, l] = hslOf2(canvas);
-    return [h94, s, 1 - l];
+    const [h95, s, l] = hslOf2(canvas);
+    return [h95, s, 1 - l];
   })());
   const other = deriveThemeMode(flipped, mode.accent, dark ? "light" : "dark");
   const label = typeof parsed.name === "string" && parsed.name.trim() !== "" ? parsed.name.trim() : fallbackLabel;
@@ -42457,16 +43199,16 @@ var BOT_SETTINGS_CSS = `
 .bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
-.bt-bs-row>.bt-set-copy{flex:1 1 auto}
+.bt-bs-row>.bt-set-copy{flex:1 1 auto;min-width:0}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
-.bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
+.bt-bs-row .bt-model-trigger{flex:0 1 auto;min-width:0;max-width:58%}
 .bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
-.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
+.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;max-width:58%;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area{flex:none;width:100%;min-width:0;max-width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
 .bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}
@@ -42480,6 +43222,24 @@ label.bt-bs-row{cursor:text}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}
 .bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:bt-veil-in .18s ease-out}
+/* Narrow cards (320px right details panel and phones): stack field rows so inputs and
+   pickers never squeeze labels or hints into single-character vertical columns. */
+@container (max-width:440px){
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select){flex-direction:column;align-items:stretch;gap:8px}
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select)>.bt-set-copy{width:100%;flex:none}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%;height:34px;margin:0;padding:0 10px;text-align:left}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):not(:focus){border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+  .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
+}
+@media (max-width:768px){
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select){flex-direction:column;align-items:stretch;gap:8px}
+  .bt-bs-row:has(>.bt-bs-input:not(.bt-bs-area),>.bt-model-trigger,>.bt-sel,>.bt-select)>.bt-set-copy{width:100%;flex:none}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area){flex:none;width:100%;min-width:0;max-width:100%;height:34px;margin:0;padding:0 10px;text-align:left}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):not(:focus){border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+  .bt-bs-row>.bt-bs-input:not(.bt-bs-area):hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+  .bt-bs-row>:is(.bt-model-trigger,.bt-sel,.bt-select){flex:none;width:100%;min-width:0;max-width:100%;box-sizing:border-box;justify-content:space-between}
+}
 @media (prefers-reduced-motion:reduce){.bt-switch,.bt-switch-knob{transition:none}.bt-avedit :is(.bt-shapes,.bt-colors,.bt-dropzone){animation:none}}
 `;
 
@@ -43787,7 +44547,7 @@ function readingBand(scroller) {
   const box = scroller.getBoundingClientRect();
   const heads = Array.from(document.querySelectorAll(".bt-head, .bt-island"), (node) => node.getBoundingClientRect()).filter((rect) => rect.height > 0 && rect.left < box.right && rect.right > box.left && rect.bottom > box.top && rect.bottom < box.bottom);
   const top = heads.length > 0 ? Math.max(...heads.map((rect) => rect.bottom)) : box.top;
-  const composer = parseFloat(getComputedStyle(scroller).getPropertyValue("--dsh-composer-height")) || 0;
+  const composer = parseFloat(getComputedStyle(scroller).getPropertyValue("--bt-composer-inset")) || 0;
   return { top: top + GAP, bottom: box.bottom - composer, left: box.left, right: box.right };
 }
 function pillPlace(rect, band, above) {
@@ -43877,7 +44637,8 @@ function ReplyGuide({ box, active }) {
   const cachedHeadings = (0, import_react36.useRef)(null);
   (0, import_react36.useEffect)(() => {
     const node = box.current;
-    const own = active && node ? node.closest("[data-conversation-scroll]") : null;
+    if (active && node) syncHostAncestors(node);
+    const own = active && node ? node.closest("[data-bt-scroll]") : null;
     setScroller(own);
     if (!own) {
       setLong(false);
@@ -44763,13 +45524,12 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
 var USER_MESSAGE_CSS = `
 .bt-umsg{display:flex;flex-direction:row-reverse;align-items:center;justify-content:flex-start;gap:4px}
 .bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
+.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--bt-content-fs,14px);line-height:calc(var(--bt-content-fs,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
 .bt-ubody a{color:inherit}
 /* The host's content stack sits in DS Bot's: the width follows --bt-msg-w (the user's
    message width) through .bt-ustack, not the host's own cap. The fold control goes
    under the stack, at its right edge. */
 .bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
-.bt-uhost [class*="_userStack"]{max-width:100%}
 .bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
@@ -45194,7 +45954,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? (0, import_react39.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null
   );
 }
-var CHAIN_BREAK_SEL = ".bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card";
+var CHAIN_BREAK_SEL = ".bt-group-msg, .bt-umsg, .bt-urow, [data-bt-flow-kind=user], [data-bt-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card";
 function syncGroupChains(flow) {
   const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)];
   for (let i = 0; i < items.length; i += 1) {
@@ -45209,7 +45969,8 @@ function syncGroupChains(flow) {
     else delete curr.dataset.chainPrev;
     if (chainNext) curr.dataset.chainNext = "";
     else delete curr.dataset.chainNext;
-    const turn = curr.closest("[data-chat-group-key]");
+    syncHostAncestors(curr);
+    const turn = curr.closest("[data-bt-group-key]");
     if (turn) {
       if (chainPrev) turn.dataset.btChainPrev = "";
       else delete turn.dataset.btChainPrev;
@@ -45245,7 +46006,8 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile,
   (0, import_react39.useLayoutEffect)(() => {
     const el = ref.current;
     if (!el?.closest) return void 0;
-    const flow = el.closest("[data-chat-flow]");
+    syncHostAncestors(el);
+    const flow = el.closest("[data-bt-flow]");
     if (!flow) return void 0;
     scheduleGroupChains(flow);
     return () => scheduleGroupChains(flow);
@@ -45565,8 +46327,10 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
     hasContent ? (0, import_react39.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+var NOOP_UI = () => void 0;
+function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id;
+  const visit = useUi((state) => state?.visits?.[sessionId]);
   const rows2 = [];
   for (const item of items) {
     const last = rows2.at(-1);
@@ -45577,7 +46341,16 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = fa
       last.end = item.time;
     } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time } : item);
   }
+  (0, import_react39.useEffect)(() => {
+    if (!clock5 || typeof actions?.noteTurnTime !== "function") return;
+    rows2.forEach((row, index) => {
+      if (row.kind !== "divider" && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, "first", row.time);
+      }
+    });
+  }, [clock5, sessionId, items, actions]);
   let before;
+  let newShown = false;
   return rows2.flatMap((row, index) => {
     const key = rows2.length - index;
     const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText });
@@ -45587,7 +46360,13 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = fa
     }
     const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
     if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
-    return pause ? [(0, import_react39.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
+    const showNew = clock5 && !newShown && unseenSince(visit, row.time);
+    if (showNew) newShown = true;
+    const out = [];
+    if (showNew) out.push((0, import_react39.createElement)(NewDivider, { key: `${key}:new` }));
+    if (pause) out.push((0, import_react39.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)));
+    out.push(shown);
+    return out;
   });
 }
 function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
@@ -47281,6 +48060,33 @@ var import_react_dom8 = require("react-dom");
 var PHRASE_HOLD_MS = 800;
 var drawPhrase = (pool) => t(pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))]);
 var rowVisible = ({ running, streaming, tools, relaying, bot, room: room2 }) => running && (!streaming || tools.length > 0) && !relaying && (bot !== void 0 || room2 !== void 0);
+function backgroundActivity(bot, approvals = []) {
+  if (!bot) return null;
+  const active = tasksForChat({ bot }).filter(isActiveTask);
+  if (active.length === 0) return null;
+  const liveApprovalIds = new Set(
+    (approvals ?? []).filter((entry) => entry.roomId === void 0 && entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false).map((entry) => entry.taskId)
+  );
+  const waitingTasks = active.filter((item) => item.status === "waiting_approval" || liveApprovalIds.has(item.id));
+  const waitingCount = waitingTasks.length;
+  const needsApproval = waitingCount > 0;
+  const allWaitingWork = !needsApproval && active.every((item) => item.status === "waiting_work");
+  const primary = waitingTasks[0] ?? active[0];
+  const title = typeof primary?.title === "string" ? primary.title.trim() : "";
+  const state = needsApproval ? "alert" : allWaitingWork ? "waiting" : "background";
+  const label = active.length === 1 ? needsApproval ? title ? t("Waiting for approval · {title}", { title }) : t("Waiting for approval") : allWaitingWork ? title ? t("Waiting for teammate · {title}", { title }) : t("Waiting for teammate") : title ? t("In background · {title}", { title }) : t("Working in background") : needsApproval ? t("{count} background tasks · {waiting} needs approval", { count: active.length, waiting: waitingCount }) : t("{count} background tasks running", { count: active.length });
+  const starts = active.map((item) => item.startedAt ?? item.updatedAt).filter((at2) => typeof at2 === "number" && at2 > 0);
+  const startedAt = starts.length > 0 ? Math.min(...starts) : 0;
+  return {
+    key: `bg:${state}:${primary?.id ?? ""}:${label}`,
+    label,
+    state,
+    startedAt,
+    count: active.length,
+    needsApproval,
+    primaryId: primary?.id ?? null
+  };
+}
 var freshInputAt = (submissions, steeredAt) => Math.max(
   0,
   steeredAt ?? 0,
@@ -47290,13 +48096,13 @@ var mountMissed = false;
 var runningSlot = null;
 function findHost() {
   const kept = runningSlot?.slot;
-  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute("data-chat-running") && kept.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
-  const slot = document.querySelector("[data-chat-flow] [data-chat-running]");
-  const node = slot?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
+  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute("data-bt-running") && kept.closest("[data-bt-flow]") === runningSlot.host) return runningSlot.host;
+  const slot = document.querySelector("[data-bt-flow] [data-bt-running]");
+  const node = slot?.closest("[data-bt-flow]") ?? document.querySelector("[data-bt-flow]");
   runningSlot = slot ? { slot, host: node } : null;
   if (node === null && !mountMissed) {
     mountMissed = true;
-    noteClientError("activity row", new Error("[data-chat-flow] not found"));
+    noteClientError("activity row", new Error("[data-bt-flow] not found"));
   }
   return node;
 }
@@ -47322,10 +48128,10 @@ function useRunningHost(active) {
       setHost((prev) => prev === node ? prev : node);
     };
     const observer2 = new MutationObserver(() => {
-      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute("data-chat-running") && currentHost.contains(currentSlot)) return;
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute("data-bt-running") && currentHost.contains(currentSlot)) return;
       if (!frame3) frame3 = requestAnimationFrame(find);
     });
-    observer2.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
+    observer2.observe(document.querySelector("[data-bt-scroll]") ?? document.body, { childList: true, subtree: true });
     find();
     return () => {
       cancelAnimationFrame(frame3);
@@ -47351,7 +48157,7 @@ function useRowEntrances(replacing) {
     };
     const scan = () => {
       frame3 = 0;
-      const next = column?.isConnected ? column : document.querySelector("[data-chat-flow]");
+      const next = column?.isConnected ? column : document.querySelector("[data-bt-flow]");
       if (next !== column) {
         observer2.disconnect();
         column = next;
@@ -47363,13 +48169,13 @@ function useRowEntrances(replacing) {
       if (!column) {
         if (!waiting) {
           waiting = true;
-          observer2.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
+          observer2.observe(document.querySelector("[data-bt-scroll]") ?? document.body, { childList: true, subtree: true });
         }
         return;
       }
       const items = [];
       for (const child of column.children) {
-        if (child.hasAttribute("data-chat-flow-key")) items.push(child);
+        if (child.hasAttribute("data-bt-flow-key")) items.push(child);
       }
       let last = -1;
       for (let index = 0; index < items.length; index += 1) {
@@ -47392,7 +48198,7 @@ function useRowEntrances(replacing) {
       if (fresh.length > 3) return;
       for (const { item, index } of fresh) {
         if (index < last) continue;
-        const reply = [void 0, "assistant-step", "tool-call"].includes(item.dataset.chatFlowKind);
+        const reply = [void 0, "assistant-step", "tool-call"].includes(item.dataset.btFlowKind);
         item.dataset.btEnter = reply && check.current() ? "after-collapse" : "new";
         item.addEventListener("animationend", settle);
       }
@@ -47407,7 +48213,7 @@ function useRowEntrances(replacing) {
     };
   }, []);
 }
-function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: useLive2, useSession, useWork, actions }) {
+function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatus, useLive: useLive2, useSession, useWork, actions }) {
   const roster = useRoster((value) => value);
   const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
   const turnAt = useWork?.((work) => work.turns?.[sessionId]);
@@ -47417,10 +48223,21 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
   const liveKey = useLive2((state) => JSON.stringify(state[sessionId] ?? {}));
   const steeredAt = useWork?.((work) => work.steered?.[sessionId]);
   const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
+  const rowRef = (0, import_react41.useRef)(null);
   const [movingBg, setMovingBg] = (0, import_react41.useState)(false);
+  const [bgOpen, setBgOpen] = (0, import_react41.useState)(false);
   (0, import_react41.useEffect)(() => {
     setMovingBg(false);
+    setBgOpen(false);
   }, [sessionId, bgInfo?.turn]);
+  (0, import_react41.useEffect)(() => {
+    if (!bgOpen) return void 0;
+    const onDown = (event) => {
+      if (!rowRef.current?.contains(event.target)) setBgOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [bgOpen]);
   const pendingInput = useSession((snapshot) => freshInputAt(snapshot?.pendingSubmissions, steeredAt));
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
@@ -47428,24 +48245,29 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
     const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
   }) ?? 0;
+  const bgApprovalsKey = useWork?.((work) => bot !== void 0 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === void 0 && entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false)) : "") ?? "";
+  const bgApprovals = (0, import_react41.useMemo)(() => bgApprovalsKey ? JSON.parse(bgApprovalsKey) : [], [bgApprovalsKey]);
   const entries2 = (0, import_react41.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
   const streaming = entries2.some((entry) => entry.text);
   const tools = entries2.filter((entry) => !entry.text).sort((a, b2) => a.at - b2.at);
   const relaying = tools.some((entry) => entry.relay);
-  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools, relaying, bot, room: room2 });
+  const fgVisible = rowVisible({ running, streaming, tools, relaying, bot, room: room2 });
+  const bgTask = !away && bot !== void 0 && !running && moveAt === 0 ? backgroundActivity(bot, bgApprovals) : null;
+  const visible = moveAt !== 0 || fgVisible || bgTask !== null;
   const tool = tools.at(-1);
   const inputRef = (0, import_react41.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES2.thinking, state: "thinking" };
+  const want = !visible ? null : moveAt !== 0 ? { mode: "move", key: "move", label: t("Switching working folder"), state: "thinking", bg: null } : fgVisible ? inputAt > (tool?.at ?? 0) ? { mode: "fg", key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking", bg: null } : tool ? { mode: "fg", key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working", bg: null } : { mode: "fg", key: "thinking", pool: PHRASES2.thinking, state: "thinking", bg: null } : { mode: "bg", key: bgTask.key, label: bgTask.label, state: bgTask.state, bg: bgTask };
   const [shown, setShown] = (0, import_react41.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react41.useRef)("thinking");
   if (want) markState.current = want.state;
   (0, import_react41.useEffect)(() => {
     if (wantKey === null || shown?.key === wantKey) return void 0;
-    const make = () => setShown({ key: wantKey, text: want.label ?? drawPhrase(want.pool), at: Date.now() });
-    const wait = shown ? shown.at + PHRASE_HOLD_MS - Date.now() : 0;
+    const make = () => setShown({ key: wantKey, mode: want.mode, text: want.label ?? drawPhrase(want.pool), bg: want.bg ?? null, at: Date.now() });
+    const immediate = !shown || shown.mode !== want.mode || want.mode === "bg";
+    const wait = immediate ? 0 : shown.at + PHRASE_HOLD_MS - Date.now();
     if (wait <= 0) {
       make();
       return void 0;
@@ -47459,69 +48281,113 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
   const leaving = (0, import_react41.useRef)(false);
   leaving.current = phase !== null && !visible;
   (0, import_react41.useEffect)(() => {
+    if (away) {
+      setPhase(null);
+      return void 0;
+    }
     if (visible) {
       setPhase("in");
       return void 0;
     }
     setPhase((current2) => current2 === "in" ? "out" : current2);
     const timer2 = setTimeout(() => {
-      shift.current = document.querySelector("[data-conversation-scroll]")?.scrollTop ?? null;
+      shift.current = document.querySelector("[data-bt-scroll]")?.scrollTop ?? null;
       setPhase((current2) => current2 === "out" ? null : current2);
     }, reducedMotion() ? 0 : 140);
     return () => clearTimeout(timer2);
-  }, [visible]);
+  }, [away, visible]);
   (0, import_react41.useLayoutEffect)(() => {
     if (phase !== null) return;
     endedAt.current = Date.now();
     setShown(null);
     const before = shift.current;
     shift.current = null;
-    const scroller = document.querySelector("[data-conversation-scroll]");
+    const scroller = document.querySelector("[data-bt-scroll]");
     if (before === null || !scroller || reducedMotion()) return;
     const delta = before - scroller.scrollTop;
-    if (delta > 0) scroller.querySelector("[data-chat-flow]")?.animate([{ transform: `translateY(${-delta}px)` }, { transform: "none" }], { duration: 140, easing: "cubic-bezier(.23,1,.32,1)" });
+    if (delta > 0) scroller.querySelector("[data-bt-flow]")?.animate([{ transform: `translateY(${-delta}px)` }, { transform: "none" }], { duration: 140, easing: "cubic-bezier(.23,1,.32,1)" });
   }, [phase]);
   (0, import_react41.useEffect)(() => {
     if (!running) actions.clearLive(sessionId);
   }, [running, sessionId]);
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300);
-  const host = useRunningHost(running || moveAt !== 0);
+  const host = useRunningHost(!away && (running || moveAt !== 0 || bgTask !== null || phase !== null));
   if (!host || phase === null || !shown) return null;
-  const showBgAction = bot !== void 0 && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
+  const exiting = phase === "out";
+  const activeBg = bgTask ?? (exiting ? shown.bg : null);
+  const showBgAction = bot !== void 0 && running && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
   const moveToBg = () => {
     if (movingBg || !bgInfo) return;
     setMovingBg(true);
+    setBgOpen(false);
     void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn)).catch((error) => {
       setMovingBg(false);
       actions.reportError?.(new Error(hostText(error?.message ?? String(error))), "move-to-background");
     });
   };
+  const tapRow = (event) => {
+    if (!showBgAction || movingBg || !noHover()) return;
+    const target = event?.target;
+    if (typeof target?.closest === "function" && target.closest("button,.bt-typing-mark")) return;
+    setBgOpen((open) => !open);
+  };
+  const canOpenTasks = activeBg !== null && (typeof actions?.toggleTaskDeck === "function" || typeof actions?.openTaskDeck === "function");
+  const openTasks = () => {
+    if (exiting || !bot) return;
+    if (typeof actions?.toggleTaskDeck === "function") actions.toggleTaskDeck(bot.id);
+    else actions?.openTaskDeck?.(bot.id, activeBg?.primaryId ?? null);
+  };
+  const elapsedAt = moveAt !== 0 ? moveAt : activeBg !== null ? activeBg.startedAt : Math.max(turnAt ?? runAt.current, inputAt);
+  const textContent = [
+    activeBg?.needsApproval ? (0, import_react41.createElement)("span", { key: "dot", className: "bt-typing-dot", "aria-hidden": true }) : null,
+    (0, import_react41.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react41.createElement)(Shimmer, null, `${shown.text}…`)),
+    elapsedAt > 0 ? (0, import_react41.createElement)(Elapsed, { key: "time", at: elapsedAt, className: "bt-typing-time" }) : null
+  ];
   return (0, import_react_dom8.createPortal)((0, import_react41.createElement)(
     "div",
-    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0 },
+    {
+      ref: rowRef,
+      className: "bt-typing",
+      "data-exiting": exiting ? "" : void 0,
+      "data-bg-task": activeBg !== null ? "" : void 0,
+      "data-bg-open": showBgAction && bgOpen ? "" : void 0,
+      "data-bg-busy": showBgAction && movingBg ? "" : void 0,
+      onClick: tapRow
+    },
     (0, import_react41.createElement)(
       "span",
       { className: "bt-typing-mark", "aria-hidden": true },
       bot ? (0, import_react41.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react41.createElement)(RoomAvatar, { room: room2, roster, size: 28 })
     ),
-    (0, import_react41.createElement)(
-      "span",
-      { className: "bt-typing-text", "aria-hidden": true },
-      (0, import_react41.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react41.createElement)(Shimmer, null, `${shown.text}…`)),
-      (0, import_react41.createElement)(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
-    ),
+    canOpenTasks ? (0, import_react41.createElement)("button", {
+      type: "button",
+      className: "bt-typing-text bt-typing-task",
+      disabled: exiting,
+      "data-approval": activeBg.needsApproval || void 0,
+      "aria-label": `${shown.text} · ${t("View background tasks")}`,
+      title: t("View background tasks"),
+      onClick: openTasks
+    }, ...textContent) : (0, import_react41.createElement)("span", { className: "bt-typing-text", "aria-hidden": true }, ...textContent),
     showBgAction ? (0, import_react41.createElement)(
-      "button",
-      {
-        type: "button",
-        className: "bt-typing-bg",
-        disabled: movingBg,
-        "aria-label": t("Move current work to background"),
-        title: t("Move current work to background"),
-        onClick: moveToBg
-      },
-      (0, import_react41.createElement)("span", { className: "bt-typing-bg-ico", "aria-hidden": true }, (0, import_react41.createElement)(MoveIcon)),
-      (0, import_react41.createElement)("span", null, movingBg ? t("Moving…") : t("Move to background"))
+      "span",
+      { className: "bt-typing-bg-wrap" },
+      (0, import_react41.createElement)(
+        "span",
+        { className: "bt-typing-bg-in" },
+        (0, import_react41.createElement)(
+          "button",
+          {
+            type: "button",
+            className: "bt-typing-bg",
+            disabled: movingBg,
+            "aria-label": t("Move current work to background"),
+            title: t("Move current work to background"),
+            onClick: moveToBg
+          },
+          (0, import_react41.createElement)("span", { className: "bt-typing-bg-ico", "aria-hidden": true }, (0, import_react41.createElement)(MoveIcon)),
+          (0, import_react41.createElement)("span", null, movingBg ? t("Moving…") : t("Move to background"))
+        )
+      )
     ) : null
   ), host);
 }
@@ -47534,143 +48400,6 @@ function showsDshRow(dsh, app) {
   if (!dsh?.verified || !dsh.current || sameVersion(dsh.verified, dsh.current)) return false;
   if (dsh.kind === "npm") return true;
   return dsh.kind === "app" && APP_OFFER.has(app?.phase) && sameVersion(app.version, dsh.verified);
-}
-
-// src/client/frame-watch.js
-var sidebarTrackWidth = (column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')) => {
-  if (!column) return null;
-  const position = typeof getComputedStyle === "function" ? getComputedStyle(column).position : "";
-  if (position === "absolute" || position === "fixed") return 0;
-  return trackRoom(column.getBoundingClientRect());
-};
-var dshCollapsed = (column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')) => {
-  if (typeof document === "undefined") return null;
-  return column ? column.closest("[data-sidebar-collapsed]") !== null : null;
-};
-var collapsedTrackWidth = () => document.documentElement.hasAttribute("data-windows-titlebar") || document.documentElement.dataset.platform === "darwin" ? 0 : 56;
-var room = { rule: null, selector: "" };
-var roomRule = () => {
-  const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected;
-  if (live && room.selector) return room.rule;
-  const column = document.querySelector('[class*="_centerCol"]');
-  const selector = column ? [...column.classList].filter((name) => name.includes("_centerCol")).map((name) => `.${CSS.escape(name)}`).join(",") : "";
-  if (live && !selector) return room.rule;
-  const declarations2 = room.rule?.style.cssText ?? "";
-  room.rule?.parentStyleSheet?.ownerNode?.remove();
-  const style = installStyles(`${selector || '[class*="_centerCol"]'}{${declarations2}}`, "chat-room");
-  room.rule = style.sheet.cssRules[0];
-  room.selector = selector;
-  return room.rule;
-};
-var margin = (side2, width, style) => {
-  if (width === null) style.removeProperty(`margin-${side2}`);
-  else style.setProperty(`margin-${side2}`, `${width}px`, "important");
-  if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
-  else style.removeProperty("width");
-};
-var roomHold = 0;
-var chatRoom = {
-  /** The margin the Bot panel takes on the right, in px, or null for the shell's own. */
-  setRight(width) {
-    margin("right", width, roomRule().style);
-  },
-  /** The margin our own left column takes while the shell sidebar is collapsed. */
-  setLeft(width) {
-    margin("left", width, roomRule().style);
-  },
-  /** While on, a margin change lands at once instead of gliding. */
-  hold(on) {
-    cancelAnimationFrame(roomHold);
-    if (on) {
-      roomRule().style.setProperty("transition", "none", "important");
-      return;
-    }
-    roomHold = requestAnimationFrame(() => {
-      roomHold = requestAnimationFrame(() => roomRule().style.removeProperty("transition"));
-    });
-  },
-  /** The columns themselves, for a drag's per-frame writes. */
-  columns() {
-    roomRule();
-    return room.selector ? [...document.querySelectorAll(room.selector)] : [];
-  }
-};
-var COLUMNS = '[class*="_sidebarCol"],[class*="_centerCol"]';
-function installFrameWatch(frame3) {
-  let collapsedWidth = collapsedTrackWidth();
-  let raf = 0;
-  const watched = /* @__PURE__ */ new Set();
-  let sidebarColumn = null;
-  let scanned = false;
-  let added = false;
-  const observer2 = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
-  const read = () => {
-    const column = sidebarColumn?.isConnected ? sidebarColumn : sidebarColumn = document.querySelector('[class*="_sidebarCol"]');
-    const animating = column?.closest("[data-animating]") != null;
-    const width = animating ? null : sidebarTrackWidth(column);
-    const collapsed = dshCollapsed(column);
-    collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
-    frame3.set((state) => {
-      const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
-      return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
-    });
-  };
-  const measure = () => {
-    let scan = !scanned || added;
-    added = false;
-    for (const column of watched) {
-      if (!column.isConnected) {
-        watched.delete(column);
-        observer2?.unobserve(column);
-        if (column === sidebarColumn) sidebarColumn = null;
-        scan = true;
-      }
-    }
-    if (scan) {
-      scanned = true;
-      for (const column of document.querySelectorAll(COLUMNS)) {
-        if (!watched.has(column)) {
-          watched.add(column);
-          observer2?.observe(column);
-        }
-        if (!sidebarColumn?.isConnected && column.matches?.('[class*="_sidebarCol"]')) sidebarColumn = column;
-      }
-    }
-    read();
-  };
-  const schedule = () => {
-    if (raf === 0) raf = requestAnimationFrame(() => {
-      raf = 0;
-      measure();
-    });
-  };
-  const addsColumn = (record) => [...record.addedNodes].some((node) => node?.nodeType === 1 && (node.matches?.(COLUMNS) || node.querySelector?.(COLUMNS) !== null));
-  const relevant = (records) => {
-    let hit = false;
-    for (const record of records) {
-      if (record.type === "attributes") {
-        hit = true;
-        continue;
-      }
-      const target = record.target;
-      if (target?.nodeType === 1 && target.closest?.("[data-chat-flow],[data-composer-card]")) continue;
-      hit = true;
-      if (!added && addsColumn(record)) added = true;
-    }
-    return hit;
-  };
-  measure();
-  const mutations = new MutationObserver((records) => {
-    if (relevant(records)) schedule();
-  });
-  mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-sidebar-collapsed", "data-animating"] });
-  window.addEventListener("resize", schedule);
-  return () => {
-    cancelAnimationFrame(raf);
-    mutations.disconnect();
-    observer2?.disconnect();
-    window.removeEventListener("resize", schedule);
-  };
 }
 
 // src/client/member-status.js
@@ -48456,7 +49185,7 @@ var LEARNING_CSS = `
 @keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
-.bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
+.bt-learning-dock{width:100%;max-width:var(--bt-chat-w,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}
 .bt-learning-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-learning-icon svg{width:18px;height:18px}
@@ -49716,10 +50445,10 @@ function useListGlide(listRef, layout, key) {
     tops.current = { layout, map: next };
   }, [layout, key]);
 }
-function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
+function LeftColumn({ columnRef, mode, width, onGrip, leaving, children }) {
   return (0, import_react_dom9.createPortal)((0, import_react47.createElement)(
     "div",
-    { className: "bt-leftcol", "data-left": mode, "data-entering": entering || void 0, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
+    { ref: columnRef, className: "bt-leftcol", "data-left": mode, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
     children,
     (0, import_react47.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
@@ -49775,12 +50504,10 @@ function TeamSidebar(props) {
   });
   const [drag, setDrag] = (0, import_react47.useState)(null);
   const mode = layout.left === "hidden" ? "hidden" : drag?.left ?? layout.left;
-  const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
-  const shown = held ?? mode;
-  const firstColumn = (0, import_react47.useRef)(true);
-  (0, import_react47.useLayoutEffect)(() => {
-    if (shown === "hidden") firstColumn.current = false;
-  }, [shown]);
+  const leftColRef = (0, import_react47.useRef)(null);
+  const [heldMode, setHeldMode] = (0, import_react47.useState)(mode === "hidden" ? null : mode);
+  const shown = mode !== "hidden" ? mode : heldMode ?? "hidden";
+  const leaving = mode === "hidden" && heldMode !== null;
   const wideContent = shown !== "rail";
   const updated = useSessions((list) => {
     const stamps = {};
@@ -49844,30 +50571,184 @@ function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth;
   const ourWidth = shown === "rail" ? RAIL_WIDTH : openWidth;
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
+  const collapsedWidth = frameSnap.collapsedWidth ?? 0;
+  const targetMargin = Math.max(0, pushed - collapsedWidth);
+  const targetSlide = mode === "hidden" ? 0 : mode === "rail" ? RAIL_WIDTH : openWidth;
   const settleTimer = (0, import_react47.useRef)(0);
   const springTimer = (0, import_react47.useRef)(0);
   const activeDrag = (0, import_react47.useRef)(null);
   const dragRef = (0, import_react47.useRef)(drag);
   dragRef.current = drag;
-  const collapsedWidthRef = (0, import_react47.useRef)(frameSnap.collapsedWidth ?? 0);
-  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0;
+  const collapsedWidthRef = (0, import_react47.useRef)(collapsedWidth);
+  collapsedWidthRef.current = collapsedWidth;
   const modeRef = (0, import_react47.useRef)(mode);
   modeRef.current = mode;
+  const slideRef = (0, import_react47.useRef)(null);
+  if (slideRef.current === null) {
+    const snapPx = (value) => {
+      const dpr = typeof window !== "undefined" && Number(window.devicePixelRatio) > 0 ? window.devicePixelRatio : 1;
+      return Math.round(value * dpr) / dpr;
+    };
+    const state = {
+      initialized: false,
+      prevHidden: false,
+      prevViewport: 0,
+      docked: shown !== "drawer",
+      collapsedWidth,
+      width: ourWidth,
+      finalMargin: targetMargin,
+      finalPushed: pushed,
+      activeCols: [],
+      activePanes: [],
+      snapPx,
+      clearInline(restorePanes) {
+        for (const col of state.activeCols) col.style.removeProperty("margin-left");
+        state.activeCols = [];
+        for (const pane of state.activePanes) {
+          if (restorePanes && pane.isConnected) pane.style.left = `${state.finalPushed}px`;
+        }
+        state.activePanes = [];
+      },
+      settle() {
+        state.springs.stop();
+        if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+        state.clearInline(true);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = modeRef.current === "hidden" ? `translate3d(${-state.width}px,0,0)` : "";
+        }
+        state.springs.seed({
+          slide: modeRef.current === "hidden" ? 0 : state.width,
+          margin: state.finalMargin,
+          pane: state.finalPushed
+        });
+      },
+      stop(clearDom) {
+        state.springs.stop();
+        if (!clearDom) return;
+        state.clearInline(false);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = "";
+        }
+      },
+      springs: null
+    };
+    state.springs = liveSprings((values, moving) => {
+      const col = leftColRef.current;
+      const width = state.width;
+      if (moving) {
+        const slide = Math.max(0, Math.min(width, snapPx(values.slide)));
+        const margin2 = state.docked ? Math.max(0, snapPx(slide - state.collapsedWidth)) : Math.max(0, snapPx(values.margin));
+        const paneLeft = state.docked ? slide : Math.max(0, snapPx(values.pane));
+        if (col) {
+          col.dataset.sliding = "";
+          col.style.transform = `translate3d(${Math.min(0, slide - width)}px,0,0)`;
+        }
+        if (state.activeCols.length > 0) {
+          for (const center of state.activeCols) center.style.setProperty("margin-left", `${margin2}px`, "important");
+        } else if (typeof document !== "undefined") {
+          chatRoom.setLeft(margin2);
+        }
+        for (const pane of state.activePanes) pane.style.left = `${paneLeft}px`;
+        return;
+      }
+      if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+      state.clearInline(true);
+      if (col) {
+        delete col.dataset.sliding;
+        col.style.transform = modeRef.current === "hidden" ? `translate3d(${-width}px,0,0)` : "";
+      }
+      if (modeRef.current === "hidden") setHeldMode(null);
+    });
+    slideRef.current = state;
+  }
   (0, import_react47.useLayoutEffect)(() => {
     if (typeof document === "undefined") return;
+    const state = slideRef.current;
     const current2 = activeDrag.current;
+    let abortedDrag = false;
     if (current2 !== null && (mode === "hidden" || current2.settling && (mode !== current2.landedMode || pushed !== current2.landedPushed))) {
       current2.cancel(false);
+      abortedDrag = true;
     }
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [mode, pushed, frameSnap.collapsedWidth]);
+    if (mode !== "hidden") setHeldMode(mode);
+    const docked = shown !== "drawer";
+    if (activeDrag.current !== null) {
+      state.springs.seed({ slide: targetSlide, margin: targetMargin, pane: pushed });
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
+      state.width = ourWidth;
+      state.finalMargin = targetMargin;
+      state.finalPushed = pushed;
+      state.prevHidden = mode === "hidden";
+      state.prevViewport = frameSnap.viewport;
+      chatRoom.setLeft(targetMargin);
+      return;
+    }
+    const isHidden = mode === "hidden";
+    const col = leftColRef.current;
+    const curves = { slide: SPRING_SLIDE, margin: SPRING_SLIDE, pane: SPRING_SLIDE };
+    if (!state.initialized) {
+      state.initialized = true;
+      state.prevHidden = isHidden;
+      state.prevViewport = frameSnap.viewport;
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
+      state.width = ourWidth;
+      state.finalMargin = targetMargin;
+      state.finalPushed = pushed;
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
+      return;
+    }
+    const hiddenChanged = isHidden !== state.prevHidden;
+    const viewportChanged = frameSnap.viewport !== state.prevViewport;
+    state.prevHidden = isHidden;
+    state.prevViewport = frameSnap.viewport;
+    state.docked = docked;
+    state.collapsedWidth = collapsedWidth;
+    state.width = ourWidth;
+    state.finalMargin = targetMargin;
+    state.finalPushed = pushed;
+    const inFlight = state.springs.isRunning();
+    const canAnimate = typeof requestAnimationFrame === "function" && !reducedMotion() && !viewportChanged;
+    if (abortedDrag && col) {
+      col.style.width = `${ourWidth}px`;
+    }
+    if (!canAnimate || !hiddenChanged && !inFlight) {
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
+      return;
+    }
+    if (abortedDrag) {
+      const startPushed = docked ? ourWidth : RAIL_WIDTH;
+      const startMargin = Math.max(0, startPushed - collapsedWidth);
+      state.springs.seed({ slide: ourWidth, margin: startMargin, pane: startPushed });
+      chatRoom.setLeft(startMargin);
+    }
+    state.activeCols = chatRoom.columns();
+    state.activePanes = [...document.querySelectorAll(".bt-pane")];
+    const liveNow = state.springs.current();
+    if (liveNow !== null && state.activePanes.length > 0) {
+      const paneNow = docked ? Math.max(0, Math.min(ourWidth, state.snapPx(liveNow.slide))) : Math.max(0, state.snapPx(liveNow.pane));
+      for (const pane of state.activePanes) pane.style.left = `${paneNow}px`;
+    }
+    if (!isHidden && !inFlight && col) {
+      col.dataset.sliding = "";
+      col.style.transform = `translate3d(${-ourWidth}px,0,0)`;
+    }
+    state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, false);
+  }, [mode, shown, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport]);
   (0, import_react47.useEffect)(() => () => {
     activeDrag.current?.cancel(false);
+    slideRef.current?.stop(true);
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    slideRef.current?.settle();
     activeDrag.current?.cancel(false);
     const grip = event.currentTarget;
     const column = grip.parentElement;
@@ -49901,10 +50782,10 @@ function TeamSidebar(props) {
     };
     const springOn = () => {
       column.dataset.folding = "";
-      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
-      springUntil = performance.now() + SPRING_SHAPE.duration;
+      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}`, "important");
+      springUntil = performance.now() + SPRING_SLIDE.duration;
       if (springTimer.current) clearTimeout(springTimer.current);
-      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration);
+      springTimer.current = setTimeout(springOff, SPRING_SLIDE.duration);
     };
     const track = (x) => {
       const prev = last;
@@ -50009,7 +50890,7 @@ function TeamSidebar(props) {
       retryScope.current = { wide, collapsed: frameSnap.collapsed };
       collapseRetries.current = 0;
     }
-    const collapsed = dshCollapsed() ?? !wide;
+    const collapsed = dshCollapsed() ?? (props.useFrame ? frameSnap.collapsed : !wide);
     const prev = dsh.current;
     const viewport = window.innerWidth;
     dsh.current = { collapsed, viewport };
@@ -50167,7 +51048,7 @@ function TeamSidebar(props) {
     import_react47.Fragment,
     null,
     hideTitleToggle ? null : (0, import_react47.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
-    shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
+    shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { columnRef: leftColRef, mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content)
   );
 }
 function UpdateButton({ useUpdate, actions }) {
@@ -50392,7 +51273,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t("Usage"), GaugeIcon, () => actions.openSettings("usage")],
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
-      [t("Scheduled tasks"), ClockIcon, () => actions.selectPanel("schedules")],
+      [t("Scheduled tasks"), ClockIcon, () => typeof actions.selectPanel === "function" ? actions.selectPanel("schedules") : actions.openSettings("schedules")],
       [t("Settings"), GearIcon, () => actions.openSettings("overview")]
     ].filter(Boolean),
     typeof actions.setSurface === "function" ? [[t("Classic Agent mode"), SwitchIcon, () => actions.setSurface("agent")]] : null
@@ -50433,7 +51314,11 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
           role: "menuitem",
           onClick: () => {
             if (stay !== true) setOpen(false);
-            void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
+            try {
+              void Promise.resolve(run2()).catch((error) => actions.reportError?.(error, "menu"));
+            } catch (error) {
+              actions.reportError?.(error, "menu");
+            }
           }
         }, (0, import_react47.createElement)(Icon), (0, import_react47.createElement)("span", { className: "bt-menu-label" }, label), hint ? (0, import_react47.createElement)("span", { className: "bt-menu-hint" }, hint) : null))
       ))
@@ -50640,10 +51525,6 @@ var SIDEBAR_CSS = `
 .bt-rail .bt-row{position:relative}
 .bt-rail .bt-pin{position:absolute;top:1px;left:calc(50% + 14px)}
 .bt-side .bt-read-only{margin:4px 8px 6px;padding:8px 10px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:1.45;text-align:left}
-[class*="_footArea"]:has(.bt-foot-account){grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px}
-[class*="_footArea"]>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;order:1;display:inline-flex}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"]{grid-column:3}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"] button[class*="_trigger"] [class*="_label"]{display:none!important}
 
 /* The update cloud springs in when a newer DS Bot shows up; its arrow drops in a
    loop while the install runs. */
@@ -50678,7 +51559,7 @@ var SIDEBAR_CSS = `
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-agent-sub[data-open]{grid-template-rows:1fr}
 .bt-agent-sub-in{overflow:hidden;min-height:0;margin-left:44px}
-.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
 /* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
@@ -50688,7 +51569,7 @@ var SIDEBAR_CSS = `
 .bt-agent-new{color:var(--bt-ink-3)}
 .bt-agent-new svg{width:14px;height:14px;flex:none}
 .bt-agent-edit{padding:3px 10px 3px 4px}
-.bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
+.bt-agent-edit input{width:100%;box-sizing:border-box;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
 @keyframes bt-agent-row-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
@@ -50732,7 +51613,7 @@ var SIDEBAR_CSS = `
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-sec-act svg{width:13px;height:13px}
 .bt-sec-edit{display:flex;align-items:center;height:30px;padding:0 4px}
-.bt-sec-edit input{width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-sec-edit input{width:100%;box-sizing:border-box;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-sec-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-sec[data-collapsed=true] .bt-sec-body{grid-template-rows:0fr}
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
@@ -55906,6 +56787,8 @@ var IM_CSS = `
 .bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-im-remove{justify-content:center;color:var(--bt-danger)}
 .bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
+@container (max-width:440px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
+@media (max-width:768px){.bt-im-control{flex:none;width:100%;justify-content:flex-start}.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret,.bt-im-target{max-width:100%}}
 @media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank::after,.bt-im-qr{animation:none}}
 `;
 
@@ -56492,11 +57375,11 @@ var FileIcon2 = icon(["M6 3.5h5.2a1 1 0 0 1 .7.3l2.3 2.3a1 1 0 0 1 .3.7V15a1.5 1
 var PasteIcon = icon(["M7.5 3.75h5a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z", "M6.5 5.25H6A1.5 1.5 0 0 0 4.5 6.75v8A1.5 1.5 0 0 0 6 16.25h8a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 14 5.25h-.5"]);
 function siteMatchesHost(site, host) {
   const s = String(site ?? "").replace(/^\.+/, "").toLowerCase();
-  const h94 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
-  if (!s || !h94) return false;
-  if (s === h94) return true;
-  if (s.includes(".") && h94.endsWith(`.${s}`)) return true;
-  if (h94.includes(".") && s.endsWith(`.${h94}`)) return true;
+  const h95 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
+  if (!s || !h95) return false;
+  if (s === h95) return true;
+  if (s.includes(".") && h95.endsWith(`.${s}`)) return true;
+  if (h95.includes(".") && s.endsWith(`.${h95}`)) return true;
   return false;
 }
 var hostOfUrl = (url) => {
@@ -57406,6 +58289,48 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
   return (0, import_react60.createElement)(PreviewCard, { key: flow.id, flow, page, busy, canApply, inline, onApply, onBack, onCancel });
 }
 
+// src/client/browser-plugin-mode.js
+var KNOWN_BROWSER_LABELS = {
+  "builtin:readonly": () => t("Read-only Browser"),
+  "builtin:refs": () => t("Playwright (Refs)"),
+  "builtin:script": () => t("Playwright (Script)"),
+  "builtin:task": () => t("Playwright (Task)"),
+  "mcp:playwright-mcp": () => "Playwright MCP",
+  "mcp:chrome-devtools-mcp": () => "Chrome DevTools MCP"
+};
+function localizedNameFrom(locales) {
+  if (!locales || typeof locales !== "object") return null;
+  const lang = String(language?.() ?? "en").toLowerCase();
+  const exact = locales[lang]?.name;
+  if (typeof exact === "string" && exact.trim()) return exact.trim();
+  const base = lang.split("-")[0];
+  const primary = locales[base]?.name;
+  if (typeof primary === "string" && primary.trim()) return primary.trim();
+  return null;
+}
+function isExternalBrowserPlugin(plugin) {
+  if (plugin?.slot !== "browser") return false;
+  if (plugin.windowMode === "external") return true;
+  if (plugin.windowMode === "pane" || plugin.windowMode === "readonly") return false;
+  return !plugin.builtin && plugin.controlsPane !== true;
+}
+function browserPaneMode(browserSlot, hold = null) {
+  const active = browserSlot?.active ?? "builtin:readonly";
+  const controlsPane = typeof browserSlot?.controlsPane === "boolean" ? browserSlot.controlsPane : browserSlot?.windowMode === "pane" || browserSlot?.windowMode == null && /^builtin:(refs|script|task|injected)$/.test(active);
+  const windowMode = browserSlot?.windowMode === "pane" || browserSlot?.windowMode === "readonly" || browserSlot?.windowMode === "external" ? browserSlot.windowMode : controlsPane ? "pane" : active === "builtin:readonly" ? "readonly" : "external";
+  const customName = browserSlot?.customName === true && typeof browserSlot?.activeName === "string" && browserSlot.activeName.trim() !== "";
+  const localized = customName ? null : localizedNameFrom(browserSlot?.activeLocales);
+  const activeLabel = customName ? browserSlot.activeName.trim() : localized ?? KNOWN_BROWSER_LABELS[active]?.() ?? (typeof browserSlot?.activeName === "string" && browserSlot.activeName.trim() ? browserSlot.activeName.trim() : null) ?? active.replace(/^(builtin|dsh|mcp|provider):/, "");
+  return {
+    active,
+    activeLabel,
+    controlsPane,
+    windowMode,
+    showTakeover: Boolean(controlsPane || hold?.by),
+    isExternal: windowMode === "external"
+  };
+}
+
 // src/client/browser-settings.js
 var import_react61 = require("react");
 var ACTIONS = [["post", "Post"], ["upload", "Upload"], ["download", "Download"], ["delete", "Delete"]];
@@ -57510,17 +58435,8 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     setKinds((current2) => checked ? current2.includes(kind) ? current2 : [...current2, kind] : current2.filter((value) => value !== kind));
   };
   const addBtn = adding || bots.length === 0 ? null : (0, import_react61.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "browser-allow", onClick: () => setAdding(true) }, (0, import_react61.createElement)(PlusIcon), t("Allow action"));
-  const activeBrowserId = roster.plugins?.slots?.browser?.active ?? "builtin:readonly";
-  const KNOWN_BROWSER_LABELS = {
-    "builtin:readonly": t("Read-only Browser"),
-    "builtin:refs": t("Playwright (Refs)"),
-    "builtin:script": t("Playwright (Script)"),
-    "builtin:task": t("Playwright (Task)"),
-    "dsh:dsh-ego-browser": "Ego Lite Browser",
-    "mcp:playwright-mcp": "Playwright MCP",
-    "mcp:chrome-devtools-mcp": "Chrome DevTools MCP"
-  };
-  const activeBrowserLabel = KNOWN_BROWSER_LABELS[activeBrowserId] ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, "");
+  const paneMode = browserPaneMode(roster.plugins?.slots?.browser);
+  const activeBrowserLabel = paneMode.isExternal ? `${paneMode.activeLabel} · ${t("External window")}` : paneMode.activeLabel;
   return (0, import_react61.createElement)(
     "div",
     { className: "bt-browser-settings" },
@@ -57745,21 +58661,6 @@ var PlaywrightOfficialMark = () => (0, import_react62.createElement)(
   (0, import_react62.createElement)("path", { d: "M225.27 269.163L223.415 268.712C182.398 256.698 176.072 223.99 176.072 223.99L232.89 239.872L262.971 124.281L262.607 124.185C225.711 114.304 201.232 97.0224 191.532 88.8994C177.783 77.3834 171.735 69.3802 165.783 81.4857C160.526 92.163 153.797 109.54 147.284 133.866C133.171 186.543 122.623 297.706 209.867 321.097L211.655 321.5L225.27 269.163ZM166.497 172.756C166.497 172.756 180.246 151.372 203.565 158C226.899 164.628 228.706 190.425 228.706 190.425L166.497 172.756Z", fill: "#1D8D22" }),
   (0, import_react62.createElement)("path", { d: "M141.946 245.451L131.072 248.537C133.641 263.019 138.169 276.917 145.276 289.195C146.513 288.922 147.74 288.687 149 288.342C152.302 287.451 155.364 286.348 158.312 285.145C150.371 273.361 145.118 259.789 141.946 245.451ZM137.7 143.451C132.112 164.307 127.113 194.326 128.489 224.436C130.952 223.367 133.554 222.371 136.444 221.551L138.457 221.101C136.003 188.939 141.308 156.165 147.284 133.866C148.799 128.225 150.318 122.978 151.832 118.085C149.393 119.637 146.767 121.228 143.776 122.867C141.759 129.093 139.722 135.898 137.7 143.451Z", fill: "#C04B41" })
 );
-var EgoOfficialMark = () => svg2(
-  (0, import_react62.createElement)("path", {
-    fillRule: "evenodd",
-    clipRule: "evenodd",
-    fill: "var(--bt-mark-ink)",
-    d: [
-      // Left circle: cx=7.86, cy=12, rx=6.15, ry=6.12
-      "M1.71 12a6.15 6.12 0 1 0 12.3 0a6.15 6.12 0 1 0 -12.3 0Z",
-      // Middle oval: cx=14.18, cy=12, rx=3.12, ry=6.12 (intersects circle → crisp lens cutout)
-      "M11.06 12a3.12 6.12 0 1 0 6.24 0a3.12 6.12 0 1 0 -6.24 0Z",
-      // Right slim oval: cx=20.70, cy=12, rx=1.57, ry=6.12
-      "M19.13 12a1.57 6.12 0 1 0 3.14 0a1.57 6.12 0 1 0 -3.14 0Z"
-    ].join(" ")
-  })
-);
 var ChromeDevtoolsMark = () => svg2(
   (0, import_react62.createElement)("path", { d: "M3.51 7.1A9.8 9.8 0 0 1 20.49 7.1H12a4.9 4.9 0 0 0-4.24 7.35Z", fill: "#EA4335" }),
   (0, import_react62.createElement)("path", { d: "M20.49 7.1A9.8 9.8 0 0 1 12 21.8l4.24-7.35A4.9 4.9 0 0 0 12 7.1Z", fill: "#FBBC04" }),
@@ -57812,7 +58713,6 @@ var PLUGIN_MARKS = {
   "builtin:refs": PlaywrightOfficialMark,
   "builtin:script": PlaywrightOfficialMark,
   "builtin:task": PlaywrightOfficialMark,
-  "dsh:dsh-ego-browser": EgoOfficialMark,
   "mcp:playwright-mcp": PlaywrightOfficialMark,
   "mcp:chrome-devtools-mcp": ChromeDevtoolsMark
 };
@@ -57846,41 +58746,81 @@ function PluginMark({ plugin }) {
 var BROWSER_META = {
   "builtin:readonly": {
     url: "browser://readonly",
-    traits: ["Read current page", "Zero writes"]
+    traits: ["Sidebar browser", "Read current page", "Zero writes"]
   },
   "builtin:refs": {
     url: "browser://playwright/refs",
-    traits: ["Click & forms", "Element refs", "Screenshots"]
+    traits: ["Sidebar browser", "Click & forms", "Element refs"]
   },
   "builtin:script": {
     url: "browser://playwright/script",
-    traits: ["JS scripts", "Batch steps", "Fast"]
+    traits: ["Sidebar browser", "JS scripts", "Batch steps"]
   },
   "builtin:task": {
     url: "browser://playwright/task",
-    traits: ["Multi-step", "Autonomous"]
-  },
-  "dsh:dsh-ego-browser": {
-    url: "browser://ego-lite",
-    traits: ["Shared login", "Real Chromium", "Human + AI"]
+    traits: ["Sidebar browser", "Multi-step", "Autonomous"]
   },
   "mcp:playwright-mcp": {
     url: "browser://playwright-mcp",
-    traits: ["Accessibility tree", "Standard MCP"]
+    traits: ["External window", "Accessibility tree", "Standard MCP"]
   },
   "mcp:chrome-devtools-mcp": {
     url: "browser://chrome-devtools",
-    traits: ["DOM & console", "Network debug", "CDP"]
+    traits: ["External window", "DOM & console", "CDP"]
   }
 };
 function browserMetaFor(plugin) {
   if (!plugin) return { url: "browser://none", traits: [] };
-  if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id];
+  const isExternal = isExternalBrowserPlugin(plugin);
+  const surfaceTrait = isExternal ? "External window" : "Sidebar browser";
+  const known = BROWSER_META[plugin.id];
+  if (known) {
+    const rest = known.traits.filter((tr2) => tr2 !== "External window" && tr2 !== "Sidebar browser");
+    return { url: known.url, traits: [surfaceTrait, ...rest] };
+  }
   const slug = String(plugin.id || "custom").replace(/^(builtin|dsh|mcp|provider):/, "").replace(/[^a-z0-9._-]+/gi, "-").toLowerCase();
   return {
     url: `browser://${slug || "custom"}`,
-    traits: plugin.kind === "mcp" ? ["Standard MCP", "Browser slot"] : ["Browser slot"]
+    traits: plugin.kind === "mcp" ? [surfaceTrait, "Standard MCP"] : [surfaceTrait, "Browser slot"]
   };
+}
+
+// src/shared/engine-bundles.js
+var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "dsbot-engine",
+  "@deepseek-ai/dsh-base",
+  "@deepseek-ai/dsh-web-app",
+  "@deepseek-ai/dsh-headless",
+  "@deepseek-ai/dsh-sdk-app",
+  "@deepseek-ai/dsh-acp-app",
+  "@deepseek-ai/dsh-sdk-minimal",
+  "@deepseek-ai/dsh-experimental-terminal-bundle",
+  "@deepseek-ai/dsh-experimental-tool-worktree"
+]);
+var BANNED_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "@deepseek-ai/dsh-subagent-codex",
+  "@deepseek-ai/dsh-subagent-claude-code",
+  "@deepseek-ai/dsh-experimental-agent-team-profile",
+  "@deepseek-ai/dsh-experimental-ralph-bundle"
+]);
+var DESKTOP_UNSUPPORTED_UI_BUNDLES = /* @__PURE__ */ new Set([
+  "@deepseek-ai/dsh-experimental-inspector-profile",
+  "@deepseek-ai/dsh-experimental-cot-translation-bundle",
+  "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+  "@deepseek-ai/dsh-experimental-liveshare",
+  "@deepseek-ai/dsh-experimental-forge-bundle",
+  "@deepseek-ai/dsh-personalized-recommendations",
+  "@deepseek-ai/dsh-deepseek-chat-import"
+]);
+var OFFICIAL_SUBAGENT_BUNDLE_RE = /^@deepseek-ai\/dsh-(?:experimental-)?subagent(?:$|-)/i;
+function isBlockedEngineBundle(name, { desktop = false, enabled = false } = {}) {
+  if (typeof name !== "string") return false;
+  const clean = name.trim();
+  if (clean === "") return false;
+  if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || OFFICIAL_SUBAGENT_BUNDLE_RE.test(clean)) {
+    return true;
+  }
+  return desktop && !enabled && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean);
 }
 
 // src/client/plugins-page.js
@@ -57908,23 +58848,12 @@ var SLOT_CHOICES = [
   ["browser", "Browser slot"]
 ];
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
-var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
-  "dsbot-engine",
-  "@deepseek-ai/dsh-acp-app",
-  "@deepseek-ai/dsh-headless",
-  "@deepseek-ai/dsh-sdk-app",
-  "@deepseek-ai/dsh-sdk-minimal",
-  "@deepseek-ai/dsh-experimental-agent-team-profile",
-  "@deepseek-ai/dsh-experimental-ralph-bundle",
-  "@deepseek-ai/dsh-experimental-terminal-bundle",
-  "@deepseek-ai/dsh-experimental-tool-worktree"
-]);
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false;
-  if (plugin.sourceId === "installed" && !plugin.installed) return true;
+  if (plugin.sourceId === "installed" && !plugin.installed && !plugin.error && !plugin.enabled) return true;
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? "").startsWith("dsh:") ? String(plugin.id).slice(4) : "")).trim();
   if (!pkg) return false;
-  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith("@deepseek-ai/dsh-subagent-");
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active || plugin.error) });
 }
 function safeExternalUrl(raw) {
   if (typeof raw !== "string") return null;
@@ -58200,6 +59129,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
+  const externalBrowser = isExternalBrowserPlugin(plugin);
   const fresh = useJustActivated(isActive);
   const subtitle = plugin.error ? hostText(plugin.error) : plugin.status === "restart-required" ? t("Restart required") : desc;
   const tone = plugin.status === "error" || plugin.killed || plugin.status === "unverifiable" || plugin.error && !plugin.consentRequired ? "error" : plugin.status === "restart-required" || plugin.consentRequired ? "warn" : void 0;
@@ -58227,6 +59157,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
           "span",
           { className: "bt-plg-name" },
           (0, import_react63.createElement)("span", { className: "bt-plg-label" }, name),
+          externalBrowser && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("External window")) : null,
           plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
           plugin.killed ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
           plugin.consentRequired ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
@@ -58253,7 +59184,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     plugin.author || null
   ].filter(Boolean).join(" · ");
   const hasDetailRows = Boolean(
-    plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
+    plugin.slot === "browser" || plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
   );
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
   return (0, import_react63.createElement)(
@@ -58318,6 +59249,11 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     hasDetailRows ? (0, import_react63.createElement)(
       Section2,
       { title: t("Details") },
+      plugin.slot === "browser" ? (0, import_react63.createElement)(
+        Row4,
+        { label: t("Browser window") },
+        (0, import_react63.createElement)("span", { className: "bt-chip" }, isExternalBrowserPlugin(plugin) ? t("External window") : t("Sidebar browser"))
+      ) : null,
       plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Package") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.packageName)) : null,
       plugin.installSpec && plugin.installSpec !== plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Source") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.installSpec)) : null,
       plugin.mcp?.url ? (0, import_react63.createElement)(Row4, { label: t("URL") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.mcp.url)) : null,
@@ -58504,7 +59440,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Package or repository"),
             disabled,
             value: spec,
-            placeholder: "dsh-ego-browser / github:owner/repo / /path/to/plugin",
+            placeholder: "my-dsh-plugin / github:owner/repo / /path/to/plugin",
             onChange: (e) => setSpec(e.target.value)
           })
         ) : [
@@ -58561,7 +59497,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Tool prefixes"),
             disabled,
             value: prefixes,
-            placeholder: "ego_, browser_",
+            placeholder: "my_tool_, browser_",
             onChange: (e) => setPrefixes(e.target.value)
           })
         ),
@@ -58619,7 +59555,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     (0, import_react63.createElement)(ChevronRightIcon)
   );
 }
-function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null }) {
+function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = (0, import_react63.useState)(null);
   const [loading, setLoading] = (0, import_react63.useState)(true);
   const [error, setError] = (0, import_react63.useState)("");
@@ -58770,8 +59706,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     });
   };
   const plugins = (0, import_react63.useMemo)(
-    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p)),
-    [view]
+    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow]
   );
   const bots = roster?.bots ?? [];
   const browserSlot = view?.slots?.browser;
@@ -59345,6 +60281,24 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   const [state, setState] = (0, import_react65.useState)(null);
   const [showLog, setShowLog] = (0, import_react65.useState)(false);
   const [note, setNote] = (0, import_react65.useState)("");
+  const noteTimer = (0, import_react65.useRef)(0);
+  const mounted2 = (0, import_react65.useRef)(true);
+  (0, import_react65.useEffect)(() => {
+    mounted2.current = true;
+    return () => {
+      mounted2.current = false;
+      clearTimeout(noteTimer.current);
+    };
+  }, []);
+  const flashNote = (message) => {
+    clearTimeout(noteTimer.current);
+    setNote(message);
+    if (message) {
+      noteTimer.current = setTimeout(() => {
+        if (mounted2.current) setNote("");
+      }, 2200);
+    }
+  };
   const load = () => (typeof actions.telemetryStatus === "function" ? actions.telemetryStatus() : Promise.resolve(null)).then((next) => {
     setState(next);
     return next;
@@ -59352,18 +60306,27 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   (0, import_react65.useEffect)(() => {
     void run2(load());
   }, []);
-  const save = (patch) => run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote("");
-  }));
-  const resetId = () => run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote(t("Anonymous ID rotated."));
-  }));
-  const clearLog = () => run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote(t("Cleared sent telemetry history."));
-  }));
+  const save = (patch) => {
+    flashNote("");
+    return run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Saved"));
+    }));
+  };
+  const resetId = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Anonymous ID rotated."));
+    }));
+  };
+  const clearLog = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Cleared sent telemetry history."));
+    }));
+  };
   const disabled = state?.envDisabled === true;
   const recent = state?.recentSent ?? [];
   const logText = recent.length === 0 ? t("No telemetry data has been sent yet.") : JSON.stringify(recent, null, 2);
@@ -60430,7 +61393,8 @@ var PROVIDERS_CSS = `
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
-@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto}}
+@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `;
 
@@ -61072,8 +62036,8 @@ var SECTION_TOURS = {
       cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
       fallback: {
         target: "open-plugins",
-        title: "Turn on Automation tasks in DSH",
-        cue: "Switch on Automation tasks on the Plugins page in Settings."
+        title: "Turn on scheduled tasks",
+        cue: "Turn on scheduled tasks to run prompts automatically on a schedule."
       }
     }
   ],
@@ -61793,39 +62757,105 @@ var b = (code, { mod = false, ctrl = false, alt = false, shift = false } = {}) =
   alt: Boolean(alt),
   shift: Boolean(shift)
 });
+var DESKTOP_ONLY = Object.freeze(["desktop"]);
+var BOTH_HOSTS = Object.freeze(["desktop", "plugin"]);
 var SHORTCUT_DEFS = [
   // Navigation
-  { id: "palette", group: "navigation", label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
-  { id: "switch-surface", group: "navigation", label: "Switch Bot / Classic Agent mode", defaultBinding: b("KeyM", { mod: true, shift: true }), requiresSurface: true },
-  { id: "inbox", group: "navigation", label: "Open Inbox", defaultBinding: b("KeyI", { mod: true }), requiresInbox: true, allowInModal: ["inbox"] },
-  { id: "prev-chat", group: "navigation", label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
-  { id: "next-chat", group: "navigation", label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
+  { id: "palette", group: "navigation", hosts: DESKTOP_ONLY, label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
+  {
+    id: "switch-surface",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Switch Bot / Classic Agent mode",
+    defaultBinding: b("KeyM", { mod: true, shift: true }),
+    requiresSurface: true,
+    plugin: { id: "ds-bot.switch-surface", aliases: ["classic", "agent", "bot", "mode"], webModifiers: ["primary", "shift"] }
+  },
+  {
+    id: "inbox",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Open Inbox",
+    defaultBinding: b("KeyI", { mod: true }),
+    requiresInbox: true,
+    allowInModal: ["inbox"],
+    plugin: { id: "ds-bot.open-inbox", aliases: ["inbox", "notifications"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "prev-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
+  { id: "next-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
   // Panels
-  { id: "sidebar", group: "panels", label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
-  { id: "right-panel", group: "panels", label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
-  { id: "browser", group: "panels", label: "Toggle Bot browser", classicLabel: "Toggle browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
-  { id: "terminal", group: "panels", label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
-  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
-  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
+  { id: "sidebar", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
+  { id: "right-panel", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
+  {
+    id: "browser",
+    group: "panels",
+    hosts: BOTH_HOSTS,
+    label: "Toggle Bot browser",
+    classicLabel: "Toggle browser",
+    defaultBinding: b("KeyB", { mod: true, shift: true }),
+    requiresBrowser: true,
+    plugin: { id: "ds-bot.open-browser", aliases: ["browser", "web"], webModifiers: ["primary", "alt", "shift"] }
+  },
+  { id: "terminal", group: "panels", hosts: DESKTOP_ONLY, label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
+  { id: "details", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
+  { id: "memory", group: "panels", hosts: DESKTOP_ONLY, label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
   // Conversation
-  { id: "new-chat", group: "conversation", label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
-  { id: "focus-composer", group: "conversation", label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
-  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ["groupSearch"] },
-  { id: "stop-turn", group: "conversation", label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
+  { id: "new-chat", group: "conversation", hosts: DESKTOP_ONLY, label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
+  { id: "focus-composer", group: "conversation", hosts: DESKTOP_ONLY, label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
+  {
+    id: "group-search",
+    group: "conversation",
+    hosts: BOTH_HOSTS,
+    label: "Search in group",
+    defaultBinding: b("KeyF", { mod: true, shift: true }),
+    requiresGroupSearch: true,
+    allowInModal: ["groupSearch"],
+    plugin: { id: "ds-bot.group-search", aliases: ["search", "group"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "stop-turn", group: "conversation", hosts: DESKTOP_ONLY, label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
   // Application
-  { id: "settings", group: "application", label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
-  { id: "shortcuts", group: "application", label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
+  { id: "settings", group: "application", hosts: DESKTOP_ONLY, label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
+  { id: "shortcuts", group: "application", hosts: DESKTOP_ONLY, label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
   // Quick switch 1..9 (#1694)
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `switch-bot-${index + 1}`,
     group: "chats",
+    hosts: BOTH_HOSTS,
     label: "Switch to conversation {n}",
     labelVars: { n: index + 1 },
     slot: index,
-    defaultBinding: b(`Digit${index + 1}`, { mod: true })
+    defaultBinding: b(`Digit${index + 1}`, { mod: true }),
+    plugin: { id: `ds-bot.switch-bot-${index + 1}`, aliases: ["bot", "switch", String(index + 1)], webModifiers: ["primary", "alt"] }
   }))
 ];
 var SHORTCUT_BY_ID = Object.fromEntries(SHORTCUT_DEFS.map((def) => [def.id, def]));
+function shortcutsForHost(host = "desktop") {
+  return SHORTCUT_DEFS.filter((def) => Array.isArray(def.hosts) && def.hosts.includes(host));
+}
+function bindingToDshModifiers(binding) {
+  if (!binding) return [];
+  const mods = [];
+  if (binding.mod) mods.push("primary");
+  if (binding.ctrl) mods.push("control");
+  if (binding.alt) mods.push("alt");
+  if (binding.shift) mods.push("shift");
+  return mods;
+}
+function pluginShortcutDefaults(def) {
+  const code = def?.defaultBinding?.code;
+  if (!code) return {};
+  const desktopModifiers = bindingToDshModifiers(def.defaultBinding);
+  const webModifiers = def?.plugin?.webModifiers;
+  return {
+    "desktop:macos": { code, modifiers: desktopModifiers },
+    "desktop:windows": { code, modifiers: desktopModifiers },
+    "desktop:linux": { code, modifiers: desktopModifiers },
+    ...webModifiers ? {
+      "web:macos": { code, modifiers: webModifiers },
+      "web:windows": { code, modifiers: webModifiers }
+    } : {}
+  };
+}
 var MODIFIER_CODES = /* @__PURE__ */ new Set([
   "ShiftLeft",
   "ShiftRight",
@@ -62083,10 +63113,10 @@ function effectiveBinding(id, overrides = {}) {
   }
   return def.defaultBinding ?? null;
 }
-function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) {
+function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform(), host = "desktop") {
   const key = bindingKey(binding, mac);
   if (!key) return null;
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost(host)) {
     if (def.id === targetId) continue;
     const current2 = effectiveBinding(def.id, overrides);
     if (current2 && bindingKey(current2, mac) === key) return def;
@@ -62095,6 +63125,27 @@ function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) 
 }
 function platformBucket(mac = isMacPlatform()) {
   return mac ? "mac" : "other";
+}
+function isDesktopDef(def) {
+  return Boolean(def && Array.isArray(def.hosts) && def.hosts.includes("desktop"));
+}
+function resolveEffectiveOverrides(explicit = {}, mac = isMacPlatform(), host = "desktop") {
+  const effective = { ...explicit };
+  const usedByExplicit = /* @__PURE__ */ new Set();
+  for (const [id, binding] of Object.entries(explicit)) {
+    if (!binding) continue;
+    const def = SHORTCUT_BY_ID[id];
+    if (!def || !Array.isArray(def.hosts) || !def.hosts.includes(host)) continue;
+    const key = bindingKey(binding, mac);
+    if (key) usedByExplicit.add(key);
+  }
+  for (const def of shortcutsForHost(host)) {
+    if (Object.prototype.hasOwnProperty.call(explicit, def.id)) continue;
+    if (!def.defaultBinding) continue;
+    const key = bindingKey(def.defaultBinding, mac);
+    if (key && usedByExplicit.has(key)) effective[def.id] = null;
+  }
+  return effective;
 }
 function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? null : localStorage, mac = isMacPlatform()) {
   if (!storage) return {};
@@ -62107,11 +63158,15 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
     if (!bucket || typeof bucket !== "object") return {};
     const clean = {};
     for (const [id, value] of Object.entries(bucket)) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     return clean;
@@ -62130,11 +63185,15 @@ function saveShortcutOverrides(overrides, storage = typeof localStorage === "und
     }
     const clean = {};
     for (const [id, value] of Object.entries(overrides ?? {})) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     parsed[platformBucket(mac)] = clean;
@@ -62151,65 +63210,71 @@ function isShortcutRecording() {
 }
 function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
   const resolveStorage = () => storage !== void 0 ? storage : typeof localStorage === "undefined" ? null : localStorage;
-  let overrides = loadShortcutOverrides(resolveStorage(), mac);
+  let explicit = loadShortcutOverrides(resolveStorage(), mac);
+  let effective = resolveEffectiveOverrides(explicit, mac, "desktop");
   const listeners3 = /* @__PURE__ */ new Set();
   const notify = () => {
     for (const fn of listeners3) fn();
   };
-  const commit = (next) => {
-    overrides = next;
-    saveShortcutOverrides(overrides, resolveStorage(), mac);
+  const commit = (nextExplicit) => {
+    explicit = nextExplicit;
+    effective = resolveEffectiveOverrides(explicit, mac, "desktop");
+    saveShortcutOverrides(explicit, resolveStorage(), mac);
     notify();
   };
   return {
-    getSnapshot: () => overrides,
+    getSnapshot: () => effective,
     subscribe(listener) {
       listeners3.add(listener);
       return () => listeners3.delete(listener);
     },
-    bindingOf: (id) => effectiveBinding(id, overrides),
-    isCustomized: (id) => Object.prototype.hasOwnProperty.call(overrides, id),
-    hasCustomizations: () => Object.keys(overrides).length > 0,
+    bindingOf: (id) => effectiveBinding(id, effective),
+    isCustomized: (id) => Object.prototype.hasOwnProperty.call(explicit, id),
+    hasCustomizations: () => Object.keys(explicit).length > 0,
     setBinding(id, binding, { replaceConflict = false } = {}) {
-      if (!SHORTCUT_BY_ID[id]) return { ok: false, reason: "unknown" };
-      const next = { ...overrides };
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) return { ok: false, reason: "unknown" };
+      const nextExplicit = { ...explicit };
       if (binding === null) {
-        if (SHORTCUT_BY_ID[id].defaultBinding === null) delete next[id];
-        else next[id] = null;
-        commit(next);
+        if (def.defaultBinding === null) delete nextExplicit[id];
+        else nextExplicit[id] = null;
+        commit(nextExplicit);
         return { ok: true };
       }
       const normalized = normalizeBinding(binding);
       const check = validateBinding(normalized, mac);
       if (!check.ok) return check;
-      const conflict = findConflict(id, normalized, next, mac);
+      const conflict = findConflict(id, normalized, effective, mac);
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      if (bindingsEqual(normalized, SHORTCUT_BY_ID[id].defaultBinding, mac)) {
-        delete next[id];
+      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+        delete nextExplicit[id];
       } else {
-        next[id] = normalized;
+        nextExplicit[id] = normalized;
       }
-      commit(next);
+      commit(nextExplicit);
       return { ok: true };
     },
     resetBinding(id, { replaceConflict = false } = {}) {
       const def = SHORTCUT_BY_ID[id];
-      if (!def || !Object.prototype.hasOwnProperty.call(overrides, id)) return { ok: true };
-      const next = { ...overrides };
-      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, next, mac) : null;
+      if (!isDesktopDef(def)) return { ok: true };
+      if (!Object.prototype.hasOwnProperty.call(effective, id) && !Object.prototype.hasOwnProperty.call(explicit, id)) {
+        return { ok: true };
+      }
+      const nextExplicit = { ...explicit };
+      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, effective, mac) : null;
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict, binding: def.defaultBinding };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      delete next[id];
-      commit(next);
+      delete nextExplicit[id];
+      commit(nextExplicit);
       return { ok: true };
     },
     resetAll() {
-      if (Object.keys(overrides).length === 0) return;
+      if (Object.keys(explicit).length === 0) return;
       commit({});
     },
     /**
@@ -62217,9 +63282,9 @@ function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
      */
     activeBindings(capabilities = {}) {
       const list = [];
-      for (const def of SHORTCUT_DEFS) {
+      for (const def of shortcutsForHost("desktop")) {
         if (!isCommandAvailable(def, capabilities)) continue;
-        const binding = effectiveBinding(def.id, overrides);
+        const binding = effectiveBinding(def.id, effective);
         if (!binding) continue;
         list.push({ id: def.id, ...binding });
       }
@@ -62253,7 +63318,7 @@ function matchShortcutEvent(event, {
     event.target?.closest?.(".xterm") || !event.target?.closest && typeof document !== "undefined" && document.activeElement?.closest?.(".xterm")
   );
   const activeModal = modal ?? (settingsOpen ? "settings" : null);
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost("desktop")) {
     if (!isCommandAvailable(def, capabilities)) continue;
     const binding = effectiveBinding(def.id, overrides);
     if (!binding || binding.code !== code) continue;
@@ -62451,7 +63516,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react73.useMemo)(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
-    return SHORTCUT_DEFS.filter((def) => {
+    return shortcutsForHost("desktop").filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false;
       if (!wanted) return true;
       const label = labelForDef(def, classic).toLowerCase();
@@ -62468,7 +63533,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
     }
     return SHORTCUT_GROUPS.map((group) => ({ ...group, items: byGroup.get(group.id) ?? [] })).filter((group) => group.items.length > 0);
   }, [visibleDefs]);
-  const hasCustom = Object.keys(overrides).length > 0;
+  const hasCustom = store.hasCustomizations();
   const modCap = mac ? "⌘" : "Ctrl";
   const shiftCap = mac ? "⇧" : "Shift";
   const fixedRows = (0, import_react73.useMemo)(() => {
@@ -62558,7 +63623,8 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides);
         const caps = formatBindingCaps(binding, mac);
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
+        const customized = store.isCustomized(def.id);
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
         const label = labelForDef(def, classic);
@@ -62578,7 +63644,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
             (0, import_react73.createElement)(
               "div",
               { className: "bt-sc-controls" },
-              customized ? (0, import_react73.createElement)("button", {
+              customized || suppressed ? (0, import_react73.createElement)("button", {
                 type: "button",
                 className: "bt-mini bt-sc-reset",
                 onClick: () => resetOne(def.id)
@@ -62699,10 +63765,25 @@ var SEARCH_ENTRIES = [
   { id: "feedback", label: "Feedback", group: "About DS Bot", page: "feedback", icon: "feedback", keywords: "bug error log diagnostics issue 反馈 报错 日志 诊断" }
 ];
 var DSH_KEYWORDS = {
-  account: "account profile login sign in sync 账户 账号 登录 个人资料",
+  account: "account profile login sign in sync billing balance top up 账户 账号 登录 个人资料 余额 账单 充值",
   plugins: "plugins web search shell bash agent loop extension 插件 网页搜索 命令执行 运行 扩展",
-  "agent-presets": "agent presets persona prompt template 预设 角色 提示词 模板",
-  "archived-sessions": "archived sessions history chats archive 归档 会话 历史 聊天"
+  "agent-presets": "agent presets persona prompt template standard ptc minimal creator 预设 角色 提示词 模板 标准 模式",
+  "archived-sessions": "archived sessions history chats archive restore 归档 会话 历史 聊天 恢复"
+};
+var ENGINE_PLUGIN_SEARCH_ENTRIES = [
+  { id: "engine:plugins", label: "Engine plugins", page: "plugins", target: "dsh", icon: "plugins", keywords: "engine plugins bundles extensions install 引擎插件 插件 扩展 安装" },
+  { id: "engine:web-search", label: "Web search", page: "plugins", target: "dsh:web-search", icon: "browser", keywords: "web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费" },
+  { id: "engine:shell", label: "Shell", page: "plugins", target: "dsh:shell", icon: "local-agents", keywords: "shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时" },
+  { id: "engine:agent-loop", label: "Agent loop", page: "plugins", target: "dsh:agent-loop", icon: "models", keywords: "agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用" },
+  { id: "engine:subagent", label: "Subagents", page: "plugins", target: "dsh:subagent", icon: "bot-models", surfaceMode: "agent", keywords: "subagents subagent max depth active models 子代理 子智能体 深度" }
+];
+var ENGINE_MODELS_SEARCH_ENTRY = {
+  id: "engine:models",
+  label: "Advanced settings",
+  page: "models",
+  target: "advanced",
+  icon: "models",
+  keywords: "advanced settings engine models provider config 高级设置 引擎 模型 配置"
 };
 var QUICK_IDS = ["general", "appearance", "models", "bots", "plugins", "connectors", "usage"];
 var matches2 = (haystack, tokens) => tokens.every((token) => haystack.includes(token));
@@ -62729,10 +63810,31 @@ function quickHits({ roster, pageAvailable = () => true, hasSurface = false }) {
   }));
   return [...settings, ...bots];
 }
-function searchHits(query, { roster, extra = [], pageAvailable = () => true, hasSurface = false }) {
+function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () => true, hasSurface = false }) {
   const raw = query.trim().toLowerCase();
   const tokens = raw.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
+  const dshSections = dsh?.sections ?? [];
+  const hasDshPlugins = dshSections.some((row) => row?.id === "plugins");
+  const hasDshModels = dshSections.some((row) => row?.id === "models");
+  const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow);
+  const surfaceMode = dsh?.surfaceMode ?? "bot";
+  const engineEntries = [
+    ...hasDshPlugins && pageAvailable("plugins") ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => (entry.target === "dsh" || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode)).map((entry) => ({
+      ...entry,
+      kind: "setting",
+      title: t(entry.label),
+      meta: t("Engine"),
+      haystack: `${entry.label} ${t(entry.label)} dsh engine ${t("Engine")} ${entry.keywords}`.toLowerCase()
+    })) : [],
+    ...hasDshModels && pageAvailable("models") ? [{
+      ...ENGINE_MODELS_SEARCH_ENTRY,
+      kind: "setting",
+      title: t(ENGINE_MODELS_SEARCH_ENTRY.label),
+      meta: t("Engine"),
+      haystack: `${ENGINE_MODELS_SEARCH_ENTRY.label} ${t(ENGINE_MODELS_SEARCH_ENTRY.label)} dsh engine ${t("Engine")} ${ENGINE_MODELS_SEARCH_ENTRY.keywords}`.toLowerCase()
+    }] : []
+  ];
   const settings = [
     ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map((entry) => ({
       ...entry,
@@ -62750,7 +63852,8 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
       dshId: row.id,
       dshRow: row,
       haystack: `${row.label} ${row.id} dsh engine ${t("Engine")} ${DSH_KEYWORDS[row.id] ?? ""}`.toLowerCase()
-    }))
+    })),
+    ...engineEntries
   ].filter((entry) => matches2(entry.haystack, tokens)).sort((a, b2) => scoreSetting(b2, raw, tokens) - scoreSetting(a, raw, tokens));
   const bots = (roster.bots ?? []).map((bot) => ({
     id: `bot:${bot.id}`,
@@ -62798,8 +63901,8 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
   }, []);
   const empty = query.trim() === "";
   const hits = (0, import_react74.useMemo)(
-    () => empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, pageAvailable, hasSurface }),
-    [empty, query, roster, extra, hasSurface]
+    () => empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, dsh, pageAvailable, hasSurface }),
+    [empty, query, roster, extra, dsh, hasSurface]
   );
   (0, import_react74.useEffect)(() => {
     setIndex(0);
@@ -63979,8 +65082,8 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         }) : null,
         shown === "general" ? (0, import_react76.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react76.createElement)(AppearancePage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Choice: Choice2, Switch, ownWindow: dsh?.ownWindow ?? dsh === void 0, dshRows: lookRows(dsh) }) : null,
-        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
-        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: "plugins" })) : null,
+        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, ownWindow: dsh?.ownWindow, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
+        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget, jump }, { only: "plugins" })) : null,
         advanced ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
         section ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: section.id })) : null,
         creatingBot ? (0, import_react76.createElement)("div", { className: "bt-settings-form" }, (0, import_react76.createElement)(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings("bots"), onCreated: (created) => actions.openSettings("bots", created.id) })) : null,
@@ -64098,6 +65201,98 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
+  {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "items": [
+          "优化 ChatGPT 订阅 Prompt Cache 命中率与思考强度切换：保留系统提示词缓存前缀、透传会话亲和头、支持多步工具调用保留加密推理，并可选择和记住推理思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "增强网页读取：新增自动抓取模式，直连失败或遇到动态渲染页时自动回退到隔离浏览器渲染",
+          "修复会话偶发无法输入与焦点抢占问题，并新增失控循环/重复重试可见暂停护栏，避免异常卡死消耗额度",
+          "修复桌面端账号菜单无法打开定时任务的问题，支持一键开启定时任务",
+          "全面修复窄宽卡片与设置行字体挤压、开关裁切和宽度溢出，支持弹窗打开时拖动窗口，并优化 Bot 侧边栏收起/展开动效",
+          "修复外部浏览器插件侧边栏状态判断、从内置插件目录移除 Ego Lite，并修复 DSH 插件态启动报错与退出时 SQLite 句柄竞态"
+        ],
+        "intro": "重点提升 ChatGPT 订阅体验、macOS 原地自动更新与网页读取成功率，并修复输入框锁死、防死循环耗额度、定时任务入口与多处界面细节。"
+      },
+      "en": {
+        "items": [
+          "Improved ChatGPT subscription prompt cache hit rates and added selectable, persisted reasoning effort levels across Bot settings and the model switcher",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement so macOS users no longer need to manually re-download DMGs",
+          "Added automatic web-fetch mode with an isolated, SSRF-guarded browser fallback for JS-heavy and anti-bot pages",
+          "Fixed composer input locks and focus stealing, and added visible pause guards with resume controls to prevent runaway tool loops and retry storms from burning quota",
+          "Fixed desktop Scheduled Tasks failing to open from the account menu and added one-click schedule enablement",
+          "Fixed narrow settings/switch label squeezing and layout overflows, kept the top window drag strip active while modals are open, and smoothed Bot sidebar collapse/expand motion",
+          "Fixed external browser plugin sidebar status detection, removed Ego Lite from the built-in catalog, and fixed DSH plugin-host startup crashes and SQLite shutdown handle races"
+        ],
+        "intro": "Improves ChatGPT subscription caching and reasoning effort, adds macOS in-place auto-updates and resilient web fetching, and fixes input locks, runaway loop protection, scheduled tasks, and UI polish."
+      }
+    }
+  },
+  {
+    "version": "0.4.1",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复 Bot 私聊误显示底层工具调用卡片（如 MCP、命令等）和压缩分隔条的问题，保留经典模式完整工具卡片与历史电脑截图显示",
+          "优化 Bot 活动状态行：静息态保持简洁，鼠标悬停或触屏点按时平滑浮现「转到后台」操作",
+          "修复单个 Bot 详情页关闭邮箱连接器后开关回弹的问题，关闭后同时隐藏该 Bot 的邮件工具"
+        ],
+        "intro": "快速热修：恢复 Bot 私聊清爽体验，优化进行中状态栏并修复邮箱连接器开关。"
+      },
+      "en": {
+        "items": [
+          "Fixed Bot private chats showing raw tool call cards (such as MCP and shell tools) and compaction bars, while keeping persisted computer-use screenshots and full Classic Agent tool cards",
+          "Refined the Bot activity row to stay quiet at rest and reveal the borderless Move to background action on hover, focus, or touch tap",
+          "Fixed the per-Bot Mailbox switch bouncing back on and ensured turning Mailbox off removes mail tools for that Bot"
+        ],
+        "intro": "A quick hotfix restoring clean Bot private chats, refining the activity row, and fixing the per-Bot Mailbox toggle."
+      }
+    }
+  },
+  {
+    "version": "0.4.0",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增 Fei 主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
+          "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
+          "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
+          "隐私与安全升级：默认拦截底层遥测，隐私 Bot 断网保护更安全；新增原子存盘防断电丢数据",
+          "自动审查与权限升级：可选审查模型自动把关审批，支持多文件夹授权与单 Bot 独立预设",
+          "统一外部 API：本机开放 MCP、OpenAI 兼容接口和 CLI，支持外部 Agent 调用，彻底打通工作流",
+          "协作与上下文重构：群聊与消息结构重构，上下文支持工具结果召回且更稳命中缓存，并可选开启代码模式编排多工具",
+          "账号、密钥与快捷键：支持 ChatGPT 登录、同 CLI 多账号、1Password（op://）与多行密钥、全局自定义快捷键",
+          "浏览器增强：新增可热切换的浏览器插件（目前可选 Ego Lite 浏览器、Playwright MCP、Chrome DevTools MCP），优化 Cookie 导入并支持 macOS Safari 批量导入",
+          "手机端升级：Android 支持应用内自动更新、原生通知与完整用量看板；对话内支持直接查看交互卡片、保留输入内容与回车发送",
+          "更多体验与修复：关于页新增自动更新开关与更新日志弹窗，并修复大量 IM、本地 CLI 与稳定性问题"
+        ],
+        "intro": "全新自写桌面前端、统一收件箱、Bot 插件与全新 Bot 形象上线，安全与隐私升级，更轻、更稳、更开放。"
+      },
+      "en": {
+        "items": [
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Fei theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
+          "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
+          "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
+          "Privacy & durability: blocks underlying telemetry by default with fail-closed offline protection for private Bots, plus atomic saves against power loss",
+          "Auto Review & permissions: optional review model for approvals, multi-folder access, and per-Bot Agent presets",
+          "Unified External API: local MCP, OpenAI-compatible API, and CLI so external Agents can plug right into your workflow",
+          "Coordination & context overhaul: cleaner group and message coordination, tool-output recall with steadier prompt caching, and opt-in Code Mode",
+          "Accounts, Secrets & shortcuts: Sign in with ChatGPT, multiple profiles per local CLI, 1Password (op://) and multiline secrets, and customizable shortcuts",
+          "Browser upgrades: hot-swappable browser plugins (Ego Lite Browser, Playwright MCP, Chrome DevTools MCP) plus improved batch Cookie import with macOS Safari support",
+          "Phone upgrades: Android in-app auto-update, native notifications, and full Usage dashboard, plus inline interactive cards, saved drafts, and Enter-to-send",
+          "Polish & fixes: automatic updates toggle and in-app What's New dialog in About, plus stability fixes across IM platforms and local CLIs"
+        ],
+        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, redesigned live avatars, and stronger privacy — lighter, steadier, and more open."
+      }
+    }
+  },
   {
     "version": "0.3.10",
     "date": "2026-11-22",
@@ -65219,6 +66414,97 @@ function createConnectionFeedback(onChange, {
   };
 }
 
+// src/client/host-service.js
+var EMPTY_SESSION_STATUS = /* @__PURE__ */ new Map();
+function hasContextProperty(ctx, name) {
+  const props = ctx?.reflect?.props;
+  return Boolean(props && Object.prototype.hasOwnProperty.call(props, name));
+}
+function readServiceMember(ctx, serviceName, propName) {
+  const dotted = `${serviceName}.${propName}`;
+  const direct = ctx?.get?.(dotted);
+  if (direct !== void 0) return direct;
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  return ctx?.get?.(serviceName)?.[propName];
+}
+function callServiceMethod(ctx, serviceName, methodName, ...args) {
+  const dotted = `${serviceName}.${methodName}`;
+  const direct = ctx?.get?.(dotted);
+  if (typeof direct === "function") return direct(...args);
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  const service2 = ctx?.get?.(serviceName);
+  return typeof service2?.[methodName] === "function" ? service2[methodName](...args) : void 0;
+}
+function createSessionStatusSource(ctx) {
+  const uiSession = ctx.uiSession;
+  const listeners3 = /* @__PURE__ */ new Set();
+  let disposed = false;
+  let active = null;
+  let unsubActive = null;
+  let dottedSource = null;
+  let fallbackSource = null;
+  const emit = () => {
+    if (disposed) return;
+    for (const listener of Array.from(listeners3)) listener();
+  };
+  const rebind = () => {
+    if (disposed) return;
+    const next = dottedSource ?? fallbackSource ?? null;
+    if (next === active) return;
+    unsubActive?.();
+    unsubActive = null;
+    active = next;
+    if (active && typeof active.subscribe === "function") {
+      unsubActive = active.subscribe(emit);
+    }
+    emit();
+  };
+  const dottedFiber = typeof ctx.inject === "function" ? ctx.inject(["uiSession.sessionStatus"], (scope) => {
+    scope.effect(() => {
+      if (disposed) return () => {
+      };
+      const status = scope["uiSession.sessionStatus"];
+      dottedSource = status && typeof status.getSnapshot === "function" ? status : null;
+      rebind();
+      return () => {
+        dottedSource = null;
+        rebind();
+      };
+    }, "ds-bot: uiSession.sessionStatus");
+  }) : null;
+  if (!hasContextProperty(ctx, "uiSession.sessionStatus")) {
+    const direct = uiSession?.sessionStatus;
+    if (direct && typeof direct.getSnapshot === "function") {
+      fallbackSource = direct;
+      rebind();
+    }
+  }
+  return {
+    source: {
+      getSnapshot: () => disposed ? EMPTY_SESSION_STATUS : active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
+      subscribe: (listener) => {
+        if (disposed) return () => {
+        };
+        listeners3.add(listener);
+        return () => {
+          listeners3.delete(listener);
+        };
+      }
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      unsubActive?.();
+      unsubActive = null;
+      active = null;
+      dottedSource = null;
+      fallbackSource = null;
+      listeners3.clear();
+      dottedFiber?.dispose?.();
+    }
+  };
+}
+
 // src/client/settings-shell.js
 var import_react80 = require("react");
 var import_react_dom12 = require("react-dom");
@@ -65684,13 +66970,13 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   const carrier = globalThis.dshDesktop;
   const update = desktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : void 0);
   const connectionState = {
-    getSnapshot: () => ctx.get("connection")?.state.getSnapshot(),
-    subscribe: (listener) => ctx.get("connection")?.state.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "connection", "state")?.getSnapshot(),
+    subscribe: (listener) => readServiceMember(ctx, "connection", "state")?.subscribe(listener) ?? (() => {
     })
   };
   const settingsShortcut = {
-    getSnapshot: () => ctx.get("shortcuts")?.catalog.getSnapshot().find((row) => row.id === "settings.open"),
-    subscribe: (listener) => ctx.get("shortcuts")?.catalog.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "shortcuts", "catalog")?.getSnapshot().find((row) => row.id === "settings.open"),
+    subscribe: (listener) => readServiceMember(ctx, "shortcuts", "catalog")?.subscribe(listener) ?? (() => {
     })
   };
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
@@ -65702,7 +66988,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
     return {
       ...base,
       preferences: settingsPreferences(ctx),
-      reconnect: () => ctx.get("connection")?.reconnect(),
+      reconnect: () => callServiceMethod(ctx, "connection", "reconnect"),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
@@ -65799,7 +67085,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
             const timestamp = Date.now();
             await scope.configForms.developerTools.setEnabled(enabled);
             if (previous !== void 0 && previous !== enabled && form.getSnapshot().value?.enabled === enabled) {
-              ctx.get("productAnalytics")?.track("code_work_view_toggle", { is_enabled: enabled }, timestamp);
+              callServiceMethod(ctx, "productAnalytics", "track", "code_work_view_toggle", { is_enabled: enabled }, timestamp);
             }
           }
         })
@@ -65829,7 +67115,10 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose();
+      for (const handle of fibers) {
+        if (typeof handle === "function") handle();
+        else handle?.dispose?.();
+      }
       for (const off of disposers) off();
     }
   };
@@ -65857,6 +67146,101 @@ var SETTINGS_SHELL_CSS = `
 .bt-release-line{position:relative;height:0;border-top:1px dashed currentColor;opacity:.5}
 .bt-release-line.bt-release-done{border-top-style:solid;color:var(--bt-green);opacity:1}
 `;
+
+// src/client/frame-watch.js
+var sidebarTrackWidth = (column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')) => {
+  if (!column) return null;
+  const position = typeof getComputedStyle === "function" ? getComputedStyle(column).position : "";
+  if (position === "absolute" || position === "fixed") return 0;
+  return trackRoom(column.getBoundingClientRect());
+};
+var dshCollapsed2 = (column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')) => {
+  if (typeof document === "undefined") return null;
+  return column ? column.closest("[data-sidebar-collapsed]") !== null : null;
+};
+var collapsedTrackWidth = () => document.documentElement.hasAttribute("data-windows-titlebar") || document.documentElement.dataset.platform === "darwin" ? 0 : 56;
+var COLUMNS = '[class*="_sidebarCol"],[class*="_centerCol"]';
+function installFrameWatch(frame3) {
+  const offCollapsed = registerHostCollapsed(() => dshCollapsed2());
+  let collapsedWidth = collapsedTrackWidth();
+  let raf = 0;
+  const watched = /* @__PURE__ */ new Set();
+  let sidebarColumn = null;
+  let scanned = false;
+  let added = false;
+  const observer2 = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
+  const read = () => {
+    const column = sidebarColumn?.isConnected ? sidebarColumn : sidebarColumn = document.querySelector('[class*="_sidebarCol"]');
+    const animating = column?.closest("[data-animating]") != null;
+    const width = animating ? null : sidebarTrackWidth(column);
+    const collapsed = dshCollapsed2(column);
+    collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
+    frame3.set((state) => {
+      const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
+      return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
+    });
+  };
+  const measure = () => {
+    let scan = !scanned || added;
+    added = false;
+    for (const column of watched) {
+      if (!column.isConnected) {
+        watched.delete(column);
+        observer2?.unobserve(column);
+        if (column === sidebarColumn) sidebarColumn = null;
+        scan = true;
+      }
+    }
+    if (scan) {
+      scanned = true;
+      for (const column of document.querySelectorAll(COLUMNS)) {
+        if (!watched.has(column)) {
+          watched.add(column);
+          observer2?.observe(column);
+        }
+        if (column.matches?.('[class*="_centerCol"]') && !column.hasAttribute("data-bt-center")) {
+          column.setAttribute("data-bt-center", "");
+        }
+        if (!sidebarColumn?.isConnected && column.matches?.('[class*="_sidebarCol"]')) sidebarColumn = column;
+      }
+    }
+    read();
+  };
+  const schedule = () => {
+    if (raf === 0) raf = requestAnimationFrame(() => {
+      raf = 0;
+      measure();
+    });
+  };
+  const addsColumn = (record) => [...record.addedNodes].some((node) => node?.nodeType === 1 && (node.matches?.(COLUMNS) || node.querySelector?.(COLUMNS) !== null));
+  const relevant = (records) => {
+    let hit = false;
+    for (const record of records) {
+      if (record.type === "attributes") {
+        hit = true;
+        continue;
+      }
+      const target = record.target;
+      if (target?.nodeType === 1 && target.closest?.("[data-chat-flow],[data-composer-card]")) continue;
+      hit = true;
+      if (!added && addsColumn(record)) added = true;
+    }
+    return hit;
+  };
+  measure();
+  const mutations = new MutationObserver((records) => {
+    if (relevant(records)) schedule();
+  });
+  mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-sidebar-collapsed", "data-animating"] });
+  window.addEventListener("resize", schedule);
+  return () => {
+    offCollapsed();
+    cancelAnimationFrame(raf);
+    mutations.disconnect();
+    observer2?.disconnect();
+    window.removeEventListener("resize", schedule);
+  };
+}
 
 // src/client/header.js
 var import_react81 = require("react");
@@ -66030,9 +67414,10 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     (0, import_react81.createElement)("span", { className: "bt-island-chip-dot", "aria-hidden": true }),
     (0, import_react81.createElement)("span", null, activeTasks.length)
   ) : null;
+  const headRef = (0, import_react81.useRef)(null);
   return (0, import_react81.createElement)(
     "div",
-    { className: "bt-head" },
+    { ref: headRef, className: "bt-head" },
     showIsland ? (0, import_react81.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning2 ? (0, import_react81.createElement)(PendingLearning2, { key: sessionId, sessionId, useRoster, actions }) : null,
     (0, import_react81.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
@@ -66043,66 +67428,69 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       title: t("Search this group"),
       onClick: () => actions.openGroupSearch(room2.id)
     }, (0, import_react81.createElement)(SearchIcon)) : null,
-    (0, import_react81.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    (0, import_react81.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive: useLive2, useWork, actions })
+    (0, import_react81.createElement)(NewMessagePills, { key: sessionId, sessionId, headRef, useSessions, useUi, useTurnClock }),
+    (0, import_react81.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, away, useRoster, useSessionStatus, useSession, useLive: useLive2, useWork, actions })
   );
 }
 function pinWatch() {
-  let slot = null;
-  let tail = null;
+  let button = null;
   return (scroller) => {
-    if (slot?.isConnected && scroller.contains(slot)) return [...slot.children].some((child) => child.tagName === "BUTTON");
-    if (tail?.isConnected && scroller.contains(tail) && tail.hasAttribute("data-chat-following-tail")) return false;
-    tail = scroller.querySelector("[data-chat-following-tail]");
-    if (tail) return false;
-    slot = scroller.querySelector('[class*="_toBottomSlot"]');
-    return slot?.querySelector(":scope>button") != null;
+    const following = scroller.getAttribute?.("data-bt-following-tail");
+    if (following === "true") return false;
+    if (following === "false") return true;
+    if (button?.isConnected && (scroller.contains(button) || scroller.parentElement?.contains(button))) return true;
+    button = scroller.querySelector?.("[data-bt-to-bottom]") ?? scroller.parentElement?.querySelector?.("[data-bt-to-bottom]") ?? null;
+    return button !== null;
   };
 }
-function useTranscriptView() {
+function useTranscriptView(headRef) {
   const [view, setView] = (0, import_react81.useState)(null);
   (0, import_react81.useEffect)(() => {
     let frame3 = 0;
     let watched = null;
-    let headerEl = null;
     const unpinned = pinWatch();
     const inComposer = (record) => {
       const target = record.target;
       const el = target?.nodeType === 1 ? target : target?.parentElement;
-      return typeof el?.closest === "function" && el.closest("[data-composer-card]") !== null;
+      return typeof el?.closest === "function" && el.closest("[data-bt-composer]") !== null;
     };
     const observer2 = new MutationObserver((records) => {
       if (records.length > 0 && records.every(inComposer)) return;
       schedule();
     });
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
     const measure = () => {
       frame3 = 0;
-      const scroller = watched?.isConnected ? watched : document.querySelector("[data-conversation-scroll]");
+      const scroller = watched?.isConnected ? watched : document.querySelector("[data-bt-scroll]");
       if (scroller !== watched) {
         observer2.disconnect();
+        ro?.disconnect();
         watched = scroller;
-        if (scroller) observer2.observe(scroller, { childList: true, subtree: true });
+        if (scroller) {
+          observer2.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-bt-following-tail"] });
+          ro?.observe(scroller);
+        }
       }
       if (!scroller) {
         setView(null);
         return;
       }
       const box = scroller.getBoundingClientRect();
-      const header = headerEl?.isConnected ? headerEl : headerEl = document.querySelector('header[class*="_header"]');
-      const headerBottom = header?.getBoundingClientRect().bottom ?? box.top + 50;
+      const headNode = headRef?.current?.isConnected ? headRef.current : null;
+      const headerBottom = headNode?.getBoundingClientRect?.().bottom ?? box.top + 50;
       const sep = newDividerIn(scroller);
       let divider = null;
       if (sep) {
         const at2 = sep.getBoundingClientRect();
         divider = at2.bottom <= headerBottom ? "above" : at2.top >= box.bottom ? "below" : "in-view";
       }
-      const composer = parseFloat(getComputedStyle(scroller).getPropertyValue("--dsh-composer-height")) || 152;
+      const composerInset = parseFloat(getComputedStyle(scroller).getPropertyValue("--bt-composer-inset")) || 0;
       const next = {
         unpinned: unpinned(scroller),
         divider,
         center: Math.round(box.left + box.width / 2),
         top: Math.round(headerBottom + 8),
-        bottom: Math.round(viewBottom() - box.bottom + composer + 8)
+        bottom: Math.round(viewBottom() - box.bottom + composerInset + 8)
       };
       setView((prev) => prev && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
     };
@@ -66121,6 +67509,7 @@ function useTranscriptView() {
     return () => {
       cancelAnimationFrame(frame3);
       observer2.disconnect();
+      ro?.disconnect();
       document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("resize", schedule);
@@ -66129,9 +67518,11 @@ function useTranscriptView() {
   }, []);
   return view;
 }
-function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
+function NewMessagePills({ sessionId, headRef, useSessions, useUi, useTurnClock }) {
   const replies = useSessions((list) => {
-    const outline2 = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
+    const row = list.byId?.[sessionId];
+    if (typeof row?.replyCount === "number") return row.replyCount;
+    const outline2 = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? row?.projectionValues?.turnOutline;
     return Array.isArray(outline2) ? outline2.reduce((count, entry) => count + (entry.response ? 1 : 0), 0) : 0;
   });
   const visit = useUi((state) => state.visits?.[sessionId]);
@@ -66143,7 +67534,7 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     }
     return count;
   });
-  const view = useTranscriptView();
+  const view = useTranscriptView(headRef);
   const unpinned = view?.unpinned === true;
   const [release, setRelease] = (0, import_react81.useState)({ base: null, dismissed: false });
   const [above, setAbove] = (0, import_react81.useState)({ seen: false, dismissed: false });
@@ -66157,7 +67548,7 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   const showDown = unpinned && fresh > 0 && !release.dismissed;
   const showUp = view?.divider === "above" && !above.seen && !above.dismissed;
   (0, import_react81.useEffect)(() => {
-    const scroller = document.querySelector("[data-conversation-scroll]");
+    const scroller = document.querySelector("[data-bt-scroll]");
     if (!scroller) return void 0;
     scroller.toggleAttribute("data-bt-news", showDown);
     return () => scroller.removeAttribute("data-bt-news");
@@ -66184,13 +67575,14 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     }, (0, import_react81.createElement)(CloseIcon))
   );
   const toLatest = () => {
-    const scroller = document.querySelector("[data-conversation-scroll]");
-    const back = scroller?.querySelector('[class*="_toBottomSlot"]>button');
+    const scroller = document.querySelector("[data-bt-scroll]");
+    const scope = scroller?.closest?.("[data-bt-center]") ?? scroller?.parentElement ?? document;
+    const back = scope?.querySelector?.("[data-bt-to-bottom]");
     if (back) back.click();
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
   };
   const toDivider = () => {
-    const scroller = document.querySelector("[data-conversation-scroll]");
+    const scroller = document.querySelector("[data-bt-scroll]");
     if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: "center", behavior: "smooth" });
   };
   return (0, import_react_dom13.createPortal)(
@@ -66504,7 +67896,8 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
   const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
   const composerRoot = (0, import_react82.useRef)(null);
   (0, import_react82.useEffect)(() => {
-    const root = composerRoot.current?.closest("[data-composer-card]");
+    syncHostAncestors(composerRoot.current);
+    const root = composerRoot.current?.closest("[data-bt-composer]");
     if (enterToSend || !inputActions || !root) return void 0;
     const onKey = (event) => insertComposerNewline(event, inputActions);
     root.addEventListener("keydown", onKey, true);
@@ -66580,7 +67973,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
       const text = await transcribeWave(speech, cat, wave2, ctl.signal);
       if (text && inputActions && !ctl.signal.aborted && mounted2.current) {
         const at2 = inputActions.captureInsertion();
-        const area = composerRoot.current?.closest?.("[data-composer-card]")?.querySelector?.("textarea");
+        const area = composerRoot.current?.closest?.("[data-bt-composer]")?.querySelector?.("textarea");
         const value = typeof area?.value === "string" ? area.value : "";
         const beforeChar = at2 && at2.start > 0 ? value[at2.start - 1] ?? "" : "";
         const afterChar = at2 && at2.end < value.length ? value[at2.end] ?? "" : "";
@@ -66657,12 +68050,18 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
 
 `;
     inputActions.insertText(line, inputActions.captureInsertion());
-    const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]');
-    if (box instanceof HTMLElement) {
+    syncHostAncestors(composerRoot.current);
+    const box = composerRoot.current?.closest?.("[data-bt-composer]")?.querySelector?.("[data-bt-composer-input]") ?? document.querySelector("[data-bt-composer] [data-bt-composer-input]");
+    if (box && typeof box.focus === "function") {
       box.focus();
-      const selection = window.getSelection();
-      selection?.selectAllChildren(box);
-      selection?.collapseToEnd();
+      if (typeof box.value === "string" && typeof box.setSelectionRange === "function") {
+        const end = box.value.length;
+        box.setSelectionRange(end, end);
+      } else if (typeof HTMLElement !== "undefined" && box instanceof HTMLElement) {
+        const selection = window.getSelection?.();
+        selection?.selectAllChildren(box);
+        selection?.collapseToEnd();
+      }
     }
   }, [quote?.token]);
   if (sessionId === void 0) return null;
@@ -66750,7 +68149,8 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
     };
   }, [open]);
   (0, import_react82.useEffect)(() => {
-    const card = button.current?.closest("[data-composer-card]");
+    syncHostAncestors(button.current);
+    const card = button.current?.closest("[data-bt-composer]");
     if (!ready || card === null || card === void 0) return void 0;
     const next = JSON.stringify(t("Press Enter to steer queued messages"));
     if (card.style.getPropertyValue("--bt-placeholder") !== next) card.style.setProperty("--bt-placeholder", next);
@@ -66767,10 +68167,10 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
       if (!plainEnter && !accelEnter) return;
       const targetEl = event.target;
       if (typeof targetEl?.closest !== "function") return;
-      const card = button.current?.closest("[data-composer-card]");
-      if (card === null || card === void 0 || targetEl.closest("[data-composer-card]") !== card) return;
-      if (targetEl.closest("[contenteditable=true]") === null) return;
-      if (targetEl.closest("[data-composer-composing]")) return;
+      const card = button.current?.closest("[data-bt-composer]");
+      if (card === null || card === void 0 || targetEl.closest("[data-bt-composer]") !== card) return;
+      if (targetEl.closest("[data-bt-composer-input]") === null) return;
+      if (targetEl.closest("[data-bt-composing]")) return;
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return;
       event.preventDefault();
       event.stopPropagation();
@@ -66790,11 +68190,11 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
       return;
     }
     const rect = button.current.getBoundingClientRect();
-    const cardTop = button.current.closest?.("[data-composer-card]")?.getBoundingClientRect?.().top ?? rect.top;
+    const cardTop = button.current.closest?.("[data-bt-composer]")?.getBoundingClientRect?.().top ?? rect.top;
     setPlace({ left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 });
   }, [shown, open, tick]);
   if (sessionId === void 0 || target === void 0) return null;
-  const fileInput = () => button.current?.closest("[data-composer-card]")?.querySelector("input[type=file]");
+  const fileInput = () => button.current?.closest("[data-bt-composer]")?.querySelector("input[type=file]");
   const toggle = () => {
     if (open) {
       setOpen(null);
@@ -67701,6 +69101,7 @@ var ACCOUNT_MODELS_WAIT_MS = 2e4;
 var SIGNED_OUT = /* @__PURE__ */ new Set(["ACCOUNT_SIGN_IN_REQUIRED", "ACCOUNT_SIGNED_OUT", "ACCOUNT_TOKEN_INVALID"]);
 var KEY_CODES = /* @__PURE__ */ new Set(["MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "AUTH"]);
 var CREDENTIAL_CODES = /* @__PURE__ */ new Set([...KEY_CODES, ...SIGNED_OUT]);
+var PAUSED_CODES = /* @__PURE__ */ new Set(["TURN_PAUSED_LOOP", "TURN_PAUSED_SWITCH_LIMIT"]);
 function failureText2(code, { name, provider, status }) {
   switch (code) {
     case "MISSING_CREDENTIAL":
@@ -67734,6 +69135,10 @@ function failureText2(code, { name, provider, status }) {
       return t("This conversation no longer fits in the context window. Start a new part to continue.");
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return t("The conversation could not be compacted for this model. Try again or choose another model.");
+    case "TURN_PAUSED_LOOP":
+      return t("{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.", { name });
+    case "TURN_PAUSED_SWITCH_LIMIT":
+      return t("{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.", { name });
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -67942,7 +69347,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     const toggles = keyHere && (fix === "key" || fix === "rekey");
     return (0, import_react85.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
-  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
+  const paused = PAUSED_CODES.has(data.code);
+  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? paused ? t("Continue") : t("Retry") : paused ? t("Continuing…") : t("Retrying…"));
   const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
   return (0, import_react85.createElement)(
@@ -68436,21 +69842,9 @@ function GroupSearch({ room: room2, roster, token, actions }) {
 // src/client/paste-card.js
 var import_react88 = require("react");
 var PASTE_LIMIT = 1500;
-var NO_BLOCKS = [];
-var NO_IDS2 = [];
-var ORPHAN_MS = 3e3;
 var foldPastedText = (text) => typeof text === "string" && text.length > PASTE_LIMIT ? text : null;
 var pastedName = (text) => `Pasted text (${text.length} characters).txt`;
 var blockLives = (block, ids) => block.attachmentId === null || ids.includes(block.attachmentId);
-function composerLabels(root) {
-  const group = root.querySelector('[data-slot="conversation.input.attachments"] [role="group"]');
-  if (group === null) return [];
-  return [...group.children].map((item) => {
-    const alt = item.querySelector("img[alt]")?.getAttribute("alt") ?? "";
-    if (alt !== "") return alt;
-    return item.querySelector("[title]")?.getAttribute("title") ?? "";
-  });
-}
 function pasteLinks(blocks2, ids, labels2) {
   if (labels2.length !== ids.length) return [];
   const taken = /* @__PURE__ */ new Set();
@@ -68473,22 +69867,6 @@ function putBackText({ block, inputActions, draft = "" }) {
   inputActions.setDraft?.(`${draft}${text}`);
   return true;
 }
-function handOffPaste({ event, card, sessionId, actions }) {
-  if ((event.clipboardData?.files?.length ?? 0) > 0) return null;
-  const kept = foldPastedText(event.clipboardData?.getData("text/plain") ?? "");
-  if (kept === null) return null;
-  const input = card.querySelector("input[type=file]");
-  if (input === null || input === void 0) return null;
-  const file = new File([kept], pastedName(kept), { type: "text/plain" });
-  event.preventDefault();
-  event.stopPropagation();
-  const transfer = new DataTransfer();
-  transfer.items.add(file);
-  input.files = transfer.files;
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-  actions.addPaste(sessionId, kept, file.name);
-  return file.name;
-}
 function PasteCard2({ text, onPutBack, onRemove }) {
   return (0, import_react88.createElement)(
     "div",
@@ -68510,127 +69888,9 @@ function PasteCard2({ text, onPutBack, onRemove }) {
     }, "×")
   );
 }
-var isEditableOnly = (records) => records.length > 0 && records.every((record) => {
-  const target = record.target;
-  const el = target?.nodeType === 1 ? target : target?.parentElement;
-  return typeof el?.closest === "function" && el.closest("[contenteditable=true]") !== null;
-});
-function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
-  const blocks2 = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
-  const draftRef = (0, import_react88.useRef)("");
-  useInput?.((state) => {
-    draftRef.current = state.draft ?? "";
-    return null;
-  });
-  if (blocks2.length === 0) return null;
-  const drop = (block) => {
-    if (block.attachmentId && typeof inputActions?.removeAttachment === "function") inputActions.removeAttachment(block.attachmentId);
-    actions.removePaste(sessionId, [block.id]);
-  };
-  return (0, import_react88.createElement)("div", { className: "bt-paste-dock" }, blocks2.map((block) => (0, import_react88.createElement)(PasteCard2, {
-    key: block.id,
-    text: block.text,
-    onPutBack: () => {
-      if (putBackText({ block, inputActions, draft: draftRef.current })) actions.removePaste(sessionId, [block.id]);
-    },
-    onRemove: () => drop(block)
-  })));
-}
-function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
-  const anchor = (0, import_react88.useRef)(null);
-  const blocks2 = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
-  const idsRef = (0, import_react88.useRef)(NO_IDS2);
-  const idsKey = useInput?.((state) => {
-    const list = state.attachmentIds ?? NO_IDS2;
-    idsRef.current = list;
-    return list.length === 0 ? "" : list.join("\0");
-  }) ?? "";
-  const ids = idsRef.current;
-  const draftRef = (0, import_react88.useRef)("");
-  useInput?.((state) => {
-    draftRef.current = state.draft ?? "";
-    return null;
-  });
-  const latest = (0, import_react88.useRef)({ blocks: blocks2, ids });
-  latest.current = { blocks: blocks2, ids };
-  (0, import_react88.useEffect)(() => {
-    if (!blocks2.some((block) => block.attachmentId === null)) return void 0;
-    const card = anchor.current?.closest("[data-composer-card]");
-    if (card === null || card === void 0) return void 0;
-    const sync = (records) => {
-      if (Array.isArray(records) && isEditableOnly(records)) return;
-      const { blocks: now2, ids: nowIds } = latest.current;
-      if (!now2.some((block) => block.attachmentId === null)) return;
-      const links = pasteLinks(now2, nowIds, composerLabels(card));
-      if (links.length > 0) actions.linkPastes(sessionId, links);
-    };
-    sync();
-    const observer2 = new MutationObserver(sync);
-    observer2.observe(card, { childList: true, subtree: true });
-    return () => observer2.disconnect();
-  }, [idsKey, blocks2]);
-  const shown = (0, import_react88.useRef)(/* @__PURE__ */ new Set());
-  (0, import_react88.useEffect)(() => {
-    const stale = latest.current.blocks.filter((block) => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId));
-    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map((block) => block.id));
-  }, [sessionId]);
-  (0, import_react88.useEffect)(() => {
-    const nowIds = latest.current.ids;
-    const gone = latest.current.blocks.filter((block) => !blockLives(block, nowIds) && shown.current.has(block.attachmentId));
-    for (const id of nowIds) shown.current.add(id);
-    if (gone.length > 0) actions.removePaste(sessionId, gone.map((block) => block.id));
-  }, [idsKey]);
-  (0, import_react88.useEffect)(() => {
-    const waiting = blocks2.filter((block) => block.attachmentId === null);
-    if (waiting.length === 0) return void 0;
-    const timer2 = setTimeout(() => {
-      let currentDraft = draftRef.current;
-      for (const block of waiting) {
-        const now2 = latest.current.blocks.find((item) => item.id === block.id);
-        if (now2 === void 0 || now2.attachmentId !== null) continue;
-        if (putBackText({ block: now2, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now2.text}`;
-        actions.removePaste(sessionId, [block.id]);
-      }
-    }, ORPHAN_MS);
-    return () => clearTimeout(timer2);
-  }, [blocks2]);
-  (0, import_react88.useEffect)(() => {
-    const names = /* @__PURE__ */ new Set();
-    for (const block of blocks2) {
-      if (block.attachmentId !== null && block.name) names.add(block.name);
-    }
-    if (names.size === 0) return void 0;
-    const card = anchor.current?.closest("[data-composer-card]");
-    if (card === null || card === void 0) return void 0;
-    const mark2 = (records) => {
-      if (Array.isArray(records) && isEditableOnly(records)) return;
-      const scope = card.querySelector('[data-slot="conversation.input.attachments"]') ?? card;
-      for (const node of scope.querySelectorAll("[title]")) {
-        if (names.has(node.getAttribute("title")) && !node.hasAttribute("data-bt-paste")) {
-          node.setAttribute("data-bt-paste", "");
-        }
-      }
-    };
-    mark2();
-    const observer2 = new MutationObserver(mark2);
-    observer2.observe(card, { childList: true, subtree: true });
-    return () => observer2.disconnect();
-  }, [blocks2, idsKey]);
-  (0, import_react88.useEffect)(() => {
-    const card = anchor.current?.closest("[data-composer-card]");
-    if (card === null || card === void 0) return void 0;
-    const onPaste = (event) => {
-      handOffPaste({ event, card, sessionId, actions });
-    };
-    card.addEventListener("paste", onPaste, true);
-    return () => card.removeEventListener("paste", onPaste, true);
-  }, [sessionId]);
-  return (0, import_react88.createElement)("span", { ref: anchor, className: "bt-paste-guard", "aria-hidden": true });
-}
 var PASTE_CSS = `
 .bt-paste-guard{display:none}
-[data-composer-card] [data-bt-paste]{display:none!important}
-.bt-paste-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,8px) + 8px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none;display:flex;flex-direction:column;gap:6px}
+.bt-paste-dock{box-sizing:border-box;width:calc(100% - var(--bt-composer-side,0px) - var(--bt-composer-side,0px) - var(--bt-composer-dock-inset,0px) - var(--bt-composer-dock-inset,0px));max-width:calc(var(--bt-composer-max-w,748px) - var(--bt-composer-dock-inset,0px) - var(--bt-composer-dock-inset,0px));margin:0 auto calc(0px - var(--bt-composer-gap,8px) + 8px);padding:0 var(--bt-composer-dock-inset,0px);flex:none;display:flex;flex-direction:column;gap:6px}
 .bt-paste-card{box-sizing:border-box;display:flex;align-items:center;gap:8px;min-height:36px;padding:4px 5px 4px 10px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px}
 .bt-paste-icon{flex:none;display:inline-flex;width:16px;height:16px;color:var(--bt-ink-3)}
 .bt-paste-label{min-width:0;flex:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -70327,13 +71587,14 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     return (0, import_react94.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DS Bot app."));
   }
   if (state.ids.length === 0) {
+    const paneMode = browserPaneMode(roster.plugins?.slots?.browser);
     return (0, import_react94.createElement)(
       "div",
       { className: "bt-browser-empty-mark" },
       (0, import_react94.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
       (0, import_react94.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-      (0, import_react94.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-      (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
+      (0, import_react94.createElement)("div", { className: "bt-muted" }, paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+      paneMode.isExternal ? actions.openSettings ? (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : null : (0, import_react94.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
     );
   }
   return (0, import_react94.createElement)(
@@ -71253,7 +72514,7 @@ function shouldCheckBrowserCover(records) {
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
 }
-function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold, browserSlot }) {
   const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
   const pageUrl = visibleUrl(page.url);
@@ -71362,11 +72623,12 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
     input.current?.blur();
   }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
   const secure = /^https:/i.test(pageUrl);
+  const paneMode = browserPaneMode(browserSlot, hold);
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react95.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": viewLabel },
-    bot && actions.browserTakeover ? (0, import_react95.createElement)(
+    bot && actions.browserTakeover && paneMode.showTakeover ? (0, import_react95.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
       (0, import_react95.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
@@ -71376,6 +72638,11 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
       )
+    ) : bot && paneMode.isExternal ? (0, import_react95.createElement)(
+      "div",
+      { className: "bt-browser-takeover", "data-external": "" },
+      (0, import_react95.createElement)("span", null, t("{name} opens in an external window, not this sidebar", { name: paneMode.activeLabel })),
+      actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch")) : null
     ) : null,
     (0, import_react95.createElement)(
       "div",
@@ -71501,8 +72768,8 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         { className: "bt-browser-empty" },
         bot ? (0, import_react95.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react95.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react95.createElement)(GlobeIcon2)),
         (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, bot ? t("{name}'s browser", { name: bot.name }) : t("Browser")),
-        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
-        bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
+        bot && paneMode.isExternal ? actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : null : bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -71806,7 +73073,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       { key: "workspace", className: "bt-panel-view bt-panel-workspace", hidden: view !== "workspace" },
       workspace.render(workspace.active, view === "workspace")
     ) : null,
-    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
+    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold, browserSlot: roster.plugins?.slots?.browser }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react95.createElement)(DetailsDrawer, {
@@ -71877,9 +73144,12 @@ var BROWSER_CSS = `
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
+.bt-browser-takeover>span{min-width:0;overflow-wrap:anywhere}
 .bt-browser-takeover[data-held]{background:var(--bt-active)}
-.bt-browser-takeover-actions{display:flex;gap:6px}
-.bt-browser-takeover button{border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer}
+.bt-browser-takeover-actions{display:flex;gap:6px;flex:none}
+.bt-browser-takeover button{flex:none;white-space:nowrap;min-height:28px;border:1px solid var(--bt-line-2);border-radius:8px;padding:4px 10px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer;transition:background-color .12s ease}
+.bt-browser-takeover button:hover{background:var(--bt-hover)}
+.bt-browser-takeover button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-browser-bar .bt-icon-btn:disabled{opacity:.35;cursor:default;background:none}
 .bt-browser-address{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:32px;margin:0 4px;padding:0 12px;border-radius:999px;background:var(--bt-hover);border:.5px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-browser-address:hover{background:var(--bt-active)}
@@ -72182,7 +73452,7 @@ function OpeningCover({ model, column, onNewSession, onRetry, actions }) {
   );
 }
 var OPENING_CSS = `
-.bt-opening{position:fixed;top:var(--dsh-frame-chrome-top,0px);right:0;bottom:0;z-index:30;display:grid;place-items:center;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-font);animation:bt-opening-in .12s ease-out}
+.bt-opening{position:fixed;top:var(--bt-chrome-top,0px);right:0;bottom:0;z-index:30;display:grid;place-items:center;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-font);animation:bt-opening-in .12s ease-out}
 .bt-opening-card{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:60vw;min-width:0}
 .bt-opening-mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--bt-ink-3)}
 .bt-opening-name{font-size:15px;font-weight:600;line-height:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -73522,15 +74792,6 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 }
 
 // src/client/plugin-shortcuts.js
-var pluginDefaults = (code, desktopModifiers, webModifiers) => ({
-  "desktop:macos": { code, modifiers: desktopModifiers },
-  "desktop:windows": { code, modifiers: desktopModifiers },
-  "desktop:linux": { code, modifiers: desktopModifiers },
-  ...webModifiers ? {
-    "web:macos": { code, modifiers: webModifiers },
-    "web:windows": { code, modifiers: webModifiers }
-  } : {}
-});
 function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, sessionsById }) {
   const activeBotTarget = () => {
     const snap = roster.getSnapshot();
@@ -73538,98 +74799,76 @@ function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, s
     if (current2 && snap.byId?.[current2]) return snap.byId[current2].id;
     return snap.mainBotId ?? snap.bots?.[0]?.id ?? null;
   };
-  return [
-    {
-      id: "ds-bot.switch-surface",
-      label: () => t("Switch Bot / Classic Agent mode"),
-      aliases: ["classic", "agent", "bot", "mode"],
-      defaults: pluginDefaults("KeyM", ["primary", "shift"], ["primary", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
-      }
+  const resolvers = {
+    "switch-surface": ({ modal }) => {
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
     },
-    ...typeof actions.openInbox === "function" ? [{
-      id: "ds-bot.open-inbox",
-      label: () => t("Open Inbox"),
-      aliases: ["inbox", "notifications"],
-      defaults: pluginDefaults("KeyI", ["primary"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return {
-          status: "handled",
-          run: () => {
-            if (ui.getSnapshot().inbox) actions.closeInbox?.();
-            else actions.openInbox();
-          }
-        };
-      }
-    }] : [],
-    ...typeof actions.openBrowser === "function" ? [{
-      id: "ds-bot.open-browser",
-      label: () => t("Toggle Bot browser"),
-      aliases: ["browser", "web"],
-      defaults: pluginDefaults("KeyB", ["primary", "shift"], ["primary", "alt", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        const snap = roster.getSnapshot();
-        if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const botId = activeBotTarget();
-        if (!botId) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => actions.toggleBrowser(botId)
-        };
-      }
-    }] : [],
-    {
-      id: "ds-bot.group-search",
-      label: () => t("Search in group"),
-      aliases: ["search", "group"],
-      defaults: pluginDefaults("KeyF", ["primary", "shift"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const current2 = mainView();
-        const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
-        return {
-          status: "handled",
-          run: () => {
-            if (room2) actions.openGroupSearch?.(room2.id);
-            else actions.openPalette();
-          }
-        };
-      }
+    inbox: ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return {
+        status: "handled",
+        run: () => {
+          if (ui.getSnapshot().inbox) actions.closeInbox?.();
+          else actions.openInbox();
+        }
+      };
     },
-    ...Array.from({ length: 9 }, (_, index) => ({
-      id: `ds-bot.switch-bot-${index + 1}`,
-      label: () => t("Switch to conversation {n}", { n: index + 1 }),
-      aliases: ["bot", "switch", String(index + 1)],
-      defaults: pluginDefaults(`Digit${index + 1}`, ["primary"], ["primary", "alt"]),
+    browser: ({ modal }) => {
+      const snap = roster.getSnapshot();
+      if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const botId = activeBotTarget();
+      if (!botId) return { status: "blocked", reason: "unavailable" };
+      return {
+        status: "handled",
+        run: () => actions.toggleBrowser(botId)
+      };
+    },
+    "group-search": ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const current2 = mainView();
+      const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
+      return {
+        status: "handled",
+        run: () => {
+          if (room2) actions.openGroupSearch?.(room2.id);
+          else actions.openPalette();
+        }
+      };
+    }
+  };
+  const resolveSlot = (slot) => ({ modal }) => {
+    if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+    if (modal !== null) return { status: "blocked", reason: "modal" };
+    const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
+    const target = targets[slot];
+    if (!target) return { status: "blocked", reason: "unavailable" };
+    return {
+      status: "handled",
+      run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
+    };
+  };
+  const commands = [];
+  for (const def of shortcutsForHost("plugin")) {
+    if (!def.plugin?.id) continue;
+    if (def.requiresInbox && typeof actions.openInbox !== "function") continue;
+    if (def.requiresBrowser && typeof actions.openBrowser !== "function") continue;
+    const resolve2 = Number.isInteger(def.slot) ? resolveSlot(def.slot) : resolvers[def.id];
+    if (typeof resolve2 !== "function") continue;
+    commands.push({
+      id: def.plugin.id,
+      label: () => def.labelVars ? t(def.label, def.labelVars) : t(def.label),
+      aliases: def.plugin.aliases ?? [],
+      defaults: pluginShortcutDefaults(def),
       regions: ["page", "editable"],
       modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
-        const target = targets[index];
-        if (!target) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
-        };
-      }
-    }))
-  ];
+      resolve: resolve2
+    });
+  }
+  return commands;
 }
 function registerPluginShortcuts(shortcuts, { onError, ...deps }) {
   const commands = buildPluginShortcutCommands(deps);
@@ -74020,7 +75259,7 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
   });
 }
 var QUEUE_CSS = `
-.bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,8px) - 3px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none}
+.bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--bt-composer-side,0px) - var(--bt-composer-side,0px) - var(--bt-composer-dock-inset,0px) - var(--bt-composer-dock-inset,0px));max-width:calc(var(--bt-composer-max-w,748px) - var(--bt-composer-dock-inset,0px) - var(--bt-composer-dock-inset,0px));margin:0 auto calc(0px - var(--bt-composer-gap,8px) - 3px);padding:0 var(--bt-composer-dock-inset,0px);flex:none}
 .bt-queue-panel{position:relative;isolation:isolate;width:100%;padding:2px 0;border-radius:var(--dsw-radius-lg,14px) var(--dsw-radius-lg,14px) 0 0;overflow:hidden}
 .bt-queue-panel:before{z-index:-1;border-radius:inherit;background:var(--dsw-specific-menu,var(--bt-main));backdrop-filter:var(--dsw-menu-backdrop-filter,none);content:"";pointer-events:none;position:absolute;inset:0}
 .bt-queue-panel:after{border:.5px solid var(--bt-line-2);border-bottom:none;border-radius:inherit;content:"";pointer-events:none;position:absolute;inset:0}
@@ -74049,6 +75288,155 @@ var QUEUE_CSS = `
 .bt-queue-action:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-queue-action:disabled{cursor:default;opacity:.45}
 `;
+
+// src/client/paste-card-dsh.js
+var import_react99 = require("react");
+var NO_BLOCKS = [];
+var NO_IDS2 = [];
+var ORPHAN_MS = 3e3;
+function composerLabels(root) {
+  const group = root.querySelector('[data-slot="conversation.input.attachments"] [role="group"]');
+  if (group === null) return [];
+  return [...group.children].map((item) => {
+    const alt = item.querySelector("img[alt]")?.getAttribute("alt") ?? "";
+    if (alt !== "") return alt;
+    return item.querySelector("[title]")?.getAttribute("title") ?? "";
+  });
+}
+function handOffPaste({ event, card, sessionId, actions }) {
+  if ((event.clipboardData?.files?.length ?? 0) > 0) return null;
+  const kept = foldPastedText(event.clipboardData?.getData("text/plain") ?? "");
+  if (kept === null) return null;
+  const input = card.querySelector("input[type=file]");
+  if (input === null || input === void 0) return null;
+  const file = new File([kept], pastedName(kept), { type: "text/plain" });
+  event.preventDefault();
+  event.stopPropagation();
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  actions.addPaste(sessionId, kept, file.name);
+  return file.name;
+}
+var isEditableOnly = (records) => records.length > 0 && records.every((record) => {
+  const target = record.target;
+  const el = target?.nodeType === 1 ? target : target?.parentElement;
+  return typeof el?.closest === "function" && el.closest("[contenteditable=true]") !== null;
+});
+function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
+  const blocks2 = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
+  const draftRef = (0, import_react99.useRef)("");
+  useInput?.((state) => {
+    draftRef.current = state.draft ?? "";
+    return null;
+  });
+  if (blocks2.length === 0) return null;
+  const drop = (block) => {
+    if (block.attachmentId && typeof inputActions?.removeAttachment === "function") inputActions.removeAttachment(block.attachmentId);
+    actions.removePaste(sessionId, [block.id]);
+  };
+  return (0, import_react99.createElement)("div", { className: "bt-paste-dock" }, blocks2.map((block) => (0, import_react99.createElement)(PasteCard2, {
+    key: block.id,
+    text: block.text,
+    onPutBack: () => {
+      if (putBackText({ block, inputActions, draft: draftRef.current })) actions.removePaste(sessionId, [block.id]);
+    },
+    onRemove: () => drop(block)
+  })));
+}
+function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
+  const anchor = (0, import_react99.useRef)(null);
+  const blocks2 = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
+  const idsRef = (0, import_react99.useRef)(NO_IDS2);
+  const idsKey = useInput?.((state) => {
+    const list = state.attachmentIds ?? NO_IDS2;
+    idsRef.current = list;
+    return list.length === 0 ? "" : list.join("\0");
+  }) ?? "";
+  const ids = idsRef.current;
+  const draftRef = (0, import_react99.useRef)("");
+  useInput?.((state) => {
+    draftRef.current = state.draft ?? "";
+    return null;
+  });
+  const latest = (0, import_react99.useRef)({ blocks: blocks2, ids });
+  latest.current = { blocks: blocks2, ids };
+  (0, import_react99.useEffect)(() => {
+    if (!blocks2.some((block) => block.attachmentId === null)) return void 0;
+    const card = anchor.current?.closest("[data-composer-card]");
+    if (card === null || card === void 0) return void 0;
+    const sync = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return;
+      const { blocks: now2, ids: nowIds } = latest.current;
+      if (!now2.some((block) => block.attachmentId === null)) return;
+      const links = pasteLinks(now2, nowIds, composerLabels(card));
+      if (links.length > 0) actions.linkPastes(sessionId, links);
+    };
+    sync();
+    const observer2 = new MutationObserver(sync);
+    observer2.observe(card, { childList: true, subtree: true });
+    return () => observer2.disconnect();
+  }, [idsKey, blocks2]);
+  const shown = (0, import_react99.useRef)(/* @__PURE__ */ new Set());
+  (0, import_react99.useEffect)(() => {
+    const stale = latest.current.blocks.filter((block) => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId));
+    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map((block) => block.id));
+  }, [sessionId]);
+  (0, import_react99.useEffect)(() => {
+    const nowIds = latest.current.ids;
+    const gone = latest.current.blocks.filter((block) => !blockLives(block, nowIds) && shown.current.has(block.attachmentId));
+    for (const id of nowIds) shown.current.add(id);
+    if (gone.length > 0) actions.removePaste(sessionId, gone.map((block) => block.id));
+  }, [idsKey]);
+  (0, import_react99.useEffect)(() => {
+    const waiting = blocks2.filter((block) => block.attachmentId === null);
+    if (waiting.length === 0) return void 0;
+    const timer2 = setTimeout(() => {
+      let currentDraft = draftRef.current;
+      for (const block of waiting) {
+        const now2 = latest.current.blocks.find((item) => item.id === block.id);
+        if (now2 === void 0 || now2.attachmentId !== null) continue;
+        if (putBackText({ block: now2, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now2.text}`;
+        actions.removePaste(sessionId, [block.id]);
+      }
+    }, ORPHAN_MS);
+    return () => clearTimeout(timer2);
+  }, [blocks2]);
+  (0, import_react99.useEffect)(() => {
+    const names = /* @__PURE__ */ new Set();
+    for (const block of blocks2) {
+      if (block.attachmentId !== null && block.name) names.add(block.name);
+    }
+    if (names.size === 0) return void 0;
+    const card = anchor.current?.closest("[data-composer-card]");
+    if (card === null || card === void 0) return void 0;
+    const mark2 = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return;
+      const scope = card.querySelector('[data-slot="conversation.input.attachments"]') ?? card;
+      for (const node of scope.querySelectorAll("[title]")) {
+        if (names.has(node.getAttribute("title")) && !node.hasAttribute("data-bt-paste")) {
+          node.setAttribute("data-bt-paste", "");
+        }
+      }
+    };
+    mark2();
+    const observer2 = new MutationObserver(mark2);
+    observer2.observe(card, { childList: true, subtree: true });
+    return () => observer2.disconnect();
+  }, [blocks2, idsKey]);
+  (0, import_react99.useEffect)(() => {
+    const card = anchor.current?.closest("[data-composer-card]");
+    if (card === null || card === void 0) return void 0;
+    const onPaste = (event) => {
+      handOffPaste({ event, card, sessionId, actions });
+    };
+    card.addEventListener("paste", onPaste, true);
+    return () => card.removeEventListener("paste", onPaste, true);
+  }, [sessionId]);
+  return (0, import_react99.createElement)("span", { ref: anchor, className: "bt-paste-guard", "aria-hidden": true });
+}
+var DSH_PASTE_CSS = `[data-composer-card] [data-bt-paste]{display:none!important}`;
 
 // src/client/approval-notices.js
 function noticeApprovals({ work, roster, shownSession, openSession, since = Date.now() }) {
@@ -74207,7 +75595,7 @@ function singleFlight(map, key, run2) {
 }
 
 // src/client/text-annotation.js
-var import_react99 = require("react");
+var import_react100 = require("react");
 var quoteMarkdown = (text) => text.replace(/\r\n?/gu, "\n").split("\n").map((line) => `> ${line}`).join("\n");
 var withAnnotation = (text, annotation) => annotation.trim() ? `${text}
 
@@ -74220,23 +75608,23 @@ function insertAnnotation(inputActions, text, annotation) {
 function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
   const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));
   const team = useRoster((state) => state.byId[sessionId] !== void 0 || state.roomsById[sessionId] !== void 0);
-  const [editing, setEditing] = (0, import_react99.useState)(false);
-  const [excerpt, setExcerpt] = (0, import_react99.useState)(null);
-  const [annotation, setAnnotation] = (0, import_react99.useState)("");
-  const [sending, setSending] = (0, import_react99.useState)(false);
-  const [closing, setClosing] = (0, import_react99.useState)(false);
-  const field = (0, import_react99.useRef)(null);
-  const pending = (0, import_react99.useRef)(false);
-  const closeTimer = (0, import_react99.useRef)(null);
-  (0, import_react99.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react100.useState)(false);
+  const [excerpt, setExcerpt] = (0, import_react100.useState)(null);
+  const [annotation, setAnnotation] = (0, import_react100.useState)("");
+  const [sending, setSending] = (0, import_react100.useState)(false);
+  const [closing, setClosing] = (0, import_react100.useState)(false);
+  const field = (0, import_react100.useRef)(null);
+  const pending = (0, import_react100.useRef)(false);
+  const closeTimer = (0, import_react100.useRef)(null);
+  (0, import_react100.useEffect)(() => {
     if (!enabled) dismiss();
   }, [enabled, dismiss]);
-  (0, import_react99.useEffect)(() => {
+  (0, import_react100.useEffect)(() => {
     if (!team || !enabled || !editing) return;
     field.current?.focus();
     if (typeof window !== "undefined") window.dispatchEvent(new Event("resize"));
   }, [team, enabled, editing]);
-  (0, import_react99.useEffect)(() => () => clearTimeout(closeTimer.current), []);
+  (0, import_react100.useEffect)(() => () => clearTimeout(closeTimer.current), []);
   if (!enabled) return null;
   const close = () => {
     clearSelection();
@@ -74309,7 +75697,7 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     else void send();
   };
   if (!team) {
-    return (0, import_react99.createElement)("button", {
+    return (0, import_react100.createElement)("button", {
       type: "button",
       className: "bt-quote-plain",
       "aria-label": hostT("quote.add"),
@@ -74318,17 +75706,17 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     }, hostT("quote.add"));
   }
   if (!editing) {
-    return (0, import_react99.createElement)(
+    return (0, import_react100.createElement)(
       "div",
       { className: "bt-selection-actions" },
-      (0, import_react99.createElement)("button", {
+      (0, import_react100.createElement)("button", {
         type: "button",
         className: "bt-selection-action",
         "aria-label": hostT("quote.add"),
         onPointerDown: (event) => event.preventDefault(),
         onClick: quoteOnly
       }, hostT("quote.add")),
-      (0, import_react99.createElement)("button", {
+      (0, import_react100.createElement)("button", {
         type: "button",
         className: "bt-selection-action bt-quote-annotate",
         "aria-label": t("Annotate"),
@@ -74337,7 +75725,7 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       }, t("Annotate"))
     );
   }
-  return (0, import_react99.createElement)(
+  return (0, import_react100.createElement)(
     "section",
     {
       className: "bt-annotation",
@@ -74352,9 +75740,9 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
         }
       }
     },
-    (0, import_react99.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
-    (0, import_react99.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
-    (0, import_react99.createElement)("textarea", {
+    (0, import_react100.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
+    (0, import_react100.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
+    (0, import_react100.createElement)("textarea", {
       id: "bt-annotation-field",
       ref: field,
       value: annotation,
@@ -74365,11 +75753,11 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       onChange: (event) => setAnnotation(event.target.value),
       onKeyDown
     }),
-    (0, import_react99.createElement)(
+    (0, import_react100.createElement)(
       "div",
       { className: "bt-annotation-actions" },
-      (0, import_react99.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
-      (0, import_react99.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: (() => {
+      (0, import_react100.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
+      (0, import_react100.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: (() => {
         const label = t("Send quote and annotation · Ctrl+Enter");
         return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "") ? label.replace("Ctrl+Enter", "⌘↵") : label;
       })() }, sending ? t("Sending…") : t("Send"))
@@ -74696,7 +76084,7 @@ function createAvatarRefCache(call2) {
 }
 
 // src/client/bot-completions.js
-function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
+function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconcile }) {
   const seen = /* @__PURE__ */ new Map();
   let lastTarget = null;
   let pendingTarget = null;
@@ -74755,21 +76143,49 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const offSessions = sessions.subscribe(sync);
   const offStatus = statuses?.subscribe(sync);
   const offUi = ui?.subscribe?.(sync);
+  const offReconcile = typeof onReconcile === "function" ? onReconcile((sessionId, maxTurn) => {
+    if (!seen.has(sessionId) || !Number.isInteger(maxTurn)) return;
+    if (seen.get(sessionId) > maxTurn) {
+      seen.set(sessionId, maxTurn);
+      sync();
+    }
+  }) : null;
   sync();
   return () => {
     offRoster();
     offSessions();
     offStatus?.();
     offUi?.();
+    offReconcile?.();
   };
 }
 
 // src/client/index.js
-var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
+var inject = ["sessions", "uiWorkspace", "uiConversation", "uiSession", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
 function apply(ctx) {
   ctx.effect(() => installTitle(document), "ds-bot: window title");
-  ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
+  ctx.effect(() => {
+    const initialLocale = ctx.get("locale");
+    let offInitial = initialLocale ? installLocale(initialLocale) : null;
+    const releaseInitial = () => {
+      const off = offInitial;
+      offInitial = null;
+      off?.();
+    };
+    const fiber = ctx.inject(["locale"], (scope) => {
+      scope.effect(() => {
+        releaseInitial();
+        return installLocale(scope.locale);
+      }, "ds-bot: interface copy");
+    });
+    return () => {
+      releaseInitial();
+      return fiber.dispose();
+    };
+  }, "ds-bot: interface copy lifecycle");
+  const sessionStatus = createSessionStatusSource(ctx);
+  ctx.effect(() => () => sessionStatus.dispose(), "ds-bot: session status");
   migrateStorage();
   const PREFS_KEY = STORAGE.prefs;
   let savedPrefs = {};
@@ -74802,9 +76218,8 @@ function apply(ctx) {
   const agentNewInFlight = /* @__PURE__ */ new Map();
   const isAgentSessionId = (id) => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id);
   const agentOfSession = (id) => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id);
-  const workspaces = ctx.get("workspaces");
   const workspaceOf = (sessionId) => {
-    const items = workspaces?.list?.getSnapshot()?.items ?? [];
+    const items = readServiceMember(ctx, "workspaces", "list")?.getSnapshot()?.items ?? [];
     return items.find((item) => item.sessionIds?.includes(sessionId))?.workspaceId;
   };
   let expected2 = null;
@@ -75164,7 +76579,10 @@ function apply(ctx) {
       const open = shownSessionId();
       const chat = open === void 0 ? void 0 : snapshot.byId?.[open] ?? snapshot.roomsById?.[open];
       const safe2 = safeAppearance();
-      const lookCss = appearanceCss({ appearance: prefs.appearance, theme: themes[id], background: chat?.background, pictureUrl: (picture) => pictureUrl(picture, call, render), safe: safe2, user: false });
+      const lookCss = [
+        appearanceCss({ appearance: prefs.appearance, theme: themes[id], background: chat?.background, pictureUrl: (picture) => pictureUrl(picture, call, render), safe: safe2, user: false }),
+        dshAppearanceCss({ appearance: prefs.appearance, fonts: false })
+      ].filter(Boolean).join("\n");
       if (look.textContent !== lookCss) look.textContent = lookCss;
       const mine = userCss(prefs.appearance, safe2);
       if (userSheet.textContent !== mine) userSheet.textContent = mine;
@@ -75187,7 +76605,7 @@ function apply(ctx) {
       if (document.body.style.getPropertyValue("--bt-msg-w") !== msgW) document.body.style.setProperty("--bt-msg-w", msgW);
       const flatW = String(flatWidth / 100);
       if (document.body.style.getPropertyValue("--bt-flat-w") !== flatW) document.body.style.setProperty("--bt-flat-w", flatW);
-      style.textContent = themeCss(themes[id], accent);
+      style.textContent = themeCss(themes[id], accent) + dshThemeCss(themes[id]);
       activeTheme = themes[id];
       skin.apply();
       const release = releaseTokens;
@@ -75334,7 +76752,6 @@ function apply(ctx) {
   }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession });
   const panelFolded = (view) => {
     const state = ui.getSnapshot();
-    if (state.details === null) return false;
     const f = frame3.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
   };
@@ -75671,7 +77088,7 @@ function apply(ctx) {
   actions.canSignIn = () => Boolean(actions.signInEntry());
   actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
   actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
-  actions.accountT = () => ctx.get("locale").bind("settings.account");
+  actions.accountT = () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key);
   actions.hasPlugins = () => true;
   actions.openPlugins = (focus = null) => actions.openSettings("plugins", focus);
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
@@ -75931,13 +77348,12 @@ function apply(ctx) {
     const offRoster = roster.subscribe(() => {
       questionDrafts.reconcileRoster(roster.getSnapshot());
     });
-    const sessionStatus = ctx.get("uiSession")?.sessionStatus;
-    const offStatus = sessionStatus?.subscribe?.(() => {
-      questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot());
+    const offStatus = sessionStatus.source.subscribe(() => {
+      questionDrafts.reconcileBlocking(sessionStatus.source.getSnapshot(), roster.getSnapshot());
     });
     return () => {
       offRoster();
-      offStatus?.();
+      offStatus();
     };
   }, "ds-bot: rescue interrupted question drafts");
   ctx.effect(() => noticeApprovals({
@@ -76026,7 +77442,7 @@ function apply(ctx) {
   actions.newTerminal = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("terminal");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "terminal");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
@@ -76035,49 +77451,67 @@ function apply(ctx) {
   actions.openFiles = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("files");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "files");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
   };
-  ctx.effect(() => {
-    const sidebar = ctx.get("sidebarRight");
-    if (!sidebar) return void 0;
-    let open = rightColumnOpen(document);
-    const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
-    const collapseColumn = () => {
-      try {
-        if (sidebar.isExpanded()) sidebar.toggleExpanded();
-      } catch (error) {
-        actions.reportError(error, "right-sidebar");
+  ctx.inject(["sidebarRight"], (scope) => {
+    scope.effect(() => {
+      let open = rightColumnOpen(document);
+      const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
+      const collapseColumn = () => {
+        try {
+          if (callServiceMethod(scope, "sidebarRight", "isExpanded")) callServiceMethod(scope, "sidebarRight", "toggleExpanded");
+        } catch (error) {
+          actions.reportError(error, "right-sidebar");
+        }
+      };
+      const observer2 = new MutationObserver(() => {
+        const next = rightColumnOpen(document);
+        const opening = next && !open;
+        open = next;
+        const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
+        if (verdict === "close-drawer") actions.closePanel();
+        else if (verdict === "collapse-column") collapseColumn();
+      });
+      observer2.observe(document.documentElement, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: RIGHTBAR_ATTRIBUTES
+      });
+      let offDirectMounted = null;
+      const releaseDirectMounted = () => {
+        const off = offDirectMounted;
+        offDirectMounted = null;
+        off?.();
+      };
+      const mountedFiber = scope.inject(["sidebarRight.mounted"], (mountedScope) => {
+        mountedScope.effect(() => {
+          releaseDirectMounted();
+          const off = mountedScope["sidebarRight.mounted"]?.subscribe?.(() => switchWindow.moved());
+          return () => {
+            off?.();
+          };
+        }, "ds-bot: sidebarRight.mounted");
+      });
+      if (!hasContextProperty(scope, "sidebarRight.mounted")) {
+        offDirectMounted = scope.sidebarRight?.mounted?.subscribe?.(() => switchWindow.moved()) ?? null;
       }
-    };
-    const observer2 = new MutationObserver(() => {
-      const next = rightColumnOpen(document);
-      const opening = next && !open;
-      open = next;
-      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
-      if (verdict === "close-drawer") actions.closePanel();
-      else if (verdict === "collapse-column") collapseColumn();
-    });
-    observer2.observe(document.documentElement, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: RIGHTBAR_ATTRIBUTES
-    });
-    const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui.getSnapshot().details !== null;
-    const offUi = ui.subscribe(() => {
-      const next = ui.getSnapshot().details !== null;
-      if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
-      drawer = next;
-    });
-    return () => {
-      observer2.disconnect();
-      offMounted();
-      offUi();
-    };
-  }, "ds-bot: one right panel");
+      let drawer = ui.getSnapshot().details !== null;
+      const offUi = ui.subscribe(() => {
+        const next = ui.getSnapshot().details !== null;
+        if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
+        drawer = next;
+      });
+      return () => {
+        observer2.disconnect();
+        releaseDirectMounted();
+        mountedFiber.dispose();
+        offUi();
+      };
+    }, "ds-bot: one right panel");
+  });
   const BOT_PRIORITY = -100;
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name,
@@ -76135,6 +77569,7 @@ function apply(ctx) {
   };
   const SHELL_SHEETS = [
     [SHELL_CSS, "shell"],
+    [DSH_SHELL_CSS, "dsh-shell"],
     [SIDEBAR_CSS, "sidebar"],
     [INBOX_CSS, "inbox"],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, "secrets"],
@@ -76150,7 +77585,7 @@ function apply(ctx) {
     [ABOUT_CSS, "about"],
     [MEMBER_CSS, "members"],
     [TASK_CSS, "tasks"],
-    [PASTE_CSS, "paste"],
+    [PASTE_CSS + DSH_PASTE_CSS, "paste"],
     [OPENING_CSS, "opening"],
     [IM_CSS, "im"],
     [GOAL_CSS, "goal"],
@@ -76195,6 +77630,7 @@ function apply(ctx) {
       };
     },
     ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
+    () => installDshAdapter(document),
     () => installFrameWatch(frame3),
     () => installFrameSync(),
     () => installTheme(),
@@ -76213,6 +77649,7 @@ function apply(ctx) {
   ];
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, "conversation"),
+    () => installCompiledStyles(DSH_CONVERSATION_CSS, "dsh-conversation"),
     () => installCompiledStyles(TURN_ERROR_CSS, "turn-errors"),
     () => installCompiledStyles(QUEUE_CSS, "queue"),
     () => installCompiledStyles(ANNOTATION_CSS, "text-annotation"),
@@ -76400,7 +77837,7 @@ function apply(ctx) {
   ctx.effect(() => watchBotCompletions({
     roster,
     sessions: ctx.sessions.list,
-    statuses: ctx.get("uiSession")?.sessionStatus,
+    statuses: sessionStatus.source,
     unread: botCompletions,
     ui
   }), "ds-bot: sidebar completions");

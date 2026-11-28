@@ -17,7 +17,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
+    contents: "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'\nexport { DSH_SHELL_CSS } from './src/client/styles-dsh.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -60,7 +60,7 @@ const sandbox = {
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
+const { SHELL_CSS, botOwnCss, DSH_SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -289,22 +289,27 @@ function rulesOf(css) {
     at = end
   }
 }
-const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|bt-side-collapse|bt-title-toggle/
-const rules = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].filter(rule => SHELL_PARTS.test(rule.selector))
+const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|data-shell-leading|data-sidebar-opener|bt-side-collapse|bt-title-toggle/
+const rules = [...rulesOf(SHELL_CSS), ...rulesOf(DSH_SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].filter(rule => SHELL_PARTS.test(rule.selector))
 const hiding = rules.filter(rule => /display:none/.test(rule.body))
 const showing = rules.filter(rule => /display:inline-flex/.test(rule.body))
 
-// The shell sidebar's own markup (dsh-client-ui-sidebar SidebarRoot), reduced to what the
-// team view reshapes: the switch is in the logo row, except in a macOS desktop window,
-// where it sits in the strip by the window buttons. `mac` is DSH Desktop with the system
-// title bar; `mac-frameless` is the packaged app, whose window has no system title bar and
-// so carries the title-bar attribute as well.
-function shell({ platform, collapsed }) {
+// The shell sidebar's own markup (dsh-client-ui-layout AppFrame + dsh-client-ui-sidebar
+// SidebarRoot / HeaderLeadingControls), reduced to what the team view reshapes: the switch
+// is in the logo row, in the top strip of a macOS desktop window, or in the frame's
+// `shell.leading` seat on narrow drawers (<768px) and collapsed macOS frames. `mac` is DSH
+// Desktop with the system title bar; `mac-frameless` is the packaged app, whose window has
+// no system title bar and so carries the title-bar attribute as well.
+function shell({ platform, collapsed, drawer = false }) {
   const darwin = platform === 'mac' || platform === 'mac-frameless'
   const titlebar = platform === 'windows' || platform === 'mac-frameless'
+  const leadingMounted = drawer || (darwin && collapsed)
   const toggle = '<button class="x_iconButton x_toggle" aria-label="Toggle sidebar"></button>'
+  const leading = leadingMounted
+    ? `<div class="x_leadingSeat" data-shell-leading="true"><div class="x_controls"><button data-sidebar-opener="true" class="x_iconButton" aria-label="Open sidebar"></button>${darwin ? '<button class="x_iconButton x_leadingNew" aria-label="New session"></button>' : ''}</div></div>`
+    : ''
   const html = `<!doctype html><html${titlebar ? ' data-windows-titlebar' : ''}${darwin ? ' data-platform="darwin"' : ''}><body>
-    <div${collapsed ? ' data-sidebar-collapsed="true"' : ''}>
+    <div${collapsed ? ' data-sidebar-collapsed="true"' : ''}${drawer ? ' data-sidebar-drawer="true"' : ''}>
       <div class="x_root${collapsed ? ' x_collapsed' : ''}">
         ${darwin ? `<div class="x_topStrip">${toggle}</div>` : ''}
         <div class="x_logoRow">${collapsed ? '' : '<button class="x_brand x_wide"></button>'}${darwin ? '' : toggle}</div>
@@ -313,6 +318,7 @@ function shell({ platform, collapsed }) {
         <div class="team">${collapsed ? '' : '<div class="bt-side-top"><button class="bt-round bt-side-collapse"></button></div>'}</div>
         <div class="x_footArea"><span class="bt-foot-account"></span></div>
       </div>
+      ${leading}
     </div></body></html>`
   const { document } = new JSDOM(html).window
   const hidden = (node) => {
@@ -321,7 +327,7 @@ function shell({ platform, collapsed }) {
     }
     return false
   }
-  const switches = [...document.querySelectorAll('.x_toggle, .bt-side-collapse, .bt-title-toggle')].filter(node => !hidden(node))
+  const switches = [...document.querySelectorAll('.x_toggle, [data-sidebar-opener], .bt-side-collapse, .bt-title-toggle')].filter(node => !hidden(node))
   return { document, hidden, switches }
 }
 
@@ -396,9 +402,35 @@ test('what the team view replaces in the shell sidebar stays out of sight', () =
   }
 })
 
+test('DSH shell.leading sidebar opener and desktop new-session button stay hidden in narrow drawers and collapsed macOS frames', () => {
+  for (const [label, opts] of [
+    ['web narrow drawer (collapsed)', { platform: 'web', collapsed: true, drawer: true }],
+    ['web narrow drawer (open)', { platform: 'web', collapsed: false, drawer: true }],
+    ['mac collapsed', { platform: 'mac', collapsed: true }],
+    ['mac-frameless collapsed', { platform: 'mac-frameless', collapsed: true }],
+  ]) {
+    const { document, hidden } = shell(opts)
+    const seat = document.querySelector('[data-shell-leading]')
+    const opener = document.querySelector('[data-sidebar-opener]')
+    assert.ok(seat !== null, `${label}: leading seat mounted`)
+    assert.ok(opener !== null, `${label}: sidebar opener mounted`)
+    assert.equal(hidden(seat), true, `${label}: leading seat hidden`)
+    assert.equal(hidden(opener), true, `${label}: sidebar opener hidden`)
+    const leadingNew = document.querySelector('.x_leadingNew')
+    if (leadingNew) assert.equal(hidden(leadingNew), true, `${label}: desktop leading new-session hidden`)
+  }
+  // Standalone [data-sidebar-opener] without a [data-shell-leading] wrapper stays hidden too.
+  const standalone = new JSDOM('<!doctype html><html><body><button data-sidebar-opener="true"></button></body></html>').window.document
+  const standaloneBtn = standalone.querySelector('[data-sidebar-opener]')
+  assert.equal(hiding.some(rule => standaloneBtn.matches(rule.selector)), true)
+  // Desktop SHELL_CSS stays free of DSH-private selectors, and botOwnCss(DSH_SHELL_CSS) drops them so Classic mode Settings never hides DSH's own controls.
+  assert.doesNotMatch(SHELL_CSS, /data-shell-leading|data-sidebar-opener/)
+  assert.doesNotMatch(botOwnCss(DSH_SHELL_CSS), /data-shell-leading|data-sidebar-opener/)
+})
+
 function collapsedGridRules() {
   const { document } = new JSDOM('<style></style>').window
-  document.querySelector('style').textContent = `${SHELL_CSS}\n${SIDEBAR_CSS}`
+  document.querySelector('style').textContent = `${SHELL_CSS}\n${DSH_SHELL_CSS}\n${SIDEBAR_CSS}`
   const frames = []
   const visit = (rules, media = []) => {
     for (const rule of rules) {
@@ -514,52 +546,286 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   assert.equal(find(hidden, node => node.type?.name === 'LeftColumn'), undefined)
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
-  // Reduced motion disables both the column slide and the conversation margin transition.
-  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-entering\]\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+  // Reduced motion disables the column fold transition and the conversation right-margin transition.
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-folding\],\[data-bt-center\]\{transition:none\}\}/)
 })
 
-test('the column draws its first mount in place and slides in only after being hidden', () => {
-  viewport.innerWidth = 1280
-  const find = node => {
-    if (Array.isArray(node)) return node.map(find).find(Boolean)
-    if (!node || typeof node !== 'object') return undefined
-    return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+test('the column draws its first mount in place and slides in lockstep without overshoot or mid-flight teleport', () => {
+  const dom = new JSDOM('<!doctype html><body><div data-bt-center></div><div class="bt-leftcol"></div></body>')
+  const { document } = dom.window
+  const col = document.querySelector('.bt-leftcol')
+  const center = document.querySelector('[data-bt-center]')
+  let now = 1000
+  const rafQueue = new Map()
+  let rafId = 1
+  const globals = {
+    document,
+    setTimeout,
+    clearTimeout,
+    performance: { now: () => now },
+    requestAnimationFrame: (cb) => { const id = rafId++; rafQueue.set(id, cb); return id },
+    cancelAnimationFrame: (id) => { rafQueue.delete(id) },
+    CSS: { escape: value => value },
   }
-  for (const initial of ['open', 'rail', 'hidden']) {
+  const stepFrame = (ms = 16) => {
+    now += ms
+    const batch = [...rafQueue.entries()]
+    rafQueue.clear()
+    for (const [, cb] of batch) cb(now)
+  }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
     const refs = []
-    const render = pref => {
+    const states = []
+    const render = (pref) => {
       renderRefs = refs
       refIndex = 0
+      renderStates = states
+      stateIndex = 0
       layoutEffects = []
       try {
         const tree = TeamSidebar({
-          wide: false,
+          wide: pref === 'open',
           useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
           useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
           useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
           useSidebarPref: pick => pick(pref), actions: { toggleSidebar() {} },
         })
+        // Attach the simulated DOM node to LeftColumn's ref before layout effects run.
+        const find = (node) => {
+          if (Array.isArray(node)) return node.map(find).find(Boolean)
+          if (!node || typeof node !== 'object') return undefined
+          return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+        }
+        const left = find(tree)
+        if (left?.props?.columnRef) left.props.columnRef.current = col
         const effects = layoutEffects
         layoutEffects = undefined
         effects.forEach(effect => effect())
-        return find(tree)
+        return left
       } finally {
         renderRefs = undefined
+        renderStates = undefined
         layoutEffects = undefined
       }
     }
-    if (initial === 'hidden') assert.equal(render(initial), undefined)
-    else {
-      assert.equal(render(initial).props.entering, false)
-      assert.equal(render(initial).props.entering, false, 'ordinary rerenders do not start an entrance')
-      assert.equal(render('hidden'), undefined)
+    // Initial mount draws in place without scheduling any slide frames.
+    const first = render('open')
+    assert.ok(first)
+    assert.equal(rafQueue.size, 0, 'first mount must not animate')
+    assert.equal(col.style.transform, '')
+
+    // Collapse: .bt-leftcol transform and _centerCol margin-left move in exact lockstep with zero negative overshoot.
+    const collapsing = render('hidden')
+    assert.equal(collapsing.props.leaving, true)
+    assert.ok(rafQueue.size > 0, 'collapse should start the slide spring')
+    const parseTx = () => Number((col.style.transform.match(/translate3d\(([-\d.]+)px/) ?? [])[1] ?? 0)
+    const samples = []
+    for (let i = 0; i < 6; i++) {
+      stepFrame(16)
+      const tx = parseTx()
+      const ml = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+      assert.ok(tx <= 0, `collapse tx must stay <= 0, got ${tx}`)
+      assert.ok(ml >= 0, `collapse margin-left must never go negative, got ${ml}`)
+      assert.ok(Math.abs((280 + tx) - ml) < 0.01, `leftcol right (${280 + tx}) must match center margin-left (${ml})`)
+      samples.push(ml)
     }
-    assert.equal(render('open').props.entering, true)
-    assert.equal(render('rail').props.entering, true)
+    assert.ok(samples[samples.length - 1] < samples[0], 'collapse should progress toward 0')
+
+    // Mid-flight reversal (expand before collapse finishes): must turn smoothly without teleporting to 0 or 280.
+    const beforeReverse = samples[samples.length - 1]
+    const reversed = render('open')
+    assert.equal(reversed.props.leaving, false)
+    stepFrame(16)
+    const txAfterReverse = parseTx()
+    const mlAfterReverse = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+    assert.ok(Math.abs(mlAfterReverse - beforeReverse) < 50, `mid-flight reverse must not teleport (was ${beforeReverse}, now ${mlAfterReverse})`)
+    assert.ok(Math.abs((280 + txAfterReverse) - mlAfterReverse) < 0.01, 'mid-flight reverse stays in exact lockstep')
+
+    // Step to rest: must never overshoot past 280px (tx > 0).
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      stepFrame(16)
+      if (col.style.transform) {
+        const tx = parseTx()
+        assert.ok(tx <= 0, `expand tx must never overshoot past 0, got ${tx}`)
+      }
+      const ml = center.style.getPropertyValue('margin-left')
+      if (ml) assert.ok(Number.parseFloat(ml) <= 280, `expand margin-left must never exceed 280, got ${ml}`)
+    }
+    assert.equal(rafQueue.size, 0, 'spring should settle cleanly')
+    assert.equal(col.style.transform, '')
+    assert.equal(col.hasAttribute('data-sliding'), false)
+
+    // Full collapse settles to 0 and clears heldMode so LeftColumn unmounts.
+    render('hidden')
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      stepFrame(16)
+      const ml = center.style.getPropertyValue('margin-left')
+      if (ml) assert.ok(Number.parseFloat(ml) >= 0, `full collapse margin-left must never go negative, got ${ml}`)
+    }
+    assert.equal(render('hidden'), undefined, 'LeftColumn unmounts after collapse settles')
+
+    // Re-expanding from hidden starts off-screen at -280px before first paint and settles without overshoot.
+    const reExpanded = render('open')
+    assert.ok(reExpanded)
+    assert.equal(col.style.transform, 'translate3d(-280px,0,0)')
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      stepFrame(16)
+      if (col.style.transform) assert.ok(parseTx() <= 0)
+    }
+    assert.equal(col.style.transform, '')
+
+    // Switching to rail and collapsing must start from 88px (0px gap), never from stale 280px.
+    render('rail')
+    assert.equal(rafQueue.size, 0)
+    render('hidden')
+    stepFrame(16)
+    const railTx = parseTx()
+    const railMl = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+    assert.ok(railMl <= 88, `rail collapse margin-left must start from <= 88, got ${railMl}`)
+    assert.ok(Math.abs((88 + railTx) - railMl) < 0.01, `rail leftcol right (${88 + railTx}) must match center margin-left (${railMl})`)
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
   }
-  assert.match(SHELL_CSS, /\.bt-leftcol\[data-entering\]\{animation:bt-leftcol-in /)
-  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\{animation:bt-leftcol-in /)
-  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{transform:translateX\(-100%\);transition:transform /)
+  // CSS must not run a competing compositor animation on .bt-leftcol or margin-left transition on _centerCol.
+  assert.doesNotMatch(SHELL_CSS, /@keyframes bt-leftcol-in/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\[data-entering\]/)
+  assert.doesNotMatch(SHELL_CSS, /\[class\*="_centerCol"\]\{[^}]*margin-left/)
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{pointer-events:none\}/)
+})
+
+test('slide spring keeps open .bt-pane pinned before first frame, settles cleanly on grip pointercancel, reconciles aborted drag widths, and stays flush with non-zero collapsedWidth', () => {
+  const dom = new JSDOM('<!doctype html><body><div data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div><div class="bt-pane" style="left:280px"></div></body>')
+  const { document } = dom.window
+  const col = document.querySelector('.bt-leftcol')
+  const grip = col.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('[data-bt-center]')
+  const pane = document.querySelector('.bt-pane')
+  let now = 2000
+  const rafQueue = new Map()
+  let rafId = 1
+  const globals = {
+    document,
+    setTimeout,
+    clearTimeout,
+    performance: { now: () => now },
+    requestAnimationFrame: (cb) => { const id = rafId++; rafQueue.set(id, cb); return id },
+    cancelAnimationFrame: (id) => { rafQueue.delete(id) },
+    CSS: { escape: value => value },
+  }
+  const stepFrame = (ms = 16) => {
+    now += ms
+    const batch = [...rafQueue.entries()]
+    rafQueue.clear()
+    for (const [, cb] of batch) cb(now)
+  }
+  const parseTx = () => Number((col.style.transform.match(/translate3d\(([-\d.]+)px/) ?? [])[1] ?? 0)
+  const sheetMarginLeft = () => [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
+    const refs = []
+    const states = []
+    const frame = { viewport: 1280, sidebarWidth: 300, collapsedWidth: 0, collapsed: false }
+    let pref = 'open'
+    const actions = {
+      toggleSidebar() {},
+      setPanelYield() {},
+      setLeftDrawer() {},
+      setSidebarWidth: (w) => { frame.sidebarWidth = w },
+      setSidebarPref: (p) => { pref = p },
+    }
+    const render = (nextPref = pref, paneTargetLeft = null) => {
+      pref = nextPref
+      // Simulate Overlays committing pane.style.left = layout.column in the same React render.
+      if (paneTargetLeft !== null) pane.style.left = `${paneTargetLeft}px`
+      renderRefs = refs
+      refIndex = 0
+      renderStates = states
+      stateIndex = 0
+      layoutEffects = []
+      try {
+        const tree = TeamSidebar({
+          wide: pref === 'open',
+          useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+          useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+          useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+          useFrame: pick => pick(frame),
+          useSidebarPref: pick => pick(pref),
+          actions,
+        })
+        const find = (node) => {
+          if (Array.isArray(node)) return node.map(find).find(Boolean)
+          if (!node || typeof node !== 'object') return undefined
+          return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+        }
+        const left = find(tree)
+        if (left?.props?.columnRef) left.props.columnRef.current = col
+        const effects = layoutEffects
+        layoutEffects = undefined
+        effects.forEach(effect => effect())
+        return left
+      } finally {
+        renderRefs = undefined
+        renderStates = undefined
+        layoutEffects = undefined
+      }
+    }
+
+    // 1. Open .bt-pane stays pinned at 300px before first rAF on collapse, and at mid-flight value on reverse.
+    render('open', 300)
+    render('hidden', 0)
+    assert.equal(pane.style.left, '300px', 'pane must not jump to 0px before first collapse frame')
+    stepFrame(16)
+    stepFrame(16)
+    const midPane = Number.parseFloat(pane.style.left)
+    assert.ok(midPane > 0 && midPane < 300)
+    render('open', 300)
+    assert.equal(Number.parseFloat(pane.style.left), midPane, 'pane must not jump to 300px on mid-flight reverse')
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) stepFrame(16)
+    assert.equal(pane.style.left, '300px')
+
+    // 2. Grabbing .bt-leftcol-grip mid-expand then triggering pointercancel must settle to 300px, never stuck at 0px.
+    render('hidden', 0)
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) stepFrame(16)
+    assert.equal(sheetMarginLeft(), '0px')
+    const expanding = render('open', 300)
+    assert.equal(pane.style.left, '0px', 'pane must stay at 0px before first expand frame')
+    stepFrame(16)
+    expanding.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointercancel', { clientX: 300 }))
+    assert.equal(sheetMarginLeft(), '300px', 'pointercancel mid-expand must leave center margin at final 300px')
+    assert.equal(pane.style.left, '300px', 'pointercancel mid-expand must restore pane left to 300px')
+    assert.equal(col.style.transform, '')
+
+    // 3. Hiding mid-drag after resizing 300 -> 380px reconciles col.style.width with state.width (300px) for 0px gap.
+    const readyForDrag = render('open', 300)
+    readyForDrag.props.onGrip({ button: 0, pointerId: 2, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 380 }))
+    assert.equal(col.style.width, '380px')
+    render('hidden', 0)
+    assert.equal(col.style.width, '300px', 'aborted drag must reconcile DOM width to React width before sliding')
+    stepFrame(16)
+    const afterAbortTx = parseTx()
+    const afterAbortMl = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+    assert.ok(Math.abs((300 + afterAbortTx) - afterAbortMl) < 0.01, `aborted drag collapse stays flush (${300 + afterAbortTx} vs ${afterAbortMl})`)
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) stepFrame(16)
+
+    // 4. Non-zero collapsedWidth (56px host track): docked expand keeps 56 + margin === slide once past 56px.
+    frame.collapsedWidth = 56
+    render('open', 300)
+    for (let i = 0; i < 6; i++) {
+      stepFrame(16)
+      const slide = 300 + parseTx()
+      const ml = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+      assert.ok(Math.abs(ml - Math.max(0, slide - 56)) < 0.01, `non-zero collapsedWidth margin (${ml}) must equal max(0, slide - 56) (${Math.max(0, slide - 56)})`)
+    }
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
@@ -658,7 +924,7 @@ test('the shell footer action slot holds the account and the return button only'
 // run it on a jsdom page with real timers. The sandbox gets the page and the timers only
 // while a drag runs; the release then re-renders the sidebar at the state it stored.
 async function edgeDrag({ start, reduced = false }, run) {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
@@ -1087,7 +1353,7 @@ test('continuing to drag width right after unfolding from rail clears spring lag
 })
 
 test('hiding the sidebar during post-drag settle clears inline drag styles and does not restore rail margin', async () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
@@ -1149,7 +1415,7 @@ test('hiding the sidebar during post-drag settle clears inline drag styles and d
 })
 
 test('unmounting TeamSidebar during post-drag settle strips inline drag styles and releases chatRoom.hold', async () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
@@ -1223,7 +1489,7 @@ test('unmounting TeamSidebar during post-drag settle strips inline drag styles a
 })
 
 test('aborting an active drag on hide ignores pointerup, and panelYield during settle keeps rail margin', async () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
