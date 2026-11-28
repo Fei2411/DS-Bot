@@ -4113,7 +4113,7 @@ export function install(rt) {
   rt.greetRoom = greetRoom
 
   ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     return (async function* relayOrPass() {
       await rt.load()
       const room = rt.roomOf(options.sessionId)

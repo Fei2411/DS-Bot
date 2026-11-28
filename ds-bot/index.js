@@ -92,7 +92,7 @@ export { name, inject } from './src/host/entry.js'
 // module sees `rt.coordDb` and the unified D1–D4 adapter; usage meters model requests
 // after every listener that rewrites them; privacy checks a call before tools do;
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, ledger, dshAdapter, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, usage, update, releaseNotes, dshUpdate, telemetry, thinking, mobile, sessionControls, feed, fonts, sessionFollow, jobs, workspacePanel, engineSettings, messageFeedback, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, ledger, dshAdapter, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, chatgpt, usage, update, releaseNotes, dshUpdate, telemetry, thinking, mobile, sessionControls, feed, fonts, sessionFollow, jobs, workspacePanel, engineSettings, messageFeedback, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
@@ -119,7 +119,7 @@ export function createRuntime(ctx, config = {}, codeMode) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of [...MODULES, chatgpt]) module.install(rt)
+  for (const module of MODULES) module.install(rt)
   if (codeMode !== undefined) installBotCodeMode(rt, codeMode)
   rt.installed = true
   // A live Agent can be scoped before the last module has added its tools (the memory

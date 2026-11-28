@@ -1179,7 +1179,10 @@ export function install(rt) {
     const localNote = isLocal ? '\nNote: You are running in a separate local CLI session that does not share in-memory state with the foreground chat.' : ''
     const dirNote = resolvedDir ? `\nWorking directory: ${resolvedDir}` : ''
     const reportDest = room !== undefined ? `your session in group "${room.name}"` : 'your own chat'
-    const prompt = `${detail}${dirNote}${localNote}${contextNote}\n\nDo this work here. The user does not chat directly in this task session; do not call ask_user, show_view, request_secret, or task_* tools. When you finish, your final reply is sent back to ${reportDest}, so make it complete and self-contained.`
+    const disabledTools = room !== undefined
+      ? 'ask_user, show_view, request_secret, prepare_ds_bot_issue, schedule_create, schedule_edit, browser_handoff, delegate_work, or task_*'
+      : 'ask_user, show_view, request_secret, prepare_ds_bot_issue, schedule_create, schedule_edit, browser_handoff, or task_*'
+    const prompt = `${detail}${dirNote}${localNote}${contextNote}\n\nDo this work here. The user does not chat directly in this task session; do not call ${disabledTools} tools. When you finish, your final reply is sent back to ${reportDest}, so make it complete and self-contained.`
 
     try {
       await rt.deliver({
@@ -2909,6 +2912,7 @@ export function install(rt) {
         }
       }
       const inherited = slimSegments(bot)
+      const cacheRoot = rt.cacheAffinityOf?.(oldSid) ?? oldSid
       const task = {
         id: newId(),
         title,
@@ -2917,6 +2921,8 @@ export function install(rt) {
         sessionId: oldSid,
         segments: [],
         startSeq,
+        forkedPrefixSessionId: oldSid,
+        ...(cacheRoot !== oldSid ? { cacheAffinityId: cacheRoot } : {}),
         ...(inherited.length > 0 ? { inheritedSegments: inherited } : {}),
         origin,
         status: rt.waitsForApproval?.(oldSid) ? 'waiting_approval' : 'running',
@@ -2927,9 +2933,17 @@ export function install(rt) {
       }
       ;(bot.tasks ??= []).push(task)
       bot.sessionId = newSid
+      if (forked) {
+        bot.cacheAffinitySessionId = newSid
+        bot.cacheAffinityId = cacheRoot
+        rt.setCacheAffinity?.(newSid, cacheRoot)
+      } else {
+        delete bot.cacheAffinitySessionId
+        delete bot.cacheAffinityId
+      }
       foregroundEpochs.set(bot.id, (foregroundEpochs.get(bot.id) ?? 0) + 1)
       rt.chatOwners.set(newSid, bot.id)
-      rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id })
+      rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id, preservePrefix: true })
       rt.moveSilentNotes?.(oldSid, newSid)
       if (isBotHandoff && activeWork !== undefined) {
         rt.setWorkTargetSession?.(activeWork, oldSid, task.id)

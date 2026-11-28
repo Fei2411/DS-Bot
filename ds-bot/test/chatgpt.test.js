@@ -9,6 +9,11 @@ import { install as installChatGPT, appChatGPTRequest } from '../src/host/chatgp
 import { install as installModels } from '../src/host/models.js'
 import { install as installProviders } from '../src/host/providers.js'
 import { install as installChannel } from '../src/host/channel.js'
+import { createRuntime } from '../index.js'
+import { fakeContext } from './fake-ctx.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createChatGPTRelay } from '../../app/src/chatgpt-relay.mjs'
 
 async function fixture(t, { app = true, previous, status = { state: 'connected', account: { email: 'person@example.test' } }, models = [{ id: 'model-z', name: 'Z' }], modelError } = {}) {
@@ -388,6 +393,31 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
   assert.deepEqual(step2Req.body.input[2], reasoningItem)
   assert.deepEqual(step2Req.body.input[3], callItem)
   assert.deepEqual(step2Req.body.input[4], { type: 'function_call_output', call_id: 'call_step1', output: '22C sunny' })
+
+  // Forked sessions mapped to a parent cache affinity root route onto the parent's
+  // prompt_cache_key and affinity headers while auxiliary/own requests stay isolated.
+  const affinityMap = new Map([['sess-fork-child', 'sess-chatgpt-cache-1']])
+  rt.cacheAffinityOf = id => affinityMap.get(id)
+  rt.ownRequest = opts => opts?.messages?.[0]?.source?.kind === 'memory-own'
+  rt.isLocalAgentRoute = provider => provider === 'local-codex'
+
+  await runTurn('gpt-6.2-sol', undefined, { sessionId: 'sess-fork-child', tools: [toolDef], messages: [userMsg] })
+  const forkReq = requests.at(-1)
+  assert.equal(forkReq.body.prompt_cache_key, 'sess-chatgpt-cache-1')
+  assert.equal(forkReq.headers['session-id'], 'sess-chatgpt-cache-1')
+  assert.equal(forkReq.headers['x-client-request-id'], 'sess-chatgpt-cache-1')
+  assert.deepEqual(forkReq.body.tools, step1Req.body.tools)
+  assert.deepEqual(forkReq.body.input, step1Req.body.input)
+
+  // Purpose-tagged calls and DS Bot's own tagged requests (e.g. memory) must NOT be rewritten.
+  await runTurn('gpt-6.2-sol', undefined, { sessionId: 'sess-fork-child', purpose: 'title' })
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'sess-fork-child')
+  await runTurn('gpt-6.2-sol', undefined, {
+    sessionId: 'mem-review:b1',
+    messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'review' }], source: { kind: 'memory-own' } })],
+  })
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'mem-review:b1')
+  assert.equal(requests.at(-1).headers['session-id'], 'mem-review:b1')
 })
 
 test('first ChatGPT sign-in falls back for omitted reasoning levels with or without an openai route and ignores custom openai gateways', async t => {
@@ -439,4 +469,89 @@ test('first ChatGPT sign-in falls back for omitted reasoning levels with or with
   assert.equal((await repointed.post('chatgpt-sign-in')).value.state, 'connected')
   assert.equal(called, false)
   assert.deepEqual(repointed.routes['openai-chatgpt'].models, [{ id: 'custom-future-model', name: 'Future' }])
+})
+
+test('full llm/stream middleware chain skips pre-chatgpt hooks on cache affinity rewrite, redacts secrets once, and journals real child session', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-affinity-chain-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b1'],
+    revision: 1,
+    bots: {
+      b1: { id: 'b1', name: 'Chief', sessionId: 'parent-1', createdAt: 1, tasks: [] },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+  const delivered = []
+  const llmService = {
+    stream: options => {
+      const chain = ctx.listeners.get('llm/stream') ?? []
+      const run = (index) => {
+        if (index >= chain.length) {
+          delivered.push(options)
+          return (async function* () { yield { type: 'finish', reason: { kind: 'stop' } } })()
+        }
+        return chain[index](options, () => run(index + 1))
+      }
+      return run(0)
+    },
+  }
+  const ctx = fakeContext({ services: { llm: llmService } })
+  ctx.llm = { ...ctx.llm, stream: llmService.stream }
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  t.after(() => ctx.dispose())
+  await rt.load()
+  await rt.adoptLiveWork?.()
+  rt.state.bots.b1.tasks = [{
+    id: 'k1',
+    title: 'Forked task',
+    status: 'running',
+    sessionId: 'fork-child-1',
+    forkedPrefixSessionId: 'fork-child-1',
+    cacheAffinityId: 'parent-1',
+    segments: [],
+    startedAt: 2,
+    updatedAt: 2,
+  }]
+  await rt.save()
+
+  // Seed a saved secret so secrets.js rewrites messages on pass 1 before cacheAffinitySession runs.
+  const secretToken = 'tok-live-secret-9876543210'
+  await rt.secretEndpoint('secret-set', { name: 'DEMO_AFFINITY', value: secretToken, scope: 'all' })
+  // Drain the full chain for the forked child session.
+  for await (const chunk of ctx.llm.stream({
+    provider: 'openai-chatgpt',
+    model: 'gpt-6.2-sol',
+    sessionId: 'fork-child-1',
+    system: 'Keep secrets safe.',
+    messages: [{ role: 'user', content: [{ type: 'text', text: `value=${secretToken}` }] }],
+    tools: [{ name: 'ask_user' }, { name: 'group_relay' }],
+  })) void chunk
+
+  assert.equal(delivered.length, 1)
+  assert.equal(delivered[0].sessionId, 'parent-1', 'upstream must receive parent cache affinity root')
+  assert.equal(delivered[0].messages[0].content[0].text, 'value=[secret:DEMO_AFFINITY]', 'secrets must be redacted')
+  assert.deepEqual(delivered[0].tools.map(tool => tool.name), ['ask_user'], 'forked task keeps ask_user and strips group_relay')
+  assert.equal(rt.originalSessionId(delivered[0]), 'fork-child-1', 'originalSessionId must point to the real child session')
+  assert.equal(rt.isCacheAffinityRewritten(delivered[0]), true)
+
+  // Verify usage journaled the real child session (`fork-child-1`), not only parent-1.
+  const { DatabaseSync } = await import('node:sqlite')
+  const deadline = Date.now() + 2000
+  let ownerRow
+  while (Date.now() < deadline) {
+    try {
+      const db = new DatabaseSync(join(home, 'usage.sqlite'))
+      try {
+        ownerRow = db.prepare('SELECT owner, name FROM owners WHERE session = ?').get('fork-child-1')
+      } finally { db.close() }
+      if (ownerRow !== undefined) break
+    } catch { /* ledger still opening */ }
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.deepEqual({ owner: ownerRow?.owner, name: ownerRow?.name }, { owner: 'b1', name: 'Chief' })
 })
