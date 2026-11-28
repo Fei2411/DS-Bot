@@ -257,6 +257,12 @@ export function createWebFetchBridge({
           return
         }
         if (isMain && typeof details?.statusCode === 'number' && !REDIRECT_STATUSES.has(details.statusCode)) {
+          const disp = readHeaderValue(details.responseHeaders, 'content-disposition')
+          if (/^\s*attachment\b/i.test(disp)) {
+            downloadTriggered = true
+            callback({ cancel: true })
+            return
+          }
           const ct = readHeaderValue(details.responseHeaders, 'content-type')
           if (ct && classifyContentType(ct) === undefined && !BLOCKED_STATUSES.has(details.statusCode)) {
             unsupportedContentType = ct
