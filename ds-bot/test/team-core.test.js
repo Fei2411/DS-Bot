@@ -11,6 +11,7 @@ import {
   seenKeyOf,
 } from '../src/client/team-core/index.js'
 import { sectionFoldWrites } from '../src/client/team-actions.js'
+import { readRescuedForChat } from '../src/client/question-draft.js'
 
 function makeStorage(initial = {}) {
   const map = new Map(Object.entries(initial))
@@ -177,4 +178,84 @@ test('team-core session store and feed controller deduplicate replays and manage
   } finally {
     stop()
   }
+})
+
+test('team-core pull preserves question drafts for rescue when session recovery replaces a surviving Bot part', async () => {
+  const storage = makeStorage()
+  const store = createTeamStore({ storage })
+  const removedLog = []
+  store.roster.subscribe(() => {
+    store.questionDrafts.reconcileRoster(store.roster.getSnapshot())
+  })
+  let step = 0
+  const { pull } = createTeamPull({
+    call: async () => {
+      step += 1
+      if (step === 1) {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          liveKey: 'lk-1',
+          bots: [{
+            id: 'bot-a',
+            sessionId: 'bot-a-p2',
+            parts: ['bot-a', 'bot-a-p2'],
+          }],
+          questions: { 'bot-a-p2': { id: 'q1', question: 'Confirm?' } },
+          rooms: [],
+          agents: [],
+        }
+      }
+      if (step === 2) {
+        // Session recovery drops missing part bot-a-p2 and creates bot-a-p3 on surviving bot-a.
+        return {
+          revision: 2,
+          modelsKey: 'm1',
+          liveKey: 'lk-2',
+          bots: [{
+            id: 'bot-a',
+            sessionId: 'bot-a-p3',
+            parts: ['bot-a', 'bot-a-p3'],
+          }],
+          questions: {},
+          rooms: [],
+          agents: [],
+        }
+      }
+      // Deleting bot-a removes both its stable id and its remaining parts.
+      return {
+        revision: 3,
+        modelsKey: 'm1',
+        liveKey: 'lk-3',
+        bots: [],
+        questions: {},
+        rooms: [],
+        agents: [],
+      }
+    },
+    store,
+    storage,
+    onChatsRemoved: (gone) => {
+      removedLog.push(gone)
+      store.questionDrafts.pruneChats(gone)
+    },
+  })
+
+  await pull()
+  store.questionDrafts.noteDraft({
+    kind: 'ask_user',
+    id: 'q1',
+    sessionId: 'bot-a-p2',
+    chatId: 'bot-a',
+    text: 'my unsent custom answer',
+  })
+
+  await pull()
+  assert.deepEqual(removedLog, [])
+  assert.equal(readRescuedForChat(store.questionDrafts.rescued.getSnapshot(), 'bot-a', 'bot-a-p3'), 'my unsent custom answer')
+
+  await pull()
+  assert.deepEqual(removedLog.length, 1)
+  assert.equal(removedLog[0].includes('bot-a'), true)
+  assert.equal(removedLog[0].includes('bot-a-p3'), true)
 })

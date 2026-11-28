@@ -49,11 +49,19 @@ export function diffLiveRosterFields(value, base) {
 
 export function collectRemovedChatIds(prevRoster, nextRoster) {
   if (!prevRoster?.ready) return []
-  return [
-    ...Object.keys(prevRoster.byId ?? {}).filter(id => nextRoster.byId[id] === undefined),
-    ...Object.keys(prevRoster.roomsById ?? {}).filter(id => nextRoster.roomsById[id] === undefined),
-    ...Object.keys(prevRoster.agentOf ?? {}).filter(id => nextRoster.agentOf?.[id] === undefined),
-  ]
+  const removed = []
+  for (const [id, bot] of Object.entries(prevRoster.byId ?? {})) {
+    const stableId = bot?.id ?? id
+    if (nextRoster.byId?.[stableId] === undefined) removed.push(id)
+  }
+  for (const [id, room] of Object.entries(prevRoster.roomsById ?? {})) {
+    const stableId = room?.id ?? id
+    if (nextRoster.roomsById?.[stableId] === undefined) removed.push(id)
+  }
+  for (const id of Object.keys(prevRoster.agentOf ?? {})) {
+    if (nextRoster.agentOf?.[id] === undefined) removed.push(id)
+  }
+  return removed
 }
 
 export function createTeamPull({
