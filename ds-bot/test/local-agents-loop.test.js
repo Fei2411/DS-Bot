@@ -222,6 +222,7 @@ async function bootWithoutBot(t, { approval, preset, spec, catalogDefault } = {}
 test('a Session with no Bot on a local route asks for the CLI permission prompt (#2466)', async (t) => {
   const requests = []
   const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'workspace-write',
     approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
   })
   send(agent, 'ask-permission')
@@ -281,16 +282,16 @@ for (const [name, options] of [
   ['an unresolvable preset', { preset: 'custom', spec: new Error('custom knobs resolve to no preset') }],
   ['no preset service', {}],
 ]) {
-  test(`a Session with no Bot and ${name} asks instead of taking a full-access default (#2466)`, async (t) => {
+  test(`a Session with no Bot and ${name} runs read-only, not on the profile default (#2466)`, async (t) => {
     const requests = []
     const { ctx, agent } = await bootWithoutBot(t, {
       ...options,
       catalogDefault: 'danger-full-access',
-      approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
+      approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
     })
     send(agent, 'ask-permission')
     await waitForIdle(ctx, agent)
-    assert.equal(requests.length, 1)
+    assert.equal(requests.length, 0)
     assert.doesNotMatch(texts(agent), /allowed via allow-once/)
   })
 }
