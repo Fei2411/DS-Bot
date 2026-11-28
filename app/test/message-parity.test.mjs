@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { DICTIONARY, installLocale, t } from '../../ds-bot/src/client/i18n.js'
+import { DICTIONARY, installLocale, loadAllLocales, t } from '../../ds-bot/src/client/i18n.js'
 import { installMiniDom } from './mini-dom.mjs'
 
 const entryCode = `
@@ -884,7 +884,8 @@ test('WorkspacePaneBody reveals folders in FileTree (including when workspace-re
   }
 })
 
-test('every t() key in app/ui/src exists across all supported locales and previously hardcoded English translates', () => {
+test('every t() key in app/ui/src exists across all supported locales and previously hardcoded English translates', async () => {
+  await loadAllLocales()
   const dir = new URL('../ui/src/', import.meta.url)
   const locales = ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']
   const missing = []

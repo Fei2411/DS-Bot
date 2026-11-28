@@ -36,7 +36,7 @@ const entryCode = `
   } from './ui/src/engine-settings-bridge.js'
   export { createPluginRuntime } from './ui/src/plugin-runtime.js'
   export { createSlotRegistry, SETTINGS_SECTION_SLOT } from './ui/src/slots.js'
-  export { installLocale, t } from '../ds-bot/src/client/i18n.js'
+  export { ensureLocale, installLocale, t } from '../ds-bot/src/client/i18n.js'
 `
 
 const { outputFiles } = await build({
@@ -252,7 +252,7 @@ test('formatFieldLabel renders Sentence case and preserves uppercase technical a
   assert.equal(mod.formatFieldLabel(['nested_group', 'customApiEndpoint']), 'Nested group · Custom API endpoint')
 })
 
-test('resolveFieldLabel and extractSchemaFields localize known engine schema labels across locales', () => {
+test('resolveFieldLabel and extractSchemaFields localize known engine schema labels across locales', async () => {
   const { mod } = loadMod()
   assert.equal(mod.resolveFieldLabel(['maxParallelToolCalls'], 'agent-loop'), 'Max parallel tool calls')
   assert.equal(mod.resolveFieldLabel(['apiKey'], 'web-search-deepseek'), 'API key')
@@ -280,6 +280,7 @@ test('resolveFieldLabel and extractSchemaFields localize known engine schema lab
     },
   }
 
+  await mod.ensureLocale('zh')
   const locale = fakeLocale('zh')
   const off = mod.installLocale(locale)
   try {
@@ -462,6 +463,7 @@ test('PluginsSettingsPage renders 3 clean sections, hides internal/banned subage
   assert.equal(findAll(optionalExpRow, n => n.props?.className === 'dsb-preset-badge' && textOf(n) === 'Experimental').length, 0)
 
   // Verify ZH locale also renders localized DS Bot description (not shadowed by raw English meta.description).
+  await mod.ensureLocale('zh')
   const zhLocale = fakeLocale('zh')
   const offZh = mod.installLocale(zhLocale)
   try {

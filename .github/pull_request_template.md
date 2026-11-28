@@ -36,3 +36,4 @@ Agent: <Agent> (<Model>)
 - [ ] `src/client/` changed → `npm run build` ran and `client.js` is committed. / 改了 `src/client/` 就已重新 build 并提交 `client.js`。
 - [ ] No keys, tokens or personal data, also in screenshots. / 没有密钥、token 或个人信息，截图里也没有。
 - [ ] No AI tool as author or `Co-authored-by`. / 没有把 AI 工具写成作者或 `Co-authored-by`。
+- [ ] Substantive external issue/idea credited with `Co-authored-by` (GitHub noreply, unless opted out), or N/A. / 促成改动的高质量外部 Issue/想法已按规范加 `Co-authored-by`（GitHub noreply 邮箱，对方介意除外），或不适用。

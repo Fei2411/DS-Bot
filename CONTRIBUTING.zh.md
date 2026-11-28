@@ -8,6 +8,8 @@
 
 本仓库的协作者直接在这里推分支，向 `dev` 提 Pull Request（见[协作方式](#协作方式)）。目前只有协作者能提 Pull Request。如果你不是协作者，发现 bug 请开 Issue（见[报告问题](#报告问题)），提问或建议请到 [Discussions](https://github.com/Fei-Craft/DS-Bot/discussions)。
 
+清晰的问题报告、根因排查或被采纳的功能建议，与 Pull Request 同等宝贵。如果外部用户提交的 Issue 或想法直接促成了修复或功能落地，维护者可能会在提交中将提出者列为 `Co-authored-by`（见[为高质量 Issue 署名 Co-author](#为高质量-issue-署名-co-author)）。
+
 ## 最重要的规则
 
 1. **基于 DSH 构建，不改 DSH。** Bot 功能是 DSH 插件：只用 DSH 有文档的插件接口（Cordis 服务、插件客户端入口、profile patch）。桌面应用只通过 DSH 有文档的入口启动 DSH（`@deepseek-ai/dsh/profile-boot`、`dsh` 命令）。不修改 DeepSeek Harness，不依赖 DSH 安装目录里的文件。功能需要 DSH 没有提供的能力时，先在这里开 Issue；修复可能应该放在 DSH 里。
@@ -64,6 +66,30 @@
 4. 合进 `dev` 的修复不会关闭对应的 Issue：`Fixes #<号>` 只在合入默认分支时生效。Issue 会一直开着，直到发版，意思是「已在 `dev` 修复，尚未发版」。
 
 一个 Pull Request 只对应一个 Issue。大改动拆成多个 Pull Request。
+
+### 为高质量 Issue 署名 Co-author
+
+清晰的问题报告、根因排查或经过思考的功能建议，往往与 Pull Request 同等宝贵。当外部用户的 Issue 或被采纳的 Discussion 想法直接促成了修复或功能落地时，维护者可以酌情在对应实现的提交中添加 `Co-authored-by`——若分支已推送，直接写在合入 `dev` 的合并提交里（不要为了补署名而 rebase 或强推）：
+
+- **适用范围**：由维护者酌情授予，面向有实质贡献的反馈（清晰复现、定位根因，或直接促成落地的方案/功能建议）。一句话许愿、重复或低信息量的报告不予署名；提交作者本人开的 Issue 也不重复署名。
+- **格式与隐私**：一律使用对方的 GitHub noreply 邮箱，绝不填写私人邮箱。通过 GitHub API 查询数字 ID：
+
+  ```sh
+  gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
+  ```
+
+  在提交说明末尾空一行后添加 trailer，将上面命令的输出填入 `<...>`，并配合 `Fixes #<号>` 与 `Reported-by: @<login>`（或 `Idea-by: @<login>`），让 Git 历史清楚区分「提出问题/想法」与「编写代码」：
+
+  ```text
+  Fixes #<号>
+  Reported-by: @<login>
+  Co-authored-by: <login> <123456+login@users.noreply.github.com>
+  ```
+
+  （2017 年 7 月前注册的旧版 GitHub 账号若数字 ID 形式未关联到主页，可改用 `<login>@users.noreply.github.com`。）
+
+- **尊重意愿**：合并前尽量在 Issue 回复中说明计划署名。若对方不希望被写入 Git 历史，不加 `Co-authored-by`（可改为仅在 Release Notes 致谢）。
+- **仍禁止为 AI 署名**：该机制仅面向提出 Issue 或想法的人类贡献者，绝不把 AI 工具或 Bot 写成作者、提交者或 `Co-authored-by`。
 
 ### 合并冲突
 
@@ -181,7 +207,7 @@ dev/bench.sh dev 3081 8771 reset    # 模拟模型 + DSH Web；数据在 ../.dsh
 - 在 `src/client/` 里，颜色用 `--bt-*` 变量，圆角只用 4、6、8、10、12、16、18、20、22、999px 和 50% 这几档，弹簧用 `motion.js` 里的。有单元测试检查这三项。测试之前就写成的地方列在 `test/style-debt.json` 里，这份清单只减不增。改掉一处后，运行 `node scripts/style-debt.mjs --write` 更新清单。
 - 跟随改动周围代码的风格。只有当代码本身看不出原因时才写注释。
 - 提交说明用英文。标题简短，用祈使句（如 "Keep group replies visible"），在正文里写原因。
-- 提交的作者是做出改动的人。用 AI 工具辅助时，不要把它加为作者，也不要加 `Co-authored-by` 行；在工具里关掉这个设置。
+- 提交的作者是做出改动的人。用 AI 工具辅助时，不要把它加为作者，也不要加 `Co-authored-by` 行；在工具里关掉这个设置。促成改动的高质量外部 Issue 或被采纳想法的人类提出者，可以按规范署名（见[为高质量 Issue 署名 Co-author](#为高质量-issue-署名-co-author)）。
 - 不要改 [CHANGELOG.md](CHANGELOG.md)。把用户能看到的变化写在 Pull Request 的 Changelog 一栏。
 
 ## 报告问题
