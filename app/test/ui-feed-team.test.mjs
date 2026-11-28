@@ -272,7 +272,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   const { outputFiles } = await build({
     entryPoints: [fileURLToPath(new URL('../ui/src/team.js', import.meta.url))],
     bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
-    external: ['react'],
+    external: ['react', 'react-dom'],
     plugins: [{
       name: 'team-test-stubs',
       setup(bundler) {
@@ -356,6 +356,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
     __feedClosed: false,
     require(name) {
       if (name === 'react') return react
+      if (name === 'react-dom') return { createPortal: node => node }
       throw new Error(`unexpected require ${name}`)
     },
     localStorage,
