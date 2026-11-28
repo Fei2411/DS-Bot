@@ -171,22 +171,24 @@ export function historyEntry(event, group) {
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
 
-// Iterates Markdown lines outside fenced code blocks (` ``` ` / `~~~`).
+// Iterates Markdown lines outside CommonMark fenced code blocks (` ``` ` / `~~~`).
+// Backtick openers reject info strings containing backticks so inline code spans like
+// ```foo``` are never misread as opening fences.
 function forEachOutsideFence(lines, fn) {
   let fenceChar = ''
   let fenceLen = 0
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]
     if (fenceChar === '') {
-      const open = /^\s*(`{3,}|~{3,})/.exec(line)
-      if (open) {
+      const open = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(line)
+      if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
         fenceChar = open[1][0]
         fenceLen = open[1].length
         continue
       }
       fn(line, i)
     } else {
-      const close = new RegExp(`^\\s*${fenceChar === '`' ? '`' : '~'}{${fenceLen},}\\s*$`)
+      const close = new RegExp(`^ {0,3}${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
       if (close.test(line)) {
         fenceChar = ''
         fenceLen = 0
@@ -285,7 +287,7 @@ function stripOuterFence(text) {
   if (!open) return trimmed
   const fenceChar = open[1][0]
   const fenceLen = open[1].length
-  const closeRe = new RegExp(`^${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
+  const closeRe = new RegExp(`^ {0,3}${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
   if (!closeRe.test(lines[lines.length - 1])) return trimmed
   for (let i = 1; i < lines.length - 1; i += 1) {
     if (closeRe.test(lines[i])) return trimmed
@@ -334,10 +336,11 @@ export function normalizeNoteHeadings(raw, names) {
   const lowerToCanonical = new Map(names.map(name => [name.toLowerCase(), name]))
   const lines = unwrapped.split('\n')
   const seen = new Set()
-  // Pre-seed with already-canonical headings outside code fences so subheadings earlier
-  // in an already-valid note are never hijacked.
+  // Pre-seed with column-0 canonical headings outside code fences (matching missingSections)
+  // so subheadings earlier in an already-valid note are never hijacked, while indented
+  // headings (1-3 spaces) still normalize cleanly to column 0.
   forEachOutsideFence(lines, (line) => {
-    const match = /^\s*#{1,4}\s*([^#\n]+?)\s*:?\s*$/.exec(line)
+    const match = /^#{1,4}\s*([^#\n]+?)\s*:?\s*$/.exec(line)
     if (!match) return
     const canonical = lowerToCanonical.get(match[1].trim().toLowerCase())
     if (canonical !== undefined) seen.add(canonical)
@@ -345,8 +348,8 @@ export function normalizeNoteHeadings(raw, names) {
   if (seen.size === allowed.size) return unwrapped
   let changed = false
   forEachOutsideFence(lines, (line, i) => {
-    const headingMatch = /^\s*#{1,4}\s+(.+?)\s*#*$/.exec(line)
-      ?? /^\s*\*\*([^*\n]{2,80})\*\*\s*[:：]?\s*$/.exec(line)
+    const headingMatch = /^ {0,3}#{1,4}\s+(.+?)\s*#*$/.exec(line)
+      ?? /^ {0,3}\*\*([^*\n]{2,80})\*\*\s*[:：]?\s*$/.exec(line)
     if (!headingMatch) return
     const canonical = matchNoteHeading(headingMatch[1], allowed)
     if (canonical === undefined || seen.has(canonical)) return

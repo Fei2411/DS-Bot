@@ -183,10 +183,34 @@ test('normalizeNoteHeadings unwraps code fences and normalizes numbered, bold, b
   ].join('\n')
   assert.equal(normalizeNoteHeadings(validWithSubheading, names), validWithSubheading)
 
-  // Two separate fenced blocks at the start and end must not be falsely unwrapped.
-  const twoFences = '```text\nfirst block\n```\n## 目标\n- keep fences\n```text\nlast block\n```'
+  // Two separate fenced blocks (including indented interior closers) must not be unwrapped.
+  const twoFences = '~~~text\nfirst block\n  ~~~\n## 目标\n- keep fences\n~~~text\nlast block\n~~~'
   const normalizedTwoFences = normalizeNoteHeadings(twoFences, names)
-  assert.match(normalizedTwoFences, /^```text\nfirst block\n```/)
-  assert.match(normalizedTwoFences, /```text\nlast block\n```$/)
+  assert.match(normalizedTwoFences, /^~~~text\nfirst block\n  ~~~/)
+  assert.match(normalizedTwoFences, /~~~text\nlast block\n~~~$/)
   assert.match(normalizedTwoFences, /^## Goals$/m)
+
+  // Indented canonical headings (1-3 spaces) normalize to column 0; 4-space list-nested headings stay untouched.
+  const indented = [
+    '  ## Goals',
+    '- Ship cleanly',
+    '    ### Progress',
+    '  ## Progress',
+    '- Done: fixed',
+  ].join('\n')
+  const normalizedIndented = normalizeNoteHeadings(indented, names)
+  assert.match(normalizedIndented, /^## Goals$/m)
+  assert.match(normalizedIndented, /^    ### Progress$/m)
+  assert.match(normalizedIndented, /^## Progress$/m)
+
+  // Triple-backtick inline code spans must not be misread as opening fences.
+  const withInlineBackticks = [
+    '## 目标',
+    '```npm test``` runs the suite',
+    '## 进展',
+    '- Done: verified',
+  ].join('\n')
+  const normalizedInline = normalizeNoteHeadings(withInlineBackticks, names)
+  assert.match(normalizedInline, /^## Goals$/m)
+  assert.match(normalizedInline, /^## Progress$/m)
 })
