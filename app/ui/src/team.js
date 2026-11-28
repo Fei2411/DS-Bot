@@ -821,6 +821,7 @@ export function createTeam() {
 
   const actions = {
     ...baseActions,
+    setChatCovered: covered => ui.set(state => (Boolean(state.chatCovered) === covered ? state : { ...state, chatCovered: covered })),
     closePanel: () => {
       baseActions.closePanel()
       ui.set(state => (state.rightPanel !== null || state.panelYield ? { ...state, rightPanel: null, panelYield: false } : state))
@@ -1670,7 +1671,7 @@ export function createTeam() {
   }
   roster.subscribe(followWork)
   work.subscribe(followWork)
-  const isCovered = snap => snap.inbox === true || Boolean(snap.newChat)
+  const isCovered = snap => snap.inbox === true || Boolean(snap.newChat) || snap.chatCovered === true
   let wasCovered = isCovered(ui.getSnapshot())
   ui.subscribe(() => {
     const covered = isCovered(ui.getSnapshot())

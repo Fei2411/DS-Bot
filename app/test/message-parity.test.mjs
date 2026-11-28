@@ -105,6 +105,7 @@ const sandbox = {
   Node,
   Event,
   TextEncoder,
+  AbortController,
   URL,
   Blob,
   setTimeout,
@@ -507,6 +508,91 @@ test('file and folder references parse cleanly with no false positives and open 
   }
 })
 
+test('desktop Bot replies load local Markdown images through the session-scoped endpoint', async () => {
+  const paths = ['sample.png', '/repo/sample.png', 'file:///repo/sample%20image.png', '../outside.png', 'C:%5Cwork%5Cplot.png', '%5C%5Cserver%5Cshare%5Cplot.png']
+  const bytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='
+  const requests = []
+  const previousCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint !== 'markdown-image') return {}
+    requests.push(plain(body))
+    if (body.path === '../outside.png') throw new Error('Image outside workspace')
+    return { mime: 'image/png', bytes }
+  }
+  const text = [
+    ...paths.map((path, i) => `![Local ${i}](${path})`),
+    '![Remote](https://example.com/sample.png)',
+    '![Network](//example.com/sample.png)',
+    '![Data](data:image/png;base64,AAAA)',
+    '![Blocked](javascript:alert(1))',
+  ].join('\n\n')
+  const log = {
+    header: { cwd: '/repo' },
+    events: [
+      { seq: 1, time: 1000, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text }] } } },
+    ],
+    writing: null,
+  }
+  const bot = { id: 'b1', name: 'Chief' }
+  const roster = { bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 's1', bot, roster, actions: { openFile() {} },
+  }))
+  try {
+    await flush()
+    assert.deepEqual(requests, paths.map(path => ({ sessionId: 's1', path })))
+    const sources = Object.fromEntries(Array.from(view.host.querySelectorAll('img'))
+      .map(img => [img.getAttribute('alt'), img.getAttribute('src')]))
+    assert.deepEqual(sources, {
+      'Local 0': `data:image/png;base64,${bytes}`,
+      'Local 1': `data:image/png;base64,${bytes}`,
+      'Local 2': `data:image/png;base64,${bytes}`,
+      'Local 3': null,
+      'Local 4': `data:image/png;base64,${bytes}`,
+      'Local 5': `data:image/png;base64,${bytes}`,
+      Remote: 'https://example.com/sample.png',
+      Network: '//example.com/sample.png',
+      Data: null,
+      Blocked: null,
+    })
+  } finally {
+    view.unmount()
+    sandbox.__testCall = previousCall
+  }
+})
+
+test('desktop Bot replies in earlier parts resolve Markdown images in the original session', async () => {
+  const requests = []
+  const previousCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint !== 'markdown-image') return {}
+    requests.push(plain(body))
+    return { mime: 'image/png', bytes: 'AAAA' }
+  }
+  const sessionId = 'current-part'
+  const partSessionId = 'earlier-part'
+  const bot = { id: 'b1', name: 'Chief', sessionId, parts: [partSessionId] }
+  const roster = { bots: [bot], byId: { b1: bot, [sessionId]: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const log = { header: { cwd: '/repo' }, events: [], writing: null }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId, bot, roster,
+    actions: {
+      earlier: async () => ({
+        items: [{ kind: 'bot', text: '![Earlier](sample.png)', time: 1000, sessionId: partSessionId }],
+        partIndex: 0, cursor: null,
+      }),
+    },
+  }))
+  try {
+    await flush()
+    assert.deepEqual(requests, [{ sessionId: partSessionId, path: 'sample.png' }])
+    assert.equal(view.host.querySelector('img')?.getAttribute('src'), 'data:image/png;base64,AAAA')
+  } finally {
+    view.unmount()
+    sandbox.__testCall = previousCall
+  }
+})
+
 test('Classic session renders reply feedback (submit, dialog, retract) and never renders it in Bot chats', async () => {
   const rpcCalls = []
   const notices = []
@@ -669,6 +755,30 @@ test('Classic session renders reply feedback (submit, dialog, retract) and never
     assert.equal(notices.length, 0, 'Successful feedback retraction must not trigger error-styled actions.notice')
   } finally {
     classicView.unmount()
+  }
+})
+
+test('escaped currency in a reply does not close an inline math span', async () => {
+  await ensureKatex()
+  const view = mountDom(React.createElement(MarkdownText, {
+    text: String.raw`currency $5 and $10, escaped \$20
+
+Prices are $5 and \$ 20.
+
+Price range: $5-\$ 10. Difference: $20-5$.
+
+Price: $5,\$ 10. Difference: $20-5$.`,
+  }))
+  try {
+    await flush()
+    assert.equal(view.host.querySelector('p')?.textContent, 'currency $5 and $10, escaped $20')
+    assert.match(view.host.textContent, /Prices are \$5 and \$ 20\./)
+    assert.match(view.host.textContent, /Price range: \$5-\$ 10\. Difference: /)
+    assert.match(view.host.textContent, /Price: \$5,\$ 10\. Difference: /)
+    const math = Array.from(view.host.querySelectorAll('.dsb-math-inline'))
+    assert.deepEqual(math.map(el => el.getAttribute('data-tex')), ['20-5', '20-5'])
+  } finally {
+    view.unmount()
   }
 })
 

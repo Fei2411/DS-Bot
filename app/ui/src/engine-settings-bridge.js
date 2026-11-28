@@ -56,9 +56,13 @@ function defaultLoadEngineSettings(attempt = 0) {
 
 const LazyFallback = () => h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
 
+function InjectedSettingsSlot({ entry, owner }) {
+  return h(entry.component, { ...entry.inject(), ...owner })
+}
+
 function renderSlotComponent(entry, props, slotName, isLazy = true) {
   const Component = entry.component
-  const child = h(Component, props)
+  const child = entry.inject ? h(InjectedSettingsSlot, { entry, owner: props }) : h(Component, props)
   return h(SlotErrorBoundary, {
     slotName,
     resetKey: slotName,
@@ -69,6 +73,16 @@ function renderSlotComponent(entry, props, slotName, isLazy = true) {
       entry.onRetry?.()
     },
   }, isLazy ? h(Suspense, { fallback: h(LazyFallback) }, child) : child)
+}
+
+function sectionLabel(entry) {
+  if (entry.meta?.labelKey) return t(entry.meta.labelKey)
+  const label = entry.meta?.label ?? entry.options?.label
+  try {
+    return String((typeof label === 'function' ? label() : label) ?? entry.id)
+  } catch {
+    return entry.id
+  }
 }
 
 /**
@@ -144,7 +158,7 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
     const failedEnginePlugin = plugins.find(p => p.id === 'ds-bot.engine-settings' && p.status === 'error')
     const sections = visibleSectionEntries.map(entry => ({
       id: entry.id,
-      label: entry.meta?.labelKey ? t(entry.meta.labelKey) : String(entry.meta?.label ?? entry.id),
+      label: sectionLabel(entry),
     }))
     if (failedEnginePlugin && !sections.some(s => s.id === 'plugins')) {
       sections.push({ id: 'plugins', label: t('Plugins') })

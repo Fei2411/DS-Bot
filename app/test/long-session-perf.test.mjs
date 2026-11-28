@@ -47,6 +47,7 @@ const { outputFiles } = await build({
   platform: 'browser',
   write: false,
   logLevel: 'silent',
+  loader: { '.css': 'empty' },
   nodePaths: [join(appDir, 'node_modules')],
   plugins: [{
     name: 'long-perf-stubs',

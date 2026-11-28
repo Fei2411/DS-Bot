@@ -9,6 +9,7 @@ import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { ArchiveIcon, DownloadIcon, GearIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
 import { renderHighlightedBlock, useHighlightedCode } from './code-highlight.js'
 import { FileRefChip, isInlineCodeFilePath, matchFileMention, parseLocalFileHref, remarkFileReferences } from './file-references.js'
+import { MarkdownImage, MarkdownImageSession, isLocalMarkdownImage } from './markdown-image.js'
 import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, remarkGuardCurrencyMath } from './math-render.js'
 
 // Official DeepSeek Harness FishLogo geometry (@deepseek-ai/dsh-client-ui-primitives).
@@ -336,7 +337,8 @@ function InlineCode({ className, children, onOpenFile, onRevealFolder, fileMenti
 
 // Links open outside the window; mention links stay for the chat's own click handler;
 // local file/folder links open in the workspace right panel.
-const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions }) => ({
+const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions, workspaceImages }) => ({
+  ...(workspaceImages ? { img: MarkdownImage } : {}),
   a: ({ node: _node, children, ...props }) => {
     if (props.href?.startsWith(MENTION_ORIGIN)) {
       return h(InLinkContext.Provider, { value: true }, h('a', props, children))
@@ -393,6 +395,12 @@ export function markdownUrlTransform(url, key, node) {
   return defaultSafeUrlTransform(url)
 }
 
+const withWorkspaceImages = transform => (url, key, node) => (
+  key === 'src' && node?.tagName === 'img' && isLocalMarkdownImage(url) ? url : transform(url, key, node)
+)
+const workspaceImageUrlTransform = withWorkspaceImages(defaultSafeUrlTransform)
+const linkedWorkspaceImageUrlTransform = withWorkspaceImages(markdownUrlTransform)
+
 const preprocessMarkdown = text => escapeCurrencyDollars(normalizeMathDelimiters(text ?? ''))
 
 // A closed block of a streaming reply. Once the splitter has closed it, later chunks
@@ -416,12 +424,15 @@ const DESKTOP_SPLIT_OPTIONS = { allowDuplicateHeadings: true }
 // The class keeps the `_markdown` stem that the Bot views' styles give DSH's Markdown.
 export function MarkdownText({ text, labels, variant, streaming = false, onOpenFile, onRevealFolder, fileMentions }) {
   const linkFiles = typeof onOpenFile === 'function' || typeof onRevealFolder === 'function'
+  const workspaceImages = Boolean(useContext(MarkdownImageSession))
   const remarkPlugins = linkFiles ? LINKED_PLUGINS : BASE_PLUGINS
-  const urlTransform = linkFiles ? markdownUrlTransform : defaultSafeUrlTransform
+  const urlTransform = workspaceImages
+    ? (linkFiles ? linkedWorkspaceImageUrlTransform : workspaceImageUrlTransform)
+    : (linkFiles ? markdownUrlTransform : defaultSafeUrlTransform)
   // New element types on every render would remount each code block as a reply streams in.
   const components = useMemo(
-    () => elements({ labels, onOpenFile, onRevealFolder, fileMentions }),
-    [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions],
+    () => elements({ labels, onOpenFile, onRevealFolder, fileMentions, workspaceImages }),
+    [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions, workspaceImages],
   )
   const raw = text ?? ''
   // Incremental prefix cache: while a reply grows monotonically, closed blocks stay intact

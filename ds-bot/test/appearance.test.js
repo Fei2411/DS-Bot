@@ -331,6 +331,79 @@ test('a background is let through only once it is painted: a picture loading or 
   assert.equal(backgroundShown({ appearance: { background: { kind: 'color', color: '#112233' } } }), true)
 })
 
+test('pictureUrl decodes data URLs into blob URLs without calling fetch and notifies all waiters', async (t) => {
+  const { pictureUrl } = await import('../src/client/appearance.js')
+  const origFetch = globalThis.fetch
+  const origCreate = URL.createObjectURL
+  let fetchCalls = 0
+  let createdBlob = null
+  globalThis.fetch = async () => {
+    fetchCalls += 1
+    throw new TypeError('Failed to fetch')
+  }
+  URL.createObjectURL = (blob) => {
+    createdBlob = blob
+    return 'blob:decoded-png'
+  }
+  t.after(() => {
+    globalThis.fetch = origFetch
+    URL.createObjectURL = origCreate
+  })
+
+  let resolveCall
+  let apiCalls = 0
+  const call = (endpoint, payload) => {
+    assert.equal(endpoint, 'background-picture')
+    assert.equal(payload.id, '1'.repeat(64))
+    apiCalls += 1
+    return new Promise((resolve) => { resolveCall = resolve })
+  }
+
+  let firstLoaded = 0
+  let secondLoaded = 0
+  assert.equal(pictureUrl('1'.repeat(64), call, () => { firstLoaded += 1 }), undefined)
+  assert.equal(pictureUrl('1'.repeat(64), call, () => { secondLoaded += 1 }), undefined)
+  assert.equal(apiCalls, 1)
+
+  resolveCall({ id: '1'.repeat(64), mime: 'image/png', image: PNG })
+  await new Promise(resolve => setImmediate(resolve))
+
+  assert.equal(fetchCalls, 0)
+  assert.equal(firstLoaded, 1)
+  assert.equal(secondLoaded, 1)
+  assert.equal(pictureUrl('1'.repeat(64), call, () => {}), 'blob:decoded-png')
+  assert.ok(createdBlob instanceof Blob)
+  assert.equal(createdBlob.type, 'image/png')
+  const expected = Buffer.from(PNG.slice(PNG.indexOf(',') + 1), 'base64')
+  assert.deepEqual(Buffer.from(await createdBlob.arrayBuffer()), expected)
+
+  // A throwing waiter does not cancel other waiters, clear the cached URL, or cause an unhandled rejection.
+  let resolveThrow
+  const throwCall = () => new Promise((resolve) => { resolveThrow = resolve })
+  let survivorLoaded = 0
+  let unhandled = 0
+  const onUnhandled = () => { unhandled += 1 }
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  assert.equal(pictureUrl('3'.repeat(64), throwCall, () => { throw new Error('repaint failed') }), undefined)
+  assert.equal(pictureUrl('3'.repeat(64), throwCall, () => { survivorLoaded += 1 }), undefined)
+  resolveThrow({ id: '3'.repeat(64), mime: 'image/png', image: PNG })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(survivorLoaded, 1)
+  assert.equal(pictureUrl('3'.repeat(64), throwCall, () => {}), 'blob:decoded-png')
+  assert.equal(unhandled, 0)
+
+  // Missing or invalid data URLs mark failure and do not re-fetch within the retry window.
+  let badCalls = 0
+  let badLoaded = 0
+  const badCall = async () => { badCalls += 1; return { id: '2'.repeat(64), image: 'https://example.invalid/bg.png' } }
+  assert.equal(pictureUrl('2'.repeat(64), badCall, () => { badLoaded += 1 }), undefined)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(badLoaded, 0)
+  assert.equal(pictureUrl('2'.repeat(64), badCall, () => { badLoaded += 1 }), undefined)
+  assert.equal(badCalls, 1)
+})
+
 test('font names are written quoted, one by one, and a comment opener is refused', async () => {
   const { fontStack } = await import('../src/shared/appearance.js')
   assert.equal(fontStack('"LXGW WenKai", Inter , sans-serif'), '"LXGW WenKai","Inter",sans-serif')

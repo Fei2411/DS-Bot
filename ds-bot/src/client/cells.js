@@ -755,7 +755,7 @@ export function earlierItems(pages, { cursor, loading } = {}) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-export function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
+export function EarlierParts({ sessionId, roster, actions, openFile, renderUserText, wrapBotReply }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)
@@ -823,7 +823,7 @@ export function EarlierParts({ sessionId, roster, actions, openFile, renderUserT
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))
         : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Couldn’t load earlier messages · Retry'))
           : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Load earlier')) : null),
-    h(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
+    h(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText, wrapBotReply }),
     hasContent ? h(PartLine, { time: view.startedAt }) : null)
 }
 
@@ -922,7 +922,7 @@ const stableEventOpen = (row, selfId, otherId, actions) => {
 // `useUi` gives a block its reactions and its Reply tool.
 // Each row component is individually memoized with stable keys and stable props so
 // appending a new group message (or prepending an earlier page) skips unchanged rows.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply, locale }) {
   switch (row.kind) {
     case 'divider': return h(MemoPartLine, { key, time: row.time, locale })
     case 'user': return h(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText, locale })
@@ -936,7 +936,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     case 'bot': {
       const bubbles = h(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale })
       const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[selfId] : undefined
-      return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
+      const reply = speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
+      return wrapBotReply ? wrapBotReply(reply, row.sessionId, key) : reply
     }
     case 'btw': return h(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete })
     case 'post': {
@@ -972,7 +973,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
   }
 }
 
-export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply }) {
   const selfId = roster.byId[sessionId]?.id
   const visit = useUi(state => state?.visits?.[sessionId])
   const locale = localeKey()
@@ -1026,7 +1027,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, c
     const count = seenKeys.get(baseKey) ?? 0
     seenKeys.set(baseKey, count + 1)
     const key = count === 0 ? baseKey : `${baseKey}#${count}`
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply, locale })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
