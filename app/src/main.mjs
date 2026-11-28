@@ -224,6 +224,7 @@ if (canonical !== undefined) {
   app.once('will-quit', () => { logs.flush() })
   console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   const bannerAt = Date.now()
+  let stopReloadWatch
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
@@ -235,13 +236,34 @@ if (canonical !== undefined) {
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
     onRetry: () => { retry().catch(fail) },
     onReload: () => {
+      stopReloadWatch?.()
+      stopReloadWatch = undefined
       const win = mainWindow
       if (win === undefined || win.isDestroyed()) return
       const mine = attempt
-      const reload = win.webContents.getURL().startsWith(`${origin}/`)
-        ? Promise.resolve(win.webContents.reload())
-        : connectHost(win)
-      void reload.catch((error) => {
+      if (win.webContents.getURL().startsWith(`${origin}/`)) {
+        const wc = win.webContents
+        const done = () => {
+          if (stopReloadWatch === done) stopReloadWatch = undefined
+          wc.removeListener?.('did-fail-load', onFail)
+          wc.removeListener?.('did-finish-load', done)
+          wc.removeListener?.('did-stop-loading', done)
+        }
+        const onFail = (_event, errorCode, errorDescription, _url, isMainFrame) => {
+          if (isMainFrame === false || errorCode === -3) return
+          done()
+          if (mine === attempt && !stopping) {
+            startWindow.teamViewFailed(new Error(`ERR_LOAD_${String(errorCode)}: ${errorDescription || 'reload failed'}`))
+          }
+        }
+        stopReloadWatch = done
+        wc.on?.('did-fail-load', onFail)
+        wc.once?.('did-finish-load', done)
+        wc.once?.('did-stop-loading', done)
+        wc.reload()
+        return
+      }
+      void connectHost(win).catch((error) => {
         if (mine === attempt && !stopping && !isAbortedLoad(error)) startWindow.teamViewFailed(error)
       })
     },

@@ -1005,3 +1005,22 @@ test('the 20 s check\'s verdict waits for a card\'s answer instead of being lost
   v.start.card(undefined)
   assert.equal(v.state().view, 'viewFailed')
 })
+
+test('teamViewFailed redacts launch tokens from console output', (t) => {
+  const s = startWindow(t)
+  const logged = []
+  const origLog = console.log
+  console.log = (...args) => { logged.push(args.join(' ')) }
+  try {
+    s.start.open('first')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.teamLoading()
+    s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED (-102) loading http://127.0.0.1:4123/?token=secret-launch-token'))
+  } finally {
+    console.log = origLog
+  }
+  assert.equal(s.state().view, 'viewFailed')
+  assert.ok(logged.some(line => line.includes('token=<hidden>')), 'redacted token should appear in log line')
+  assert.equal(logged.some(line => line.includes('secret-launch-token')), false, 'raw launch token must never print to console')
+})

@@ -6,7 +6,10 @@
 import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
 import { within } from './copy-tree.mjs'
+import { redactor } from './logs.mjs'
 import { frameOptions, framelessOn, keepVibrancy } from './window-frame.mjs'
+
+const redactDetail = redactor()
 
 export const START_STATE = 'ds-bot:start-state'
 export const START_ACT = 'ds-bot:start-act'
@@ -591,7 +594,8 @@ export class StartWindow {
   teamViewFailed(error) {
     if (!this.#open() || !['boot', 'card'].includes(this.#state.view)) return
     this.#clear('teamView')
-    const detail = error instanceof Error ? error.message : String(error ?? '')
+    const rawDetail = error instanceof Error ? error.message : String(error ?? '')
+    const detail = rawDetail ? redactDetail(rawDetail) : ''
     note(detail ? `the team view failed to load: ${detail}` : 'the team view failed to load')
     if (this.#asks > 0 || this.#state.view === 'card') { this.#viewLate = true; return }
     this.#update({ view: 'viewFailed', failure: { reason: 'other', log: this.#o.log.tail(FAILURE_LINES) } })
@@ -815,8 +819,8 @@ export class StartWindow {
   #reload() {
     note('reloading the team view')
     this.#update({ view: 'boot', failure: undefined })
-    this.#o.onReload()
     this.teamLoading()
+    this.#o.onReload()
   }
 
   #copyDetails() {

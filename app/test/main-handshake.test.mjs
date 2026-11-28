@@ -35,6 +35,24 @@ test('a first load that never came through does not carry the token again', asyn
   assert.equal(hostState.starts, 1, 'no second Host was started')
 })
 
+test('failed reload on an already-connected team window enters viewFailed via did-fail-load without waiting 20 s', async () => {
+  const { startAct, startWindows } = await import('./helpers/app-harness.mjs')
+  const start = startWindows().at(-1)
+  if (!start.webContents.mainFrame.url && start.loaded[0]) start.webContents.mainFrame.url = start.loaded[0]
+  const win = window()
+  // Simulate a loaded Host page whose reload later fails with a main-frame connection error.
+  win.webContents.url = `${win.loaded[0].split('?')[0]}`
+  await startAct('reloadView')
+  assert.equal(startState()?.view, 'boot')
+  // Subframe failures and ERR_ABORTED (-3) are ignored; main-frame connection errors fail immediately.
+  win.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', win.webContents.url, false)
+  assert.equal(startState()?.view, 'boot')
+  win.webContents.emit('did-fail-load', {}, -3, 'ERR_ABORTED', win.webContents.url, true)
+  assert.equal(startState()?.view, 'boot')
+  win.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', win.webContents.url, true)
+  await waitFor(() => startState()?.view === 'viewFailed', 'enter viewFailed immediately on reload did-fail-load')
+})
+
 test('the app ends', async () => {
   trayMenu().at(-1).click()
   await waitFor(() => state.quits > 0, 'end the app')
