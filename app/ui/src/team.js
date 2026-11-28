@@ -25,7 +25,9 @@ import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
-import { createDesktopAccountBridge } from './deepseek-account.js'
+import { createDesktopAccountBridge, publishDesktopAccountState } from './deepseek-account.js'
+
+export { publishDesktopAccountState }
 import { pruneFailedSends } from './failed-send-bar.js'
 import { slots } from './slots.js'
 
@@ -481,29 +483,69 @@ export function createTeam() {
       changes: null,
     }
   }
-  const appendTurnOutline = (row, { kind, text, turn }) => {
+  const openTurnOf = (sessionId) => {
+    const facts = turnFactsBySession.get(sessionId)
+    if (!facts?.turns || facts.turns.size === 0) return undefined
+    let active
+    for (const entry of facts.turns.values()) {
+      if (Number.isInteger(entry?.turn) && entry.turn >= 0 && entry.status !== 'closed') {
+        if (active === undefined || entry.turn > active) active = entry.turn
+      }
+    }
+    return active
+  }
+
+  const appendTurnOutline = (row, { kind, text, turn, seq = null }) => {
     const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
     const outline = prev.map(entry => ({ ...entry }))
     const field = kind === 'bot' ? 'response' : 'prompt'
+    const joinText = (existing, nextText, sameSeq) => (
+      kind === 'bot' && sameSeq && typeof existing === 'string' && existing !== ''
+        ? `${existing}\n\n${nextText}`
+        : nextText
+    )
     let effectiveTurn
     if (Number.isInteger(turn) && turn >= 0) {
       effectiveTurn = turn
       const idx = outline.findIndex(entry => entry.turn === turn)
       if (idx >= 0) {
-        outline[idx] = { ...outline[idx], [field]: text }
+        const current = outline[idx]
+        const sameSeq = Number.isInteger(seq) && current.seq === seq
+        outline[idx] = {
+          ...current,
+          [field]: joinText(current[field], text, sameSeq),
+          ...(Number.isInteger(seq) ? { seq } : {}),
+          _synthetic: false,
+        }
       } else {
-        outline.push({ turn, [field]: text })
+        outline.push({ turn, [field]: text, ...(Number.isInteger(seq) ? { seq } : {}) })
         outline.sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0))
       }
     } else {
       const last = outline.at(-1)
-      if (kind === 'bot' && last && Number.isInteger(last.turn) && last.turn >= 0 && !last.response) {
+      const sameSeqBot = kind === 'bot' && last && Number.isInteger(seq) && last.seq === seq
+      if (sameSeqBot) {
         effectiveTurn = last.turn
-        outline[outline.length - 1] = { ...last, response: text }
+        outline[outline.length - 1] = {
+          ...last,
+          response: joinText(last.response, text, true),
+        }
+      } else if (kind === 'bot' && last && Number.isInteger(last.turn) && last.turn >= 0 && !last.response) {
+        effectiveTurn = last.turn
+        outline[outline.length - 1] = {
+          ...last,
+          response: text,
+          ...(Number.isInteger(seq) ? { seq } : {}),
+        }
       } else {
         const maxTurn = outline.reduce((max, entry) => (Number.isInteger(entry.turn) && entry.turn > max ? entry.turn : max), -1)
         effectiveTurn = maxTurn + 1
-        outline.push({ turn: effectiveTurn, [field]: text })
+        outline.push({
+          turn: effectiveTurn,
+          [field]: text,
+          ...(Number.isInteger(seq) ? { seq } : {}),
+          _synthetic: true,
+        })
       }
     }
     return { outline, turn: effectiveTurn }
@@ -532,20 +574,41 @@ export function createTeam() {
     sessions.set((list) => {
       const row = list.byId[sessionId] ?? { id: sessionId }
       const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
+      const canonicalTurns = new Set(ordered.map(entry => entry.turn))
       const byTurn = new Map()
+      let droppedSynthetic = false
       for (const item of prev) {
-        if (Number.isInteger(item?.turn) && item.turn >= 0) byTurn.set(item.turn, { ...item })
+        if (!Number.isInteger(item?.turn) || item.turn < 0) continue
+        if (item._synthetic && !canonicalTurns.has(item.turn)) {
+          droppedSynthetic = true
+          continue
+        }
+        byTurn.set(item.turn, { ...item })
       }
-      let changed = false
+      let changed = droppedSynthetic
       for (const entry of ordered) {
-        const reply = closedReplies?.get(entry.turn)
+        const hasReply = Boolean(closedReplies?.has(entry.turn))
+        const reply = hasReply ? closedReplies.get(entry.turn) : undefined
         const existing = byTurn.get(entry.turn)
         if (!existing) {
           byTurn.set(entry.turn, reply ? { turn: entry.turn, response: reply } : { turn: entry.turn })
           changed = true
-        } else if (reply && existing.response !== reply) {
-          byTurn.set(entry.turn, { ...existing, response: reply })
-          changed = true
+        } else {
+          const nextEntry = { ...existing }
+          let updated = false
+          if (nextEntry._synthetic) {
+            delete nextEntry._synthetic
+            updated = true
+          }
+          if (hasReply && nextEntry.response !== reply) {
+            if (reply) nextEntry.response = reply
+            else delete nextEntry.response
+            updated = true
+          }
+          if (updated) {
+            byTurn.set(entry.turn, nextEntry)
+            changed = true
+          }
         }
       }
       if (!changed) return list
@@ -1174,8 +1237,10 @@ export function createTeam() {
     closingReply: (sessionId, turn) => {
       if (!sessionId || !Number.isInteger(turn) || turn < 0) return null
       const facts = turnFactsBySession.get(sessionId)
+      const turnFact = facts?.turns?.get(turn)
       const fromFacts = facts?.closingReplies?.get(turn)
       if (typeof fromFacts === 'string' && fromFacts !== '') return fromFacts
+      if (turnFact?.status === 'closed') return ''
       const fromFeed = closingRepliesBySession.get(sessionId)?.get(turn)?.text
       if (typeof fromFeed === 'string' && fromFeed !== '') return fromFeed
       const row = sessions.getSnapshot().byId?.[sessionId]
@@ -1184,7 +1249,6 @@ export function createTeam() {
         const entry = outline.find(item => item?.turn === turn)
         if (typeof entry?.response === 'string' && entry.response !== '') return entry.response
       }
-      if (facts?.turns?.get(turn)?.status === 'ended') return ''
       const snap = roster.getSnapshot()
       const known = row !== undefined || snap.byId?.[sessionId] !== undefined || snap.roomsById?.[sessionId] !== undefined
       return known ? undefined : null
@@ -1407,7 +1471,13 @@ export function createTeam() {
       editRow(sessionId, (row) => {
         const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
         if (!text) return { ...row, updatedAt }
-        const next = appendTurnOutline(row, { kind: item.kind, text, turn: item.turn })
+        const resolvedTurn = Number.isInteger(item.turn) && item.turn >= 0 ? item.turn : openTurnOf(sessionId)
+        const next = appendTurnOutline(row, {
+          kind: item.kind,
+          text,
+          turn: resolvedTurn,
+          seq: Number.isInteger(item.seq) ? item.seq : null,
+        })
         effectiveTurn = next.turn
         return {
           ...row,
@@ -1509,6 +1579,7 @@ export function createTeam() {
       void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
       unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
     }
+    const stopAccountExternal = accountBridge.subscribeExternal()
     void accountBridge.refresh()
     const stopBotCompletions = watchBotCompletions({
       roster,
@@ -1707,6 +1778,7 @@ export function createTeam() {
       scheduleUpdate = () => {}
       unsubscribeAppUpdates?.()
       unsubscribeOwnApp?.()
+      stopAccountExternal()
       stopBotCompletions()
       avatarRefs.clear()
       avatarIncomplete = false

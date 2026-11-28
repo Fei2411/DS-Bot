@@ -292,7 +292,13 @@ async function createDesktopHarness({ callHandler, storageData = {}, dshUpdates 
   sandbox.globalThis = sandbox
   runInNewContext(code, sandbox)
   const team = mod.exports.createTeam()
-  return { team, calls, kv, emitFeed: (event, data) => emitFeed(event, data) }
+  return {
+    team,
+    calls,
+    kv,
+    emitFeed: (event, data) => emitFeed(event, data),
+    publishDesktopAccountState: mod.exports.publishDesktopAccountState,
+  }
 }
 
 async function instantiateDesktopFace() {
@@ -559,6 +565,64 @@ test('desktop team keeps monotonic turnOutline across two voice rounds and serve
     assert.equal(outline2.length, 2)
     assert.equal(outline2[1].turn, 1)
     assert.equal(team.actions.closingReply('sess-a', 1), 'reply round 2')
+
+    // Multi-block unnumbered feed reply (same seq, no item.turn) aggregates on one turn without spawning a phantom turn.
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'user', text: 'build status?', time: 3000 } })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'The build passed.', seq: 42, time: 3100 } })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'All 12 checks passed.', seq: 42, time: 3101 } })
+    const outline3 = team.snapshots.sessions().byId['sess-a']?.projectionValues?.turnOutline
+    assert.equal(outline3.length, 3)
+    assert.equal(outline3[2].turn, 2)
+    assert.equal(outline3[2].response, 'The build passed.\n\nAll 12 checks passed.')
+    assert.equal(team.actions.closingReply('sess-a', 2), 'The build passed.\n\nAll 12 checks passed.')
+
+    // Canonical transcript facts discard synthetic phantom turns and recognize `status: 'closed'` for textless turns.
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'phantom turn 3', seq: 98, time: 3200 } })
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'phantom turn 4', seq: 99, time: 3250 } })
+    assert.equal(team.snapshots.sessions().byId['sess-a']?.projectionValues?.turnOutline?.length, 5)
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed' }],
+        [1, { turn: 1, status: 'closed' }],
+        [2, { turn: 2, status: 'closed' }],
+        [3, { turn: 3, status: 'closed' }],
+      ]),
+      closingReplies: new Map([
+        [0, 'reply round 1'],
+        [1, 'reply round 2'],
+        [2, 'The build passed.\n\nAll 12 checks passed.'],
+        [3, ''],
+      ]),
+    })
+    assert.equal(team.actions.closingReply('sess-a', 3), '')
+    const syncedOutline = team.snapshots.sessions().byId['sess-a']?.projectionValues?.turnOutline
+    assert.deepEqual(Array.from(syncedOutline, entry => entry.turn), [0, 1, 2, 3])
+    assert.equal(syncedOutline[3].response, undefined)
+  } finally {
+    stop()
+  }
+})
+
+test('desktop account bridge stays in sync with Settings Account state updates', async () => {
+  const { team, publishDesktopAccountState } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') return { revision: 1, modelsKey: 'm1', bots: [], rooms: [] }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    const accountHook = team.actions.signInEntry().inject().hooks.account
+    assert.equal(accountHook.getSnapshot().view?.status, 'signed-out')
+
+    // Simulate Settings → Account finishing sign-in, then signing out.
+    publishDesktopAccountState({ available: true, view: { status: 'credential-stored', attempt: null } })
+    assert.equal(accountHook.getSnapshot().view?.status, 'credential-stored')
+
+    publishDesktopAccountState({ available: true, view: { status: 'signed-out', attempt: null } })
+    assert.equal(accountHook.getSnapshot().view?.status, 'signed-out')
   } finally {
     stop()
   }

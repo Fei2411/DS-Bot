@@ -28,6 +28,7 @@ import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
+import { publishDesktopAccountState } from './deepseek-account.js'
 import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { writeClipboard } from './primitives.js'
 
@@ -517,6 +518,7 @@ export function AccountSettingsPage({ readOnly = false }) {
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
       accountCache = next
+      publishDesktopAccountState(next)
       if (mounted.current) setData(next)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))

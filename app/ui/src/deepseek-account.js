@@ -151,6 +151,20 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   return target ? createPortal(body, target) : body
 }
 
+const ACCOUNT_LISTENERS_KEY = Symbol.for('ds-bot.desktopAccountListeners')
+const accountStateListeners = globalThis[ACCOUNT_LISTENERS_KEY] ?? (globalThis[ACCOUNT_LISTENERS_KEY] = new Set())
+
+/**
+ * Broadcasts a freshly fetched `engine-account-state` payload (e.g. from Settings → Account)
+ * to all active desktop account bridges so the sidebar Account menu stays in sync without reload.
+ */
+export function publishDesktopAccountState(reply) {
+  if (!reply || typeof reply !== 'object') return
+  for (const listener of accountStateListeners) {
+    try { listener(reply) } catch {}
+  }
+}
+
 export function createDesktopAccountBridge({ call, after, work, refreshModels }) {
   const account = createSource({ available: null, view: null })
   const theme = createSource({ dark: typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true })
@@ -169,6 +183,11 @@ export function createDesktopAccountBridge({ call, after, work, refreshModels })
       if (becameSignedIn) void Promise.resolve(refreshModels?.()).catch(() => {})
     }
     return next
+  }
+
+  const subscribeExternal = () => {
+    accountStateListeners.add(applyReply)
+    return () => { accountStateListeners.delete(applyReply) }
   }
 
   const refresh = () => {
@@ -236,5 +255,6 @@ export function createDesktopAccountBridge({ call, after, work, refreshModels })
     signInEntry: () => (account.getSnapshot().available === false ? null : entry),
     canSignIn: () => account.getSnapshot().available !== false,
     accountT,
+    subscribeExternal,
   }
 }
