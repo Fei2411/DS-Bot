@@ -175,6 +175,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on tools/pre-execute',
     'on tools/execute',
     'on session/event',
+    'on llm/stream',
     'effect ds-bot: computer use section',
     'prompt computer-use:ds-bot 0',
     'effect ds-bot: computer use',
