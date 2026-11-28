@@ -1650,8 +1650,9 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-typing-task{height:28px;margin-left:-8px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, 'scale')}}
-.bt-typing-task:hover{background:var(--bt-hover)}
-.bt-typing-task:active{background:var(--bt-active);scale:.98}
+.bt-typing-task:hover:not(:disabled){background:var(--bt-hover)}
+.bt-typing-task:active:not(:disabled){background:var(--bt-active);scale:.98}
+.bt-typing-task:disabled{cursor:default}
 .bt-typing-task:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-typing-dot{flex:none;width:6px;height:6px;margin-right:8px;border-radius:50%;background:var(--bt-star)}
 .bt-typing-bg-wrap{flex:none;display:inline-grid;grid-template-columns:0fr;margin-left:-12px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s,margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s}
@@ -1689,10 +1690,10 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-typing,.bt-typing[data-exiting]{animation-name:bt-fade-in;animation-duration:.12s;transform:none}
 .bt-typing[data-exiting]{animation-name:bt-fade-out}
 .bt-typing-text,.bt-typing-label{animation-name:bt-fade-in;animation-delay:0s}
-.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico{transition:none!important}
+.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task{transition:none!important}
 .bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{filter:none;transform:none}
 .bt-typing-bg:active:not(:disabled){scale:none}
-.bt-typing-task:active{scale:none}
+.bt-typing-task:active:not(:disabled){scale:none}
 .bt-shimmer{animation:none;background:none;color:var(--bt-ink-2)}
 [data-bt-enter="new"]{animation:none}
 [data-bt-enter="after-collapse"]{animation:bt-fade-in .12s ease-out}
@@ -1853,9 +1854,10 @@ body[data-bt-room] .bt-voice{display:none!important}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-bt-composer],.bt-to-bottom){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico){transition:none!important}
+body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task){transition:none!important}
 body[data-bt-effects=off] :is(.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico){transform:none!important}
 body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled){scale:none!important}
+body[data-bt-effects=off] .bt-typing-task:active:not(:disabled){scale:none!important}
 body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],.bt-to-bottom,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `
 

@@ -28,15 +28,16 @@ export function backgroundActivity(bot, approvals = []) {
   if (!bot) return null
   const active = tasksForChat({ bot }).filter(isActiveTask)
   if (active.length === 0) return null
-  const taskApprovals = (approvals ?? []).filter(entry =>
-    entry.roomId === undefined && entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false)
-  const waitingCount = Math.max(
-    active.filter(item => item.status === 'waiting_approval').length,
-    taskApprovals.length,
+  const liveApprovalIds = new Set(
+    (approvals ?? [])
+      .filter(entry => entry.roomId === undefined && entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false)
+      .map(entry => entry.taskId),
   )
+  const waitingTasks = active.filter(item => item.status === 'waiting_approval' || liveApprovalIds.has(item.id))
+  const waitingCount = waitingTasks.length
   const needsApproval = waitingCount > 0
   const allWaitingWork = !needsApproval && active.every(item => item.status === 'waiting_work')
-  const primary = active[0]
+  const primary = waitingTasks[0] ?? active[0]
   const title = typeof primary?.title === 'string' ? primary.title.trim() : ''
   const state = needsApproval ? 'alert' : allWaitingWork ? 'waiting' : 'background'
   const label = active.length === 1
@@ -51,7 +52,7 @@ export function backgroundActivity(bot, approvals = []) {
   const starts = active.map(item => item.startedAt ?? item.updatedAt).filter(at => typeof at === 'number' && at > 0)
   const startedAt = starts.length > 0 ? Math.min(...starts) : 0
   return {
-    key: `bg:${state}:${label}`,
+    key: `bg:${state}:${primary?.id ?? ''}:${label}`,
     label,
     state,
     startedAt,
@@ -245,21 +246,24 @@ export function ActivityIndicator({ sessionId, away = false, useRoster, useSessi
   const inputAt = Math.max(inputRef.current, pendingInput)
   inputRef.current = inputAt
   const want = !visible ? null
-    : moveAt !== 0 ? { key: 'move', label: t('Switching working folder'), state: 'thinking' }
+    : moveAt !== 0 ? { mode: 'move', key: 'move', label: t('Switching working folder'), state: 'thinking', bg: null }
       : fgVisible
         ? inputAt > (tool?.at ?? 0)
-          ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
-          : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
-            : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
-        : { key: bgTask.key, label: bgTask.label, state: bgTask.state }
+          ? { mode: 'fg', key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking', bg: null }
+          : tool ? { mode: 'fg', key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working', bg: null }
+            : { mode: 'fg', key: 'thinking', pool: PHRASES.thinking, state: 'thinking', bg: null }
+        : { mode: 'bg', key: bgTask.key, label: bgTask.label, state: bgTask.state, bg: bgTask }
   const [shown, setShown] = useState(null)
   const wantKey = want?.key ?? null
   const markState = useRef('thinking')
   if (want) markState.current = want.state
   useEffect(() => {
     if (wantKey === null || shown?.key === wantKey) return undefined
-    const make = () => setShown({ key: wantKey, text: want.label ?? drawPhrase(want.pool), at: Date.now() })
-    const wait = shown ? shown.at + PHRASE_HOLD_MS - Date.now() : 0
+    const make = () => setShown({ key: wantKey, mode: want.mode, text: want.label ?? drawPhrase(want.pool), bg: want.bg ?? null, at: Date.now() })
+    // Mode switches (FG <-> BG / folder move) and live background status changes
+    // update immediately so the text stays in sync with the avatar, button and clock.
+    const immediate = !shown || shown.mode !== want.mode || want.mode === 'bg'
+    const wait = immediate ? 0 : shown.at + PHRASE_HOLD_MS - Date.now()
     if (wait <= 0) { make(); return undefined }
     const timer = setTimeout(make, wait)
     return () => clearTimeout(timer)
@@ -270,6 +274,7 @@ export function ActivityIndicator({ sessionId, away = false, useRoster, useSessi
   const leaving = useRef(false)
   leaving.current = phase !== null && !visible
   useEffect(() => {
+    if (away) { setPhase(null); return undefined }
     if (visible) { setPhase('in'); return undefined }
     setPhase(current => (current === 'in' ? 'out' : current))
     const timer = setTimeout(() => {
@@ -277,7 +282,7 @@ export function ActivityIndicator({ sessionId, away = false, useRoster, useSessi
       setPhase(current => (current === 'out' ? null : current))
     }, reducedMotion() ? 0 : 140)
     return () => clearTimeout(timer)
-  }, [visible])
+  }, [away, visible])
   // Removing the row at a pinned tail moves the transcript down; a tail
   // shift eases that collapse instead of jumping.
   useLayoutEffect(() => {
@@ -295,8 +300,10 @@ export function ActivityIndicator({ sessionId, away = false, useRoster, useSessi
   useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])
   // Only rows that take the activity row's place grow out of it.
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
-  const host = useRunningHost(running || moveAt !== 0 || bgTask !== null)
+  const host = useRunningHost(!away && (running || moveAt !== 0 || bgTask !== null || phase !== null))
   if (!host || phase === null || !shown) return null
+  const exiting = phase === 'out'
+  const activeBg = bgTask ?? (exiting ? shown.bg : null)
   const showBgAction = bot !== undefined && running && moveAt === 0 && bgInfo !== undefined && typeof actions?.moveToBackground === 'function'
   const moveToBg = () => {
     if (movingBg || !bgInfo) return
@@ -314,25 +321,25 @@ export function ActivityIndicator({ sessionId, away = false, useRoster, useSessi
     if (typeof target?.closest === 'function' && target.closest('button,.bt-typing-mark')) return
     setBgOpen(open => !open)
   }
-  const canOpenTasks = bgTask !== null && (typeof actions?.toggleTaskDeck === 'function' || typeof actions?.openTaskDeck === 'function')
+  const canOpenTasks = activeBg !== null && (typeof actions?.toggleTaskDeck === 'function' || typeof actions?.openTaskDeck === 'function')
   const openTasks = () => {
-    if (!bot) return
+    if (exiting || !bot) return
     if (typeof actions?.toggleTaskDeck === 'function') actions.toggleTaskDeck(bot.id)
-    else actions?.openTaskDeck?.(bot.id, bgTask?.primaryId ?? null)
+    else actions?.openTaskDeck?.(bot.id, activeBg?.primaryId ?? null)
   }
   const elapsedAt = moveAt !== 0 ? moveAt
-    : bgTask !== null ? bgTask.startedAt
+    : activeBg !== null ? activeBg.startedAt
       : Math.max(turnAt ?? runAt.current, inputAt)
   const textContent = [
-    bgTask?.needsApproval ? h('span', { key: 'dot', className: 'bt-typing-dot', 'aria-hidden': true }) : null,
+    activeBg?.needsApproval ? h('span', { key: 'dot', className: 'bt-typing-dot', 'aria-hidden': true }) : null,
     h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
     elapsedAt > 0 ? h(Elapsed, { key: 'time', at: elapsedAt, className: 'bt-typing-time' }) : null,
   ]
   return createPortal(h('div', {
     ref: rowRef,
     className: 'bt-typing',
-    'data-exiting': phase === 'out' ? '' : undefined,
-    'data-bg-task': bgTask !== null ? '' : undefined,
+    'data-exiting': exiting ? '' : undefined,
+    'data-bg-task': activeBg !== null ? '' : undefined,
     'data-bg-open': showBgAction && bgOpen ? '' : undefined,
     'data-bg-busy': showBgAction && movingBg ? '' : undefined,
     onClick: tapRow,
@@ -343,7 +350,8 @@ export function ActivityIndicator({ sessionId, away = false, useRoster, useSessi
       ? h('button', {
           type: 'button',
           className: 'bt-typing-text bt-typing-task',
-          'data-approval': bgTask.needsApproval || undefined,
+          disabled: exiting,
+          'data-approval': activeBg.needsApproval || undefined,
           'aria-label': `${shown.text} · ${t('View background tasks')}`,
           title: t('View background tasks'),
           onClick: openTasks,

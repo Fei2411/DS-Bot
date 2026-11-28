@@ -231,8 +231,14 @@ test('activity-row background action stays hidden and borderless at rest, with v
   const reducedInner = [...reducedBlock.cssRules]
   assert.ok(reducedInner.some(r => r.selectorText?.includes('.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico') && r.style.getPropertyValue('transform') === 'none'))
   assert.ok(reducedInner.some(r => r.selectorText === '.bt-typing-bg:active:not(:disabled)' && r.style.getPropertyValue('scale') === 'none'))
+  assert.ok(reducedInner.some(r => r.selectorText?.includes('.bt-typing-task') && r.style.getPropertyValue('transition') === 'none'))
+  assert.ok(reducedInner.some(r => r.selectorText === '.bt-typing-task:active:not(:disabled)' && r.style.getPropertyValue('scale') === 'none'))
+  const offTaskTransitionRule = rules.find(rule => rule.selectorText?.includes('body[data-bt-effects=off]') && rule.selectorText.includes('.bt-typing-task') && rule.style.getPropertyValue('transition') === 'none')
+  const offTaskScaleRule = rules.find(rule => rule.selectorText === 'body[data-bt-effects=off] .bt-typing-task:active:not(:disabled)')
+  assert.ok(offTaskTransitionRule && offTaskScaleRule)
   assert.equal(offTransformRule.style.getPropertyValue('transform'), 'none')
   assert.equal(offScaleRule.style.getPropertyValue('scale'), 'none')
+  assert.equal(offTaskScaleRule.style.getPropertyValue('scale'), 'none')
 })
 
 test('ActivityIndicator renders wrapped background button, sets data-bg-busy on click, and supports touch tap-to-toggle', async () => {
@@ -433,7 +439,39 @@ test('backgroundActivity summarizes DM background tasks and ignores group or set
   assert.equal(multi.state, 'alert')
   assert.equal(multi.startedAt, 4000)
   assert.equal(multi.count, 2)
+  assert.equal(multi.primaryId, 't2')
   assert.equal(multi.label, '2 background tasks · 1 needs approval')
+
+  // Multiple live approvals on the same task and stale approvals for settled tasks
+  // never overcount, while distinct tasks across roster + live approvals union cleanly.
+  const unionApprovals = backgroundActivity(
+    {
+      id: 'b1',
+      tasks: [
+        { id: 't1', title: 'Task A', status: 'running', startedAt: 9000 },
+        { id: 't2', title: 'Task B', status: 'waiting_approval', startedAt: 4000 },
+      ],
+    },
+    [
+      { botId: 'b1', taskId: 't1', answerable: true },
+      { botId: 'b1', taskId: 't1', answerable: true },
+      { botId: 'b1', taskId: 't-stale', answerable: true },
+    ],
+  )
+  assert.equal(unionApprovals.label, '2 background tasks · 2 needs approval')
+
+  const livePrimary = backgroundActivity(
+    {
+      id: 'b1',
+      tasks: [
+        { id: 't1', title: 'Newer running', status: 'running', startedAt: 9000 },
+        { id: 't2', title: 'Older live approval', status: 'running', startedAt: 4000 },
+      ],
+    },
+    [{ botId: 'b1', taskId: 't2', answerable: true }],
+  )
+  assert.equal(livePrimary.primaryId, 't2')
+  assert.equal(livePrimary.label, '2 background tasks · 1 needs approval')
 })
 
 test('ActivityIndicator shows animated Bot row for idle DM with active background tasks and hands off cleanly', async () => {
@@ -459,15 +497,19 @@ test('ActivityIndicator shows animated Bot row for idle DM with active backgroun
   }
   const compDom = new JSDOM('<!doctype html><body><div data-bt-flow id="flow"></div></body>')
   const compMod = { exports: {} }
+  const timers = new Map()
+  let nextTimer = 1
+  const fakeSetTimeout = (fn, ms) => { const id = nextTimer++; timers.set(id, { fn, ms }); return id }
+  const fakeClearTimeout = (id) => { timers.delete(id) }
   runInNewContext(compFiles[0].text, {
     module: compMod, exports: compMod.exports,
     document: compDom.window.document,
     window: { matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {} },
     Element: compDom.window.Element,
     MutationObserver: compDom.window.MutationObserver,
-    requestAnimationFrame: fn => setTimeout(fn, 0),
-    cancelAnimationFrame: id => clearTimeout(id),
-    setTimeout, clearTimeout,
+    requestAnimationFrame: fn => fakeSetTimeout(fn, 0),
+    cancelAnimationFrame: id => fakeClearTimeout(id),
+    setTimeout: fakeSetTimeout, clearTimeout: fakeClearTimeout,
     require: name => (name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : {}),
   })
   const { ActivityIndicator } = compMod.exports
@@ -479,6 +521,12 @@ test('ActivityIndicator shows animated Bot row for idle DM with active backgroun
       if (hit) return hit
     }
     return null
+  }
+  const textOf = (node) => {
+    if (node == null || typeof node === 'boolean') return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(textOf).join('')
+    return (node.children ?? []).map(textOf).join('')
   }
   const toggled = []
   let fgRunning = false
@@ -492,7 +540,7 @@ test('ActivityIndicator shows animated Bot row for idle DM with active backgroun
     useSessionStatus: sel => sel(new Map([['s1', { running: fgRunning }]])),
     useSession: sel => sel({ pendingSubmissions: [] }),
     useLive: sel => sel({}),
-    useWork: sel => sel({ canBackground: { s1: { botId: 'b1', turn: 2 } }, turns: { s1: 2000 }, approvals }),
+    useWork: sel => sel({ canBackground: { s1: { botId: 'b1', turn: 2 } }, turns: { s1: 9999 }, approvals }),
     actions: {
       clearLive() {},
       reportError() {},
@@ -511,29 +559,68 @@ test('ActivityIndicator shows animated Bot row for idle DM with active backgroun
     assert.equal(mark?.props?.['data-state'], 'background')
     const btn = findNode(row, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
     assert.ok(btn, 'background status text is a clickable button to open the task deck')
+    assert.equal(btn.props.disabled, false)
+    assert.equal(btn.props['aria-label'], 'In background · Review open PRs · View background tasks')
+    assert.match(textOf(findNode(btn, n => n.props?.className === 'bt-typing-label')), /^In background · Review open PRs…$/)
     assert.equal(findNode(btn, n => n.props?.className === 'bt-typing-dot'), null)
     btn.props.onClick()
     assert.deepEqual(toggled, ['b1'])
 
-    // Switching to waiting_approval flips BotMark to alert and shows the approval dot.
+    // Immediate (<800ms) transition to waiting_approval updates text, aria-label, dot and avatar atomically.
     tasks = [{ id: 't1', title: 'Review open PRs', status: 'waiting_approval', startedAt: 1000 }]
     tree = render(React.createElement(ActivityIndicator, makeProps()))
     tree = render(React.createElement(ActivityIndicator, makeProps()))
     const apvRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    const apvBtn = findNode(apvRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
     assert.equal(findNode(apvRow, n => n.props?.className === 'bt-mark')?.props?.['data-state'], 'alert')
-    assert.ok(findNode(apvRow, n => n.props?.className === 'bt-typing-dot'))
+    assert.ok(findNode(apvBtn, n => n.props?.className === 'bt-typing-dot'))
+    assert.equal(apvBtn.props['aria-label'], 'Waiting for approval · Review open PRs · View background tasks')
+    assert.match(textOf(findNode(apvBtn, n => n.props?.className === 'bt-typing-label')), /^Waiting for approval · Review open PRs…$/)
 
-    // Foreground turn takes priority over background row while user asks a question.
+    // Immediate (<800ms) FG takeover replaces background label instead of holding stale BG text.
     fgRunning = true
     tree = render(React.createElement(ActivityIndicator, makeProps()))
     tree = render(React.createElement(ActivityIndicator, makeProps()))
     const fgRow = findNode(tree, n => n.props?.className === 'bt-typing')
     assert.equal(fgRow.props['data-bg-task'], undefined)
     assert.equal(findNode(fgRow, n => n.props?.className === 'bt-mark')?.props?.['data-state'], 'thinking')
+    assert.doesNotMatch(textOf(findNode(fgRow, n => n.props?.className === 'bt-typing-label')), /Waiting for approval/)
     assert.ok(findNode(fgRow, n => n.props?.className === 'bt-typing-bg'))
 
-    // Away from chat view hides the background row cleanly.
+    // Returning to idle with active background task immediately restores BG text.
     fgRunning = false
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const backRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.equal(backRow.props['data-bg-task'], '')
+    assert.match(textOf(findNode(backRow, n => n.props?.className === 'bt-typing-label')), /^Waiting for approval · Review open PRs…$/)
+
+    // Settling the last background task keeps the row mounted during the 140ms exit
+    // animation with its snapshot button disabled and approval dot intact, then unmounts.
+    tasks = []
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const exitingRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.ok(exitingRow, 'exiting background row stays mounted during 140ms fade-out')
+    assert.equal(exitingRow.props['data-exiting'], '')
+    assert.equal(exitingRow.props['data-bg-task'], '')
+    const exitingBtn = findNode(exitingRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
+    assert.ok(exitingBtn && exitingBtn.props.disabled === true)
+    assert.ok(findNode(exitingBtn, n => n.props?.className === 'bt-typing-dot'))
+    exitingBtn.props.onClick()
+    assert.deepEqual(toggled, ['b1'], 'clicking while exiting does not reopen task deck')
+    const exitEntry = [...timers.entries()].find(([, entry]) => entry.ms === 140)
+    assert.ok(exitEntry, 'schedules 140ms exit timer')
+    timers.delete(exitEntry[0])
+    exitEntry[1].fn()
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing'), null)
+
+    // Away from chat view clears the row immediately without waiting for exit.
+    tasks = [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 1000 }]
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    assert.ok(findNode(tree, n => n.props?.className === 'bt-typing'))
     away = true
     tree = render(React.createElement(ActivityIndicator, makeProps()))
     tree = render(React.createElement(ActivityIndicator, makeProps()))

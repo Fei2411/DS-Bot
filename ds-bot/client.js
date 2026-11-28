@@ -27019,8 +27019,9 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-typing-task{height:28px;margin-left:-8px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-typing-task:hover{background:var(--bt-hover)}
-.bt-typing-task:active{background:var(--bt-active);scale:.98}
+.bt-typing-task:hover:not(:disabled){background:var(--bt-hover)}
+.bt-typing-task:active:not(:disabled){background:var(--bt-active);scale:.98}
+.bt-typing-task:disabled{cursor:default}
 .bt-typing-task:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-typing-dot{flex:none;width:6px;height:6px;margin-right:8px;border-radius:50%;background:var(--bt-star)}
 .bt-typing-bg-wrap{flex:none;display:inline-grid;grid-template-columns:0fr;margin-left:-12px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s,margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s}
@@ -27058,10 +27059,10 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-typing,.bt-typing[data-exiting]{animation-name:bt-fade-in;animation-duration:.12s;transform:none}
 .bt-typing[data-exiting]{animation-name:bt-fade-out}
 .bt-typing-text,.bt-typing-label{animation-name:bt-fade-in;animation-delay:0s}
-.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico{transition:none!important}
+.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task{transition:none!important}
 .bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{filter:none;transform:none}
 .bt-typing-bg:active:not(:disabled){scale:none}
-.bt-typing-task:active{scale:none}
+.bt-typing-task:active:not(:disabled){scale:none}
 .bt-shimmer{animation:none;background:none;color:var(--bt-ink-2)}
 [data-bt-enter="new"]{animation:none}
 [data-bt-enter="after-collapse"]{animation:bt-fade-in .12s ease-out}
@@ -27222,9 +27223,10 @@ body[data-bt-room] .bt-voice{display:none!important}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-bt-composer],.bt-to-bottom){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico){transition:none!important}
+body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task){transition:none!important}
 body[data-bt-effects=off] :is(.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico){transform:none!important}
 body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled){scale:none!important}
+body[data-bt-effects=off] .bt-typing-task:active:not(:disabled){scale:none!important}
 body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],.bt-to-bottom,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `;
 var PLUGIN_ID = "ds-bot";
@@ -47963,21 +47965,21 @@ function backgroundActivity(bot, approvals = []) {
   if (!bot) return null;
   const active = tasksForChat({ bot }).filter(isActiveTask);
   if (active.length === 0) return null;
-  const taskApprovals = (approvals ?? []).filter((entry) => entry.roomId === void 0 && entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false);
-  const waitingCount = Math.max(
-    active.filter((item) => item.status === "waiting_approval").length,
-    taskApprovals.length
+  const liveApprovalIds = new Set(
+    (approvals ?? []).filter((entry) => entry.roomId === void 0 && entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false).map((entry) => entry.taskId)
   );
+  const waitingTasks = active.filter((item) => item.status === "waiting_approval" || liveApprovalIds.has(item.id));
+  const waitingCount = waitingTasks.length;
   const needsApproval = waitingCount > 0;
   const allWaitingWork = !needsApproval && active.every((item) => item.status === "waiting_work");
-  const primary = active[0];
+  const primary = waitingTasks[0] ?? active[0];
   const title = typeof primary?.title === "string" ? primary.title.trim() : "";
   const state = needsApproval ? "alert" : allWaitingWork ? "waiting" : "background";
   const label = active.length === 1 ? needsApproval ? title ? t("Waiting for approval · {title}", { title }) : t("Waiting for approval") : allWaitingWork ? title ? t("Waiting for teammate · {title}", { title }) : t("Waiting for teammate") : title ? t("In background · {title}", { title }) : t("Working in background") : needsApproval ? t("{count} background tasks · {waiting} needs approval", { count: active.length, waiting: waitingCount }) : t("{count} background tasks running", { count: active.length });
   const starts = active.map((item) => item.startedAt ?? item.updatedAt).filter((at2) => typeof at2 === "number" && at2 > 0);
   const startedAt = starts.length > 0 ? Math.min(...starts) : 0;
   return {
-    key: `bg:${state}:${label}`,
+    key: `bg:${state}:${primary?.id ?? ""}:${label}`,
     label,
     state,
     startedAt,
@@ -48157,15 +48159,16 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
   const inputRef = (0, import_react41.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : fgVisible ? inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES2.thinking, state: "thinking" } : { key: bgTask.key, label: bgTask.label, state: bgTask.state };
+  const want = !visible ? null : moveAt !== 0 ? { mode: "move", key: "move", label: t("Switching working folder"), state: "thinking", bg: null } : fgVisible ? inputAt > (tool?.at ?? 0) ? { mode: "fg", key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking", bg: null } : tool ? { mode: "fg", key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working", bg: null } : { mode: "fg", key: "thinking", pool: PHRASES2.thinking, state: "thinking", bg: null } : { mode: "bg", key: bgTask.key, label: bgTask.label, state: bgTask.state, bg: bgTask };
   const [shown, setShown] = (0, import_react41.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react41.useRef)("thinking");
   if (want) markState.current = want.state;
   (0, import_react41.useEffect)(() => {
     if (wantKey === null || shown?.key === wantKey) return void 0;
-    const make = () => setShown({ key: wantKey, text: want.label ?? drawPhrase(want.pool), at: Date.now() });
-    const wait = shown ? shown.at + PHRASE_HOLD_MS - Date.now() : 0;
+    const make = () => setShown({ key: wantKey, mode: want.mode, text: want.label ?? drawPhrase(want.pool), bg: want.bg ?? null, at: Date.now() });
+    const immediate = !shown || shown.mode !== want.mode || want.mode === "bg";
+    const wait = immediate ? 0 : shown.at + PHRASE_HOLD_MS - Date.now();
     if (wait <= 0) {
       make();
       return void 0;
@@ -48179,6 +48182,10 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
   const leaving = (0, import_react41.useRef)(false);
   leaving.current = phase !== null && !visible;
   (0, import_react41.useEffect)(() => {
+    if (away) {
+      setPhase(null);
+      return void 0;
+    }
     if (visible) {
       setPhase("in");
       return void 0;
@@ -48189,7 +48196,7 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
       setPhase((current2) => current2 === "out" ? null : current2);
     }, reducedMotion() ? 0 : 140);
     return () => clearTimeout(timer2);
-  }, [visible]);
+  }, [away, visible]);
   (0, import_react41.useLayoutEffect)(() => {
     if (phase !== null) return;
     endedAt.current = Date.now();
@@ -48205,8 +48212,10 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
     if (!running) actions.clearLive(sessionId);
   }, [running, sessionId]);
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300);
-  const host = useRunningHost(running || moveAt !== 0 || bgTask !== null);
+  const host = useRunningHost(!away && (running || moveAt !== 0 || bgTask !== null || phase !== null));
   if (!host || phase === null || !shown) return null;
+  const exiting = phase === "out";
+  const activeBg = bgTask ?? (exiting ? shown.bg : null);
   const showBgAction = bot !== void 0 && running && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
   const moveToBg = () => {
     if (movingBg || !bgInfo) return;
@@ -48223,15 +48232,15 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
     if (typeof target?.closest === "function" && target.closest("button,.bt-typing-mark")) return;
     setBgOpen((open) => !open);
   };
-  const canOpenTasks = bgTask !== null && (typeof actions?.toggleTaskDeck === "function" || typeof actions?.openTaskDeck === "function");
+  const canOpenTasks = activeBg !== null && (typeof actions?.toggleTaskDeck === "function" || typeof actions?.openTaskDeck === "function");
   const openTasks = () => {
-    if (!bot) return;
+    if (exiting || !bot) return;
     if (typeof actions?.toggleTaskDeck === "function") actions.toggleTaskDeck(bot.id);
-    else actions?.openTaskDeck?.(bot.id, bgTask?.primaryId ?? null);
+    else actions?.openTaskDeck?.(bot.id, activeBg?.primaryId ?? null);
   };
-  const elapsedAt = moveAt !== 0 ? moveAt : bgTask !== null ? bgTask.startedAt : Math.max(turnAt ?? runAt.current, inputAt);
+  const elapsedAt = moveAt !== 0 ? moveAt : activeBg !== null ? activeBg.startedAt : Math.max(turnAt ?? runAt.current, inputAt);
   const textContent = [
-    bgTask?.needsApproval ? (0, import_react41.createElement)("span", { key: "dot", className: "bt-typing-dot", "aria-hidden": true }) : null,
+    activeBg?.needsApproval ? (0, import_react41.createElement)("span", { key: "dot", className: "bt-typing-dot", "aria-hidden": true }) : null,
     (0, import_react41.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react41.createElement)(Shimmer, null, `${shown.text}…`)),
     elapsedAt > 0 ? (0, import_react41.createElement)(Elapsed, { key: "time", at: elapsedAt, className: "bt-typing-time" }) : null
   ];
@@ -48240,8 +48249,8 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
     {
       ref: rowRef,
       className: "bt-typing",
-      "data-exiting": phase === "out" ? "" : void 0,
-      "data-bg-task": bgTask !== null ? "" : void 0,
+      "data-exiting": exiting ? "" : void 0,
+      "data-bg-task": activeBg !== null ? "" : void 0,
       "data-bg-open": showBgAction && bgOpen ? "" : void 0,
       "data-bg-busy": showBgAction && movingBg ? "" : void 0,
       onClick: tapRow
@@ -48254,7 +48263,8 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
     canOpenTasks ? (0, import_react41.createElement)("button", {
       type: "button",
       className: "bt-typing-text bt-typing-task",
-      "data-approval": bgTask.needsApproval || void 0,
+      disabled: exiting,
+      "data-approval": activeBg.needsApproval || void 0,
       "aria-label": `${shown.text} · ${t("View background tasks")}`,
       title: t("View background tasks"),
       onClick: openTasks
