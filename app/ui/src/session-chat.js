@@ -43,7 +43,12 @@ function useUiLanguage() {
     const service = getAppLocale()
     return typeof service?.subscribe === 'function' ? service.subscribe(notify) : NO_LOCALE
   }, [])
-  const snapshot = useCallback(() => getAppLocale()?.getLocale?.().active ?? 'en', [])
+  const snapshot = useCallback(() => {
+    const svc = getAppLocale()
+    const active = svc?.getLocale?.().active ?? 'en'
+    const revision = svc?.getSnapshot?.().revision ?? 0
+    return `${active}:${revision}`
+  }, [])
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 import { GenericToolCard, ToolCallCard } from './tool-card.js'

@@ -165,6 +165,7 @@ export const FEEDBACK_CSS = `
 .bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease;flex:none;white-space:nowrap}
 .bt-fb-primary:hover{filter:brightness(1.08)}
 .bt-fb-primary:active{filter:brightness(.94)}
+.bt-fb-primary:disabled{opacity:.6;cursor:default;filter:none}
 .bt-fb-note{margin:-8px 4px 0}
 .bt-fb-entry{cursor:default;align-items:flex-start}
 .bt-fb-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;margin-top:6px;background:var(--bt-danger,#e02135)}
