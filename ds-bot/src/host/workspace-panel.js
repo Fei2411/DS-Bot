@@ -169,7 +169,8 @@ export async function detectAvailableShells({
         ],
         argv: p => [p, '--login', '-i'],
       },
-      { id: 'wsl', name: 'WSL', paths: [`${sysRoot}\\System32\\wsl.exe`], argv: p => [p] },
+      // Omit wsl.exe: stock Windows ships the launcher even with no Linux distro installed,
+      // and shell detection stays subprocess-free so it cannot verify a launchable default distro.
     ]
     const seenPaths = new Set()
     const shells = []
@@ -1638,7 +1639,7 @@ export function install(rt) {
     }
     if (name === 'clear') {
       term.clearScrollback()
-      return { ok: true, id: term.id, start: term.startSeq, end: term.endSeq }
+      return { ok: true, id: term.id, start: term.startSeq, end: term.endSeq, clearedAt: term.clearedAt }
     }
     if (name === 'rename') {
       if (typeof body.title !== 'string') throw invalid('Terminal title must be a string')

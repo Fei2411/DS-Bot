@@ -1239,12 +1239,13 @@ test('terminal-clear, terminal-rename, terminal-shells, and shell selection vali
   assert.ok(posix.shells.some(s => s.path === '/opt/homebrew/bin/fish' && s.name === 'fish'))
   assert.ok(posix.shells.some(s => s.path === '/bin/sh' && s.argv.length === 1))
 
-  // 2. detectAvailableShells on Windows detects pwsh, powershell, cmd, git-bash, wsl and honors ComSpec default.
+  // 2. detectAvailableShells on Windows detects pwsh, powershell, cmd, git-bash, omits unverified wsl.exe, and honors ComSpec default.
   const winExisting = new Set([
     'c:\\program files\\powershell\\7\\pwsh.exe',
     'c:\\windows\\system32\\windowspowershell\\v1.0\\powershell.exe',
     'c:\\windows\\system32\\cmd.exe',
     'c:\\program files\\git\\bin\\bash.exe',
+    'c:\\windows\\system32\\wsl.exe',
   ])
   const win = await detectAvailableShells({
     platform: 'win32',
@@ -1260,6 +1261,7 @@ test('terminal-clear, terminal-rename, terminal-shells, and shell selection vali
   assert.equal(win.shells[0].isDefault, true)
   assert.ok(win.shells.some(s => s.id === 'pwsh' && s.name === 'PowerShell 7'))
   assert.ok(win.shells.some(s => s.id === 'git-bash' && s.argv.includes('--login')))
+  assert.equal(win.shells.some(s => s.id === 'wsl' || /wsl\.exe/i.test(s.path)), false, 'must not advertise wsl.exe from launcher presence alone')
 
   // 3. terminal-open shell selection, terminal-clear scrollback reset, and terminal-rename.
   const spawnedSpecs = []
@@ -1320,12 +1322,21 @@ test('terminal-clear, terminal-rename, terminal-shells, and shell selection vali
   const listAfterClear = await rt.terminalEndpoint('list')
   assert.equal(listAfterClear[0].snapshot, '')
 
-  // Output arriving after clear still streams cleanly with zero old output.
+  // Output arriving after clear still streams cleanly with zero old output, and a fresh reopen
+  // (`terminal-list` with empty positions) returns clearedAt + contiguous post-clear parts without truncation.
   output.write('fresh-after-clear\r\n')
   await new Promise(resolve => setTimeout(resolve, 40))
   const postClearRead = await rt.terminalEndpoint('read', { id: opened.id, after: 0 })
   assert.equal(postClearRead.truncated, false)
+  assert.equal(postClearRead.clearedAt, cleared.end)
   assert.equal(postClearRead.chunk, 'fresh-after-clear\r\n')
+
+  const reopenedList = await rt.terminalEndpoint('list', { positions: {} })
+  assert.equal(reopenedList[0].clearedAt, cleared.end)
+  assert.equal(reopenedList[0].start, cleared.end + 1)
+  assert.equal(reopenedList[0].end, cleared.end + 1)
+  assert.equal(reopenedList[0].truncated, false)
+  assert.deepEqual(reopenedList[0].parts, [{ seq: cleared.end + 1, text: 'fresh-after-clear\r\n' }])
 
   // Rename terminal tab and verify validation + persistence in terminal-list.
   await assert.rejects(() => rt.terminalEndpoint('rename', { id: opened.id, title: '   ' }), { code: 'bot/invalid' })

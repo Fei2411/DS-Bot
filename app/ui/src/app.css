@@ -512,7 +512,7 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .d
 .dsb-term-tab-edit{width:112px;height:24px;margin:2px 4px;padding:0 6px;border:1px solid var(--bt-accent);border-radius:5px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;outline:none;box-sizing:border-box}
 .dsb-term-shell-wrap{position:relative;display:inline-flex}
 .dsb-term-shell-btn{width:24px;min-width:24px}
-.bt-menu.dsb-term-shell-menu{position:absolute;top:calc(100% + 4px);right:0;min-width:168px;z-index:40}
+.bt-menu.dsb-term-shell-menu{min-width:168px;max-width:min(280px,calc(100vw - 16px))}
 .dsb-term-shell-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsb-term-shell-badge{flex:none;margin-left:8px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .dsb-term-exit{padding:0 5px;border-radius:6px;background:var(--bt-card);font-family:var(--bt-mono);font-size:11px;color:var(--bt-ink-3)}

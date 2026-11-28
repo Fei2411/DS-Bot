@@ -4,10 +4,13 @@
 // and talks to ds-bot host `terminal-*` endpoints.
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
-import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { ChevronDownIcon, CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { matchShortcutEvent } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { writeClipboard } from './primitives.js'
 import { getLiveShortcutContext } from './shortcuts.js'
@@ -259,13 +262,12 @@ export function readXtermTheme() {
       const bodyStyle = getComputedStyle(document.body)
       const mono = bodyStyle.getPropertyValue('--bt-mono').trim()
       if (mono) fontFamily = mono
-      const explicitPx = parsePxVar(bodyStyle.getPropertyValue('--dsh-terminal-font-size'))
+      const explicitPx = parsePxVar(bodyStyle.getPropertyValue('--bt-terminal-font-size'))
         || parsePxVar(bodyStyle.getPropertyValue('--bt-code-font-size'))
-        || parsePxVar(bodyStyle.getPropertyValue('--dsh-code-font-size'))
       if (Number.isFinite(explicitPx)) {
         fontSize = clampTerminalFontSize(explicitPx)
       } else {
-        const contentPx = parsePxVar(bodyStyle.getPropertyValue('--dsh-content-font-size'))
+        const contentPx = parsePxVar(bodyStyle.getPropertyValue('--bt-content-fs'))
         if (Number.isFinite(contentPx)) {
           fontSize = clampTerminalFontSize(contentPx * (DEFAULT_TERMINAL_FONT_SIZE / 14))
         } else {
@@ -688,6 +690,97 @@ function TerminalPane({
 /**
  * Interactive local terminal tabs bound to the active Bot/room workspace folder.
  */
+function ShellPickerMenu({ open, triggerRef, shells, onSelect, onClose }) {
+  const [shown, leaving] = useLinger(open, 120)
+  const menuRef = useRef(null)
+  const [place, setPlace] = useState({ left: 8, top: 44, maxHeight: 320, openUp: false })
+  const tick = useViewport(shown)
+
+  const closeWithFocus = useCallback(() => {
+    const prev = triggerRef.current
+    onClose()
+    if (prev && prev.isConnected !== false && typeof prev.focus === 'function') {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => prev.focus())
+      else prev.focus()
+    }
+  }, [onClose, triggerRef])
+
+  useEscape(closeWithFocus, open, { priority: ESCAPE_PRIORITY.MENU })
+
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return undefined
+    const onDown = (event) => {
+      const target = event?.target
+      if (menuRef.current?.contains?.(target) || triggerRef.current?.contains?.(target)) return
+      onClose()
+    }
+    const onKey = (event) => {
+      stepMenuFocus(menuRef.current, event, triggerRef.current)
+    }
+    window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open, onClose, triggerRef])
+
+  useLayoutEffect(() => {
+    if (!shown) return
+    const margin = 8
+    const gap = 4
+    const vw = typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1024
+    const bottom = typeof window !== 'undefined' ? viewBottom() : 768
+    const anchor = triggerRef.current?.getBoundingClientRect?.()
+    const box = menuRef.current?.getBoundingClientRect?.()
+    const menuWidth = box?.width > 0 ? box.width : 180
+    const menuHeight = box?.height > 0 ? box.height : Math.min(260, Math.max(44, shells.length * 32 + 12))
+    if (!anchor) {
+      const top = Math.max(margin, Math.min(44, bottom - margin - 80))
+      const maxHeight = Math.max(80, Math.floor(bottom - top - margin))
+      setPlace({ left: Math.max(margin, Math.round(vw - menuWidth - margin)), top, maxHeight, openUp: false })
+      return
+    }
+    const left = Math.max(margin, Math.min(Math.round(anchor.right - menuWidth), Math.round(vw - menuWidth - margin)))
+    const spaceBelow = Math.floor(bottom - anchor.bottom - gap - margin)
+    const spaceAbove = Math.floor(anchor.top - gap - margin)
+    if (menuHeight <= spaceBelow || spaceBelow >= spaceAbove) {
+      const maxHeight = Math.max(80, Math.min(Math.floor(bottom - margin * 2), Math.max(0, spaceBelow)))
+      const top = Math.max(margin, Math.min(Math.round(anchor.bottom + gap), Math.round(bottom - margin - Math.min(menuHeight, maxHeight))))
+      setPlace({ left, top, maxHeight: Math.max(80, Math.floor(bottom - top - margin)), openUp: false })
+    } else {
+      const maxHeight = Math.max(80, Math.min(Math.floor(bottom - margin * 2), Math.max(0, spaceAbove)))
+      const renderedH = Math.min(menuHeight, maxHeight)
+      const top = Math.max(margin, Math.round(anchor.top - gap - renderedH))
+      setPlace({ left, top, maxHeight, openUp: true })
+    }
+  }, [shown, shells.length, tick, triggerRef])
+
+  if (!shown || shells.length === 0) return null
+
+  const node = h('div', {
+    ref: menuRef,
+    className: place.openUp ? 'bt-menu bt-menu-up dsb-term-shell-menu' : 'bt-menu dsb-term-shell-menu',
+    role: 'menu',
+    'aria-label': t('Select shell'),
+    'data-leaving': leaving ? '' : undefined,
+    style: { left: place.left, top: place.top, maxHeight: place.maxHeight },
+  },
+  shells.map(shell => h('button', {
+    key: shell.id,
+    type: 'button',
+    role: 'menuitem',
+    className: 'bt-menu-item',
+    title: shell.path,
+    onClick: () => { onSelect(shell.id) },
+  },
+  h('span', { className: 'dsb-term-shell-name' }, shell.name),
+  shell.isDefault ? h('span', { className: 'dsb-term-shell-badge' }, t('Default')) : null)))
+
+  const target = typeof document !== 'undefined' && document?.body ? document.body : null
+  return target ? createPortal(node, target) : node
+}
+
 export function WorkspaceTerminal({
   sessionId,
   feed,
@@ -718,7 +811,7 @@ export function WorkspaceTerminal({
   const rootRef = useRef(null)
   const stageRef = useRef(null)
   const tabsRef = useRef(null)
-  const shellMenuRef = useRef(null)
+  const shellBtnRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
   const openedOnceRef = useRef(false)
@@ -756,24 +849,6 @@ export function WorkspaceTerminal({
     }).catch(() => {})
     return () => { alive = false }
   }, [readOnly])
-
-  // Close shell picker menu on outside click or Escape.
-  useEffect(() => {
-    if (!shellMenuOpen || typeof document === 'undefined') return undefined
-    const onPointerDown = (event) => {
-      if (shellMenuRef.current && typeof shellMenuRef.current.contains === 'function' && shellMenuRef.current.contains(event.target)) return
-      setShellMenuOpen(false)
-    }
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') setShellMenuOpen(false)
-    }
-    document.addEventListener?.('mousedown', onPointerDown, true)
-    document.addEventListener?.('keydown', onKeyDown, true)
-    return () => {
-      document.removeEventListener?.('mousedown', onPointerDown, true)
-      document.removeEventListener?.('keydown', onKeyDown, true)
-    }
-  }, [shellMenuOpen])
 
   // Keep every live xterm instance synced with DS Bot's theme, dark mode, accent, code font, and font size.
   useEffect(() => {
@@ -846,7 +921,7 @@ export function WorkspaceTerminal({
   // Write only the parts after the position this window holds. A part that does not
   // follow on means the feed dropped something; the catch-up read owns the repair.
   const noteParts = useCallback((id, parts, truncated = false) => {
-    if (!Array.isArray(parts)) return
+    if (!Array.isArray(parts)) return true
     let marker = truncated
     for (const part of parts) {
       if (!Number.isSafeInteger(part?.seq) || typeof part.text !== 'string') continue
@@ -856,7 +931,7 @@ export function WorkspaceTerminal({
         if (truncated) marker = true
         else {
           requestSync()
-          break
+          return false
         }
       }
       if (marker) {
@@ -866,6 +941,7 @@ export function WorkspaceTerminal({
       writeOutput(id, part.text)
       positionsRef.current.set(id, part.seq)
     }
+    return true
   }, [requestSync, writeOutput])
 
   const applySyncList = useCallback((list, { syncStartEpoch = openEpochRef.current } = {}) => {
@@ -873,20 +949,19 @@ export function WorkspaceTerminal({
     const serverIds = new Set(items.map(item => item.id))
     const exitStates = new Map()
     for (const item of items) {
+      const prevHeld = positionsRef.current.get(item.id) ?? 0
+      const clearedAt = Number.isSafeInteger(item.clearedAt) && item.clearedAt > 0 ? item.clearedAt : 0
+      if (clearedAt > prevHeld) {
+        positionsRef.current.set(item.id, clearedAt)
+      }
       if (Array.isArray(item.parts)) {
         noteParts(item.id, item.parts, item.truncated === true)
-        if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end
-          && (item.parts.length === 0 || item.parts[item.parts.length - 1]?.seq === item.end)) {
-          positionsRef.current.set(item.id, item.end)
-        }
-      } else if (typeof item.snapshot === 'string' && (positionsRef.current.get(item.id) ?? 0) === 0) {
-        if ((item.start ?? 1) > (item.clearedAt ?? 0) + 1) writeOutput(item.id, trimmedOutputMarker())
+      } else if (typeof item.snapshot === 'string' && prevHeld === 0) {
+        if ((item.start ?? 1) > clearedAt + 1) writeOutput(item.id, trimmedOutputMarker())
         writeOutput(item.id, trimTail(item.snapshot))
         if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end) {
           positionsRef.current.set(item.id, item.end)
         }
-      } else if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end) {
-        positionsRef.current.set(item.id, item.end)
       }
       const pendingExit = pendingExitRef.current.get(item.id)
       pendingExitRef.current.delete(item.id)
@@ -1203,8 +1278,9 @@ export function WorkspaceTerminal({
     api?.focus()
     if (!readOnly) {
       void call('terminal-clear', { id }).then((res) => {
-        if (Number.isSafeInteger(res?.end) && (positionsRef.current.get(id) ?? 0) < res.end) {
-          positionsRef.current.set(id, res.end)
+        const cleared = Number.isSafeInteger(res?.clearedAt) ? res.clearedAt : res?.end
+        if (Number.isSafeInteger(cleared) && (positionsRef.current.get(id) ?? 0) < cleared) {
+          positionsRef.current.set(id, cleared)
         }
       }).catch(() => {})
     }
@@ -1282,8 +1358,9 @@ export function WorkspaceTerminal({
           title: t('New terminal'),
           onClick: () => { void openNew({ focus: true }) },
         }, h(PlusIcon)),
-        !readOnly && shells.length > 0 ? h('div', { ref: shellMenuRef, className: 'dsb-term-shell-wrap' },
+        !readOnly && shells.length > 0 ? h('div', { className: 'dsb-term-shell-wrap' },
           h('button', {
+            ref: shellBtnRef,
             type: 'button',
             className: 'dsb-term-act-ico dsb-term-shell-btn',
             disabled: opening,
@@ -1293,17 +1370,13 @@ export function WorkspaceTerminal({
             title: t('Select shell'),
             onClick: () => setShellMenuOpen(prev => !prev),
           }, h(ChevronDownIcon)),
-          shellMenuOpen ? h('div', { className: 'bt-menu dsb-term-shell-menu', role: 'menu' },
-            shells.map(shell => h('button', {
-              key: shell.id,
-              type: 'button',
-              role: 'menuitem',
-              className: 'bt-menu-item',
-              title: shell.path,
-              onClick: () => { void openNew({ focus: true, shell: shell.id }) },
-            },
-            h('span', { className: 'dsb-term-shell-name' }, shell.name),
-            shell.isDefault ? h('span', { className: 'dsb-term-shell-badge' }, t('Default')) : null))) : null) : null)),
+          h(ShellPickerMenu, {
+            open: shellMenuOpen,
+            triggerRef: shellBtnRef,
+            shells,
+            onSelect: (shellId) => { void openNew({ focus: true, shell: shellId }) },
+            onClose: () => setShellMenuOpen(false),
+          })) : null)),
     error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error)) : null,
     readOnly
       ? h('div', { className: 'dsb-rp-empty' }, t('Terminals are disabled in a read-only window'))
