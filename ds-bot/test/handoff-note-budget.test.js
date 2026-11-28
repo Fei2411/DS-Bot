@@ -316,3 +316,39 @@ test('handoff note retries transient TRANSPORT failures within the provider retr
   })
   assert.equal(capped.requests.length, 2)
 })
+
+test('handoff note retries empty first response without tools/lower effort and recovers from full-prefix INVALID_REQUEST', async () => {
+  const afterEmpty = await switchPart({
+    replies: [
+      { text: '', kind: 'stop' },
+      { text: note('after-empty') },
+    ],
+    info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] }, defaultMaxTokens: 16_384, context: { contextWindow: 128_000 } } },
+    route: { reasoningEffort: 'high' },
+  })
+  assert.equal(afterEmpty.bot.sessionId, 's2')
+  assert.equal(afterEmpty.requests.length, 2)
+  assert.equal(afterEmpty.requests[0].reasoningEffort, 'high')
+  assert.equal(afterEmpty.requests[1].reasoningEffort, 'low')
+  assert.match(afterEmpty.requests[1].prompt, /empty/i)
+  assert.match(afterEmpty.packageText, /after-empty/)
+
+  const afterShape = await switchPart({
+    replies: [
+      { text: '', kind: 'error', failure: { code: 'INVALID_REQUEST', status: 400, message: 'toolHistory rejected by custom provider' } },
+      { text: note('after-shape-fallback') },
+    ],
+    info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] }, defaultMaxTokens: 16_384, context: { contextWindow: 128_000 } } },
+    route: { reasoningEffort: 'high' },
+  })
+  assert.equal(afterShape.bot.sessionId, 's2')
+  assert.equal(afterShape.requests.length, 2)
+  assert.equal(afterShape.requests[1].reasoningEffort, 'off')
+  assert.match(afterShape.packageText, /after-shape-fallback/)
+
+  const fencedNote = '```markdown\n' + NOTE_SECTIONS.map((name, i) => `## ${i + 1}. **${name}** (说明)\n- fenced-${i}`).join('\n\n') + '\n```'
+  const fromFenced = await switchPart({ replies: [{ text: fencedNote }] })
+  assert.equal(fromFenced.bot.sessionId, 's2')
+  assert.equal(fromFenced.requests.length, 1)
+  assert.match(fromFenced.packageText, /fenced-0/)
+})

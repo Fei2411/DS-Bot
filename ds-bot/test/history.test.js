@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { termQuery } from '../src/host/chat-index.js'
-import { canonicalHeadings, cardText, historyEntry, questionReply, readReply, replyText, viewCardText } from '../src/host/parts.js'
+import { canonicalHeadings, cardText, historyEntry, normalizeNoteHeadings, questionReply, readReply, replyText, viewCardText } from '../src/host/parts.js'
 import { VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
 
 test('cardText shows a question card as the user saw it', () => {
@@ -113,4 +113,34 @@ test('canonicalHeadings keeps a note whose known headings are repeated or out of
   const swapped = '## Progress\n- b\n## 目标\n- a\n## 决定\n- c'
   assert.equal(canonicalHeadings(swapped, names), swapped)
   assert.equal(canonicalHeadings('## 目标\n- a\n## Progress\n- b\n## 决定\n- c', names), '## Goals\n- a\n## Progress\n- b\n## Decisions\n- c')
+})
+
+test('normalizeNoteHeadings unwraps code fences and normalizes numbered, bold, bilingual, and partial Chinese headings', () => {
+  const names = ['Goals', 'Constraints and preferences', 'Progress', 'Decisions', 'Facts to keep', 'Open threads', 'Next step', 'Where to look']
+  const fenced = [
+    '```markdown',
+    '# Handoff Note',
+    '## 1. **Goals** (目标)',
+    '- Finish migration',
+    '### 2、约束与偏好：',
+    '- Never skip tests',
+    '**3. 进展**',
+    '- Done: schema updated',
+    '## 4) 决策 / Decisions',
+    '- Kept D1 schema unchanged',
+    '## 关键事实',
+    '- Endpoint is telemetry.dsbot.app',
+    '## 下一步：',
+    '- Deploy fix',
+    '```',
+  ].join('\n')
+  const out = normalizeNoteHeadings(fenced, names)
+  assert.doesNotMatch(out, /^```/)
+  assert.match(out, /^## Goals$/m)
+  assert.match(out, /^## Constraints and preferences$/m)
+  assert.match(out, /^## Progress$/m)
+  assert.match(out, /^## Decisions$/m)
+  assert.match(out, /^## Facts to keep$/m)
+  assert.match(out, /^## Next step$/m)
+  assert.match(out, /- Finish migration/)
 })

@@ -184,6 +184,132 @@ export function canonicalHeadings(note, names) {
   return lines.join('\n')
 }
 
+const NOTE_HEADING_ALIASES = new Map([
+  ['goals', 'Goals'],
+  ['goal', 'Goals'],
+  ['目标', 'Goals'],
+  ['用户目标', 'Goals'],
+  ['当前目标', 'Goals'],
+  ['核心目标', 'Goals'],
+  ['constraints and preferences', 'Constraints and preferences'],
+  ['constraints & preferences', 'Constraints and preferences'],
+  ['约束与偏好', 'Constraints and preferences'],
+  ['约束和偏好', 'Constraints and preferences'],
+  ['约束及偏好', 'Constraints and preferences'],
+  ['偏好与约束', 'Constraints and preferences'],
+  ['约束与要求', 'Constraints and preferences'],
+  ['规则与偏好', 'Constraints and preferences'],
+  ['限制与偏好', 'Constraints and preferences'],
+  ['progress', 'Progress'],
+  ['进展', 'Progress'],
+  ['进度', 'Progress'],
+  ['当前进展', 'Progress'],
+  ['工作进展', 'Progress'],
+  ['完成进度', 'Progress'],
+  ['decisions', 'Decisions'],
+  ['decision', 'Decisions'],
+  ['决策', 'Decisions'],
+  ['决定', 'Decisions'],
+  ['已做决策', 'Decisions'],
+  ['关键决策', 'Decisions'],
+  ['决策记录', 'Decisions'],
+  ['facts to keep', 'Facts to keep'],
+  ['key facts', 'Facts to keep'],
+  ['需要保留的事实', 'Facts to keep'],
+  ['保留的事实', 'Facts to keep'],
+  ['关键事实', 'Facts to keep'],
+  ['重要事实', 'Facts to keep'],
+  ['保留事实', 'Facts to keep'],
+  ['事实', 'Facts to keep'],
+  ['事实记录', 'Facts to keep'],
+  ['open threads', 'Open threads'],
+  ['未完事项', 'Open threads'],
+  ['待办事项', 'Open threads'],
+  ['开放事项', 'Open threads'],
+  ['未决事项', 'Open threads'],
+  ['进行中事项', 'Open threads'],
+  ['待跟进事项', 'Open threads'],
+  ['未完成事项', 'Open threads'],
+  ['next step', 'Next step'],
+  ['next steps', 'Next step'],
+  ['下一步', 'Next step'],
+  ['下一步行动', 'Next step'],
+  ['下步行动', 'Next step'],
+  ['下步计划', 'Next step'],
+  ['下一步计划', 'Next step'],
+  ['接下来', 'Next step'],
+  ['where to look', 'Where to look'],
+  ['查找线索', 'Where to look'],
+  ['检索线索', 'Where to look'],
+  ['查阅位置', 'Where to look'],
+  ['参考位置', 'Where to look'],
+  ['去哪找', 'Where to look'],
+  ['查找位置', 'Where to look'],
+  ['定位线索', 'Where to look'],
+])
+
+function stripOuterFence(text) {
+  const trimmed = text.trim()
+  const match = /^```(?:markdown|md|text)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(trimmed)
+  return match ? match[1].trim() : trimmed
+}
+
+function matchNoteHeading(rawHeading, allowed) {
+  let cleaned = rawHeading.trim()
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
+    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
+    .trim()
+    .replace(/^(?:(?:\(?\d{1,2}\)?|[一二三四五六七八])[.、)）]\s*|\（\d{1,2}\）\s*)/, '')
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
+    .replace(/[:：]\s*$/, '')
+    .trim()
+  if (cleaned === '') return undefined
+  const direct = NOTE_HEADING_ALIASES.get(cleaned.toLowerCase())
+  if (direct !== undefined && allowed.has(direct)) return direct
+  // Bilingual or parenthetical gloss, e.g. "Goals (目标)", "Goals — 目标", "目标 / Goals".
+  const stripped = cleaned
+    .replace(/\s*[（(][^()（）]{1,40}[)）]\s*$/, '')
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
+    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
+    .replace(/[:：]\s*$/, '')
+    .trim()
+  const fromGloss = NOTE_HEADING_ALIASES.get(stripped.toLowerCase())
+  if (fromGloss !== undefined && allowed.has(fromGloss)) return fromGloss
+  for (const part of stripped.split(/\s*(?:\/|—|–|--|\|)\s*/)) {
+    const cleanPart = part.trim().replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1').trim()
+    const candidate = NOTE_HEADING_ALIASES.get(cleanPart.toLowerCase())
+    if (candidate !== undefined && allowed.has(candidate)) return candidate
+  }
+  return undefined
+}
+
+// Normalizes real-world model heading drift (outer code fence, numbered/bold/bilingual/Chinese
+// headings) to the canonical English `## <Name>` form before falling back to positional mapping.
+export function normalizeNoteHeadings(raw, names) {
+  const unwrapped = stripOuterFence(String(raw ?? ''))
+  if (unwrapped === '') return ''
+  const allowed = new Set(names)
+  const seen = new Set()
+  const lines = unwrapped.split('\n')
+  let changed = false
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const headingMatch = /^\s*#{1,4}\s+(.+?)\s*#*$/.exec(line)
+      ?? /^\s*\*\*([^*\n]{2,80})\*\*\s*[:：]?\s*$/.exec(line)
+    if (!headingMatch) continue
+    const canonical = matchNoteHeading(headingMatch[1], allowed)
+    if (canonical === undefined || seen.has(canonical)) continue
+    seen.add(canonical)
+    const next = `## ${canonical}`
+    if (lines[i] !== next) {
+      lines[i] = next
+      changed = true
+    }
+  }
+  const normalized = changed ? lines.join('\n') : unwrapped
+  return canonicalHeadings(normalized, names)
+}
+
 export function install(rt) {
   const { ctx, config, state } = rt
 
@@ -868,6 +994,23 @@ export function install(rt) {
     return false
   }
 
+  const PREFIX_SHAPE_CODES = new Set(['INVALID_REQUEST', 'BAD_REQUEST', 'INVALID_REPLAY_STATE'])
+  const isPrefixShapeError = (error) => {
+    const seen = new Set()
+    let current = error
+    for (let depth = 0; current !== undefined && current !== null && depth < 8; depth += 1) {
+      if (typeof current === 'object') {
+        if (seen.has(current)) break
+        seen.add(current)
+      }
+      const code = current?.code ?? current?.failure?.code
+      const status = current?.status ?? current?.failure?.status
+      if (PREFIX_SHAPE_CODES.has(code) || status === 400) return true
+      current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
+    }
+    return false
+  }
+
   function clipHeadTail(text, maxChars) {
     if (text.length <= maxChars) return text
     if (maxChars <= 80) return text.slice(0, maxChars)
@@ -1129,18 +1272,27 @@ export function install(rt) {
       try {
         ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, lowerEffort, compactInput }))
       } catch (error) {
-        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && isSizeError(error)) {
+        const sizeFailure = isSizeError(error)
+        const shapeFailure = !sizeFailure && !withoutTools && isPrefixShapeError(error)
+        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && (sizeFailure || shapeFailure)) {
           compactInput = true
           withoutTools = true
           lowerEffort = true
-          problem = 'the conversation was too large for a full-prefix note'
+          problem = sizeFailure
+            ? 'the conversation was too large for a full-prefix note'
+            : 'the provider rejected the full-prefix note request'
           retry = NOTE_RETRY_SHORTER
-          rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error)
+          rt.warn(
+            sizeFailure
+              ? 'ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s'
+              : 'ds-bot: handoff note attempt %d of %d for %s on %s/%s rejected full-prefix request; retrying with compacted tool-free history: %s',
+            attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error,
+          )
           continue
         }
         throw error
       }
-      const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
+      const note = normalizeNoteHeadings(text, NOTE_SECTIONS.map(([name]) => name))
       const missing = missingSections(note)
       if (finish === 'max-tokens') {
         if (isUsablePartialNote(note, missing)) {
@@ -1157,7 +1309,9 @@ export function install(rt) {
         retry = 'Output the handoff note as plain Markdown text only, without calling any tools.'
       } else if (note === '') {
         problem = 'it was empty'
-        retry = undefined
+        withoutTools = true
+        lowerEffort = true
+        retry = 'Your last response was empty. Output the handoff note as plain Markdown text only, without calling any tools.'
       } else if (missing.length > 0) {
         if (isUsablePartialNote(note, missing)) {
           bestPartial = recordBest(bestPartial, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })

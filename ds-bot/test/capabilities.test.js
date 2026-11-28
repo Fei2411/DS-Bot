@@ -1023,3 +1023,47 @@ test('a failed HTTP MCP mount does not show the encoded secret from its URL', as
   assert.equal(status.state, 'error')
   assert.equal(status.error, 'Connection failed: fetch https://mcp.exa.test/mcp?apiKey=[secret:EXA_API_KEY]')
 })
+
+test('startup tracks only already-live Agents when ctx.agents exists and skips cold sessions', async t => {
+  const state = team()
+  state.capabilities = { items: { echo: { ...mcp('echo'), approved: true, createdBy: 'chief', createdAt: 1, updatedAt: 1 } } }
+  state.bots.chief.capabilities = ['echo']
+  state.bots.worker.capabilities = ['echo']
+  const resolved = []
+  const warnings = []
+  let liveChief
+  const env = await setup({
+    state,
+    beforeLoad: ({ ctx, rt, mounts, skills }) => {
+      liveChief = testAgent('chief', mounts, skills)
+      const liveMap = new Map([['chief', liveChief]])
+      ctx.agents = { get: id => liveMap.get(id) }
+      rt.chatOf = botId => botId
+      rt.groupSessionsOf = botId => botId === 'chief' ? ['cold-group-chief'] : []
+      rt.resolveAgent = async sessionId => {
+        resolved.push(sessionId)
+        const error = new Error(`resume failed for session "${sessionId}"`)
+        error.code = 'gateway/internal'
+        throw error
+      }
+      rt.warn = (...args) => warnings.push(args.join(' '))
+    },
+  })
+  t.after(() => env.dispose())
+  await new Promise(resolve => setImmediate(resolve))
+  await env.rt.scheduleCapabilitiesReconcile()
+  assert.equal(resolved.includes('chief'), false)
+  assert.equal(resolved.includes('worker'), false)
+  assert.equal(resolved.includes('cold-group-chief'), false)
+  assert.deepEqual(warnings.filter(line => line.includes('capability')), [])
+  assert.deepEqual(env.mounts.map(mount => mount.sessionId), ['chief'])
+
+  // Missing sessions during explicit attachment do not emit noisy resolve warnings.
+  env.rt.resolveAgent = async sessionId => {
+    const error = new Error(`session "${sessionId}" not found`)
+    error.code = 'session/not-found'
+    throw error
+  }
+  await env.rt.changeCapabilityAttachment('attach', { name: 'echo' }, 'helper')
+  assert.deepEqual(warnings.filter(line => line.includes('capability')), [])
+})

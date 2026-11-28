@@ -159,7 +159,7 @@ export function install(rt) {
   }
 
   // `fields`: source ('host', 'turn', 'api'), level, code, status, bot, where, sessionId, stack.
-  const note = ({ level = 'error', source = 'host', text, stack, ...fields }) => {
+  const note = ({ level = 'error', source = 'host', text, stack, errorName, ...fields }) => {
     const entry = { time: Date.now(), level, source, text: clean(text) }
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined && value !== null && value !== '') entry[key] = typeof value === 'string' ? clean(value) : value
@@ -171,7 +171,7 @@ export function install(rt) {
     if (fresh.length > KEEP) fresh = fresh.slice(-KEEP)
     append(entry)
     if (level === 'error' || (level === 'warn' && typeof stack === 'string' && stack !== '')) {
-      const errName = /^([A-Za-z][A-Za-z0-9_]*Error)\b/.exec(String(text ?? ''))?.[1]
+      const errName = errorName ?? /^([A-Za-z][A-Za-z0-9_]*Error)\b/.exec(String(text ?? ''))?.[1]
       void rt.telemetry?.noteError({
         source: source === 'api' ? 'host' : source,
         errorName: errName ?? 'Error',
@@ -196,6 +196,7 @@ export function install(rt) {
       level: 'warn',
       source: 'host',
       text: line.replace(/^ds-bot: /, ''),
+      errorName: typeof error?.name === 'string' ? error.name : undefined,
       code: typeof error?.code === 'string' ? error.code : undefined,
       stack: error?.stack,
     })
