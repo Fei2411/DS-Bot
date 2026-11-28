@@ -244,7 +244,7 @@ const sandbox = {
   navigator: { language: 'en' },
   setTimeout: (fn, ms, ...args) => { recordedTimers.push(ms); return setTimeout(fn, ms, ...args) },
   clearTimeout,
-  requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
+  requestAnimationFrame: fn => setImmediate(() => fn(0)), cancelAnimationFrame: id => clearImmediate(id), performance: { now: () => 0 },
   fetch: (...args) => fetchCtrl.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)
