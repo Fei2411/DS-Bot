@@ -1100,3 +1100,148 @@ export function startComputerBridge({
     for (const cleanup of cleanups) cleanup()
   }
 }
+
+// Canonical settings page ids recognized by `selectPanel` in standalone mode.
+export const SETTINGS_PANEL_IDS = new Set([
+  'overview', 'general', 'shortcuts', 'appearance',
+  'models', 'local-agents', 'bot-models', 'deepseek-services',
+  'bots', 'groups', 'schedules',
+  'connectors', 'im', 'phone', 'api',
+  'computer', 'browser', 'capabilities', 'secrets',
+  'plugins', 'usage', 'about', 'privacy', 'feedback',
+])
+
+// Shared action assembler: builds the complete shared-view action surface from
+// team-core controllers plus narrow host callbacks, so neither adapter defines
+// shared-view actions directly.
+export function assembleTeamActions({
+  call,
+  after,
+  store,
+  foldWrites,
+  panelFolded,
+  nav,
+  updateCtrl,
+  browserCtrl,
+  clearPanelYieldOnToggle = false,
+  host = {},
+  extra = {},
+}) {
+  const { roster, ui, live, cards, heldCards, turnClock, questionDrafts, partFor } = store
+  const baseActions = teamActions({
+    call,
+    after,
+    partFor,
+    roster,
+    ui,
+    live,
+    cards,
+    heldCards,
+    turnClock,
+    panelFolded,
+    questionDrafts,
+    foldWrites,
+  })
+  const storeActions = createStoreActions({ store, clearPanelYieldOnToggle })
+
+  const actions = {
+    ...baseActions,
+    ...storeActions,
+    ...nav.actions,
+    ...updateCtrl.actions,
+    ...browserCtrl.actions,
+
+    closePanel: () => {
+      baseActions.closePanel()
+      host.afterClosePanel?.()
+    },
+    closeOverlay: () => {
+      const hadDialog = Boolean(ui.getSnapshot().newChat || ui.getSnapshot().exchange)
+      baseActions.closeOverlay()
+      if (!hadDialog) host.afterCloseOverlay?.()
+    },
+    toggleDetails: (id, force) => {
+      baseActions.toggleDetails(id, force)
+      host.afterToggleDetails?.()
+    },
+
+    openChanges: async (changes) => {
+      if (changes === null || typeof changes !== 'object'
+        || typeof changes.sessionId !== 'string'
+        || !Number.isInteger(changes.seq)
+        || (host.requireChangesTurn === true && !Number.isInteger(changes.turn))) return
+      let available = false
+      try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
+      if (!available) { actions.notice(t('These changes are no longer available')); return }
+      await host.openChanges?.(changes, actions)
+    },
+
+    steerQueued: async (sessionId) => {
+      if (!sessionId || typeof host.steerQueued !== 'function') return
+      const tryBotBatch = async (ids) => {
+        if (roster.getSnapshot().byId?.[sessionId] === undefined) return 'fallback'
+        try {
+          const result = await actions.steerQueueBatch(sessionId, ids)
+          return result?.fallback === true ? 'fallback' : 'done'
+        } catch (error) {
+          return error?.code === 'bot/not-found' ? 'fallback' : 'failed'
+        }
+      }
+      const reportSteerError = () => {
+        actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
+      }
+      await host.steerQueued(sessionId, { tryBotBatch, reportSteerError, actions })
+    },
+
+    isAgentSession: id => Boolean(host.isAgentSession?.(id)),
+    openSession: (id) => {
+      if (host.isAgentSession?.(id)) return actions.openAgentSession(id)
+      nav.bumpNavSeq()
+      const target = partFor(id)
+      const fromInbox = ui.getSnapshot().inbox === true
+      return host.openTeamSession?.({ id, target, fromInbox, actions })
+    },
+    openAgentSession: sessionId => host.openAgentSession?.(sessionId, { nav, actions }),
+    setSurface: mode => host.setSurface?.(mode, { actions }),
+
+    addAgent: (...args) => host.agent?.addAgent?.(...args),
+    openAgent: (...args) => host.agent?.openAgent?.(...args),
+    newAgentSession: (...args) => host.agent?.newAgentSession?.(...args),
+    archiveAgentSession: (...args) => host.agent?.archiveAgentSession?.(...args),
+    renameAgentSession: (...args) => host.agent?.renameAgentSession?.(...args),
+    removeAgent: (...args) => host.agent?.removeAgent?.(...args),
+
+    selectPanel: id => host.selectPanel?.(id, actions),
+    toggleSidebar: () => (host.toggleSidebar ? host.toggleSidebar(actions) : actions.toggleLeftHidden()),
+    setSidebarWide: next => (host.setSidebarWide ? host.setSidebarWide(next, actions) : actions.setSidebarPref(next ? 'open' : 'hidden')),
+
+    canOpenFiles: () => Boolean(host.canOpenFiles?.()),
+    openFiles: () => host.openFiles?.(actions),
+    canOpenTerminal: () => Boolean(host.canOpenTerminal?.()),
+    newTerminal: () => host.newTerminal?.(actions),
+    watchAgentTerminals: sessionId => host.watchAgentTerminals?.(sessionId, actions),
+
+    canReferenceChat: () => Boolean(host.canReferenceChat?.()),
+    referenceChat: (sessionId, arg) => host.referenceChat?.(sessionId, arg),
+
+    speech: () => host.speech?.(),
+    voiceSetup: providerId => host.voiceSetup?.(providerId) ?? null,
+    closingReply: (sessionId, turn) => host.closingReply?.(sessionId, turn),
+    turnFacts: sessionId => host.turnFacts?.(sessionId),
+    watchTurns: (sessionId, listener) => host.watchTurns?.(sessionId, listener) ?? (() => {}),
+
+    draftFiles: ids => host.drafts?.draftFiles?.(ids) ?? [],
+    restoreDraftFiles: (sessionId, files) => host.drafts?.restoreDraftFiles?.(sessionId, files) ?? [],
+    releaseDraftFiles: ids => host.drafts?.releaseDraftFiles?.(ids),
+
+    signInEntry: () => host.account?.signInEntry?.() ?? null,
+    canSignIn: () => Boolean(host.account?.canSignIn?.()),
+    accountT: () => host.account?.accountT?.() ?? (key => key),
+
+    holdSettingsLook: () => (host.holdSettingsLook ? host.holdSettingsLook() : () => {}),
+
+    ...extra,
+  }
+
+  return actions
+}

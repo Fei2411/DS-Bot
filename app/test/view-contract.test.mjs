@@ -54,8 +54,6 @@ const DSH_SLOT_HOOK_REASONS = {
 
 const DESKTOP_HOOK_ALLOWLIST = {
   ...DSH_SLOT_HOOK_REASONS,
-  useFrame: 'Supplied by app/ui/src/app.js as useOwnFrame rather than createTeam().hooks.',
-  useSidebarPref: 'Supplied by app/ui/src/app.js as useOwnSidebarPref rather than createTeam().hooks.',
   useSettingsShellHeld: 'Plugin-only DSH SettingsShell seat state; desktop renders SettingsDialog directly in Overlays.',
   useDisclosure: 'Local prop passed by ToolCallCard to built-in tool views, not a team store hook.',
   useAccount: 'Injected by SignInHost (model-menu.js) from signInEntry().inject().hooks.account into DesktopDeepSeekSignInModal, not a team store hook.',
@@ -650,6 +648,41 @@ test('view contract: desktop and plugin faces supply every action and hook used 
     provided: pluginFace.hooks,
     allowlist: PLUGIN_HOOK_ALLOWLIST,
   })
+})
+
+test('team-core adapter boundary: neither host adapter defines shared-view actions directly, and desktop exposes W8 classic adapter', async () => {
+  const pluginSrc = fs.readFileSync(path.join(CLIENT_DIR, 'index.js'), 'utf8')
+  const desktopSrc = fs.readFileSync(path.join(APP_UI_DIR, 'team.js'), 'utf8')
+
+  for (const [label, src] of [
+    ['ds-bot/src/client/index.js', pluginSrc],
+    ['app/ui/src/team.js', desktopSrc],
+  ]) {
+    assert.match(src, /\bassembleTeamActions\s*\(/, `${label} must build its action surface through team-core assembleTeamActions`)
+    assert.doesNotMatch(src, /\bteamActions\s*\(/, `${label} must not invoke raw teamActions directly outside team-core`)
+    assert.doesNotMatch(src, /\bactions\.[A-Za-z_$][\w$]*\s*=/, `${label} must not mutate actions.* directly; wire host hooks into assembleTeamActions`)
+  }
+
+  // Verify the W8 Classic Agent adapter interface is exposed cleanly on createTeam().classic.
+  const { team } = await createDesktopHarness()
+  assert.ok(team.classic && typeof team.classic === 'object', 'createTeam() must expose classic adapter for W8 (#2515)')
+  const requiredClassicMethods = [
+    'isAgentSession',
+    'latestAgentSession',
+    'noteShown',
+    'noteTeamSession',
+    'onHydrated',
+    'initialLandingSession',
+    'refreshClassicSessions',
+    'setSurface',
+    'openAgentSession',
+  ]
+  for (const name of requiredClassicMethods) {
+    assert.equal(typeof team.classic[name], 'function', `team.classic.${name} must be a function`)
+  }
+  assert.equal(typeof team.classic.actions.createClassicSession, 'function')
+  assert.equal(typeof team.classic.actions.sessionControls, 'function')
+  assert.equal(typeof team.classic.actions.steerSessionQueue, 'function')
 })
 
 test('desktop team keeps monotonic turnOutline across two voice rounds and serves closingReply', async () => {

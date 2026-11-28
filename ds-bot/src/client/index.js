@@ -2,10 +2,10 @@ import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import {
+  assembleTeamActions,
   createBrowserController,
   createNavigationActions,
   createSource,
-  createStoreActions,
   createTeamPull,
   createTeamStore,
   createUpdateController,
@@ -14,7 +14,6 @@ import {
   pruneRemovedChatDrafts,
   sectionFoldWrites,
   startComputerBridge,
-  teamActions,
 } from './team-core/index.js'
 import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
@@ -154,7 +153,6 @@ export function apply(ctx) {
     sidebarPref,
     frame,
     questionDrafts,
-    partFor,
   } = store
   // Whether DS Bot holds the settings seat; Overlays draws the Settings dialog while it does not.
   const settingsShellHeld = createSource(false)
@@ -594,160 +592,214 @@ export function apply(ctx) {
       })
     }
   }
-  const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
-    ...createStoreActions({ store, clearPanelYieldOnToggle: true }),
-    ...nav.actions,
-    ...updateCtrl.actions,
-    ...browserCtrl.actions,
-    // The files a group row names open DSH's own review tab for that turn. The tab reads
-    // the changes of the Session the shell shows, so that Session is opened first; the same
-    // call then retries until its right column is mounted. This jump is the one place a
-    // different place for the review (in the group, or a review that carries its Session)
-    // would replace. A summary the Host no longer serves, or a window without the column,
-    // says so instead of doing nothing.
-    openChanges: async (changes) => {
-      if (changes === null || typeof changes !== 'object' || typeof changes.sessionId !== 'string'
-        || !Number.isInteger(changes.seq) || !Number.isInteger(changes.turn)) return
-      let available = false
-      try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
-      if (!available) { actions.notice(t('These changes are no longer available')); return }
-      if (openReview === undefined) { actions.notice(t('This window cannot open the change review')); return }
-      openChangesReview(changes)
-    },
-    // The full-pane overlays sit above the conversation, so opening one must dismiss them
-    // or the click appears to do nothing.
-    isAgentSession: id => isAgentSessionId(id),
-    openSession: (id) => {
-      // A DSH Agent Session id lands on the plain surface, not the Bot skin.
-      if (isAgentSessionId(id)) return actions.openAgentSession(id)
-      nav.bumpNavSeq()
-      const target = partFor(id)
-      const fromInbox = ui.getSnapshot().inbox === true
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget
-        ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null }
-        : state))
-      setPlain(false)
-      show(target)
-    },
-    // The conversation replacements withdraw for a plain Session; set the surface
-    // before the navigation so the Bot skin never flashes.
-    openAgentSession: (sessionId) => {
-      nav.bumpNavSeq()
-      const fromInbox = ui.getSnapshot().inbox === true
-      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
-      setPlain(true)
-      show(sessionId)
-    },
-    addAgent: async () => {
-      const agent = await after(call('add-agent'))
-      if (agent?.sessions?.[0] !== undefined) actions.openAgentSession(agent.sessions[0])
-      return agent
-    },
-    openAgent: (agentId) => {
-      const agent = roster.getSnapshot().agentsById[agentId]
-      if (agent === undefined) return
-      const list = ctx.sessions.list.getSnapshot()
-      const latest = latestAgentSession(agentId, list)
-      if (latest === undefined) return actions.newAgentSession(agentId)
-      actions.openAgentSession(latest)
-    },
-    newAgentSession: async (agentId) => {
-      const agent = roster.getSnapshot().agentsById[agentId]
-      if (agent === undefined) return
-      // One create per Agent at a time, so two clicks in a row make one Session.
-      return singleFlight(agentNewInFlight, agentId, async () => {
-        const list = ctx.sessions.list.getSnapshot()
-        const latest = latestAgentSession(agentId, list)
-        const pending = pendingAgentSession.get(agentId)
-        if (pending !== undefined && list.byId[pending] !== undefined) pendingAgentSession.delete(agentId)
-        const reuse = agentSessionToReuse(list, latest, pending)
-        if (reuse !== undefined) {
-          actions.openAgentSession(reuse)
-          return reuse
+  let atMenu = null
+  let shellSheets = 0
+  let holdSettingsLookFn = () => () => {}
+
+  const actions = assembleTeamActions({
+    call,
+    after,
+    store,
+    foldWrites,
+    panelFolded,
+    nav,
+    updateCtrl,
+    browserCtrl,
+    clearPanelYieldOnToggle: true,
+    host: {
+      requireChangesTurn: true,
+      openChanges: (changes, a) => {
+        if (openReview === undefined) { a.notice(t('This window cannot open the change review')); return }
+        openChangesReview(changes)
+      },
+      steerQueued: async (sessionId, { tryBotBatch, reportSteerError }) => {
+        const session = ctx.sessions.binding(sessionId)?.session
+        if (session === undefined) return
+        const steerBatch = roster.getSnapshot().byId?.[sessionId] !== undefined ? tryBotBatch : undefined
+        if (await steerQueued(session, steerBatch) === 'failed') reportSteerError()
+      },
+      isAgentSession: id => isAgentSessionId(id),
+      openTeamSession: ({ target, fromInbox }) => {
+        ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget
+          ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null }
+          : state))
+        setPlain(false)
+        show(target)
+      },
+      // The conversation replacements withdraw for a plain Session; set the surface
+      // before the navigation so the Bot skin never flashes.
+      openAgentSession: (sessionId) => {
+        nav.bumpNavSeq()
+        const fromInbox = ui.getSnapshot().inbox === true
+        ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
+        setPlain(true)
+        show(sessionId)
+      },
+      // Agent mode hands the surface back to the shell; everything open on the Bot
+      // surface closes first so nothing stale reopens on the way back.
+      setSurface: (mode) => {
+        if (mode !== 'bot' && mode !== 'agent') return
+        if (surface.getSnapshot().mode === mode) {
+          if (mode === 'bot') ensureBotHome()
+          return
         }
-        const { sessionId } = await after(call('agent-session', { agentId, workspaceId: workspaceOf(latest) }))
-        if (ctx.sessions.list.getSnapshot().byId[sessionId] === undefined) pendingAgentSession.set(agentId, sessionId)
-        actions.openAgentSession(sessionId)
-        return sessionId
-      })
+        if (mode === 'agent') {
+          ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, inbox: false, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
+        }
+        writeMode(mode)
+        surface.set(state => ({ ...state, mode }))
+        if (mode === 'agent' && window.innerWidth >= DSH_NARROW && frame.getSnapshot().collapsed) ctx.layout.toggleSidebar()
+        if (mode !== 'bot') return
+        ensureBotHome()
+      },
+      agent: {
+        addAgent: async () => {
+          const agent = await after(call('add-agent'))
+          if (agent?.sessions?.[0] !== undefined) actions.openAgentSession(agent.sessions[0])
+          return agent
+        },
+        openAgent: (agentId) => {
+          const agent = roster.getSnapshot().agentsById[agentId]
+          if (agent === undefined) return
+          const list = ctx.sessions.list.getSnapshot()
+          const latest = latestAgentSession(agentId, list)
+          if (latest === undefined) return actions.newAgentSession(agentId)
+          actions.openAgentSession(latest)
+        },
+        newAgentSession: async (agentId) => {
+          const agent = roster.getSnapshot().agentsById[agentId]
+          if (agent === undefined) return
+          return singleFlight(agentNewInFlight, agentId, async () => {
+            const list = ctx.sessions.list.getSnapshot()
+            const latest = latestAgentSession(agentId, list)
+            const pending = pendingAgentSession.get(agentId)
+            if (pending !== undefined && list.byId[pending] !== undefined) pendingAgentSession.delete(agentId)
+            const reuse = agentSessionToReuse(list, latest, pending)
+            if (reuse !== undefined) {
+              actions.openAgentSession(reuse)
+              return reuse
+            }
+            const { sessionId } = await after(call('agent-session', { agentId, workspaceId: workspaceOf(latest) }))
+            if (ctx.sessions.list.getSnapshot().byId[sessionId] === undefined) pendingAgentSession.set(agentId, sessionId)
+            actions.openAgentSession(sessionId)
+            return sessionId
+          })
+        },
+        archiveAgentSession: async (agentId, sessionId) => {
+          await after(call('agent-archive', { agentId, sessionId }))
+          const list = ctx.sessions.list.getSnapshot()
+          const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
+          if (main !== sessionId) return
+          const rest = roster.getSnapshot().agentsById[agentId]?.sessions ?? []
+          if (rest.length > 0) actions.openAgent(agentId)
+          else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
+        },
+        renameAgentSession: (agentId, sessionId, title) => after(call('agent-rename', { agentId, sessionId, title })),
+        removeAgent: async (agentId) => {
+          const owned = agentSessions(agentId)
+          const result = await after(call('remove-agent', { agentId }))
+          const list = ctx.sessions.list.getSnapshot()
+          const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
+          if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
+          return result
+        },
+      },
+      selectPanel: id => ctx.layout.selectPanel(id),
+      toggleSidebar: () => ctx.layout.toggleSidebar(),
+      canOpenTerminal: () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined,
+      watchAgentTerminals: (sessionId, a) => watchAgentTerminals(ctx.slots, sessionId, error => a.reportError(error, 'right-sidebar')),
+      newTerminal: (a) => {
+        a.closePanel()
+        try {
+          callServiceMethod(ctx, 'sidebarRight', 'openTab', 'terminal')
+        } catch (error) {
+          a.reportError(error, 'right-sidebar')
+        }
+      },
+      canOpenFiles: () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('files') !== undefined,
+      openFiles: (a) => {
+        a.closePanel()
+        try {
+          callServiceMethod(ctx, 'sidebarRight', 'openTab', 'files')
+        } catch (error) {
+          a.reportError(error, 'right-sidebar')
+        }
+      },
+      canReferenceChat: () => atMenu !== null,
+      referenceChat: (sessionId, span) => {
+        const controller = atMenu?.controllerOf(sessionId)
+        if (controller === undefined || span === undefined) return
+        controller.toggleSource(CHATS_SOURCE, { trigger: '@', query: '', quoted: false, position: 'inline', span })
+      },
+      speech: () => ctx.get('remote.speech') ?? undefined,
+      voiceSetup: (providerId) => {
+        const navigation = ctx.get('pluginNavigation')
+        if (navigation !== undefined) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) }
+        const speech = ctx.get('remote.speech')
+        return speech === undefined || providerId === undefined ? null : { prepare: () => requestPreparation(speech, providerId) }
+      },
+      closingReply: (sessionId, turn) => {
+        try {
+          const binding = ctx.sessions.binding(sessionId)
+          if (binding === undefined) return null
+          return closingReplyText(ctx.uiConversation.binding(binding).target('chat').getSnapshot(), turn)
+        } catch {
+          return null
+        }
+      },
+      turnFacts: (sessionId) => {
+        try {
+          const binding = ctx.sessions.binding(sessionId)
+          if (binding === undefined) return { turns: undefined, openTurn: undefined }
+          const conversation = ctx.uiConversation.binding(binding)
+          const chat = conversation.target('chat').getSnapshot()
+          return { turns: chat?.timeline?.turns, openTurn: conversation.openTurn.getSnapshot() }
+        } catch {
+          return { turns: undefined, openTurn: undefined }
+        }
+      },
+      watchTurns: (sessionId, listener) => {
+        try {
+          const binding = ctx.sessions.binding(sessionId)
+          if (binding === undefined) return () => {}
+          const conversation = ctx.uiConversation.binding(binding)
+          const offChat = conversation.target('chat').subscribe(listener)
+          const offOpen = conversation.openTurn.subscribe(listener)
+          return () => { offChat(); offOpen() }
+        } catch {
+          return () => {}
+        }
+      },
+      drafts: {
+        draftFiles: (ids) => {
+          const conversation = ctx.get('conversation')
+          if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== 'function') return []
+          return conversation.resolveDraftAttachments(ids).map(item => ({ kind: item.kind, file: item.file }))
+        },
+        restoreDraftFiles: (sessionId, files) => {
+          const conversation = ctx.get('conversation')
+          if (typeof conversation?.createDrafts !== 'function') return []
+          return conversation.createDrafts(sessionId, files, true).map(item => item.id)
+        },
+        releaseDraftFiles: (ids) => {
+          const conversation = ctx.get('conversation')
+          if (typeof conversation?.releaseDraftAttachment !== 'function') return
+          for (const id of ids) conversation.releaseDraftAttachment(id)
+        },
+      },
+      account: {
+        signInEntry: () => ctx.slots.entries?.('settings.models.sign-in')?.[0] ?? null,
+        canSignIn: () => Boolean(ctx.slots.entries?.('settings.models.sign-in')?.[0]),
+        accountT: () => ctx.get('locale')?.bind?.('settings.account') ?? (key => key),
+      },
+      holdSettingsLook: () => holdSettingsLookFn(),
     },
-    archiveAgentSession: async (agentId, sessionId) => {
-      await after(call('agent-archive', { agentId, sessionId }))
-      const list = ctx.sessions.list.getSnapshot()
-      const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
-      if (main !== sessionId) return
-      const rest = roster.getSnapshot().agentsById[agentId]?.sessions ?? []
-      if (rest.length > 0) actions.openAgent(agentId)
-      else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
+    extra: {
+      // DSH-only settings shell onboarding & seat coordination.
+      openHarnessOnboarding: id => settingsShell?.openOnboarding(id),
+      seatAccount: on => ui.set(state => (state.accountSeated === on ? state : { ...state, accountSeated: on })),
     },
-    renameAgentSession: (agentId, sessionId, title) => after(call('agent-rename', { agentId, sessionId, title })),
-    // Removing the Agent archives every Session it owns; one of them may fill the
-    // main view, and it must not stay there wearing the Bot surface afterwards.
-    removeAgent: async (agentId) => {
-      const owned = agentSessions(agentId)
-      const result = await after(call('remove-agent', { agentId }))
-      const list = ctx.sessions.list.getSnapshot()
-      const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
-      if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
-      return result
-    },
-    selectPanel: (id) => { ctx.layout.selectPanel(id) },
-    toggleSidebar: () => { ctx.layout.toggleSidebar() },
-    // Agent mode hands the surface back to the shell; everything open on the Bot
-    // surface closes first so nothing stale reopens on the way back.
-    setSurface: (mode) => {
-      if (mode !== 'bot' && mode !== 'agent') return
-      // Already there: still worth the landing check — a cold start never calls
-      // setSurface, so this is also how a stuck Bot surface recovers itself.
-      if (surface.getSnapshot().mode === mode) {
-        if (mode === 'bot') ensureBotHome()
-        return
-      }
-      if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, inbox: false, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
-      }
-      writeMode(mode)
-      surface.set(state => ({ ...state, mode }))
-      // The Bot view kept the shell's sidebar collapsed under its own column; the
-      // shell's own view gets it back (below DSH_NARROW the shell decides itself).
-      if (mode === 'agent' && window.innerWidth >= DSH_NARROW && frame.getSnapshot().collapsed) ctx.layout.toggleSidebar()
-      if (mode !== 'bot') return
-      ensureBotHome()
-    },
-  }
-  // Whether AccountLauncher holds the shell's settings seat; FooterAccount steps aside if so.
-  actions.signInEntry = () => ctx.slots.entries?.('settings.models.sign-in')?.[0] ?? null
-  actions.canSignIn = () => Boolean(actions.signInEntry())
-  actions.accountT = () => ctx.get('locale')?.bind?.('settings.account') ?? (key => key)
-  // The Voice Input plugin's speech Remote; absent while that plugin is off.
-  actions.speech = () => ctx.get('remote.speech') ?? undefined
-  // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
-  // through the settings shell's coordinator.
-  actions.openHarnessOnboarding = id => settingsShell?.openOnboarding(id)
-  // With the plugin manager mounted, setup is its bundle page (the model's size
-  // and download notes live there). Where it is not mounted — the desktop app's
-  // profile has no plugin manager — the speech Remote prepares the provider
-  // itself, and the voice pane follows its progress.
-  actions.voiceSetup = (providerId) => {
-    const navigation = ctx.get('pluginNavigation')
-    if (navigation !== undefined) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) }
-    const speech = ctx.get('remote.speech')
-    return speech === undefined || providerId === undefined ? null : { prepare: () => requestPreparation(speech, providerId) }
-  }
-  // The full text the voice chat reads aloud: the turn's closing Assistant
-  // message, not the turn outline's bounded preview. undefined while the chat
-  // view has not materialized the turn; null when the Session is not bound.
-  actions.closingReply = (sessionId, turn) => {
-    try {
-      const binding = ctx.sessions.binding(sessionId)
-      if (binding === undefined) return null
-      return closingReplyText(ctx.uiConversation.binding(binding).target('chat').getSnapshot(), turn)
-    } catch {
-      return null
-    }
-  }
-  actions.seatAccount = on => ui.set(state => (state.accountSeated === on ? state : { ...state, accountSeated: on }))
+  })
 
   // The desktop app carries the floating indicator and the tray entries, and reads the
   // OS idle time for the foreground gate; the entries and the pushes ride its bridge.
@@ -824,91 +876,6 @@ export function apply(ctx) {
     } }
   }
 
-  // The dock lives outside the chat snapshot, so it subscribes for the turn that
-  // owns a card. Until that turn closes, the card stays by the composer.
-  actions.turnFacts = (sessionId) => {
-    try {
-      const binding = ctx.sessions.binding(sessionId)
-      if (binding === undefined) return { turns: undefined, openTurn: undefined }
-      const conversation = ctx.uiConversation.binding(binding)
-      const chat = conversation.target('chat').getSnapshot()
-      return { turns: chat?.timeline?.turns, openTurn: conversation.openTurn.getSnapshot() }
-    } catch {
-      return { turns: undefined, openTurn: undefined }
-    }
-  }
-  actions.watchTurns = (sessionId, listener) => {
-    try {
-      const binding = ctx.sessions.binding(sessionId)
-      if (binding === undefined) return () => {}
-      const conversation = ctx.uiConversation.binding(binding)
-      const offChat = conversation.target('chat').subscribe(listener)
-      const offOpen = conversation.openTurn.subscribe(listener)
-      return () => { offChat(); offOpen() }
-    } catch {
-      return () => {}
-    }
-  }
-  // Enter on an empty composer while the Bot works sends the user's queued
-  // messages into the running turn (the "+" owns the key; #839).
-  actions.steerQueued = async (sessionId) => {
-    const session = ctx.sessions.binding(sessionId)?.session
-    if (session === undefined) return
-    const steerBatch = roster.getSnapshot().byId?.[sessionId] !== undefined
-      ? async (ids) => {
-          try {
-            const result = await actions.steerQueueBatch(sessionId, ids)
-            return result?.fallback === true ? 'fallback' : 'done'
-          } catch (error) {
-            return error?.code === 'bot/not-found' ? 'fallback' : 'failed'
-          }
-        }
-      : undefined
-    if (await steerQueued(session, steerBatch) === 'failed') {
-      actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
-    }
-  }
-  // The shell's own draft intake, for files a chat's draft gets back (draft-keep.js).
-  actions.draftFiles = (ids) => {
-    const conversation = ctx.get('conversation')
-    if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== 'function') return []
-    return conversation.resolveDraftAttachments(ids).map(item => ({ kind: item.kind, file: item.file }))
-  }
-  actions.restoreDraftFiles = (sessionId, files) => {
-    const conversation = ctx.get('conversation')
-    if (typeof conversation?.createDrafts !== 'function') return []
-    return conversation.createDrafts(sessionId, files, true).map(item => item.id)
-  }
-  actions.releaseDraftFiles = (ids) => {
-    const conversation = ctx.get('conversation')
-    if (typeof conversation?.releaseDraftAttachment !== 'function') return
-    for (const id of ids) conversation.releaseDraftAttachment(id)
-  }
-  // A terminal tab in DSH's right column, only where the terminal plugin
-  // registered its type and the column face is there.
-  actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined
-  // The tabs of the terminals a shown Bot starts, as DSH's own header opens them.
-  actions.watchAgentTerminals = sessionId => watchAgentTerminals(ctx.slots, sessionId, error => actions.reportError(error, 'right-sidebar'))
-  actions.newTerminal = () => {
-    // The column takes the drawer's space: hand it over first.
-    actions.closePanel()
-    try {
-      callServiceMethod(ctx, 'sidebarRight', 'openTab', 'terminal')
-    } catch (error) {
-      actions.reportError(error, 'right-sidebar')
-    }
-  }
-  // The same hand-off for DSH's files tab, where that plugin registered it.
-  actions.canOpenFiles = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('files') !== undefined
-  actions.openFiles = () => {
-    actions.closePanel()
-    try {
-      callServiceMethod(ctx, 'sidebarRight', 'openTab', 'files')
-    } catch (error) {
-      actions.reportError(error, 'right-sidebar')
-    }
-  }
-
   // The drawer and DSH's right column never share the window: whichever the
   // user asked for last wins. The column's state is read off the frame's
   // attributes through a MutationObserver. `mounted` moves before the DOM of a
@@ -976,7 +943,6 @@ export function apply(ctx) {
 
   // The "@" menu's Bot group and the chats "+" references. The composer's controller
   // for a Session is the shell's own, so the chats open at its caret.
-  let atMenu = null
   const installAtMenu = () => {
     const fiber = ctx.inject(['inputTriggers'], (scope) => {
       scope.effect(() => {
@@ -998,12 +964,6 @@ export function apply(ctx) {
       }, 'ds-bot: @ menu')
     })
     return () => fiber.dispose()
-  }
-  actions.canReferenceChat = () => atMenu !== null
-  actions.referenceChat = (sessionId, span) => {
-    const controller = atMenu?.controllerOf(sessionId)
-    if (controller === undefined || span === undefined) return
-    controller.toggleSource(CHATS_SOURCE, { trigger: '@', query: '', quoted: false, position: 'inline', span })
   }
 
   // The panel's yield flag and the drawer's flag follow the frame: opening (or
@@ -1067,8 +1027,7 @@ export function apply(ctx) {
   ]
   // Settings outside Bot mode (Agent mode) brings DS Bot's own rules and colors while it
   // shows; the shell overrides and DSH's tokens stay as Agent mode has them.
-  let shellSheets = 0
-  actions.holdSettingsLook = () => {
+  holdSettingsLookFn = () => {
     if (shellSheets > 0) return () => {}
     const syncEffects = () => {
       const current = roster.getSnapshot()

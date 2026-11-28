@@ -29,7 +29,9 @@ export {
   pruneRemovedChatDrafts,
 } from './drafts.js'
 export {
+  assembleTeamActions,
   sectionFoldWrites,
+  SETTINGS_PANEL_IDS,
   teamActions,
   createStoreActions,
   createNavigationActions,

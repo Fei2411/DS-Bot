@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  assembleTeamActions,
   clearFailedSends,
   createBrowserController,
   createDraftFiles,
@@ -18,6 +19,7 @@ import {
   pendingFailedByChat,
   pruneRemovedChatDrafts,
   seenKeyOf,
+  SETTINGS_PANEL_IDS,
   startComputerBridge,
 } from '../src/client/team-core/index.js'
 import { sectionFoldWrites } from '../src/client/team-actions.js'
@@ -394,6 +396,82 @@ test('team-core browser and computer controllers manage tabs, retains, cursor ab
   assert.deepEqual(stops, [['bot-a', false]])
   stopComputer()
   assert.equal(cursorAborted, true)
+})
+
+test('team-core assembleTeamActions orchestrates openChanges, steerQueued, openSession, and host hooks uniformly', async () => {
+  const storage = makeStorage()
+  const store = createTeamStore({ storage })
+  store.roster.set(indexRoster({
+    revision: 1,
+    bots: [{ id: 'bot-a', sessionId: 'bot-a-p2', parts: ['bot-a', 'bot-a-p2'] }],
+    rooms: [],
+    agents: [{ id: 'agent-1', sessions: ['cs-1'] }],
+  }))
+  const openedTeam = []
+  const openedAgent = []
+  const openedChanges = []
+  let closedPanelCount = 0
+  let fallbackSteerCalls = 0
+  const nav = createNavigationActions({
+    call: async () => ({}),
+    after: p => p,
+    pull: async () => false,
+    store,
+    onRetry: () => {},
+    onRecovered: () => {},
+    onLand: () => {},
+  })
+  const updateCtrl = createUpdateController({ call: async () => ({}), update: store.update, getAppUpdates: () => null, getOwnAppUpdates: () => null })
+  const browserCtrl = createBrowserController({ call: async () => ({}), store, bridge: null })
+  const actions = assembleTeamActions({
+    call: async (endpoint, body) => {
+      if (endpoint === 'changes-check') return body.seq === 5
+      if (endpoint === 'bot-steer-queue') return body.ids.includes('q-fallback') ? { fallback: true } : { ok: true }
+      return {}
+    },
+    after: p => p,
+    store,
+    foldWrites: sectionFoldWrites(),
+    panelFolded: () => false,
+    nav,
+    updateCtrl,
+    browserCtrl,
+    host: {
+      afterClosePanel: () => { closedPanelCount += 1 },
+      openChanges: changes => openedChanges.push(changes),
+      isAgentSession: id => id === 'cs-1',
+      openTeamSession: args => openedTeam.push(args),
+      openAgentSession: sid => openedAgent.push(sid),
+      steerQueued: async (sid, { tryBotBatch }) => {
+        const res = await tryBotBatch(sid === 'bot-a-p2' ? ['q-fallback'] : ['q-1'])
+        if (res === 'fallback') fallbackSteerCalls += 1
+      },
+    },
+  })
+
+  // openSession routes agent sessions to openAgentSession and bots to openTeamSession with partFor resolution.
+  actions.openSession('cs-1')
+  assert.deepEqual(openedAgent, ['cs-1'])
+  actions.openSession('bot-a')
+  assert.equal(openedTeam.length, 1)
+  assert.equal(openedTeam[0].target, 'bot-a-p2')
+
+  // openChanges checks availability via host and notices when unavailable.
+  await actions.openChanges({ sessionId: 'bot-a-p2', seq: 5, turn: 1 })
+  assert.equal(openedChanges.length, 1)
+  await actions.openChanges({ sessionId: 'bot-a-p2', seq: 99, turn: 1 })
+  assert.equal(openedChanges.length, 1)
+  assert.ok(store.ui.getSnapshot().toast?.text)
+
+  // steerQueued delegates bot batch and falls back when host signals fallback: true.
+  await actions.steerQueued('bot-a-p2')
+  assert.equal(fallbackSteerCalls, 1)
+
+  // closePanel triggers host cleanup hook; defaults for holdSettingsLook & SETTINGS_PANEL_IDS work.
+  actions.closePanel()
+  assert.equal(closedPanelCount, 1)
+  assert.equal(typeof actions.holdSettingsLook(), 'function')
+  assert.equal(SETTINGS_PANEL_IDS.has('models'), true)
 })
 
 test('team-core pull preserves question drafts for rescue when session recovery replaces a surviving Bot part', async () => {

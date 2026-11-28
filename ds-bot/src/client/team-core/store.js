@@ -81,7 +81,7 @@ export function createTeamStore({
     goalOpen: null,
     approvalOpen: null,
     inbox: false,
-    ...(extraUi ?? {}),
+    ...extraUi,
   })
 
   let sidebarSaved = readSidebar(storage)
@@ -93,7 +93,7 @@ export function createTeamStore({
     collapsedWidth: 0,
     collapsed: false,
   })
-  const surface = createSource({ mode: readMode(), ...(surfaceExtra ?? {}) })
+  const surface = createSource({ mode: readMode(), ...surfaceExtra })
 
   const activity = createSource({})
   const work = createSource(NO_WORK)
