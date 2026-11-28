@@ -557,6 +557,38 @@ test('desktop Bot replies load local Markdown images through the session-scoped 
   }
 })
 
+test('desktop Bot replies in earlier parts resolve Markdown images in the original session', async () => {
+  const requests = []
+  const previousCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint !== 'markdown-image') return {}
+    requests.push(plain(body))
+    return { mime: 'image/png', bytes: 'AAAA' }
+  }
+  const sessionId = 'current-part'
+  const partSessionId = 'earlier-part'
+  const bot = { id: 'b1', name: 'Chief', sessionId, parts: [partSessionId] }
+  const roster = { bots: [bot], byId: { b1: bot, [sessionId]: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const log = { header: { cwd: '/repo' }, events: [], writing: null }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId, bot, roster,
+    actions: {
+      earlier: async () => ({
+        items: [{ kind: 'bot', text: '![Earlier](sample.png)', time: 1000, sessionId: partSessionId }],
+        partIndex: 0, cursor: null,
+      }),
+    },
+  }))
+  try {
+    await flush()
+    assert.deepEqual(requests, [{ sessionId: partSessionId, path: 'sample.png' }])
+    assert.equal(view.host.querySelector('img')?.getAttribute('src'), 'data:image/png;base64,AAAA')
+  } finally {
+    view.unmount()
+    sandbox.__testCall = previousCall
+  }
+})
+
 test('Classic session renders reply feedback (submit, dialog, retract) and never renders it in Bot chats', async () => {
   const rpcCalls = []
   const notices = []

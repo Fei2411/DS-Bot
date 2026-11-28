@@ -46568,7 +46568,7 @@ function earlierItems(pages, { cursor, loading } = {}) {
   }
   return { items, hasContent: items.some((item) => item.kind !== "divider") };
 }
-function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
+function EarlierParts({ sessionId, roster, actions, openFile, renderUserText, wrapBotReply }) {
   const [view, setView] = (0, import_react39.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react39.useRef)(null);
   const busy = (0, import_react39.useRef)(false);
@@ -46637,7 +46637,7 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
       { ref: top, className: "bt-earlier-top" },
       view.loading ? (0, import_react39.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
-    (0, import_react39.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
+    (0, import_react39.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText, wrapBotReply }),
     hasContent ? (0, import_react39.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
@@ -46730,7 +46730,7 @@ var stableEventOpen = (row, selfId, otherId, actions) => {
   }
   return cached.value;
 };
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply, locale }) {
   switch (row.kind) {
     case "divider":
       return (0, import_react39.createElement)(MemoPartLine, { key, time: row.time, locale });
@@ -46747,7 +46747,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     case "bot": {
       const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
-      return speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
+      const reply = speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
+      return wrapBotReply ? wrapBotReply(reply, row.sessionId, key) : reply;
     }
     case "btw":
       return (0, import_react39.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
@@ -46796,7 +46797,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       return null;
   }
 }
-function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply }) {
   const selfId = roster.byId[sessionId]?.id;
   const visit = useUi((state) => state?.visits?.[sessionId]);
   const locale = localeKey();
@@ -46847,7 +46848,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: c
     const count = seenKeys.get(baseKey) ?? 0;
     seenKeys.set(baseKey, count + 1);
     const key = count === 0 ? baseKey : `${baseKey}#${count}`;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale });
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, wrapBotReply, locale });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];

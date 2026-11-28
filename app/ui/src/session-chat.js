@@ -1100,6 +1100,10 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 
 const EMPTY_SPEAKERS = new Set()
 
+function wrapEarlierBotReply(reply, sessionId, key) {
+  return h(MarkdownImageSession.Provider, { value: sessionId, key }, reply)
+}
+
 function renderTranscriptRows({
   rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts, firstUnreadKey = null,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
@@ -1118,7 +1122,7 @@ function renderTranscriptRows({
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText, wrapBotReply: classic ? undefined : wrapEarlierBotReply })
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
@@ -1518,7 +1522,7 @@ export function SessionTranscript({
   }) : null
 
   return [
-    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText })] : []),
+    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText, wrapBotReply: classic ? undefined : wrapEarlierBotReply })] : []),
     ...projected,
     ...(feedbackDialog ? [feedbackDialog] : []),
   ]
