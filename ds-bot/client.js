@@ -38495,8 +38495,8 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
     ),
     (0, import_react22.createElement)(
       Collapse,
-      { open: hasEfforts },
-      hasEfforts ? (0, import_react22.createElement)("div", { className: "bt-model-effort" }, (0, import_react22.createElement)(EffortBar, { key: picker.current, reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null
+      { key: picker.current, open: hasEfforts },
+      hasEfforts ? (0, import_react22.createElement)("div", { className: "bt-model-effort" }, (0, import_react22.createElement)(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null
     )
   );
 }

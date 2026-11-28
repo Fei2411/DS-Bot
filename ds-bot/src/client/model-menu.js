@@ -614,8 +614,8 @@ function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPi
         modelSearch(picker, menu),
         modelScroll(picker, pick),
         manage ? h('div', { className: 'bt-model-foot' }, manageButton(manage, close)) : null)),
-    h(Collapse, { open: hasEfforts },
-      hasEfforts ? h('div', { className: 'bt-model-effort' }, h(EffortBar, { key: picker.current, reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null))
+    h(Collapse, { key: picker.current, open: hasEfforts },
+      hasEfforts ? h('div', { className: 'bt-model-effort' }, h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null))
 }
 
 // The card a Bot's chat opens on while the Bot has no model, or has one that is no
