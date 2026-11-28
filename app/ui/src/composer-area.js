@@ -55,26 +55,25 @@ const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
 const NO_LIST_HOOK = selector => selector(EMPTY_LIST)
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
-const wrapMemo = fn => (typeof memo === 'function' ? memo(fn) : fn)
 
-const MemoMemberDock = wrapMemo(MemberDock)
-const MemoModelChoiceDock = wrapMemo(ModelChoiceDock)
-const MemoQuestionDock = wrapMemo(QuestionDock)
-const MemoWidgetDock = wrapMemo(WidgetDock)
-const MemoSecretDock = wrapMemo(SecretDock)
-const MemoConnectorDock = wrapMemo(ConnectorDock)
-const MemoMailDock = wrapMemo(MailDock)
-const MemoWorkPauseDock = wrapMemo(WorkPauseDock)
-const MemoHandoffDock = wrapMemo(HandoffDock)
-const MemoComputerHandoffDock = wrapMemo(ComputerHandoffDock)
-const MemoAppAccessDock = wrapMemo(AppAccessDock)
-const MemoApprovalDock = wrapMemo(ApprovalDock)
-const MemoClassicPlanReviewDock = wrapMemo(ClassicPlanReviewDock)
-const MemoClassicQuestionDock = wrapMemo(ClassicQuestionDock)
-const MemoBtwDock = wrapMemo(BtwDock)
-const MemoLearningDock = wrapMemo(LearningDock)
-const MemoDesktopQueueDock = wrapMemo(DesktopQueueDock)
-const MemoSubagentReadOnlyBar = wrapMemo(SubagentReadOnlyBar)
+const MemoMemberDock = memo(MemberDock)
+const MemoModelChoiceDock = memo(ModelChoiceDock)
+const MemoQuestionDock = memo(QuestionDock)
+const MemoWidgetDock = memo(WidgetDock)
+const MemoSecretDock = memo(SecretDock)
+const MemoConnectorDock = memo(ConnectorDock)
+const MemoMailDock = memo(MailDock)
+const MemoWorkPauseDock = memo(WorkPauseDock)
+const MemoHandoffDock = memo(HandoffDock)
+const MemoComputerHandoffDock = memo(ComputerHandoffDock)
+const MemoAppAccessDock = memo(AppAccessDock)
+const MemoApprovalDock = memo(ApprovalDock)
+const MemoClassicPlanReviewDock = memo(ClassicPlanReviewDock)
+const MemoClassicQuestionDock = memo(ClassicQuestionDock)
+const MemoBtwDock = memo(BtwDock)
+const MemoLearningDock = memo(LearningDock)
+const MemoDesktopQueueDock = memo(DesktopQueueDock)
+const MemoSubagentReadOnlyBar = memo(SubagentReadOnlyBar)
 
 export { clearFailedSends, pruneFailedSends }
 
@@ -338,7 +337,7 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
     canTerminal ? h('button', { type: 'button', role: 'menuitem', onClick: openTerminal }, h(TerminalIcon), h('span', { className: 'bt-menu-label' }, t('Terminal'))) : null), document.body) : null)
 }
 
-export const Composer = wrapMemo(function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, insertQuoteRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
+export const Composer = memo(function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, insertQuoteRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
   const roster = useRoster(value => value)
   const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
   const sessionQueue = (useSessionQueues ?? NO_OBJ_HOOK)(map => map?.[sessionId] ?? EMPTY_LIST)
@@ -1361,7 +1360,7 @@ export const Composer = wrapMemo(function Composer({ sessionId, placeholder, dis
 
 // Bottom area (all Docks, Queue Dock, and Composer). Isolated from the live streaming
 // session subscription so streaming tokens never re-render the composer or any dock.
-export const ComposerArea = wrapMemo(function ComposerArea({
+export const ComposerArea = memo(function ComposerArea({
   activeSessionId,
   botId,
   isRoom,

@@ -19,8 +19,7 @@ const EMPTY_SESSIONS = { ids: [], byId: {} }
 const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
-const wrapMemo = fn => (typeof memo === 'function' ? memo(fn) : fn)
-const MemoChatRows = wrapMemo(ChatRows)
+const MemoChatRows = memo(ChatRows)
 
 const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
   ? a.id === b.id && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
@@ -191,7 +190,7 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   return { view, load }
 }
 
-const PendingUserRows = wrapMemo(function PendingUserRows({ items, sessionId, classic = false, reconnecting = false }) {
+const PendingUserRows = memo(function PendingUserRows({ items, sessionId, classic = false, reconnecting = false }) {
   if (!items || items.length === 0) return null
   const statusLabel = reconnecting ? t('Waiting to confirm…') : t('Sending…')
   const meta = h('div', { className: 'dsb-pending-meta', 'data-reconnecting': reconnecting || undefined },
@@ -213,7 +212,7 @@ const PendingUserRows = wrapMemo(function PendingUserRows({ items, sessionId, cl
 
 // Scrollable conversation transcript that owns the live streaming subscription
 // (`useSessionFollow` for DM / Classic / Subagent sessions and `useRoomChat` for group chats).
-export const Transcript = wrapMemo(function Transcript({
+export const Transcript = memo(function Transcript({
   sessionId,
   activeSessionId,
   viewedSessionId,

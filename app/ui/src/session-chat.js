@@ -162,6 +162,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
   const flushFramesRef = useRef(null)
+  const reopenFollowRef = useRef(null)
   const genRef = useRef(0)
   const gapGenRef = useRef(0)
   const pagingRef = useRef(false)
@@ -185,6 +186,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     const fresh = emptyLog()
     logRef.current = fresh
     flushFramesRef.current = null
+    reopenFollowRef.current = null
     setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false, quietSeq: -1, reloadEpoch: 0 })
     if (!enabled || !sessionId) return undefined
 
@@ -260,27 +262,50 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     }
 
     // Buffer high-frequency `assistant-stream` frames and commit state at most once per
-    // animation frame. Non-stream frames (`snapshot`, `event`, `error`, `lost`) flush the
-    // buffer immediately so ordering, cursor updates, and gap fills stay exact.
+    // animation frame in the foreground. While hidden/minimized/occluded (when Chromium
+    // suspends rAF), a low-frequency fallback timer keeps buffering bounded and lossless,
+    // and returning to visible flushes immediately. Authoritative `snapshot` frames and
+    // any reopen/end clear stale buffered stream frames so old chunks can never drop a
+    // fresh snapshot or leak across reconnects.
+    const BACKGROUND_FLUSH_MS = 250
     const pendingFrames = []
-    let scheduledId = null
-    let scheduledKind = null
+    let rafId = null
+    let timerId = null
+    let microScheduled = false
     const cancelScheduled = () => {
-      if (scheduledId !== null) {
-        if (scheduledKind === 'raf' && typeof cancelAnimationFrame === 'function') {
-          cancelAnimationFrame(scheduledId)
-        }
-        scheduledId = null
-        scheduledKind = null
+      if (rafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId)
+        rafId = null
       }
+      if (timerId !== null) {
+        clearTimeout(timerId)
+        timerId = null
+      }
+      microScheduled = false
     }
+    const clearPending = () => {
+      cancelScheduled()
+      pendingFrames.length = 0
+    }
+    const reopenFollow = () => {
+      clearPending()
+      followRef.current?.reopen()
+    }
+    reopenFollowRef.current = reopenFollow
     const flushFrames = () => {
       cancelScheduled()
       if (genRef.current !== myGen || pendingFrames.length === 0) {
         pendingFrames.length = 0
         return
       }
-      const batch = pendingFrames.splice(0, pendingFrames.length)
+      const rawBatch = pendingFrames.splice(0, pendingFrames.length)
+      // An authoritative snapshot carries the full cursor and active stream state, so drop
+      // any older buffered frames preceding the latest snapshot in the same batch.
+      let startIndex = 0
+      for (let i = rawBatch.length - 1; i >= 0; i -= 1) {
+        if (rawBatch[i]?.type === 'snapshot') { startIndex = i; break }
+      }
+      const batch = startIndex > 0 ? rawBatch.slice(startIndex) : rawBatch
       let anySnapshot = false
       let anyReloaded = false
       let needReopen = false
@@ -361,21 +386,44 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
         reloadEpoch: anyReloaded ? current.reloadEpoch + 1 : current.reloadEpoch,
         quietSeq: anyReloaded ? Math.max(0, nextCursor) : (anySnapshot ? Math.max(current.quietSeq, nextCursor) : current.quietSeq),
       }))
-      if (needReopen) followRef.current?.reopen()
+      if (needReopen) reopenFollow()
     }
     flushFramesRef.current = flushFrames
     const scheduleFlush = () => {
-      if (scheduledId !== null) return
+      if (rafId !== null || timerId !== null || microScheduled) return
+      const hidden = typeof document !== 'undefined' && document.hidden === true
+      if (hidden) {
+        timerId = setTimeout(() => {
+          timerId = null
+          flushFrames()
+        }, BACKGROUND_FLUSH_MS)
+        return
+      }
       if (typeof requestAnimationFrame === 'function') {
-        scheduledKind = 'raf'
-        scheduledId = requestAnimationFrame(() => flushFrames())
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          flushFrames()
+        })
+        // Fallback timer for occluded windows (e.g. macOS) where rAF is suspended even
+        // while `document.hidden` remains false; cancelled on every foreground rAF tick.
+        timerId = setTimeout(() => {
+          timerId = null
+          flushFrames()
+        }, BACKGROUND_FLUSH_MS)
       } else {
-        scheduledKind = 'micro'
-        scheduledId = 1
+        microScheduled = true
         queueMicrotask(() => {
-          if (scheduledKind === 'micro') flushFrames()
+          if (microScheduled) flushFrames()
         })
       }
+    }
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden && pendingFrames.length > 0) {
+        flushFrames()
+      }
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
     }
 
     const handle = openFollowRef.current({
@@ -387,21 +435,28 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
-        pendingFrames.push(data)
-        if (data?.type === 'assistant-stream') {
+        if (data?.type === 'snapshot') {
+          clearPending()
+          pendingFrames.push(data)
+          flushFrames()
+        } else if (data?.type === 'assistant-stream') {
+          pendingFrames.push(data)
           scheduleFlush()
         } else {
+          pendingFrames.push(data)
           flushFrames()
         }
+      } else if (event === 'end') {
+        clearPending()
       } else if (event === 'error') {
-        if (pendingFrames.length > 0) flushFrames()
         if (data?.code === 'bot/stale' && !resyncRef.current) {
           // The durable log no longer reaches this window's cursor. Reopen once without
           // `after` and keep any already-loaded earlier pages by paging only the missing gap.
           resyncRef.current = true
-          followRef.current?.reopen()
+          reopenFollow()
           return
         }
+        if (pendingFrames.length > 0) flushFrames()
         const terminal = data?.code === 'bot/not-found'
           || data?.code === 'bot/refused'
           || data?.code === 'bot/invalid'
@@ -422,9 +477,12 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     return () => {
       if (genRef.current === myGen) genRef.current += 1
       gapGenRef.current += 1
-      cancelScheduled()
-      pendingFrames.length = 0
+      clearPending()
+      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
       if (flushFramesRef.current === flushFrames) flushFramesRef.current = null
+      if (reopenFollowRef.current === reopenFollow) reopenFollowRef.current = null
       handle.close()
       if (followRef.current === handle) followRef.current = null
     }
@@ -436,7 +494,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
   useEffect(() => {
     if (!enabled || !sessionId || !feed) return undefined
     return feed.on((event, data) => {
-      if (readOnly && (event === 'revision' || (event === 'hello' && data?.resumed !== true))) followRef.current?.reopen()
+      if (readOnly && (event === 'revision' || (event === 'hello' && data?.resumed !== true))) reopenFollowRef.current?.()
     })
   }, [enabled, sessionId, parent, mode, feed, readOnly])
 
@@ -445,7 +503,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
     if (!enabled || !readOnly || !sessionId) return
     if (Number.isFinite(readOnlyUpdatedAt) && Number.isFinite(prev) && readOnlyUpdatedAt > prev) {
-      followRef.current?.reopen()
+      reopenFollowRef.current?.()
     }
   }, [enabled, readOnly, sessionId, readOnlyUpdatedAt])
 
@@ -486,7 +544,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
 
   const retry = useCallback(() => {
     setState(current => ({ ...current, loading: true, failed: false, terminalError: null }))
-    followRef.current?.reopen()
+    reopenFollowRef.current?.()
   }, [])
 
   return {

@@ -772,7 +772,7 @@ function buildCommittedRows(events, roster, sessionId) {
     }
   }
 
-  return { rows, callsById, roster, sessionId }
+  return { rows, callsById }
 }
 
 // Live in-progress reply rows from DSH's BlockAssembler, rebuilt per stream chunk. They

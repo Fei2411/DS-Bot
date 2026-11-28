@@ -19,7 +19,6 @@ import { queueRowText } from './queue-dock.js'
 const EMPTY_OBJ = {}
 const EMPTY_LIST = Object.freeze([])
 const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
-const wrapMemo = fn => (typeof memo === 'function' ? memo(fn) : fn)
 
 export {
   ComposerArea,
@@ -56,7 +55,7 @@ function selectionElementOf(node) {
   return node.nodeType === 1 ? node : node.parentElement ?? null
 }
 
-const TextSelectionOverlay = wrapMemo(function TextSelectionOverlay({ sessionId, containerRef, insertQuoteRef, disabled, actions, useRoster }) {
+const TextSelectionOverlay = memo(function TextSelectionOverlay({ sessionId, containerRef, insertQuoteRef, disabled, actions, useRoster }) {
   const [selection, setSelection] = useState(null)
   const [box, setBox] = useState(null)
   const hostRef = useRef(null)
