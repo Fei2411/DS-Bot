@@ -188,6 +188,15 @@ export function App() {
   })
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerOpenRef = useRef(drawerOpen)
+  drawerOpenRef.current = drawerOpen
+  const mobileMenuRef = useRef(null)
+  const restoreMobileMenuFocusRef = useRef(false)
+  const closeDrawer = useCallback(({ restoreFocus = false } = {}) => {
+    if (!drawerOpenRef.current) { restoreMobileMenuFocusRef.current = false; return }
+    restoreMobileMenuFocusRef.current = restoreFocus
+    setDrawerOpen(false)
+  }, [])
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
     const onResize = () => setViewportWidth(window.innerWidth)
@@ -200,40 +209,51 @@ export function App() {
   const effectiveSideW = isNarrow
     ? Math.min(sidebarWidth, Math.max(264, Math.round(viewportWidth * 0.84)))
     : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
-  useEffect(() => { setDrawerOpen(false) }, [shown, surfaceMode])
-  useEffect(() => { if (!isNarrow) setDrawerOpen(false) }, [isNarrow])
-  useEscape(() => setDrawerOpen(false), drawerOpen, { priority: ESCAPE_PRIORITY.DRAWER })
+  useEffect(() => { closeDrawer() }, [shown, surfaceMode, closeDrawer])
+  useEffect(() => { if (!isNarrow) closeDrawer() }, [isNarrow, closeDrawer])
+  useLayoutEffect(() => {
+    if (!isNarrow || drawerOpen || !restoreMobileMenuFocusRef.current) return
+    restoreMobileMenuFocusRef.current = false
+    mobileMenuRef.current?.focus?.()
+  }, [isNarrow, drawerOpen])
+  useEscape(() => closeDrawer({ restoreFocus: true }), drawerOpen, { priority: ESCAPE_PRIORITY.DRAWER })
   const teamSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: undefined,
     setSidebarPref: (pref) => {
-      if (isNarrow) setDrawerOpen(pref === 'open')
-      else actions.setSidebarPref(pref)
+      if (isNarrow) {
+        if (pref === 'open') { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) }
+        else closeDrawer({ restoreFocus: true })
+      } else actions.setSidebarPref(pref)
     },
     setSidebarWidth: (width) => actions.setSidebarWidth(width),
     setLeftDrawer: (next) => {
-      if (isNarrow) setDrawerOpen(Boolean(next))
-      else actions.setLeftDrawer(Boolean(next))
+      if (isNarrow) {
+        if (next) { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) }
+        else closeDrawer({ restoreFocus: true })
+      } else actions.setLeftDrawer(Boolean(next))
     },
     toggleLeftHidden: () => {
-      if (isNarrow) setDrawerOpen(open => !open)
-      else actions.toggleLeftHidden()
+      if (isNarrow) {
+        if (drawerOpenRef.current) closeDrawer({ restoreFocus: true })
+        else { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) }
+      } else actions.toggleLeftHidden()
     },
-    openSettings: (...args) => { setDrawerOpen(false); return actions.openSettings(...args) },
-    selectPanel: (...args) => { setDrawerOpen(false); return actions.selectPanel(...args) },
-    openNewChat: (...args) => { setDrawerOpen(false); return actions.openNewChat(...args) },
-    openPalette: (...args) => { setDrawerOpen(false); return actions.openPalette(...args) },
-  }), [actions, isNarrow])
+    openSettings: (...args) => { closeDrawer(); return actions.openSettings(...args) },
+    selectPanel: (...args) => { closeDrawer(); return actions.selectPanel(...args) },
+    openNewChat: (...args) => { closeDrawer(); return actions.openNewChat(...args) },
+    openPalette: (...args) => { closeDrawer(); return actions.openPalette(...args) },
+  }), [actions, isNarrow, closeDrawer])
   const classicSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: () => {
-      if (isNarrow) setDrawerOpen(false)
+      if (isNarrow) closeDrawer({ restoreFocus: true })
       else actions.toggleLeftHidden()
     },
-    openAgentSession: (...args) => { setDrawerOpen(false); return actions.openAgentSession(...args) },
-    newAgentSession: (...args) => { setDrawerOpen(false); return actions.newAgentSession(...args) },
-    addAgent: (...args) => { setDrawerOpen(false); return actions.addAgent(...args) },
-  }), [actions, isNarrow])
+    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession(...args) },
+    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession(...args) },
+    addAgent: (...args) => { closeDrawer(); return actions.addAgent(...args) },
+  }), [actions, isNarrow, closeDrawer])
   const useTeamUi = useMemo(
     () => makeTeamUiHook(hooks.useUi, isNarrow, drawerOpen),
     [hooks.useUi, isNarrow, drawerOpen],
@@ -289,7 +309,7 @@ export function App() {
       const focus = () => {
         if (typeof document === 'undefined') return
         if (document.querySelector('[aria-modal="true"]')) return
-        document.querySelector('[data-composer-input]')?.focus?.()
+        document.querySelector('[data-bt-composer-input]')?.focus?.()
       }
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus)
       else focus()
@@ -606,7 +626,7 @@ export function App() {
     'data-drawer-open': drawerOpen ? '' : undefined,
     'data-surface': surfaceMode,
   },
-  drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
+  drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => closeDrawer({ restoreFocus: true }) }) : null,
   inClassicMode
     ? h(Fragment, null,
       isNarrow ? null : h(ClassicTitleToggle, { hidden: classicHidden, onToggle: () => actions.toggleLeftHidden() }),
@@ -622,7 +642,7 @@ export function App() {
               className: 'dsb-settings',
               'aria-label': t('Settings'),
               title: t('Settings'),
-              onClick: () => { setDrawerOpen(false); actions.openSettings() },
+              onClick: () => { closeDrawer(); actions.openSettings() },
             }, h(YouAvatar)),
             h(BotReturn, { ...views, wide: true }))))
     : h(TeamSidebar, {
@@ -634,13 +654,14 @@ export function App() {
       wide: effectivePref === 'open',
       hideTitleToggle: isNarrow,
     }),
-  // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
-  h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
+  // The unified right panel makes room by giving `[data-bt-center]` a right margin.
+  h('main', { className: 'dsb-main', 'data-bt-center': '', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
     h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
     isNarrow && !drawerOpen ? h('button', {
+      ref: mobileMenuRef,
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': false,
-      onClick: () => setDrawerOpen(true),
+      onClick: () => { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) },
     }, h(SidebarIcon)) : null,
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },

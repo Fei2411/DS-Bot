@@ -227,13 +227,14 @@ test('a chat can have its own background, and pictures nothing uses are removed 
 
 test('the page stylesheet follows the appearance, and safe appearance drops the background and the user stylesheet', async () => {
   const { appearanceCss, backgroundPaint, leaveSafeAppearance, watchSafeAppearance, safeAppearance } = await import('../src/client/appearance.js')
+  const { dshAppearanceCss } = await import('../src/client/appearance-dsh.js')
   const { themesOf } = await import('../src/client/themes.js')
   const theme = themesOf({}).deepseek
   const appearance = { radius: 50, density: 'compact', fontSize: 16, uiFont: 'Inter', background: { kind: 'image', image: 'b'.repeat(64), blur: 8, dim: 30, surface: 80 }, css: '.x{color:red}' }
   const css = appearanceCss({ appearance, theme, pictureUrl: () => 'blob:picture', fonts: true })
   assert.match(css, /--bt-r:0\.5/)
   assert.match(css, /--bt-fs:1\.142/)
-  assert.match(css, /--dsh-content-font-size:16px/)
+  assert.match(css, /--bt-content-fs:16px/)
   assert.match(css, /font-family:"Inter",-apple-system/)
   assert.match(css, /html body \.bt-row\{min-height:44px/)
   assert.match(css, /url\("blob:picture"\) center\/cover no-repeat/)
@@ -247,17 +248,19 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   // The user stylesheet never joins the generated sheet's text: it reaches the page only
   // through the sanitized constructed stylesheet (theme-css.js, covered in theme-css.test).
   assert.doesNotMatch(css, /color:red/)
-  // In DSH the font size is DSH's setting; the fonts go through DSH's own font variables too.
+  // In DSH the font size is DSH's setting; the plugin bridge mirrors fonts onto DSH's own font variables.
   const inDsh = appearanceCss({ appearance, theme })
   assert.doesNotMatch(inDsh, /--bt-fs/)
-  assert.match(inDsh, /--dsh-font-family-text:"Inter"/)
+  assert.match(inDsh, /--bt-reply-font:"Inter"/)
   assert.match(inDsh, /font-family:"Inter",-apple-system/)
+  assert.match(dshAppearanceCss({ appearance }), /--dsh-font-family-text:"Inter"/)
+  assert.match(dshAppearanceCss({ appearance, fonts: true }), /--dsh-content-font-size:16px/)
   // DS Bot's own surfaces read its own font variables, in DSH and in the desktop window
   // alike (where no DSH stylesheet sets DSH's).
   for (const sheet of [css, inDsh]) assert.match(sheet, /html body\{[^}]*--bt-font:"Inter",-apple-system/)
   const coded = appearanceCss({ appearance: { codeFont: 'JetBrains Mono' }, theme })
   assert.match(coded, /--bt-mono:"JetBrains Mono",ui-monospace/)
-  assert.match(coded, /--dsh-font-family-code:"JetBrains Mono"/)
+  assert.match(dshAppearanceCss({ appearance: { codeFont: 'JetBrains Mono' } }), /--dsh-font-family-code:"JetBrains Mono"/)
   // Code that DS Bot and the desktop window draw reads --bt-mono, not a stack of its own: a
   // stronger rule with fixed fonts would keep the chosen code font out.
   const { readFileSync } = await import('node:fs')

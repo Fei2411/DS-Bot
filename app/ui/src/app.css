@@ -1,7 +1,7 @@
 @import '@xterm/xterm/css/xterm.css';
 /* The frame around the Bot views. The views bring their own stylesheets (main.js); these
    rules give the frame the sizes the views have in DSH. Colors come from the --bt-* variables. */
-html,body,#root{height:100%;margin:0}
+html,body,#root{height:100%;margin:0;overflow:hidden}
 body{color-scheme:light;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-font,-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Helvetica,Arial,sans-serif);-webkit-font-smoothing:antialiased}
 body[data-ds-dark-theme]{color-scheme:dark}
 ::-webkit-scrollbar{width:12px;height:12px}
@@ -16,19 +16,19 @@ body[data-ds-dark-theme]{color-scheme:dark}
    moves the window (BAND in src/main.mjs); its first row of controls sits centered in it.
    The system draws its window buttons over the band: at the right end on Windows and Linux
    (--dsb-buttons-w wide), at the left end on macOS. */
-:root{--dsb-band:48px;--dsb-buttons-w:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw));--dsh-frame-overlay-top:calc(var(--dsb-band) + 8px)}
+:root{--dsb-band:48px;--dsb-buttons-w:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw));--bt-overlay-top:calc(var(--dsb-band) + 8px)}
 .dsb-band{position:absolute;inset:0 0 auto;height:var(--dsb-band);pointer-events:none;-webkit-app-region:drag;app-region:drag}
 .dsb-frame :is(button,a,input,textarea,select,label,[role=button]),body>:not(#root){-webkit-app-region:no-drag;app-region:no-drag}
 /* Full-window app-shell modals and scrims cover the caption band, so body > :not(#root)
    no-drag would otherwise prevent moving the window while they are open. Keep a top drag
    strip on each layer (or on the scrim child when present, since Chromium collects app-region
    in layout-tree order) and stack the dialog surface and controls after it as no-drag. */
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim)::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer>.dsb-preset-modal-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--dsh-windows-titlebar-height,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim)::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer>.dsb-preset-modal-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-titlebar-h,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop)[data-leaving]::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer[data-leaving]>.dsb-preset-modal-scrim::before{-webkit-app-region:initial;app-region:initial}
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop){padding-top:max(20px,var(--dsh-windows-titlebar-height,var(--dsb-band)))}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop){padding-top:max(20px,var(--bt-titlebar-h,var(--dsb-band)))}
 :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-lightbox)>:is(.dsb-shortcuts,.dsb-preset-modal,.dsb-risk-dialog,.dsb-fb-dialog,.dsb-lightbox-fig){position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 .dsb-lightbox>.dsb-lightbox-close{z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
-html[data-windows-titlebar]:not([data-fullscreen]) .dsb-lightbox>.dsb-lightbox-close{top:calc(var(--dsh-windows-titlebar-height,var(--dsb-band)) + 12px)}
+html[data-windows-titlebar]:not([data-fullscreen]) .dsb-lightbox>.dsb-lightbox-close{top:calc(var(--bt-titlebar-h,var(--dsb-band)) + 12px)}
 .bt-panel .bt-drawer-top{padding-top:6px;padding-right:calc(17px + var(--dsb-buttons-w))}
 .bt-panel .bt-ptabs{padding-right:calc(6px + var(--dsb-buttons-w))}
 .bt-pane :is(.bt-to,.bt-create-head){padding-right:calc(12px + var(--dsb-buttons-w))}
@@ -37,7 +37,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) .dsb-lightbox>.dsb-lightbox-c
 .dsb-side{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0 12px 6px;background:var(--bt-sidebar);border-right:1px solid color-mix(in srgb,var(--bt-ink) 12%,transparent);box-sizing:border-box}
 .dsb-side-list{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;margin:0 -12px 0 -4px;padding-left:4px}
 .dsb-side .bt-list{overflow-x:hidden}
-html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{padding-top:var(--dsh-windows-titlebar-height,var(--dsb-band))}
+html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{padding-top:var(--bt-titlebar-h,var(--dsb-band))}
 @media (min-width:769px){html[data-windows-titlebar] .dsb-classic-collapse{display:none}}
 /* macOS non-fullscreen: in the 88px rail, x=88 sits outside the rail in the chat area,
    so the sidebar toggle moves inside the rail's top stack below the traffic lights. */
@@ -51,13 +51,13 @@ html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-le
 .dsb-settings:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 
 /* Conversation: a floating header pill over the transcript, and the composer below. */
-.dsb-main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bt-pane,var(--bt-main));--dsh-chat-content-width:min(960px,100%)}
+.dsb-main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bt-pane,var(--bt-main));--bt-chat-w:min(960px,100%)}
 .dsb-head{position:absolute;top:0;left:0;right:0;z-index:8;display:flex;justify-content:center;padding:14px 0 0;pointer-events:none}
 .dsb-head::before{content:"";position:absolute;inset:0 0 auto;height:74px;background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 .dsb-head .bt-head{flex:1 1 auto;width:100%}
 .dsb-chat{position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
 /* A thin gutter kept for the scrollbar, so the column does not move when one appears. */
-.dsb-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;margin-right:2px;padding:72px 11px 16px 16px}
+.dsb-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;margin-right:2px;padding:72px 11px 16px 16px;--bt-composer-inset:0px}
 .dsb-scroll::-webkit-scrollbar{width:5px}
 .dsb-scroll::-webkit-scrollbar-thumb{border:0;border-radius:5px;background:var(--bt-line-2)}
 .dsb-column{max-width:min(960px,100%);min-width:0;margin:0 auto}
@@ -119,9 +119,9 @@ html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-le
 .dsb-stop:disabled{opacity:.45;cursor:default}
 .dsb-stop svg{width:13px;height:13px}
 /* An empty idle composer offers voice chat where the send button goes; a group chat, dictation. */
-[data-composer-card]:has(.dsb-send:disabled):not([data-running]) .bt-voice{display:inline-grid}
-[data-composer-card][data-running] .bt-voice{display:none!important}
-body[data-bt-room] [data-composer-card]:has(.dsb-send:disabled):not([data-running]) .bt-mic:not([aria-pressed=true]){background:var(--bt-accent);color:var(--bt-accent-ink,#fff)}
+[data-bt-composer]:has(.dsb-send:disabled):not([data-running]) .bt-voice{display:inline-grid}
+[data-bt-composer][data-running] .bt-voice{display:none!important}
+body[data-bt-room] [data-bt-composer]:has(.dsb-send:disabled):not([data-running]) .bt-mic:not([aria-pressed=true]){background:var(--bt-accent);color:var(--bt-accent-ink,#fff)}
 .dsb-composer-error{margin:0 0 6px 4px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 
 /* User image attachments and click-to-zoom lightbox. */
@@ -660,15 +660,15 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 /* Official DSH composer card inside Classic Agent sessions. */
 .dsb-classic-chat .dsb-composer-root{padding:0 calc(16px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))}
 .dsb-classic-chat .dsb-composer-wrap{max-width:min(780px,100%)}
-.dsb-classic-chat [data-composer-card]{min-height:48px!important;padding:8px 10px!important;border-radius:22px!important;background:var(--dsb-dsh-composer)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;border:.5px solid var(--dsb-dsh-composer-border)!important;box-shadow:var(--dsb-dsh-composer-shadow)!important}
-.dsb-classic-chat [data-composer-card]:hover,.dsb-classic-chat [data-composer-card]:focus-within{border-color:var(--bt-line-2)!important}
+.dsb-classic-chat [data-bt-composer]{min-height:48px!important;padding:8px 10px!important;border-radius:22px!important;background:var(--dsb-dsh-composer)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;border:.5px solid var(--dsb-dsh-composer-border)!important;box-shadow:var(--dsb-dsh-composer-shadow)!important}
+.dsb-classic-chat [data-bt-composer]:hover,.dsb-classic-chat [data-bt-composer]:focus-within{border-color:var(--bt-line-2)!important}
 .dsb-classic-chat .bt-plus{width:32px;height:32px}
 .dsb-classic-chat .dsb-composer-input textarea{padding:4px 0;box-sizing:border-box}
-.dsb-classic-chat [data-composer-card] .dsb-send{display:inline-grid;width:32px;height:32px;background:#4d6bfe;color:#fff}
-.dsb-classic-chat [data-composer-card] .dsb-send:hover:not(:disabled){background:#3f5df0}
-.dsb-classic-chat [data-composer-card] .dsb-send:disabled{display:inline-grid;opacity:.36;cursor:default}
-.dsb-classic-chat [data-composer-card][data-running] .dsb-send:disabled{display:none}
-.dsb-classic-chat [data-composer-card] .dsb-stop{width:32px;height:32px}
+.dsb-classic-chat [data-bt-composer] .dsb-send{display:inline-grid;width:32px;height:32px;background:#4d6bfe;color:#fff}
+.dsb-classic-chat [data-bt-composer] .dsb-send:hover:not(:disabled){background:#3f5df0}
+.dsb-classic-chat [data-bt-composer] .dsb-send:disabled{display:inline-grid;opacity:.36;cursor:default}
+.dsb-classic-chat [data-bt-composer][data-running] .dsb-send:disabled{display:none}
+.dsb-classic-chat [data-bt-composer] .dsb-stop{width:32px;height:32px}
 .dsb-classic-chat .dsb-pending .dsb-dsh-user{opacity:.65}
 
 .dsb-scroll[data-empty-hero]{display:flex;flex-direction:column}
@@ -827,24 +827,24 @@ body[data-bt-effects=off] :is(.dsb-conn-banner,.dsb-tool-head,.dsb-tool-action,.
   .dsb-frame,.dsb-frame[data-surface=bot],.dsb-frame[data-surface=agent][data-collapsed]{grid-template-columns:minmax(0,1fr)}
   body>.bt-leftcol[data-left=drawer]{z-index:35}
   .dsb-side{position:fixed;top:0;bottom:0;left:0;z-index:35;width:min(288px,84vw);padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(6px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px));transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,0,0,1);box-shadow:none}
-  html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{position:fixed;top:0;bottom:0;left:0;z-index:35;width:min(288px,84vw);padding:calc(var(--dsh-windows-titlebar-height,var(--dsb-band)) + 6px) 12px calc(6px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px));transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,0,0,1);box-shadow:none}
+  html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{position:fixed;top:0;bottom:0;left:0;z-index:35;width:min(288px,84vw);padding:calc(var(--bt-titlebar-h,var(--dsb-band)) + 6px) 12px calc(6px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px));transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,0,0,1);box-shadow:none}
   .dsb-frame[data-drawer-open] .dsb-side{transform:translateX(0);box-shadow:8px 0 28px rgba(0,0,0,.18)}
   .dsb-drawer-scrim{display:block;position:fixed;inset:0;z-index:34;background:rgba(0,0,0,.36)}
   .dsb-mobile-menu{display:inline-flex;align-items:center;justify-content:center;position:absolute;left:calc(12px + env(safe-area-inset-left,0px));top:calc(14px + env(safe-area-inset-top,0px));z-index:10;width:36px;height:36px;padding:0;border:.5px solid var(--bt-glass-rim);border-radius:50%;corner-shape:round;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);color:var(--bt-ink);cursor:pointer;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;touch-action:manipulation}
   .dsb-mobile-menu:hover{background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-glass-bg))}
   .dsb-mobile-menu:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
   /* Frameless desktop titlebar: sit next to macOS traffic lights in the top drag band without colliding with them or messages. */
-  html[data-windows-titlebar] .dsb-mobile-menu{left:calc(12px + var(--bt-caption-start,0px));top:calc((var(--dsh-windows-titlebar-height,var(--dsb-band)) - 28px) / 2);width:28px;height:28px;border:0;border-radius:6px;corner-shape:auto;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--bt-ink)}
+  html[data-windows-titlebar] .dsb-mobile-menu{left:calc(12px + var(--bt-caption-start,0px));top:calc((var(--bt-titlebar-h,var(--dsb-band)) - 28px) / 2);width:28px;height:28px;border:0;border-radius:6px;corner-shape:auto;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--bt-ink)}
   html[data-windows-titlebar] .dsb-mobile-menu:hover{background:var(--bt-hover)}
   html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-classic-bar{padding-inline:calc(56px + var(--bt-caption-start,0px))}
   .dsb-main[data-classic] .dsb-mobile-menu{top:calc(8px + env(safe-area-inset-top,0px));width:32px;height:32px;border:0;border-radius:8px;corner-shape:auto;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--bt-ink-2)}
   .dsb-main[data-classic] .dsb-mobile-menu:hover{background:var(--bt-hover);color:var(--bt-ink)}
-  html[data-windows-titlebar] .dsb-main[data-classic] .dsb-mobile-menu{top:calc((var(--dsh-windows-titlebar-height,var(--dsb-band)) - 28px) / 2);width:28px;height:28px;border-radius:6px;color:var(--bt-ink)}
+  html[data-windows-titlebar] .dsb-main[data-classic] .dsb-mobile-menu{top:calc((var(--bt-titlebar-h,var(--dsb-band)) - 28px) / 2);width:28px;height:28px;border-radius:6px;color:var(--bt-ink)}
   html[data-windows-titlebar] .bt-leftcol[data-left=drawer] .bt-side-collapse{display:inline-flex}
 }
 @media (max-width:600px),(max-width:767px) and (max-height:500px) and (pointer:coarse){
-  [data-composer-card] .dsb-composer-tools{order:2;margin-top:4px}
-  [data-composer-card] .dsb-composer-trailing{order:3;margin-left:auto;margin-top:4px}
+  [data-bt-composer] .dsb-composer-tools{order:2;margin-top:4px}
+  [data-bt-composer] .dsb-composer-trailing{order:3;margin-left:auto;margin-top:4px}
 }
 @media (max-width:768px) and (pointer:coarse){
   .dsb-composer-input textarea{font-size:16px}

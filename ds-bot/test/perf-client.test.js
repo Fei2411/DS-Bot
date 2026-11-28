@@ -548,7 +548,7 @@ test('#1812 DraftKeeper flushes on beforeunload and visibilitychange (hidden) an
 
 test('#1812 ComposerPlus skips [role="listbox"] on normal typing and enforces real enter-steer contract', async () => {
   const dom = new JSDOM(
-    '<!doctype html><body><div data-composer-card><div contenteditable="true" id="ed"></div><button id="plus"></button></div></body>',
+    '<!doctype html><body><div data-bt-composer><div data-bt-composer-input contenteditable="true" id="ed"></div><button id="plus"></button></div></body>',
     { url: 'http://localhost/' },
   )
   const { window } = dom
@@ -817,9 +817,9 @@ test('cells.js TOOL_ROSTER_FIELDS includes connectors and MailToolCell updates l
 // -------------------------------------------------------------------------
 // header.js: remounted [data-conversation-scroll] still receives scroll updates
 
-test('header.js useTranscriptView rebinds and processes scroll events after [data-conversation-scroll] remounts', async () => {
+test('header.js useTranscriptView rebinds and processes scroll events after [data-bt-scroll] remounts', async () => {
   const dom = new JSDOM(
-    '<!doctype html><body><div id="s1" data-conversation-scroll><div data-chat-following-tail></div></div></body>',
+    '<!doctype html><body><div id="s1" data-bt-scroll data-bt-following-tail="true"></div></body>',
     { url: 'http://localhost/' },
   )
   const { window } = dom
@@ -858,14 +858,11 @@ test('header.js useTranscriptView rebinds and processes scroll events after [dat
   other.dispatchEvent(new window.Event('scroll', { bubbles: true }))
   assert.equal(rafs.length, 0, 'unrelated scroll while watched is connected must be ignored')
 
-  // Disconnect s1 and mount a replacement [data-conversation-scroll] that is unpinned.
+  // Disconnect s1 and mount a replacement [data-bt-scroll] that is unpinned.
   s1.remove()
   const s2 = document.createElement('div')
-  s2.setAttribute('data-conversation-scroll', '')
-  const slot = document.createElement('div')
-  slot.className = '_toBottomSlot_1'
-  slot.appendChild(document.createElement('button'))
-  s2.appendChild(slot)
+  s2.setAttribute('data-bt-scroll', '')
+  s2.setAttribute('data-bt-following-tail', 'false')
   s2.getBoundingClientRect = () => ({ left: 100, top: 50, right: 900, bottom: 700, width: 800, height: 650 })
   document.body.appendChild(s2)
 
@@ -883,10 +880,10 @@ test('header.js useTranscriptView rebinds and processes scroll events after [dat
 // activity-row.js: findHost ownerDocument invalidation + 0-height placeholder contract
 
 test('#1970 activity-row findHost caches connected running slot, refreshes on disconnect and on document swap', async () => {
-  const dom1 = new JSDOM('<!doctype html><div data-chat-flow><div data-chat-running></div></div>')
-  const dom2 = new JSDOM('<!doctype html><div data-chat-flow id="flow2"><div data-chat-running></div></div>')
-  const flow1 = dom1.window.document.querySelector('[data-chat-flow]')
-  const slot1 = dom1.window.document.querySelector('[data-chat-running]')
+  const dom1 = new JSDOM('<!doctype html><div data-bt-flow><div data-bt-running></div></div>')
+  const dom2 = new JSDOM('<!doctype html><div data-bt-flow id="flow2"><div data-bt-running></div></div>')
+  const flow1 = dom1.window.document.querySelector('[data-bt-flow]')
+  const slot1 = dom1.window.document.querySelector('[data-bt-running]')
   const flow2 = dom2.window.document.getElementById('flow2')
   let queries1 = 0
   const origQuery1 = dom1.window.document.querySelector.bind(dom1.window.document)
@@ -916,20 +913,20 @@ test('#1970 activity-row findHost caches connected running slot, refreshes on di
 })
 
 test('activity-row useRowEntrances does NOT mark 0-height placeholders seen during initial 800ms window', async () => {
-  const dom = new JSDOM('<!doctype html><body><div data-chat-flow id="flow"></div></body>', { url: 'http://localhost/' })
+  const dom = new JSDOM('<!doctype html><body><div data-bt-flow id="flow"></div></body>', { url: 'http://localhost/' })
   const { window } = dom
   const { document } = window
   const flow = document.getElementById('flow')
 
   const row1 = document.createElement('div')
-  row1.setAttribute('data-chat-flow-key', 'r1')
+  row1.setAttribute('data-bt-flow-key', 'r1')
   Object.defineProperty(row1, 'offsetHeight', { configurable: true, get: () => 40 })
   flow.appendChild(row1)
 
   let placeholderHeight = 0
   const placeholder = document.createElement('div')
-  placeholder.setAttribute('data-chat-flow-key', 'r2')
-  placeholder.dataset.chatFlowKind = 'assistant-step'
+  placeholder.setAttribute('data-bt-flow-key', 'r2')
+  placeholder.dataset.btFlowKind = 'assistant-step'
   Object.defineProperty(placeholder, 'offsetHeight', { configurable: true, get: () => placeholderHeight })
   flow.appendChild(placeholder)
 
@@ -1691,7 +1688,7 @@ test('mark.js shares one pointer listener and one observer across marks, skips a
 
 test('reading.js invalidates cachedHeadings when a cached heading is disconnected', async () => {
   const dom = new JSDOM(
-    '<!doctype html><body><div data-conversation-scroll id="sc"><div id="box"><h2>Old Title</h2><p>Body</p><h2>Second</h2></div></div></body>',
+    '<!doctype html><body><div data-bt-scroll id="sc"><div id="box"><h2>Old Title</h2><p>Body</p><h2>Second</h2></div></div></body>',
     { url: 'http://localhost/' },
   )
   const { window } = dom

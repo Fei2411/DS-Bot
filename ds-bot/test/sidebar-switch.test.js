@@ -17,7 +17,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
+    contents: "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'\nexport { DSH_SHELL_CSS } from './src/client/styles-dsh.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -60,7 +60,7 @@ const sandbox = {
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, botOwnCss, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
+const { SHELL_CSS, botOwnCss, DSH_SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -290,7 +290,7 @@ function rulesOf(css) {
   }
 }
 const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|data-shell-leading|data-sidebar-opener|bt-side-collapse|bt-title-toggle/
-const rules = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].filter(rule => SHELL_PARTS.test(rule.selector))
+const rules = [...rulesOf(SHELL_CSS), ...rulesOf(DSH_SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].filter(rule => SHELL_PARTS.test(rule.selector))
 const hiding = rules.filter(rule => /display:none/.test(rule.body))
 const showing = rules.filter(rule => /display:inline-flex/.test(rule.body))
 
@@ -423,14 +423,14 @@ test('DSH shell.leading sidebar opener and desktop new-session button stay hidde
   const standalone = new JSDOM('<!doctype html><html><body><button data-sidebar-opener="true"></button></body></html>').window.document
   const standaloneBtn = standalone.querySelector('[data-sidebar-opener]')
   assert.equal(hiding.some(rule => standaloneBtn.matches(rule.selector)), true)
-  // Settings opened from Classic Agent mode uses botOwnCss(SHELL_CSS), which must not hide DSH's own controls.
-  const own = botOwnCss(SHELL_CSS)
-  assert.doesNotMatch(own, /data-shell-leading|data-sidebar-opener/)
+  // Desktop SHELL_CSS stays free of DSH-private selectors, and botOwnCss(DSH_SHELL_CSS) drops them so Classic mode Settings never hides DSH's own controls.
+  assert.doesNotMatch(SHELL_CSS, /data-shell-leading|data-sidebar-opener/)
+  assert.doesNotMatch(botOwnCss(DSH_SHELL_CSS), /data-shell-leading|data-sidebar-opener/)
 })
 
 function collapsedGridRules() {
   const { document } = new JSDOM('<style></style>').window
-  document.querySelector('style').textContent = `${SHELL_CSS}\n${SIDEBAR_CSS}`
+  document.querySelector('style').textContent = `${SHELL_CSS}\n${DSH_SHELL_CSS}\n${SIDEBAR_CSS}`
   const frames = []
   const visit = (rules, media = []) => {
     for (const rule of rules) {
@@ -547,14 +547,14 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
   // Reduced motion disables the column fold transition and the conversation right-margin transition.
-  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-folding\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-folding\],\[data-bt-center\]\{transition:none\}\}/)
 })
 
 test('the column draws its first mount in place and slides in lockstep without overshoot or mid-flight teleport', () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div data-bt-center></div><div class="bt-leftcol"></div></body>')
   const { document } = dom.window
   const col = document.querySelector('.bt-leftcol')
-  const center = document.querySelector('.x_centerCol')
+  const center = document.querySelector('[data-bt-center]')
   let now = 1000
   const rafQueue = new Map()
   let rafId = 1
@@ -697,11 +697,11 @@ test('the column draws its first mount in place and slides in lockstep without o
 })
 
 test('slide spring keeps open .bt-pane pinned before first frame, settles cleanly on grip pointercancel, reconciles aborted drag widths, and stays flush with non-zero collapsedWidth', () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div><div class="bt-pane" style="left:280px"></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div><div class="bt-pane" style="left:280px"></div></body>')
   const { document } = dom.window
   const col = document.querySelector('.bt-leftcol')
   const grip = col.querySelector('.bt-leftcol-grip')
-  const center = document.querySelector('.x_centerCol')
+  const center = document.querySelector('[data-bt-center]')
   const pane = document.querySelector('.bt-pane')
   let now = 2000
   const rafQueue = new Map()
@@ -924,7 +924,7 @@ test('the shell footer action slot holds the account and the return button only'
 // run it on a jsdom page with real timers. The sandbox gets the page and the timers only
 // while a drag runs; the release then re-renders the sidebar at the state it stored.
 async function edgeDrag({ start, reduced = false }, run) {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
@@ -1353,7 +1353,7 @@ test('continuing to drag width right after unfolding from rail clears spring lag
 })
 
 test('hiding the sidebar during post-drag settle clears inline drag styles and does not restore rail margin', async () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
@@ -1415,7 +1415,7 @@ test('hiding the sidebar during post-drag settle clears inline drag styles and d
 })
 
 test('unmounting TeamSidebar during post-drag settle strips inline drag styles and releases chatRoom.hold', async () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')
@@ -1489,7 +1489,7 @@ test('unmounting TeamSidebar during post-drag settle strips inline drag styles a
 })
 
 test('aborting an active drag on hide ignores pointerup, and panelYield during settle keeps rail margin', async () => {
-  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol" data-bt-center></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
   const { document } = dom.window
   const column = document.querySelector('.bt-leftcol')
   const grip = column.querySelector('.bt-leftcol-grip')

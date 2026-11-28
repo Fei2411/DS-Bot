@@ -52,18 +52,18 @@ const { findHost, releaseHost, rowVisible, freshInputAt, clientErrors } = module
 // jumps below the new one. The row mounts at the flow (the column around the shell's
 // slot), where it stays after those rows, even under an extra wrapper.
 test('the activity row mounts at the flow around the running slot, not at the slot', () => {
-  dom.window.document.body.innerHTML = '<div data-chat-flow id="flow"><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
+  dom.window.document.body.innerHTML = '<div data-bt-flow id="flow"><div class="wrap"><div data-bt-running id="slot"></div></div></div>'
   const host = findHost()
   assert.equal(host?.id, 'flow')
 })
 
 test('the activity row stays after a pending steer echo, and after the message once it commits', () => {
   dom.window.document.body.innerHTML = [
-    '<div data-chat-flow id="flow">',
-    '<div data-slot="conversation.chat.flow">',
-    '<div data-chat-flow-key="u1" data-chat-flow-kind="user" id="first">first message</div>',
-    '<div data-chat-running id="slot"></div>',
-    '<div data-chat-flow-key="s1" data-chat-flow-kind="steering" id="echo">a steer</div>',
+    '<div data-bt-flow id="flow">',
+    '<div data-bt-slot="conversation.chat.flow">',
+    '<div data-bt-flow-key="u1" data-bt-flow-kind="user" id="first">first message</div>',
+    '<div data-bt-running id="slot"></div>',
+    '<div data-bt-flow-key="s1" data-bt-flow-kind="steering" id="echo">a steer</div>',
     '</div>',
     '</div>',
   ].join('')
@@ -80,14 +80,14 @@ test('the activity row stays after a pending steer echo, and after the message o
   echo.remove()
   const committed = doc.createElement('div')
   committed.id = 'committed'
-  committed.setAttribute('data-chat-flow-key', 's1')
-  committed.setAttribute('data-chat-flow-kind', 'steering')
+  committed.setAttribute('data-bt-flow-key', 's1')
+  committed.setAttribute('data-bt-flow-kind', 'steering')
   doc.getElementById('slot').before(committed)
   assert.ok(committed.compareDocumentPosition(row) & doc.defaultView.Node.DOCUMENT_POSITION_FOLLOWING, 'the committed steer still draws above the row')
 })
 
 test('without the running slot the row mounts at the flow tail', () => {
-  dom.window.document.body.innerHTML = '<div data-chat-flow id="flow"><div data-chat-flow-key="1"></div></div>'
+  dom.window.document.body.innerHTML = '<div data-bt-flow id="flow"><div data-bt-flow-key="1"></div></div>'
   const host = findHost()
   assert.equal(host?.id, 'flow')
 })
@@ -96,7 +96,7 @@ test('without the running slot the row mounts at the flow tail', () => {
 // leaves its flow.
 test('the activity row keeps its flow while the slot stays, and follows the slot when it leaves', () => {
   const doc = dom.window.document
-  doc.body.innerHTML = '<div data-chat-flow id="one"><div data-chat-running id="slot"></div></div><div data-chat-flow id="two"></div>'
+  doc.body.innerHTML = '<div data-bt-flow id="one"><div data-bt-running id="slot"></div></div><div data-bt-flow id="two"></div>'
   assert.equal(findHost()?.id, 'one')
   const query = doc.querySelector
   let queries = 0
@@ -108,7 +108,7 @@ test('the activity row keeps its flow while the slot stays, and follows the slot
     assert.equal(findHost()?.id, 'two')
     doc.getElementById('slot').remove()
     assert.equal(findHost()?.id, 'one')
-    doc.getElementById('one').insertAdjacentHTML('beforeend', '<div data-chat-running></div>')
+    doc.getElementById('one').insertAdjacentHTML('beforeend', '<div data-bt-running></div>')
     assert.equal(findHost()?.id, 'one')
   } finally {
     delete doc.querySelector
@@ -117,11 +117,11 @@ test('the activity row keeps its flow while the slot stays, and follows the slot
 
 test('a slot that stops running or a released row searches again', () => {
   const doc = dom.window.document
-  doc.body.innerHTML = '<div data-chat-flow id="one"></div><div data-chat-flow id="two"><div data-chat-running id="slot"></div></div>'
+  doc.body.innerHTML = '<div data-bt-flow id="one"></div><div data-bt-flow id="two"><div data-bt-running id="slot"></div></div>'
   assert.equal(findHost()?.id, 'two')
-  doc.getElementById('slot').removeAttribute('data-chat-running')
+  doc.getElementById('slot').removeAttribute('data-bt-running')
   assert.equal(findHost()?.id, 'one')
-  doc.getElementById('slot').setAttribute('data-chat-running', '')
+  doc.getElementById('slot').setAttribute('data-bt-running', '')
   assert.equal(findHost()?.id, 'two')
   const query = doc.querySelector
   let queries = 0
@@ -258,7 +258,7 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
     while (deferredEffects.length > 0) deferredEffects.shift()()
     return tree
   }
-  const compDom = new JSDOM('<!doctype html><body><div data-chat-flow id="flow"><div data-chat-running></div></div></body>')
+  const compDom = new JSDOM('<!doctype html><body><div data-bt-flow id="flow"><div data-bt-running></div></div></body>')
   let isTouch = true
   const listeners = new Map()
   const win = {

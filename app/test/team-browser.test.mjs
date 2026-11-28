@@ -881,5 +881,285 @@ test('sidebar toggles cleanly between shown and 0px hidden, persists width, and 
   assert.match(appCss, /body\[data-bt-os=macos\] \.bt-leftcol\[data-left=rail\] \.bt-rail-top>\.bt-side-collapse\{display:inline-flex!important/)
   assert.match(materialCss, /\.bt-leftcol:not\(\[data-left="drawer"\]\)/)
   assert.doesNotMatch(macosCss, /\.bt-title-toggle|\.bt-leftcol/)
-  assert.match(appSrc, /isNarrow && !drawerOpen \? h\('button', \{\s*type: 'button', className: 'dsb-mobile-menu'/)
+})
+
+test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores focus only on dismiss', async () => {
+  const appStubs = {
+    'enter-key.js': 'export const sendsOnEnter = () => true',
+    'feedback.js': 'export const ErrorToast = () => null',
+    'header.js': 'export const HeaderPill = () => null',
+    'i18n.js': 'export const t = s => s',
+    'icons.js': 'export const SidebarIcon = () => ({ type: "svg", props: { children: [] } })',
+    'motion.js': 'export const useLinger = (v) => [v, false]',
+    'overlays.js': 'export const Overlays = () => null',
+    'overlay-hooks.js': 'export const ESCAPE_PRIORITY = { DRAWER: 10 }; export const useEscape = (fn, active) => { globalThis.__testEscape = active ? fn : null }',
+    'sidebar.js': 'export const BotReturn = () => null; export const YouAvatar = () => null; export const TeamSidebar = (props) => ({ type: "team-sidebar", props })',
+    'themes.js': 'export const allThemes = () => ({ deepseek: {} }); export const effectsOf = () => "full"; export const flatWidthOf = () => 100; export const layoutOf = () => "bubbles"; export const themeCss = () => ""; export const themesOf = () => ({}); export const widthOf = () => 100',
+    'appearance.js': 'export const appearanceCss = () => ""; export const onSafeAppearance = () => () => {}; export const pictureUrl = () => ""; export const safeAppearance = () => false; export const watchSafeAppearance = () => () => {}',
+    'api.js': 'export const call = async () => ({})',
+    'shared-appearance.js': 'export const readAppearance = () => ({})',
+    'mode.js': 'export const paintMode = () => {}',
+    'chat.js': 'export const Chat = () => null',
+    'classic-sidebar.js': 'export const AgentEmptyHero = () => null; export const ClassicHeader = () => null; export const ClassicSidebar = (props) => ({ type: "classic-sidebar", props })',
+    'engine-settings-bridge.js': 'export const useDshSettingsBridge = () => ({})',
+    'locale.js': 'export const getAppLocale = () => ({ subscribe: () => () => {} })',
+    'plugin-runtime.js': 'export const pluginRuntime = {}; export const usePluginPage = () => {}',
+    'right-panel.js': 'export const WorkspacePaneBody = () => null; export const buildWorkspaceTabs = () => []',
+    'shortcuts.js': 'export const ShortcutsDialog = () => null; export const matchGlobalShortcut = () => null; export const resolveActiveModal = () => null; export const setLiveShortcutContext = () => {}',
+    'shortcuts-model.js': 'export const SHORTCUT_BY_ID = {}; export const isCommandAvailable = () => false; export const isShortcutRecording = () => false; export const shortcutsStore = { getSnapshot: () => ({}), subscribe: () => () => {} }; export const visibleClassicSessions = () => []; export const visibleSidebarTargets = () => []',
+    'slots.js': 'export const RIGHT_PANE_TAB_SLOT = "rp"; export const ShellOverlayHost = () => null; export const slots = {}; export const useSlotEntries = () => []',
+    'team.js': 'export const createTeam = () => globalThis.__testTeam',
+    'window-title.js': 'export const conversationTitleOf = () => ""; export const useWindowTitle = () => {}',
+  }
+  const { outputFiles: appBundle } = await build({
+    entryPoints: [fileURLToPath(new URL('../ui/src/app.js', import.meta.url))],
+    bundle: true,
+    format: 'cjs',
+    platform: 'browser',
+    write: false,
+    logLevel: 'silent',
+    external: ['react', 'react-dom'],
+    plugins: [{
+      name: 'app-narrow-stubs',
+      setup(bundler) {
+        bundler.onResolve({ filter: /^\.\.?\/.+\.js$/ }, (args) => {
+          if (args.path.endsWith('/app.js')) return null
+          const base = args.path.split('/').pop()
+          const key = args.path.includes('shared/appearance.js') ? 'shared-appearance.js' : base
+          if (key in appStubs) return { path: key, namespace: 'app-narrow-stub' }
+          return null
+        })
+        bundler.onLoad({ filter: /.*/, namespace: 'app-narrow-stub' }, args => ({ contents: appStubs[args.path], loader: 'js' }))
+      },
+    }],
+  })
+
+  const slots = []
+  let idx = 0
+  let pendingEffects = []
+  let pendingLayout = []
+  const sameDeps = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+  class StubComponent {
+    constructor(props) { this.props = props; this.state = {} }
+  }
+  const react = {
+    Component: StubComponent,
+    Fragment: Symbol('Fragment'),
+    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    useState: (initial) => {
+      const i = idx++
+      if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial
+      return [slots[i], (next) => {
+        slots[i] = typeof next === 'function' ? next(slots[i]) : next
+      }]
+    },
+    useRef: (initial) => {
+      const i = idx++
+      if (!(i in slots)) slots[i] = { current: initial }
+      return slots[i]
+    },
+    useMemo: (make, deps) => {
+      const i = idx++
+      const cell = slots[i]
+      if (!cell || !sameDeps(cell.deps, deps)) slots[i] = { value: make(), deps }
+      return slots[i].value
+    },
+    useCallback: (fn, deps) => react.useMemo(() => fn, deps),
+    useEffect: (fn, deps) => {
+      const i = idx++
+      const cell = slots[i] ?? (slots[i] = {})
+      if (!cell.deps || !sameDeps(cell.deps, deps)) {
+        pendingEffects.push(() => { cell.stop?.(); cell.stop = fn(); cell.deps = deps })
+      }
+    },
+    useLayoutEffect: (fn, deps) => {
+      const i = idx++
+      const cell = slots[i] ?? (slots[i] = {})
+      if (!cell.deps || !sameDeps(cell.deps, deps)) {
+        pendingLayout.push(() => { cell.stop?.(); cell.stop = fn(); cell.deps = deps })
+      }
+    },
+  }
+
+  let surfaceMode = 'bot'
+  let shownId = 'chat-1'
+  let settingsOpens = 0
+  const team = {
+    start: () => () => {},
+    sessionHook: () => selector => selector({}),
+    snapshots: {
+      ui: () => ({}),
+      roster: () => ({ bots: [], rooms: [], agents: [], byId: {}, roomsById: {} }),
+      sessions: () => ({ byId: {}, ids: [] }),
+      status: () => new Map(),
+      shown: () => shownId,
+      surface: () => ({ mode: surfaceMode }),
+    },
+    hooks: {
+      useLayout: selector => selector({ pref: 'open', width: 280 }),
+      useSurface: selector => selector({ mode: surfaceMode }),
+      useShown: selector => selector(shownId),
+      useUi: selector => selector({}),
+      useRoster: selector => selector({ ready: true, readOnly: false, browser: false, bots: [], rooms: [], agents: [], byId: {}, roomsById: {} }),
+      useRegistry: selector => selector(0),
+      useSessions: selector => selector({ byId: {}, ids: [] }),
+      useSessionStatus: selector => selector(new Map()),
+      usePrefs: selector => selector({}),
+      useConnection: selector => selector({ status: 'connected' }),
+    },
+    actions: {
+      setSidebarPref() {},
+      setSidebarWidth() {},
+      setLeftDrawer() {},
+      toggleLeftHidden() {},
+      openSettings() { settingsOpens += 1 },
+      selectPanel() {},
+      openNewChat() {},
+      openPalette() {},
+      openAgentSession() {},
+      newAgentSession() {},
+      addAgent() {},
+      closeShortcuts() {},
+      openShortcuts() {},
+      reconnectFeed() {},
+      refreshLocale() {},
+      refreshClassicSessions() {},
+      startPresetCreator() {},
+    },
+  }
+
+  const winListeners = new Map()
+  const win = {
+    innerWidth: 600,
+    addEventListener: (k, fn) => winListeners.set(k, fn),
+    removeEventListener: (k) => winListeners.delete(k),
+  }
+  const doc = {
+    documentElement: { hasAttribute: () => false, dataset: {}, style: { setProperty() {} } },
+    body: { dataset: {}, style: { setProperty() {}, removeProperty() {} } },
+    head: { append() {} },
+    createElement: () => ({ textContent: '', remove() {} }),
+    addEventListener() {},
+    removeEventListener() {},
+    querySelector: () => null,
+  }
+  const mod = { exports: {} }
+  const sandbox = {
+    module: mod,
+    exports: mod.exports,
+    require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
+    window: win,
+    document: doc,
+    navigator: { platform: 'MacIntel', userAgent: 'Mac' },
+    __testTeam: team,
+    __testEscape: null,
+  }
+  runInNewContext(appBundle[0].text, sandbox)
+  const { App } = mod.exports
+
+  const findAll = (node, pred, out = []) => {
+    if (!node || typeof node !== 'object') return out
+    if (Array.isArray(node)) { for (const child of node) findAll(child, pred, out); return out }
+    if (pred(node)) out.push(node)
+    const children = node.props?.children
+    if (children !== undefined) findAll(children, pred, out)
+    return out
+  }
+
+  let focusCalls = 0
+  const render = () => {
+    let tree
+    for (let pass = 0; pass < 4; pass += 1) {
+      idx = 0
+      pendingEffects = []
+      pendingLayout = []
+      tree = App()
+      const menuBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0]
+      // Attach ref before layout effects run, matching React's commit phase.
+      if (menuBtn?.props?.ref) {
+        menuBtn.props.ref.current = { focus() { focusCalls += 1 } }
+      }
+      const layout = pendingLayout
+      const effects = pendingEffects
+      pendingLayout = []
+      pendingEffects = []
+      for (const fn of layout) fn()
+      for (const fn of effects) fn()
+      if (layout.length === 0 && effects.length === 0) break
+    }
+    return tree
+  }
+
+  // 1. Narrow closed: mobile menu button is mounted, scrim is absent.
+  let tree = render()
+  let menuBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')
+  assert.equal(menuBtn.length, 1)
+  assert.equal(menuBtn[0].props['aria-expanded'], false)
+  assert.equal(findAll(tree, n => n.props?.className === 'dsb-drawer-scrim').length, 0)
+  assert.equal(focusCalls, 0)
+
+  // 2. Open drawer: mobile menu button unmounts so it cannot bleed through or trap tab focus.
+  menuBtn[0].props.onClick()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
+  let scrim = findAll(tree, n => n.props?.className === 'dsb-drawer-scrim')
+  assert.equal(scrim.length, 1)
+
+  // 3. Dismiss via scrim click: button remounts and restores keyboard focus.
+  scrim[0].props.onClick()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 1)
+
+  // 4. Re-open and dismiss via Escape: button remounts and restores focus.
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  assert.equal(typeof sandbox.__testEscape, 'function')
+  sandbox.__testEscape()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 2)
+
+  // 5. Re-open and dismiss via Bot drawer collapse button (toggleLeftHidden): restores focus.
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  const sidebarNode = findAll(tree, n => n.type?.name === 'TeamSidebar')[0]
+  sidebarNode.props.actions.toggleLeftHidden()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 3)
+
+  // 6. Re-open and open Settings: closes drawer without stealing focus back to .dsb-mobile-menu.
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  findAll(tree, n => n.type?.name === 'TeamSidebar')[0].props.actions.openSettings()
+  tree = render()
+  assert.equal(settingsOpens, 1)
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 3)
+
+  // 7. Re-open and switch chat (`shown` changes): closes drawer without stealing focus.
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  shownId = 'chat-2'
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 3)
+
+  // 8. Classic mode narrow drawer: collapse restores focus to .dsb-mobile-menu.
+  surfaceMode = 'agent'
+  tree = render()
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
+  findAll(tree, n => n.type?.name === 'ClassicSidebar')[0].props.actions.toggleSidebar()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 4)
+
+  // 9. Wide viewport: .dsb-mobile-menu is never mounted.
+  win.innerWidth = 1280
+  winListeners.get('resize')?.()
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
 })

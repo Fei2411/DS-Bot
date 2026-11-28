@@ -256,6 +256,7 @@ export const KO = {
   Search: '검색',
   'New chat': '새 대화',
   'Back to chat': '대화로 돌아가기',
+  'Back to bottom': '맨 아래로 이동',
   'New…': '새로 만들기…',
   'New section': '새 섹션',
   'Rename section': '섹션 이름 변경',
