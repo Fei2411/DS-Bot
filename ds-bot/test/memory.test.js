@@ -3305,7 +3305,7 @@ test('backfill preserves structured goal, pause, and failure notice fields for r
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 2 }, 'g3'), /Goal "Launch" started with 2 stages; stage 1 "Build" is current\./)
-  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 3 }, 'g3'), /Paused: Coder and Writer went back and forth 6 times without progress/)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 3 }, 'g3'), /Paused: Bots waited on the same unresolved step without measurable progress\./)
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 4 }, 'g3'), /Coder stopped: its model call failed \(slow down\)/)
 })
 

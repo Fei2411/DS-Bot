@@ -217,6 +217,11 @@ export function redactDeep(value, redact) {
 export function install(rt) {
   const { ctx, home, state } = rt
   const path = join(home, 'secrets.json')
+  const writableCoordDb = () => (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const existingWritableCoordDb = () => {
+    const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+    return db && !db.readonly && !db.isClosed?.() ? db : null
+  }
 
   // How the file holds the values. `plaintext` is the default and the format older
   // versions wrote; `encrypted` is the optional envelope. The passphrase lives only in
@@ -680,6 +685,46 @@ export function install(rt) {
     }
   }
 
+  const cancelCoordSecretWait = (requestId, why = 'superseded') => {
+    const db = existingWritableCoordDb()
+    if (!db || !requestId) return
+    try {
+      const wait = db.listWaits({ kind: 'secret', status: 'open', targetId: `secret:${requestId}`, limit: 1 })[0]
+      if (wait !== undefined) {
+        db.resolveWait({ waitId: wait.waitId, status: 'cancelled', resolution: { requestId, reason: why }, wake: false })
+      }
+    } catch { /* best-effort */ }
+  }
+
+  const openCoordSecretWait = (botId, sessionId, request) => {
+    const db = writableCoordDb()
+    if (!db) return
+    try {
+      const work = db.getWorkBySessionId(sessionId)
+        ?? db.getForegroundWork(botId)
+        ?? db.ensureForegroundWork({ botId, sessionId }).work
+      if (!work) return
+      db.addWait({
+        waitId: `wt_sec_${request.id}`,
+        workId: work.workId,
+        kind: 'secret',
+        targetId: `secret:${request.id}`,
+        required: true,
+        meta: {
+          requestId: request.id,
+          botId,
+          sessionId,
+          name: request.name,
+          purpose: request.purpose,
+          kind: request.kind,
+          askedAt: request.askedAt,
+        },
+      })
+    } catch (error) {
+      rt.warn?.('ds-bot: failed to open secret wait %s: %s', request.id, error?.message ?? error)
+    }
+  }
+
   const scopeText = (scope) => {
     if (scope === 'all') return 'every Bot'
     const names = scope.map(id => rt.botOf(id)?.name).filter(Boolean)
@@ -692,10 +737,67 @@ export function install(rt) {
     return `$${envName(name)} in bash, or $env:${envName(name)} in PowerShell`
   }
 
-  async function tell(botId, text) {
+  async function tell(botId, text, request, status) {
     if (rt.botOf(botId) === undefined) return
-    await rt.deliver({ toId: botId, role: 'secret', text })
-      .catch(error => rt.warn('ds-bot: secret note to %s failed: %s', botId, error))
+    let delivered = false
+    try {
+      await rt.deliver({
+        toId: botId,
+        role: 'secret',
+        text,
+        ...(request?.id ? { idempotencyKey: `secret:${request.id}` } : {}),
+      })
+      delivered = true
+    } catch (error) {
+      rt.warn('ds-bot: secret note to %s failed: %s', botId, error)
+    }
+    const db = existingWritableCoordDb()
+    if (!db || !request?.id) return
+    let wokeWorkId
+    try {
+      const wait = db.listWaits({ kind: 'secret', status: 'open', targetId: `secret:${request.id}`, limit: 1 })[0]
+      if (wait !== undefined) {
+        const renderedText = `[Secret card]\n${text}`
+        db.transaction(() => {
+          const res = db.resolveWait({
+            waitId: wait.waitId,
+            status: status === 'canceled' ? 'cancelled' : 'resolved',
+            resolution: {
+              requestId: request.id,
+              name: request.name,
+              status: status ?? request.status,
+              ...(request.scope !== undefined ? { scope: request.scope } : {}),
+            },
+            inboxMessage: {
+              kind: 'answer',
+              senderAddress: 'user',
+              dedupKey: `secret:${request.id}`,
+              bodyPreview: renderedText,
+              payload: {
+                text,
+                renderedText,
+                role: 'secret',
+                secretName: request.name,
+                requestId: request.id,
+                status: status ?? request.status,
+              },
+            },
+            wake: !delivered,
+          })
+          if (delivered && res?.message?.seq !== undefined) {
+            db.ackInboxSeq(wait.workId, res.message.seq)
+          }
+          if (!delivered && res?.workWoken === true) {
+            wokeWorkId = wait.workId
+          }
+        })
+      }
+    } catch (error) {
+      rt.warn?.('ds-bot: resolving secret wait %s failed: %s', request.id, error?.message ?? error)
+    }
+    if (wokeWorkId !== undefined) {
+      void Promise.resolve(rt.kickScheduler?.({ botId, workId: wokeWorkId })).catch(() => {})
+    }
   }
   const savedNote = (name, lead) => [
     `${lead} Use it as ${usage(name)}.`,
@@ -718,7 +820,7 @@ export function install(rt) {
         if ((request.delivery ?? 'vault') !== 'vault') continue
         if (canUse(secret, botId)) {
           settle(botId, request, 'saved')
-          notes.push([botId, savedNote(name, `The user saved ${name}, and you may use it now.`)])
+          notes.push([botId, savedNote(name, `The user saved ${name}, and you may use it now.`), request, 'saved'])
         } else {
           request.kind = secret ? 'allow' : 'fill'
         }
@@ -730,7 +832,7 @@ export function install(rt) {
     changed()
     await persist()
     await rt.save()
-    for (const [botId, text] of notes) await tell(botId, text)
+    for (const [botId, text, request, status] of notes) await tell(botId, text, request, status)
   }
 
   const cleanValue = (raw) => {
@@ -1064,7 +1166,7 @@ export function install(rt) {
           }
         }
         settle(botId, request, 'saved')
-        notes.push([botId, savedNote(request.name, `The user saved ${request.name} for ${scopeText(scope)}.`)])
+        notes.push([botId, savedNote(request.name, `The user saved ${request.name} for ${scopeText(scope)}.`), request, 'saved'])
         reconcile(request.name, notes, request)
         await commit(notes)
         return secretView(secrets.get(request.name))
@@ -1128,7 +1230,7 @@ export function install(rt) {
       if (!canUse(secret, botId)) secret.scope = [...new Set([...secret.scope, botId])]
       secret.updatedAt = Date.now()
       settle(botId, request, 'allowed')
-      const notes = [[botId, savedNote(request.name, `The user let you use ${request.name}.`)]]
+      const notes = [[botId, savedNote(request.name, `The user let you use ${request.name}.`), request, 'allowed']]
       reconcile(request.name, notes, request)
       await commit(notes)
       return secretView(secret)
@@ -1137,7 +1239,7 @@ export function install(rt) {
       const { botId, request } = pendingRequest(body.requestId)
       settle(botId, request, 'canceled')
       await rt.save()
-      await tell(botId, `The user canceled your request for ${request.name}. Do not ask for it again unless the user brings it up; carry on without it, or tell the user what you cannot do without it.`)
+      await tell(botId, `The user canceled your request for ${request.name}. Do not ask for it again unless the user brings it up; carry on without it, or tell the user what you cannot do without it.`, request, 'canceled')
       return true
     },
     async 'secret-update'(body) {
@@ -1184,6 +1286,20 @@ export function install(rt) {
   function forgetBotSecrets(botId) {
     return mutate(async () => {
       await loadSecrets()
+      const db = existingWritableCoordDb()
+      if (db) {
+        try {
+          const open = db.listWaits({ kind: 'secret', status: 'open', limit: 200 })
+            .filter(w => w.meta?.botId === botId)
+          if (open.length > 0) {
+            db.transaction(() => {
+              for (const w of open) {
+                db.resolveWait({ waitId: w.waitId, status: 'cancelled', resolution: { reason: 'bot_deleted', botId } })
+              }
+            })
+          }
+        } catch { /* best-effort */ }
+      }
       if (state.secretRequests !== undefined) delete state.secretRequests[botId]
       let touched = false
       for (const secret of secrets.values()) {
@@ -1259,9 +1375,10 @@ export function install(rt) {
         if (request.status === 'pending' && request.name === name) {
           request.status = 'canceled'
           request.settledAt = now
+          cancelCoordSecretWait(request.id, 'superseded')
         }
       }
-      list.push({
+      const entry = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
         sessionId: id,
@@ -1271,10 +1388,13 @@ export function install(rt) {
         ...(delivery !== 'vault' ? { delivery } : {}),
         status: 'pending',
         askedAt: now,
-      })
+      }
+      list.push(entry)
       trimRequests(list)
+      openCoordSecretWait(bot.id, id, entry)
       await rt.save()
-      exec.concludeTurn?.()
+      if (typeof rt.yieldToolTurn === 'function') rt.yieldToolTurn(exec, 'waiting_secret')
+      else exec.concludeTurn?.()
       return secret
         ? `The card asking the user to let you use ${name} is on screen. A note arrives when the user answers; you will not see the value.`
         : `The card asking the user for ${name} is on screen. A note arrives when the user saves or cancels; you will not see the value.`
