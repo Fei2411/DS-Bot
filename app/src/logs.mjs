@@ -35,6 +35,7 @@ export function redactor({ home = homedir(), platform = process.platform } = {})
     if (out.includes('/oauth/callback?')) out = out.replace(/(\/oauth\/callback)\?[^\s"'<>]+/gu, '$1?<hidden>')
     if (out.includes('sk-')) out = out.replace(/\bsk-[A-Za-z0-9][\w-]*/gu, 'sk-<hidden>')
     if (out.includes('Bearer')) out = out.replace(/\b(Bearer\s+)[\w.~+/=-]+/gu, '$1<hidden>')
+    if (out.includes('://') && out.includes('@')) out = out.replace(/((?:https?|socks(?:4a?|5h?)?):\/\/)[^/\s"'<>@]+@/giu, '$1<hidden>@')
     if (homePattern !== undefined) out = out.replace(homePattern, label)
     return out
   }

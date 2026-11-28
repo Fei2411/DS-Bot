@@ -62,6 +62,8 @@ export const state = {
   paths: {},
   switches: new Map(),
   safeStorageCalls: [],
+  proxyConfigs: [],
+  resolvedProxy: 'DIRECT',
   dock: { setIcon: () => {} },
 }
 
@@ -308,9 +310,15 @@ const cookieJar = {
   },
 }
 
+const makeSession = () => Object.assign(new EventEmitter(), {
+  cookies: cookieJar,
+  resolveProxy: async (url) => (typeof state.resolvedProxy === 'function' ? state.resolvedProxy(url) : (state.resolvedProxy ?? 'DIRECT')),
+  setProxy: async (config) => { state.proxyConfigs.push(config) },
+})
+
 export const session = {
-  defaultSession: Object.assign(new EventEmitter(), { cookies: cookieJar }),
-  fromPartition: () => Object.assign(new EventEmitter(), { cookies: cookieJar }),
+  defaultSession: makeSession(),
+  fromPartition: () => makeSession(),
 }
 
 export const ipcMain = {

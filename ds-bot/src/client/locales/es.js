@@ -2961,6 +2961,12 @@ export const ES = {
   "No new replies": "No hay respuestas nuevas",
   "New replies": "Respuestas nuevas",
   "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
+  "Network": "Red",
+  "Proxy": "Proxy",
+  "No proxy": "Sin proxy",
+  "Proxy address": "Dirección del proxy",
+  "Bypass": "Omitir para",
+  "Invalid proxy address": "Dirección de proxy no válida",
 }
 
 export const HOST_ERRORS_ES = [

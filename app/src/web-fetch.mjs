@@ -108,6 +108,7 @@ export function createWebFetchBridge({
   BrowserWindow,
   session,
   lookup = dnsLookup,
+  configureSession,
   maxConcurrent = DEFAULT_MAX_CONCURRENT,
   settlePollMs = SETTLE_POLL_MS,
   maxSettleWaitMs = MAX_SETTLE_WAIT_MS,
@@ -246,6 +247,8 @@ export function createWebFetchBridge({
 
       // Bounded non-persistent partition pool: memory-only, isolated per slot, cleared on release.
       ses = session.fromPartition(partition)
+      await Promise.resolve(configureSession?.(ses)).catch(() => {})
+      if (task.aborted || settled) return
       ses.setPermissionRequestHandler?.((_wc, _permission, callback) => { callback(false) })
       ses.setPermissionCheckHandler?.(() => false)
 

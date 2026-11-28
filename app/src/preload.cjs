@@ -47,6 +47,8 @@ if (startPage !== undefined) {
     browser: browserBridge(),
     // The app's own updater, for the About row's state and buttons.
     updates: updatesBridge(),
+    // The app's own network proxy setting (system / custom / direct), applied live.
+    proxy: proxyBridge(),
     // Computer use: the OS idle time behind the foreground gate, and the floating
     // indicator's entries; the window answers its buttons.
     idleSeconds: () => ipcRenderer.invoke('ds-bot:idle-seconds'),
@@ -702,6 +704,20 @@ function browserBridge() {
         set.delete(listener)
         if (set.size === 0 && listeners.get(id) === set) listeners.delete(id)
       }
+    },
+  }
+}
+
+function proxyBridge() {
+  return {
+    get: () => ipcRenderer.invoke('ds-bot:proxy-get'),
+    set: (next) => {
+      if (next === null || typeof next !== 'object') return Promise.reject(new Error('Invalid proxy settings'))
+      return ipcRenderer.invoke('ds-bot:proxy-set', {
+        mode: typeof next.mode === 'string' ? next.mode : '',
+        url: typeof next.url === 'string' ? next.url : '',
+        bypass: typeof next.bypass === 'string' ? next.bypass : '',
+      })
     },
   }
 }

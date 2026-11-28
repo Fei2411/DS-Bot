@@ -2726,6 +2726,12 @@ const ZH = {
   "No new replies": "没有新回复",
   "New replies": "新回复",
   "Filter by Bot or group chat": "按 Bot 或群聊筛选",
+  "Network": "网络",
+  "Proxy": "代理",
+  "No proxy": "直连",
+  "Proxy address": "代理地址",
+  "Bypass": "绕过列表",
+  "Invalid proxy address": "代理地址格式无效",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

@@ -191,6 +191,7 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
         }),
         prefs.approvalModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ approvalModel: null })) }, t('Follow team default')) : null)),
     h(LocationsSection, { key: 'places', actions, run }),
+    h(NetworkSection, { key: 'network' }),
     actions.setSurface && !inAgentMode ? h(SetSection, { key: 'classic-mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
@@ -252,6 +253,131 @@ function LocationsSection({ actions, run }) {
       team === null ? null : h(FolderMenu, { value: team, team: true, actions, run, onPick: pickTeam, disabled: moving })),
     data === null ? null : h(SetRow, { label: t('Data location'), hint: data.path },
       data.fixed ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: moving, onClick: () => { if (!busy.current) void run(app.moveData(team ?? undefined)) } }, t('Change…'))))
+}
+
+const PROXY_OPTIONS = [
+  ['system', 'System'],
+  ['custom', 'Custom'],
+  ['direct', 'No proxy'],
+]
+
+function NetworkSection() {
+  const proxyApi = globalThis.dsBotApp?.proxy
+  const [saved, setSaved] = useState(null)
+  const [mode, setMode] = useState('system')
+  const [url, setUrl] = useState('')
+  const [bypass, setBypass] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const urlInputRef = useRef(null)
+  const epochRef = useRef(0)
+
+  useEffect(() => {
+    if (!proxyApi) return
+    let active = true
+    void Promise.resolve(proxyApi.get()).then((info) => {
+      if (!active || !info || typeof info !== 'object') return
+      const next = {
+        mode: info.mode === 'custom' || info.mode === 'direct' ? info.mode : 'system',
+        url: typeof info.url === 'string' ? info.url : '',
+        bypass: typeof info.bypass === 'string' ? info.bypass : '',
+      }
+      setSaved(next)
+      setMode(next.mode)
+      setUrl(next.url)
+      setBypass(next.bypass)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [proxyApi])
+
+  if (!proxyApi) return null
+
+  const apply = (next) => {
+    const seq = ++epochRef.current
+    setBusy(true)
+    setError('')
+    void Promise.resolve(proxyApi.set(next)).then((result) => {
+      if (seq !== epochRef.current) return
+      const clean = {
+        mode: result?.mode === 'custom' || result?.mode === 'direct' ? result.mode : 'system',
+        url: typeof result?.url === 'string' ? result.url : next.url,
+        bypass: typeof result?.bypass === 'string' ? result.bypass : next.bypass,
+      }
+      setSaved(clean)
+      setMode(clean.mode)
+      setUrl(clean.url)
+      setBypass(clean.bypass)
+    }, (err) => {
+      if (seq !== epochRef.current) return
+      const msg = String(err?.message ?? '')
+      if (/invalid|required|unsupported|port|host|protocol|character|path/iu.test(msg)) setError(t('Invalid proxy address'))
+      else setError(t('Could not save. Try again.'))
+    }).finally(() => {
+      if (seq === epochRef.current) setBusy(false)
+    })
+  }
+
+  const pickMode = (nextMode) => {
+    setMode(nextMode)
+    setError('')
+    if (nextMode === 'custom') {
+      if (url.trim() !== '') {
+        apply({ mode: 'custom', url: url.trim(), bypass: bypass.trim() })
+      } else {
+        setTimeout(() => urlInputRef.current?.focus({ preventScroll: true }), 0)
+      }
+      return
+    }
+    apply({ mode: nextMode, url: url.trim(), bypass: bypass.trim() })
+  }
+
+  const saveCustom = (event) => {
+    event?.preventDefault()
+    if (busy) return
+    if (url.trim() === '') {
+      setError(t('Invalid proxy address'))
+      urlInputRef.current?.focus({ preventScroll: true })
+      return
+    }
+    apply({ mode: 'custom', url: url.trim(), bypass: bypass.trim() })
+  }
+
+  const dirty = saved === null
+    || saved.mode !== 'custom'
+    || saved.url !== url.trim()
+    || saved.bypass !== bypass.trim()
+
+  return h(SetSection, { title: t('Network'), className: 'bt-set-network' },
+    h(SetRow, { label: t('Proxy') },
+      h(Choice, { label: t('Proxy'), value: mode, options: PROXY_OPTIONS, pick: pickMode })),
+    mode === 'custom' ? h('form', { className: 'bt-set-proxy-form', onSubmit: saveCustom },
+      h(SetRow, { label: t('Proxy address') },
+        h('input', {
+          ref: urlInputRef,
+          className: 'bt-input bt-set-proxy-input',
+          type: 'text',
+          spellCheck: false,
+          autoComplete: 'off',
+          placeholder: 'http://127.0.0.1:7890',
+          'aria-label': t('Proxy address'),
+          value: url,
+          onChange: (event) => { setUrl(event.target.value); if (error) setError('') },
+        })),
+      h(SetRow, { label: t('Bypass') },
+        h('input', {
+          className: 'bt-input bt-set-proxy-input',
+          type: 'text',
+          spellCheck: false,
+          autoComplete: 'off',
+          placeholder: 'localhost, 127.0.0.1, .local',
+          'aria-label': t('Bypass'),
+          value: bypass,
+          onChange: (event) => { setBypass(event.target.value); if (error) setError('') },
+        })),
+      h('div', { className: 'bt-set-proxy-foot' },
+        error ? h('span', { className: 'bt-set-hint bt-danger', role: 'alert' }, error) : h('span'),
+        h('button', { type: 'submit', className: 'bt-send bt-soft-sm', disabled: busy || !dirty }, t('Save')))) : null,
+    mode !== 'custom' && error ? h('div', { className: 'bt-set-note bt-danger', role: 'alert' }, error) : null)
 }
 
 // Multiple Bots can hold the Main Bot role at once; clicking any Bot pill toggles it

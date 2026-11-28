@@ -50,13 +50,20 @@ export class BotBrowserGuests {
   #downloadHandlers = new Map()
 
   /**
-   * @param {{ session: any, origin: () => string | undefined, devTools: boolean }} options - Electron's
+   * @param {{ session: any, origin: () => string | undefined, devTools: boolean, configureSession?: (storage: any) => void, onProxyLogin?: (authInfo: any) => { username: string, password: string } | null }} options - Electron's
    * `session` module, the Host's loopback origin, which guests cannot reach, and whether guests open DevTools.
    */
-  constructor({ session, origin, devTools }) {
+  constructor({ session, origin, devTools, configureSession, onProxyLogin }) {
     this.session = session
     this.origin = origin
     this.devTools = devTools
+    this.configureSession = configureSession
+    this.onProxyLogin = onProxyLogin
+  }
+
+  /** Re-apply proxy configuration to every already-configured Bot browser partition. */
+  async applyProxy(apply) {
+    await Promise.allSettled([...this.#configured].map(partition => Promise.resolve(apply(this.session.fromPartition(partition)))))
   }
 
   /** One guest in the key's partition: an opaque lease and the partition approved for it. */
@@ -163,7 +170,12 @@ export class BotBrowserGuests {
         if (event.isMainFrame && !allowedNavigation(event.url, this.origin())) event.preventDefault()
       })
       guest.on('will-attach-webview', (event) => { event.preventDefault() })
-      guest.on('login', (event, _details, _authInfo, callback) => { event.preventDefault(); callback() })
+      guest.on('login', (event, _details, authInfo, callback) => {
+        event.preventDefault()
+        const creds = authInfo?.isProxy ? this.onProxyLogin?.(authInfo) : null
+        if (creds) callback(creds.username, creds.password)
+        else callback()
+      })
     })
     const releaseAll = () => {
       for (const [id, lease] of this.#leases) {
@@ -188,5 +200,6 @@ export class BotBrowserGuests {
       else event.preventDefault()
     })
     storage.webRequest.onBeforeRequest((details, callback) => { callback({ cancel: !requestAllowed(details.url, this.origin()) }) })
+    void Promise.resolve(this.configureSession?.(storage)).catch(() => {})
   }
 }
