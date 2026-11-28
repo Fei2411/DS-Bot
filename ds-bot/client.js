@@ -25070,7 +25070,12 @@ function pictureUrl(id, call2, loaded) {
         return;
       }
       pictures.set(id, objectUrl);
-      for (const notify of waiters) notify();
+      for (const notify of waiters) {
+        try {
+          notify();
+        } catch {
+        }
+      }
     }, failed);
   }
   return void 0;

@@ -178,7 +178,9 @@ export function pictureUrl(id, call, loaded) {
       let objectUrl
       try { objectUrl = URL.createObjectURL(blob) } catch { failed(); return }
       pictures.set(id, objectUrl)
-      for (const notify of waiters) notify()
+      for (const notify of waiters) {
+        try { notify() } catch { /* isolate one view's repaint error from other waiters */ }
+      }
     }, failed)
   }
   return undefined

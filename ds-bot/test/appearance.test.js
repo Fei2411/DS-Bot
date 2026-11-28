@@ -377,6 +377,22 @@ test('pictureUrl decodes data URLs into blob URLs without calling fetch and noti
   const expected = Buffer.from(PNG.slice(PNG.indexOf(',') + 1), 'base64')
   assert.deepEqual(Buffer.from(await createdBlob.arrayBuffer()), expected)
 
+  // A throwing waiter does not cancel other waiters, clear the cached URL, or cause an unhandled rejection.
+  let resolveThrow
+  const throwCall = () => new Promise((resolve) => { resolveThrow = resolve })
+  let survivorLoaded = 0
+  let unhandled = 0
+  const onUnhandled = () => { unhandled += 1 }
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  assert.equal(pictureUrl('3'.repeat(64), throwCall, () => { throw new Error('repaint failed') }), undefined)
+  assert.equal(pictureUrl('3'.repeat(64), throwCall, () => { survivorLoaded += 1 }), undefined)
+  resolveThrow({ id: '3'.repeat(64), mime: 'image/png', image: PNG })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(survivorLoaded, 1)
+  assert.equal(pictureUrl('3'.repeat(64), throwCall, () => {}), 'blob:decoded-png')
+  assert.equal(unhandled, 0)
+
   // Missing or invalid data URLs mark failure and do not re-fetch within the retry window.
   let badCalls = 0
   let badLoaded = 0
