@@ -58,6 +58,11 @@ function decodeText(bytes: Uint8Array, html: boolean) {
 }
 
 function staticHtml(source: string) {
+  function numericAttribute(node: Extract<Node, { attribs: object }>, name: string, valid: RegExp) {
+    const value = node.attribs[name]?.trim()
+    return value && valid.test(value) ? ` ${name}="${value}"` : ''
+  }
+
   function render(node: Node, depth: number): string {
     if (depth > 100) throw new Error(UNREADABLE)
     if (node.type === 'text') return escapeText(node.data)
@@ -65,7 +70,14 @@ function staticHtml(source: string) {
     if (node.name === 'img') return escapeText(node.attribs.alt ?? '')
     if (node.name === 'br' || node.name === 'hr') return `<${node.name}>`
     const body = node.children.map(child => render(child, depth + 1)).join('')
-    return KEEP.has(node.name) ? `<${node.name}>${body}</${node.name}>` : body
+    if (!KEEP.has(node.name)) return body
+    let attrs = ''
+    if (node.name === 'ol') attrs = numericAttribute(node, 'start', /^-?[0-9]+$/)
+    if (node.name === 'li') attrs = numericAttribute(node, 'value', /^-?[0-9]+$/)
+    if (node.name === 'td' || node.name === 'th') {
+      attrs = numericAttribute(node, 'colspan', /^0*[1-9][0-9]*$/) + numericAttribute(node, 'rowspan', /^[0-9]+$/)
+    }
+    return `<${node.name}${attrs}>${body}</${node.name}>`
   }
   return parseDocument(source).children.map(node => render(node, 0)).join('')
 }

@@ -38,6 +38,19 @@ test('HTML preview keeps readable content but removes document styling, actions 
   assert.doesNotMatch(result.content, /Hidden|example\.com|style|onclick|bad\(\)|SVG/)
 })
 
+test('previews preserve numeric list numbering and table spans only on supported elements', async () => {
+  const html = '<ol start=" -2 " value="3"><li value="4" onclick="bad()">Item</li><li value="5 &quot; onclick=&quot;bad">Next</li></ol>'
+    + '<table><tr><th colspan="2" rowspan="0">Heading</th><td colspan="0" rowspan="-1">Cell</td>'
+    + '<td rowspan="2" colspan="3px">Tall</td></tr></table>'
+  assert.deepEqual(await preview({ name: 'Notes.html', seq: 1 }, html), {
+    kind: 'html',
+    content: '<ol start="-2"><li value="4">Item</li><li>Next</li></ol>'
+      + '<table><tr><th colspan="2" rowspan="0">Heading</th><td>Cell</td><td rowspan="2">Tall</td></tr></table>',
+  })
+  const markdown = await preview({ name: 'Notes.md', seq: 1 }, '3. Third\n4. Fourth')
+  assert.match(markdown.content, /<ol start="3">/)
+})
+
 test('text previews honor UTF-16 LE and BE byte order marks', async () => {
   const le = Uint8Array.from([0xff, 0xfe, 0x2d, 0x4e, 0x3d, 0xd8, 0x00, 0xde])
   const be = Uint8Array.from([0xfe, 0xff, 0x4e, 0x2d, 0xd8, 0x3d, 0xde, 0x00])
