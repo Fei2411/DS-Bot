@@ -98,6 +98,7 @@ function blockEndsInListOrIndent(block) {
   if (typeof block !== 'string' || block === '') return false
   const lines = block.split('\n')
   let fence = null
+  let mathFence = null
   let inList = false
   let previousLineIndented = false
   for (const line of lines) {
@@ -111,12 +112,31 @@ function blockEndsInListOrIndent(block) {
       }
       continue
     }
+    if (mathFence !== null) {
+      const close = /^ {0,3}(\${2,})[ \t]*$/.exec(line)
+      if (close !== null && close[1].length >= mathFence.length) {
+        const wasIndented = mathFence.indent > 0
+        mathFence = null
+        if (!wasIndented) inList = false
+        previousLineIndented = wasIndented
+      }
+      continue
+    }
     if (/^[ \t]*$/.test(line)) continue
     const openFence = /^ {0,3}(`{3,}|~{3,})/.exec(line)
     if (openFence !== null && (openFence[1][0] === '~' || !line.includes('`', openFence[0].length))) {
       let indent = 0
       while (indent < line.length && line[indent] === ' ') indent += 1
       fence = { char: openFence[1][0], length: openFence[1].length, indent }
+      if (indent === 0) inList = false
+      previousLineIndented = indent > 0
+      continue
+    }
+    const openMath = /^ {0,3}(\${2,})[ \t]*$/.exec(line)
+    if (openMath !== null) {
+      let indent = 0
+      while (indent < line.length && line[indent] === ' ') indent += 1
+      mathFence = { length: openMath[1].length, indent }
       if (indent === 0) inList = false
       previousLineIndented = indent > 0
       continue

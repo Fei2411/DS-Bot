@@ -650,6 +650,9 @@ test('differential streaming contract: final streaming:false DOM matches whole-d
     ['thematicBreakAndSetext', `${pad}\n\nHeading\n---\n\n***\n\nAfter.\n`],
     ['containerDirective', `${pad}\n\n::: note\ninside\n:::\n\nAfter.\n`],
     ['inlineLatexDisplayMidParagraph', `${pad}\n\nBefore \\[a^2 + b^2\\] after.\n\nDone.\n`],
+    ['strayBacktickBeforeLatexDisplayAndInlineCode', `${'The explanation goes on at length here, with enough words to pass the threshold. '.repeat(8)}use the \` character for code.\n\nHere is \\[x^2 + y^2\\] math and \`inline code\` after.\n`],
+    ['strayBacktickBeforeCurrencyAcrossBlankLine', `${pad} stray \` backtick here.\n\nCosts $5 and $10, plus \`code\` and \\(a+b\\).\n`],
+    ['inlineDoubleDollarAcrossBlankLineBeforeCurrency', `${pad} start $$a + b\n\nCosts $5 and $10 then $$c + d$$.\n`],
   ]
 
   // Deterministic seeded pseudo-random Markdown generator to catch unexpected boundary interactions.
@@ -783,6 +786,111 @@ test('unclosed streaming code fence targets only the last block by position, def
     assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed multi-line $$ skips KaTeX')
   } finally {
     view.unmount()
+  }
+})
+
+test('seeded differential fuzz guard: 160 random/adversarial Markdown docs (char-by-char & random chunks) + 40 tail rewrites end byte-identical to settled render', async () => {
+  await ensureKatex()
+  await ensureLanguage('javascript')
+  await ensureLanguage('python')
+  const fold = html => html.replace(/>\n</g, '><')
+  const pad = 'The explanation goes on at length here, with enough words to pass the threshold. '.repeat(7).trim()
+
+  const pool = [
+    'Use the ` character in prose without closing it.',
+    'Multi-line `code span\nstill inside one paragraph` and $E = mc^2$.',
+    'Here is \\[x^2 + y^2\\] display math and `inline code` after.',
+    'Inline \\(\\alpha + \\beta\\) with $5 and $10 currency and \\$20 escaped.',
+    '$$x^2$$。',
+    'Inline $$a + b unclosed in paragraph',
+    '$$\n\\int_0^1 x^2\\,dx\n\n= \\frac{1}{3}\n$$',
+    '\\[\n\\sum_{k=1}^n k\n\n= \\frac{n(n+1)}{2}\n\\]',
+    '1. Ordered first\n\n2. Ordered second',
+    '- Bullet one\n\n  - Nested bullet\n\n- Bullet two',
+    '- Setext candidate\n  -',
+    '```javascript\nconst s = "$$x^2$$ and \\\\[y\\\\]"\nreturn s\n```',
+    '```python\ndef f(x):\n    return x * 2\n```',
+    '| col | val |\n| --- | --- |\n| $a^2$ | $5 |',
+    '> Quoted $$x^2$$\n> second line',
+    'See [ref] in prose.',
+    '[ref]: https://example.com/ref',
+    'Note[^1] here.\n\n[^1]: Footnote text.',
+    '<div>\nhtml block\n</div>',
+    'Heading\n---',
+    'Literal \\[ unclosed bracket.',
+    '中文段落 🚀 和 `代码` 与 $$a+b$$。',
+  ]
+
+  let seed = 0x9e3779b9
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+  const pick = list => list[Math.floor(rand() * list.length)]
+
+  // 1. 160 deterministic random/adversarial documents (mix of char-by-char and random 1-37 chunks,
+  //    plus occasional single-character mutations).
+  for (let i = 0; i < 160; i += 1) {
+    const parts = [pad]
+    const n = 2 + Math.floor(rand() * 4)
+    for (let j = 0; j < n; j += 1) parts.push(pick(pool))
+    let doc = `${parts.join('\n\n')}\n`
+    if (i % 5 === 0) {
+      // Inject a random single-char mutation (stray backtick, $, [, -, or digit) after the pad.
+      const mutPos = pad.length + Math.floor(rand() * Math.max(1, doc.length - pad.length))
+      const mutChar = pick(['`', '$', '[', '-', '2', '\\'])
+      doc = `${doc.slice(0, mutPos)}${mutChar}${doc.slice(mutPos)}`
+    }
+
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+    const expected = fold(settled.container.innerHTML)
+    settled.unmount()
+
+    const view = mounted()
+    try {
+      if (i < 16) {
+        // Character-by-character streaming across the active suffix (after the 512-byte pad).
+        view.render(h(MarkdownText, { text: doc.slice(0, pad.length), streaming: true, labels }))
+        for (let at = pad.length + 1; at < doc.length; at += 1) {
+          view.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+        }
+      } else {
+        let at = pad.length
+        view.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+        while (at < doc.length) {
+          at += 1 + Math.floor(rand() * 37)
+          if (at < doc.length) view.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+        }
+      }
+      view.render(h(MarkdownText, { text: doc, streaming: true, labels }))
+      view.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+      assert.equal(fold(view.container.innerHTML), expected, `fuzz mismatch on doc #${i}`)
+    } finally {
+      view.unmount()
+    }
+  }
+
+  // 2. 40 non-append tail-rewrite cases (streaming one tail, rewriting to a different tail, then settling).
+  for (let i = 0; i < 40; i += 1) {
+    const prefix = `${pad}\n\n${pick(pool)}\n\n`
+    const beforeDoc = `${prefix}${pick(pool)}\n`
+    const afterDoc = `${prefix}${pick(pool)}\n`
+
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text: afterDoc, streaming: false, labels }))
+    const expected = fold(settled.container.innerHTML)
+    settled.unmount()
+
+    const view = mounted()
+    try {
+      view.render(h(MarkdownText, { text: beforeDoc, streaming: true, labels }))
+      view.render(h(MarkdownText, { text: afterDoc, streaming: true, labels }))
+      view.render(h(MarkdownText, { text: afterDoc, streaming: false, labels }))
+      assert.equal(fold(view.container.innerHTML), expected, `rewrite fuzz mismatch #${i}`)
+    } finally {
+      view.unmount()
+    }
   }
 })
 

@@ -79,14 +79,31 @@ function measureIndent(text, lineStart) {
   return { col, index: i }
 }
 
+// Returns the exclusive end index of the current paragraph (before the first
+// blank line `\r?\n[ \t]*\r?\n` at or after `from`), or `text.length` if none.
+// CommonMark inline constructs (code spans, inline math) cannot cross blank lines.
+function findParagraphEnd(text, from) {
+  let i = from
+  while (i < text.length) {
+    const nl = text.indexOf('\n', i)
+    if (nl === -1) return text.length
+    let j = nl + 1
+    while (j < text.length && (text[j] === ' ' || text[j] === '\t' || text[j] === '\r')) j += 1
+    if (j < text.length && text[j] === '\n') return nl
+    i = j
+  }
+  return text.length
+}
+
 function readInlineCodeSpan(text, start) {
   let ticks = 0
   while (start + ticks < text.length && text[start + ticks] === '`') ticks += 1
+  const limit = findParagraphEnd(text, start + ticks)
   const needle = '`'.repeat(ticks)
   let close = text.indexOf(needle, start + ticks)
-  while (close !== -1) {
+  while (close !== -1 && close + ticks <= limit) {
     const beforeOk = close === 0 || text[close - 1] !== '`'
-    const afterOk = close + ticks >= text.length || text[close + ticks] !== '`'
+    const afterOk = close + ticks >= limit || text[close + ticks] !== '`'
     if (beforeOk && afterOk) return close + ticks
     close = text.indexOf(needle, close + 1)
   }
@@ -421,6 +438,43 @@ function isCurrencyOpeningDollar(text, open, close) {
   return false
 }
 
+// Matches a standalone flow display-math opener (`^ {0,3}\${2,}[ \t]*\r?\n`) at `start`
+// and returns the index right after its matching closing line (`^ {0,3}\${dollars,}[ \t]*$`),
+// allowing blank lines inside flow `$$...$$` blocks (matching CommonMark / remark-math).
+// Returns -1 if `start` is not a standalone flow opener or has no closing fence.
+function findFlowMathFenceClose(src, start) {
+  const lineStart = src.lastIndexOf('\n', start - 1) + 1
+  if (start - lineStart > 3) return -1
+  for (let k = lineStart; k < start; k += 1) {
+    if (src[k] !== ' ') return -1
+  }
+  let dollars = 0
+  while (start + dollars < src.length && src[start + dollars] === '$') dollars += 1
+  if (dollars < 2) return -1
+  let pos = start + dollars
+  while (pos < src.length && (src[pos] === ' ' || src[pos] === '\t' || src[pos] === '\r')) pos += 1
+  if (pos >= src.length || src[pos] !== '\n') return -1
+  pos += 1
+  while (pos < src.length) {
+    const nl = src.indexOf('\n', pos)
+    const lineEnd = nl === -1 ? src.length : nl
+    let spaces = 0
+    while (pos + spaces < lineEnd && src[pos + spaces] === ' ') spaces += 1
+    if (spaces <= 3) {
+      let c = 0
+      while (pos + spaces + c < lineEnd && src[pos + spaces + c] === '$') c += 1
+      if (c >= dollars) {
+        let tail = pos + spaces + c
+        while (tail < lineEnd && (src[tail] === ' ' || src[tail] === '\t' || src[tail] === '\r')) tail += 1
+        if (tail === lineEnd) return pos + spaces + c
+      }
+    }
+    if (nl === -1) break
+    pos = nl + 1
+  }
+  return -1
+}
+
 /**
  * Disambiguates currency dollar signs (e.g. `$5 and $10`, `$100-$200`, `价格$5和$10`,
  * `The item costs $5 and the answer is $x^2$.`) BEFORE `remark-math` pairs inline `$...$`,
@@ -429,14 +483,21 @@ function isCurrencyOpeningDollar(text, open, close) {
  */
 export function escapeCurrencyDollars(text) {
   if (typeof text !== 'string' || !text.includes('$')) return text
-  return walkMarkdownProse(text, (src, i, out, _quoteDepth, flushSeg) => {
+  return walkMarkdownProse(text, (src, i, out, quoteDepth, flushSeg) => {
     const ch = src[i]
     if (ch === '\\' && i + 1 < src.length) return i + 2
     if (ch !== '$') return i
     // Preserve display math `$$...$$` intact.
     if (src[i + 1] === '$') {
+      if (quoteDepth === 0) {
+        const flowClose = findFlowMathFenceClose(src, i)
+        if (flowClose !== -1) return flowClose
+      }
+      // Inline (non-flow) `$$` cannot cross blank lines; bound the scan to the current paragraph
+      // so an unclosed `$$` in one paragraph never hides currency in a later paragraph.
+      const limit = findParagraphEnd(src, i + 2)
       let j = i + 2
-      while (j < src.length) {
+      while (j + 1 < limit) {
         if (src[j] === '\\') { j += 2; continue }
         if (src[j] === '$' && src[j + 1] === '$') return j + 2
         j += 1
