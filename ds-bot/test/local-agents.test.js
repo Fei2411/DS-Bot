@@ -307,6 +307,27 @@ test('acp: a tool call running past the idle timeout keeps the turn alive', asyn
   t.mock.timers.reset()
 })
 
+test('acp: output after a tool call completed does not reopen it', async (t) => {
+  const adapter = makeAdapter({ idleCloseMs: 500, activeToolCloseMs: 5_000 })
+  t.after(() => adapter.dispose())
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  const update = (sessionUpdate, fields) => peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate, toolCallId: 'build', ...fields } },
+  }))
+  update('tool_call', { kind: 'execute', title: 'npm run build', status: 'in_progress' })
+  update('tool_call_update', { status: 'completed' })
+  update('tool_call_update', { content: [{ type: 'content', content: { type: 'text', text: 'built' } }] })
+  const sent = Date.now()
+  const outcome = await pending
+  assert.ok(Date.now() - sent < 3_000, `closed after ${Date.now() - sent} ms`)
+  assert.equal(outcome.error?.code, 'LOCAL_AGENT_EXIT')
+})
+
 test('acp: Stop during a long tool call restores the idle timeout', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())

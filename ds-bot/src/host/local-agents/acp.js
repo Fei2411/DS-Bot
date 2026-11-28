@@ -294,8 +294,10 @@ export class AcpEngine {
         const alreadyFailed = id !== undefined && (known?.status === 'failed' || session.failedToolCalls.has(id))
         const terminal = update.status === 'completed' || update.status === 'failed'
         if (id !== undefined && session.promptTurn !== undefined) {
-          if (terminal) session.promptTurn.openToolCalls.delete(id)
-          else session.promptTurn.openToolCalls.add(id)
+          if (terminal) {
+            session.promptTurn.openToolCalls.delete(id)
+            session.promptTurn.closedToolCalls.add(id)
+          } else if (!session.promptTurn.closedToolCalls.has(id)) session.promptTurn.openToolCalls.add(id)
         }
         if (id !== undefined) {
           if (terminal) {
@@ -682,6 +684,7 @@ export class AcpEngine {
       lastUsed: undefined,
       sawStepWork: false,
       openToolCalls: new Set(),
+      closedToolCalls: new Set(),
     }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
