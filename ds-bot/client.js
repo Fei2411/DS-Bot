@@ -46699,7 +46699,7 @@ function earlierItems(pages, { cursor, loading } = {}) {
   }
   return { items, hasContent: items.some((item) => item.kind !== "divider") };
 }
-function EarlierParts({ sessionId, roster, actions, openFile, renderUserText, wrapBotReply }) {
+function EarlierParts({ sessionId, roster, actions, openFile, useUi, renderUserAttachments, renderUserText, wrapBotReply }) {
   const [view, setView] = (0, import_react39.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react39.useRef)(null);
   const busy = (0, import_react39.useRef)(false);
@@ -46768,7 +46768,7 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText, wr
       { ref: top, className: "bt-earlier-top" },
       view.loading ? (0, import_react39.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react39.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
-    (0, import_react39.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText, wrapBotReply }),
+    (0, import_react39.createElement)(ChatRows, { items, sessionId, roster, actions, useUi, openFile, onBtwDelete: removeBtw, renderUserAttachments, renderUserText, wrapBotReply }),
     hasContent ? (0, import_react39.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
@@ -46876,7 +46876,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     case "view":
       return (0, import_react39.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale });
+      const partSessionId = row.sessionId ?? sessionId;
+      const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? partSessionId : void 0, msgKey: useUi ? `${partSessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
       const reply = speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
       return wrapBotReply ? wrapBotReply(reply, row.sessionId, key) : reply;
@@ -46884,6 +46885,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     case "btw":
       return (0, import_react39.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
     case "post": {
+      const partSessionId = row.sessionId ?? sessionId;
       const poster = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t("a Bot"), row.color ?? "gray");
       return (0, import_react39.createElement)(MemoGroupMessage, {
         key,
@@ -46896,7 +46898,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         sessionId,
         roster,
         actions,
-        msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
+        msgKey: `${partSessionId}:post:${row.seq ?? row.time}`,
         time: row.time,
         duration: row.duration,
         claims: row.claims,
@@ -67956,7 +67958,7 @@ function MemoryNotice({ shown }) {
     (0, import_react81.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react81.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react81.createElement)(MemoryIcon)), label)
   );
 }
-function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive: useLive2, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
+function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive: useLive2, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2, dockOwnsForegroundApprovals = false }) {
   const roster = useRoster((value) => value);
   const selectedView = useStore?.((state) => state.view);
   const away = useConversationViews?.((views) => views.some((view2) => view2.id === selectedView && view2.id !== "chat")) === true && typeof selectView === "function";
@@ -68007,7 +68009,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const activeTasks = chatTasks.filter(isActiveTask);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
-  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.roomId === void 0 && entry.answerable === true)) : "") ?? "[]";
+  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.roomId === void 0 && entry.answerable === true && (!dockOwnsForegroundApprovals || entry.taskId !== void 0))) : "") ?? "[]";
   const computerAsksKey = useComputer?.((comp) => room2 ? JSON.stringify(Object.values(comp?.asks ?? {}).filter((ask) => ask.roomId === room2.id)) : "") ?? "[]";
   const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;

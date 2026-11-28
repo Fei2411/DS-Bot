@@ -146,7 +146,15 @@ function classifyUserMessage(event, { turn, roster, sessionId }) {
     if (source.role === 'retry' || source.retried === true) return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'retry' }
     if (source.role === 'continue') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'continue' }
     if (source.role === 'report') return { kind: 'event', key: `ev:${event.seq}`, seq: event.seq, time: event.time, turn, eventKind: 'report', roomId: source.roomId }
-    if (source.role === 'request' || source.role === 'reply' || source.role === 'stopped') {
+    if (
+      source.role === 'request'
+      || source.role === 'reply'
+      || source.role === 'stopped'
+      || source.role === 'cancelled'
+      || source.role === 'note'
+      || source.role === 'ask_back'
+      || source.role === 'answer'
+    ) {
       return {
         kind: 'event',
         key: `ev:${event.seq}`,

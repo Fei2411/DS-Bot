@@ -884,7 +884,7 @@ export function App() {
             readOnly,
             sidebarWide: isNarrow ? drawerOpen : !classicHidden,
           })
-          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), PendingLearning })),
+          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), PendingLearning, dockOwnsForegroundApprovals: true })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
       : (inClassicMode
         ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))

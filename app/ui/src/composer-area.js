@@ -616,7 +616,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
       setText(savedText)
       setCaret(savedText.length)
     }
-    const taken = takeDraft({ chatId, part: sessionId, text: textRef.current, attached: attachmentsRef.current.length })
+    const taken = takeDraft({ chatId, part: sessionId, text: textRef.current ?? '', attached: (attachmentsRef.current ?? []).length })
     if (taken.files.length > 0) {
       const { next } = buildAttachmentEntries(taken.files)
       if (next.length > 0) {
@@ -675,7 +675,7 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
     if (!feed) return undefined
     return feed.on((event, data) => {
       if (event !== 'reference-chat' || data?.sessionId !== sessionId) return
-      const currentLen = textRef.current.length
+      const currentLen = (textRef.current ?? '').length
       const start = Math.max(0, Math.min(data.insertion?.start ?? currentLen, currentLen))
       const end = Math.max(start, Math.min(data.insertion?.end ?? start, currentLen))
       setReferenceTrigger({ start, end })
@@ -881,15 +881,22 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
 
   const runClassicCommand = useCallback(async (line, items = []) => {
     if (!isAgentChat || disabled || typeof actions?.runSessionCommand !== 'function') return false
+    const originSessionId = sessionId
+    const originChatKey = chatKey
+    const isStillActive = () => mountedRef.current
+      && sessionIdRef.current === originSessionId
+      && chatKeyRef.current === originChatKey
     setError(null)
     setCommandNotice(null)
     const prevPlanActive = Boolean(classicControlsRef.current?.plan?.active)
     try {
       const extra = items.length > 0 ? await stageAttachmentItems(items, actions) : null
+      if (!isStillActive()) return false
       const res = extra && (extra.images.length > 0 || extra.files.length > 0)
-        ? await actions.runSessionCommand(sessionId, line, extra)
-        : await actions.runSessionCommand(sessionId, line)
-      if (res?.controls && mountedRef.current && chatKeyRef.current === chatKey) {
+        ? await actions.runSessionCommand(originSessionId, line, extra)
+        : await actions.runSessionCommand(originSessionId, line)
+      if (!isStillActive()) return false
+      if (res?.controls) {
         setClassicControls(res.controls)
       }
       if (res?.matched === false) {
@@ -901,12 +908,12 @@ export const Composer = memo(function Composer({ sessionId, placeholder, disable
         return false
       }
       const planToggled = res?.controls?.plan !== undefined && Boolean(res.controls.plan.active) !== prevPlanActive
-      if (res?.result?.text && !planToggled && mountedRef.current && chatKeyRef.current === chatKey) {
+      if (res?.result?.text && !planToggled) {
         setCommandNotice(res.result.text)
       }
       return true
     } catch (failure) {
-      setError(failure?.message ?? t('Couldn’t run command'))
+      if (isStillActive()) setError(failure?.message ?? t('Couldn’t run command'))
       return false
     }
   }, [isAgentChat, disabled, actions, sessionId, chatKey])

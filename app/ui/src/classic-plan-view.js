@@ -1,6 +1,6 @@
 // Transcript Plan Card for DSH's `exit_plan_mode` tool call, registered into
 // `tool.call.toolview` at BUILTIN priority (100) so user/plugin overrides still win.
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
@@ -74,7 +74,19 @@ export function ClassicPlanCard({ block }) {
   const bodyMarkdown = stripPlanHeading(planMarkdown, title)
   const status = planStatusOf(block)
   const pending = status.tone === 'pending'
-  const [open, setOpen] = useState(() => pending || status.tone === 'ok')
+  const shouldAutoOpen = pending || status.tone === 'ok'
+  const [open, setOpen] = useState(() => shouldAutoOpen)
+  const userToggledRef = useRef(false)
+  const prevToneRef = useRef(status.tone)
+  useEffect(() => {
+    if (prevToneRef.current === status.tone) return
+    prevToneRef.current = status.tone
+    if (!userToggledRef.current) setOpen(shouldAutoOpen)
+  }, [status.tone, shouldAutoOpen])
+  const toggleOpen = () => {
+    userToggledRef.current = true
+    setOpen(value => !value)
+  }
   const [copied, setCopied] = useState(false)
   const rawResultText = block?.isError ? readResultText(block) : ''
   const resultText = status.tone === 'warn' || status.tone === 'muted'
@@ -102,7 +114,7 @@ export function ClassicPlanCard({ block }) {
       type: 'button',
       className: 'dsb-plan-card-head',
       'aria-expanded': open,
-      onClick: () => setOpen(value => !value),
+      onClick: toggleOpen,
     },
     h('span', { className: 'dsb-plan-card-ico', 'aria-hidden': true }, h(PlanModeIcon)),
     h('span', { className: 'dsb-plan-card-title' }, title),
@@ -121,7 +133,7 @@ export function ClassicPlanCard({ block }) {
         'aria-label': open ? t('Collapse plan') : t('Show full plan'),
         title: open ? t('Collapse plan') : t('Show full plan'),
         'aria-expanded': open,
-        onClick: () => setOpen(value => !value),
+        onClick: toggleOpen,
       }, open ? h(ChevronUpIcon) : h(ChevronDownIcon)))),
   open && bodyMarkdown ? h('div', { className: 'dsb-plan-card-body' },
     h(MarkdownText, { text: bodyMarkdown })) : null,
