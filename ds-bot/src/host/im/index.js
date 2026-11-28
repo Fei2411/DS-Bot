@@ -33,6 +33,7 @@ const FAILED_IMAGE_BYTES_MAX = 20 * 1024 * 1024
 const REQUESTS_MAX = 1_000
 const RESUMED_ORIGINS_MAX = 200
 const WITHHELD_ORIGINS_MAX = 500
+const TAINTED_COORD_WORKS_MAX = 500
 const IM_VIA_SEQS_MAX = 500
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 // A quoted reply is answered with the message it quotes: the last messages sent
@@ -654,15 +655,11 @@ export function install(rt) {
 
   // ------------------------------------------------------------ reply origin
   // A reply leaves the app only for the chat that asked for the turn that produced it.
-  // An IM message starts a turn carrying the request it came in on; every other way a
-  // turn starts — the Web UI, a peer Bot's message, a scheduled task, work picked up
-  // after a restart — has no IM origin, and its replies, views and cards stay in the app.
-  // Nothing is persisted: after a restart there is no origin, so nothing goes out. A
-  // Bot's origin lives until its turn ends, a conflicting IM source joins it, or a
-  // background result with no known owner enters it. A group's own Session ends its
-  // relay turn at once while its members keep working, so its origin lives until a
-  // new round starts in the group or the user is unpaired. A request lives until its
-  // message is admitted, however long it waits in the queue behind a busy Bot.
+  // An IM message starts a turn carrying the request it came in on; persisted background
+  // tasks, cross-Bot dispatches, and group reports carry their `imOrigin` inside
+  // `rt.coordDb` (`works`/`calls`, never in public views or Session logs) so post-restart
+  // returns still route back to the exact paired & bound origin chat, while mixed or
+  // non-IM turns stay strictly inside the app.
   const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
   // Session id → the chat its running turn came from.
   const origins = new Map()
@@ -673,6 +670,151 @@ export function install(rt) {
   // Groups that started a live non-IM (Web/Desktop) round in this process; cleared once
   // the room becomes idle or an IM chat claims it.
   const roomWebRounds = new Set()
+  // Coordination work/call ids whose IM origin was tainted/mixed during this process.
+  const taintedCoordWorks = new Set()
+  const markCoordTainted = (id) => {
+    if (!id) return
+    taintedCoordWorks.add(id)
+    while (taintedCoordWorks.size > TAINTED_COORD_WORKS_MAX) {
+      taintedCoordWorks.delete(taintedCoordWorks.values().next().value)
+    }
+  }
+  const readableCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
+  const normalizeCoordImOrigin = (raw) => {
+    if (!raw || typeof raw !== 'object') return undefined
+    if (raw.mixed === true) return { mixed: true }
+    return normalizeImOrigin(raw)
+  }
+  const extractWorkImOrigin = (work) => {
+    if (!work) return undefined
+    if (taintedCoordWorks.has(work.workId)) return { mixed: true }
+    if (work.imOrigin?.mixed === true || work.meta?.imOriginMixed === true || work.meta?.imOrigin?.mixed === true) {
+      return { mixed: true }
+    }
+    return normalizeCoordImOrigin(work.imOrigin ?? work.meta?.imOrigin)
+  }
+  const extractCallImOrigin = (call, db) => {
+    if (!call) return undefined
+    if (taintedCoordWorks.has(call.callId) || (call.childWorkId && taintedCoordWorks.has(call.childWorkId))) {
+      return { mixed: true }
+    }
+    if (call.meta?.imOriginMixed === true || call.meta?.imOrigin?.mixed === true) {
+      return { mixed: true }
+    }
+    const direct = normalizeCoordImOrigin(call.meta?.imOrigin)
+    if (direct !== undefined) return direct
+    if (db && call.childWorkId) {
+      const child = db.getWork(call.childWorkId)
+      const fromChild = extractWorkImOrigin(child)
+      if (fromChild !== undefined) return fromChild
+    }
+    return undefined
+  }
+  const coordImOriginOfTask = (taskId) => {
+    const db = readableCoordDb()
+    if (!db || !taskId) return undefined
+    try {
+      for (const wid of [`task:${taskId}`, taskId]) {
+        const work = db.getWork(wid)
+        if (!work) continue
+        const found = extractWorkImOrigin(work)
+        if (found !== undefined) return found
+      }
+    } catch { /* best-effort */ }
+    return undefined
+  }
+  const coordImOriginOfCall = (replyTo, coordCallId) => {
+    const db = readableCoordDb()
+    if (!db) return undefined
+    try {
+      for (const cid of [coordCallId, replyTo]) {
+        if (!cid) continue
+        const call = db.getCall(cid)
+        if (call) {
+          const found = extractCallImOrigin(call, db)
+          if (found !== undefined) return found
+        }
+      }
+      if (replyTo) {
+        const work = db.getWork(replyTo) ?? db.getWorkByRef(replyTo)
+        if (work) {
+          const found = extractWorkImOrigin(work)
+          if (found !== undefined) return found
+        }
+      }
+    } catch { /* best-effort */ }
+    return undefined
+  }
+  const coordImOriginOfRoom = (roomId, botId) => {
+    const db = readableCoordDb()
+    if (!db || !roomId) return undefined
+    try {
+      const candidates = db.listWorks({ roomId, activeOnly: true, limit: 100 })
+        .filter(w => w.apiRunId === null && w.originKind !== 'request_dedup' && (botId === undefined || w.botId === botId))
+      let picked
+      for (const work of candidates) {
+        const origin = extractWorkImOrigin(work)
+        if (origin?.mixed === true) return { mixed: true }
+        if (origin === undefined) continue
+        if (picked === undefined) picked = origin
+        else if (!sameImChat(picked, origin)) return { mixed: true }
+      }
+      return picked
+    } catch {
+      return undefined
+    }
+  }
+  const coordWorkImOrigin = (workOrId) => {
+    if (!workOrId) return undefined
+    if (typeof workOrId === 'object') return extractWorkImOrigin(workOrId)
+    const db = readableCoordDb()
+    if (!db) return undefined
+    try {
+      const id = String(workOrId)
+      const work = db.getWork(id) ?? db.getWorkByRef(id)
+      if (work) return extractWorkImOrigin(work)
+      const call = db.getCall(id)
+      if (call) return extractCallImOrigin(call, db)
+    } catch { /* best-effort */ }
+    return undefined
+  }
+  const taintCoordForSession = (sessionId) => {
+    const db = readableCoordDb()
+    if (!db || !sessionId) return
+    try {
+      const work = db.getWorkBySessionId(sessionId)
+      if (work && work.kind !== 'foreground') markCoordTainted(work.workId)
+    } catch { /* best-effort */ }
+  }
+  const taintCoordForRoom = (roomId, incomingOrigin) => {
+    const db = readableCoordDb()
+    if (!db || !roomId) return
+    try {
+      const works = db.listWorks({ roomId, activeOnly: true, limit: 100 })
+        .filter(w => w.apiRunId === null && w.originKind !== 'request_dedup')
+      for (const work of works) {
+        const origin = extractWorkImOrigin(work)
+        if (origin !== undefined && (origin.mixed === true || !sameImChat(origin, incomingOrigin))) {
+          markCoordTainted(work.workId)
+        }
+      }
+    } catch { /* best-effort */ }
+  }
+  const hasCoordNonImRoomWork = (roomId, excludeBotId) => {
+    const db = readableCoordDb()
+    if (!db || !roomId) return false
+    try {
+      const works = db.listWorks({ roomId, activeOnly: true, limit: 100 })
+        .filter(w => w.apiRunId === null && w.originKind !== 'request_dedup' && w.status !== 'idle')
+      return works.some((work) => {
+        if (excludeBotId !== undefined && work.botId === excludeBotId) return false
+        const origin = extractWorkImOrigin(work)
+        return origin === undefined || origin.mixed === true
+      })
+    } catch {
+      return false
+    }
+  }
 
   // The target a chat currently points at, as a comparable string. A direct chat falls
   // back to the connection's Bot; an unbound group chat has no target.
@@ -751,6 +893,7 @@ export function install(rt) {
     return normalizeImOrigin(origins.get(sessionId))
   }
   const originFromSaved = (entry) => {
+    if (entry?.mixed === true) return undefined
     if (entry?.connId === undefined || entry?.chatKey === undefined) return undefined
     const conn = Object.values(connections()).find(item => item.id === entry.connId)
     if (conn === undefined || !runners.has(conn.id)) return undefined
@@ -806,6 +949,9 @@ export function install(rt) {
     origins.delete(sessionId)
     mixed.add(sessionId)
     forgetHeldOrigins(sessionId)
+    taintCoordForSession(sessionId)
+    const droppedRoom = rt.roomOf(sessionId)
+    if (droppedRoom !== undefined) taintCoordForRoom(droppedRoom.id, undefined)
   }
   const resetOrigin = (sessionId) => {
     apiOrigins.delete(sessionId)
@@ -831,6 +977,7 @@ export function install(rt) {
   const taintRoomImOrigin = (roomId, incomingOrigin) => {
     const room = rt.roomOf(roomId)
     if (room === undefined) return
+    taintCoordForRoom(room.id, incomingOrigin)
     const roomSid = rt.sessionOfRoom(room)
     const live = origins.get(roomSid)
     if (live !== undefined) {
@@ -852,6 +999,7 @@ export function install(rt) {
     const roomMidTurn = rt.live.get(rt.sessionOfRoom(room))?.turn !== undefined
     const working = (roomMidTurn && (rt.roomInbox?.get(room.id)?.length ?? 0) > 0)
       || rt.roomBatchPending?.(room.id) === true
+      || hasCoordNonImRoomWork(room.id, excludeBotId)
       || (rt.workingInRoom?.(room) ?? []).some((entry) => {
         const id = entry.bot?.id
         if (id === undefined || id === excludeBotId) return false
@@ -944,14 +1092,17 @@ export function install(rt) {
   }
   const approvalOrigin = (entry) => {
     if (entry.taskId !== undefined) {
+      const coordOrigin = coordImOriginOfTask(entry.taskId)
+      if (coordOrigin?.mixed === true) return undefined
       const task = rt.taskById?.(entry.taskId)?.task
-      if (task?.imOrigin !== undefined) return originFromSaved(task.imOrigin)
+      const savedTaskOrigin = coordOrigin ?? task?.imOrigin
+      if (savedTaskOrigin !== undefined) return originFromSaved(savedTaskOrigin)
       if (entry.roomId !== undefined && task?.dispatchApprovalOrigin !== undefined) {
         const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
         if (mixed.has(roomSid)) return undefined
         const saved = task.dispatchApprovalOrigin
-        const liveReport = rt.roomReportImOrigin?.(entry.roomId, entry.botId)
-        if (sameImOrigin(liveReport, saved)) {
+        const liveReport = coordImOriginOfRoom(entry.roomId, entry.botId) ?? rt.roomReportImOrigin?.(entry.roomId, entry.botId)
+        if (liveReport?.mixed !== true && sameImOrigin(liveReport, saved)) {
           return originFromSaved(saved)
         }
       }
@@ -960,7 +1111,9 @@ export function install(rt) {
     if (entry.roomId !== undefined) {
       const roomSid = rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId
       if (mixed.has(roomSid)) return undefined
-      return originOf(roomSid) ?? originFromSaved(rt.roomReportImOrigin?.(entry.roomId, entry.botId))
+      const coordRoom = coordImOriginOfRoom(entry.roomId, entry.botId)
+      if (coordRoom?.mixed === true) return undefined
+      return originOf(roomSid) ?? originFromSaved(coordRoom ?? rt.roomReportImOrigin?.(entry.roomId, entry.botId))
     }
     return originOf(chatOfBot(entry.botId))
   }
@@ -2496,8 +2649,10 @@ export function install(rt) {
         // A late member result, part-switch handoff, or task report continues the work the
         // chat asked for; any other first message starts a fresh turn, which clears the
         // previous turn's origin.
-        const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
-        const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report') && typeof source.replyTo === 'string'
+        const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report'
+          && typeof source.taskId === 'string'
+        const isDispatchReturn = source?.kind === SOURCE_KIND && (source.role === 'reply' || source.role === 'report')
+          && (typeof source.replyTo === 'string' || typeof source.coordCallId === 'string' || (imOrigin !== null && typeof imOrigin === 'object'))
         const isOpeningPost = source?.kind === SOURCE_KIND && source.role === 'post' && source.openingPost === true
         const continuesRoomWork = typeof imOrigin === 'string' || isTaskReport
           || (source?.kind === SOURCE_KIND && source.role === 'post' && !isOpeningPost)
@@ -2524,19 +2679,26 @@ export function install(rt) {
           if (resumed === undefined) dropOrigin(session.id)
           else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
         } else if (isTaskReport) {
-          // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
-          // and post-restart resends (inflight.json) never lose the IM chat claim.
+          // Resolve the persisted `imOrigin` from `rt.coordDb` (`works`) or legacy `task.imOrigin`
+          // so deferred redelivery and post-restart recovery never lose the IM chat claim.
           // For group tasks, `onRoomLine` reads `originOf(room.sessionId)`, so restore onto
           // the group's own Session without clobbering an unrelated live group origin.
-          const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
+          const coordSaved = coordImOriginOfTask(source.taskId)
+          const saved = coordSaved !== undefined
+            ? coordSaved
+            : (rt.taskById?.(source.taskId)?.task?.imOrigin ?? normalizeCoordImOrigin(imOrigin))
           const roomId = typeof source.roomId === 'string' && source.roomId !== '' ? source.roomId : undefined
           restoreSavedOrigin(session.id, saved, { roomId, requireBinding: false, dropWhenUnsaved: false })
         } else if (isDispatchReturn) {
           // Restore the originating IM chat when a Bot reply or group report returns for
-          // work dispatched from an IM turn (#1836, #1894), with pairing, binding and
-          // anti-mix checks. Non-IM dispatch returns joining an IM turn drop origin, and
-          // IM dispatch returns joining a non-IM turn never hijack it.
-          const saved = rt.imReplyOrigin?.(source.replyTo)
+          // work dispatched from an IM turn (#1836, #1894), consulting `rt.coordDb`
+          // (`calls`/`works`) first with pairing, binding and anti-mix checks. Non-IM
+          // dispatch returns joining an IM turn drop origin, and IM dispatch returns
+          // joining a non-IM turn never hijack it.
+          const coordSaved = coordImOriginOfCall(source.replyTo, source.coordCallId)
+          const saved = coordSaved !== undefined
+            ? coordSaved
+            : (rt.imReplyOrigin?.(source.replyTo) ?? normalizeCoordImOrigin(imOrigin))
           const owner = rt.groupOwners.get(session.id)
           restoreSavedOrigin(session.id, saved, { roomId: owner?.roomId, requireBinding: true, dropWhenUnsaved: true })
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
@@ -2674,6 +2836,7 @@ export function install(rt) {
       stopped = true
       clearInterval(interval)
       resumedOrigins.clear()
+      taintedCoordWorks.clear()
       return Promise.all([...runners.keys()].map(stop)).then(async () => {
         await drainOutboundBounded()
         runtimeWritesClosed = true
@@ -2703,5 +2866,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, imWhenIdle, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, imWhenIdle, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, coordWorkImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
 }

@@ -243,6 +243,19 @@ async function parseUiPluginSpec({ id, fallbackName, rootDir, spec, source, pack
 }
 
 /**
+ * A bundle may publish desktop `dsBot.ui` code only when DSH actually accepts it:
+ * enabled in the profile, files present (`availability !== 'missing'`), and no
+ * load/compatibility error (e.g. unexempted `incompatible-version` or `unsupported-platform`).
+ */
+export function isBundleEligibleForUi(bundle) {
+  if (!bundle || typeof bundle !== 'object') return false
+  if (bundle.enabled !== true) return false
+  if (bundle.availability === 'missing') return false
+  if (bundle.error) return false
+  return true
+}
+
+/**
  * Scan `<DSH_HOME>/ui-plugins/` and enabled profile bundles for desktop UI / theme plugins.
  */
 export async function discoverUiPlugins({
@@ -319,11 +332,11 @@ export async function discoverUiPlugins({
     }
   }
 
-  // 2. Enabled profile bundles declaring `dsBot.ui` in their package.json.
+  // 2. Enabled, eligible profile bundles declaring `dsBot.ui` in their package.json.
   if (Array.isArray(bundles) && typeof resolveBundleDir === 'function') {
     for (const bundle of bundles) {
       const pkgName = typeof bundle?.name === 'string' ? bundle.name.trim() : ''
-      if (!pkgName || CORE_PACKAGES.has(pkgName) || !bundle.enabled) continue
+      if (!pkgName || CORE_PACKAGES.has(pkgName) || !isBundleEligibleForUi(bundle)) continue
       let pkgDir = null
       try {
         pkgDir = await resolveBundleDir(pkgName)

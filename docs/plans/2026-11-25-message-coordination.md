@@ -16,31 +16,31 @@ This split caused four reproducible cross-process recovery failures:
 
 ## Decided behavior
 
-### 1. Local SQLite coordination store (`coordination.sqlite`)
+### 1. Unified local SQLite coordination state machine (`coordination.sqlite`, `user_version = 3`)
 
-- Owned exclusively by the lock-holding host process (`node:sqlite`, WAL mode, `busy_timeout = 5000`); read-only windows never write to it, and Bot file/shell tools are blocked from accessing it (`privacy.js`).
-- Stores only coordination truth: `deliveries`, `active_turns`, `obligations` (`task_report`, `room_report`, `peer_result`), and `silent_notes` (session-buffered notices and work-scoped mid-step updates).
-- Chat transcripts, attachments, and tool logs stay in DSH Sessions and `ledger/*.jsonl`; no bodies are migrated into SQLite.
-- On startup, a legacy `inflight.json` (from earlier versions) is imported once into `coordination.sqlite`; `inflight.json` is kept as a generation-tagged compatibility mirror so stale mirrors never resurrect cleared SQLite rows.
+- Owned exclusively by the lock-holding host process (`node:sqlite`, WAL mode on POSIX / rollback `DELETE` journal on Windows, `busy_timeout = 5000`); read-only windows open `{ readonly: true }` and never mutate state, corrupt database files auto-quarantine and rebuild on writable open, and Bot file/shell tools are blocked from accessing it (`privacy.js`).
+- Single-track 5-table schema (`works`, `calls`, `inbox`, `waits`, `ready`) supersedes the earlier sidecar outbox tables (`user_version = 2`) in one atomic upgrade transaction, eliminating dual-write drift across `state.works`, `state.roomBatches`, `state.roomReports`, `inflight.json`, and `api-runs.json`.
+- Chat transcripts, attachments, and tool logs stay in DSH Sessions and `ledger/*.jsonl`; SQLite stores only durable coordination truth.
+- On startup, legacy `state.json`, `inflight.json`, and `api-runs.json` records are imported idempotently once into `coordination.sqlite`.
 
 ### 2. Logical addresses replace Session IDs as delivery targets
 
-- Every tracked delivery carries a logical address (`{ foreground: true }`, `{ roomId }`, `{ taskId }`, or `{ retired: true }`) resolved at admission and recovery via `addressedSession()`.
-- Context part switches keep the same logical address and route to the newest segment.
-- A closed/failed background task, deleted group, or removed member resolves to `undefined` and cancels cleanly with a diagnostic notice (`RECIPIENT_CLOSED`) — it never falls back to the Bot's private foreground chat.
+- Every tracked work and delivery carries a stable logical address (`foreground:<botId>`, `task:<taskId>`, `room:<roomId>:<botId>`, or `api:<runId>`) resolved at admission and recovery via `resolveLogicalSession()`.
+- Context part switches update the Session binding without changing the logical address.
+- A closed/failed background task, deleted group, or removed member resolves to `undefined` — it never falls back to the Bot's private foreground chat.
 
-### 3. Atomic terminal obligations and shared cold-evidence verification
+### 3. Single-settlement call barriers, D1–D4 adapter, and group 3-way zero-echo protocol
 
-- `settleTask` commits task-start cancellation and any owed `task_report` obligation in a single SQLite transaction (`commitTaskTerminal`) before saving `state.json` or calling `deliver()`. `deliverRoomReport` and `answerSender` commit `room_report` and `peer_result` obligations before clearing pending state or sending.
-- Live recovery, queued replay, obligation replay, and `reconcileEndedTask` all share one `readSessionEvidence()` reader backed by real DSH `sessionQuery` (`inspectSession` / `readSession`), `sessionController.page`, live snapshots, and test `inspect` hooks.
-- Replay checks live inboxes and durable session history by `(exchangeId, role, deferred, resumed, retried)`. Already-consumed messages are forgotten; cold-read I/O errors fail closed (`CONSUMPTION_UNVERIFIED` / `TURN_UNVERIFIED`) instead of blindly duplicating; turns with unconfirmed `tool/call` events (and no pending approval) are held for user verification instead of automatically re-running side-effectful tools.
+- `dsh-adapter.js` probes DSH capabilities and runs natively on official unmodified DSH `0.2.2-rc.5` using public plugin APIs only (never patches `@deepseek-ai/*` or wraps `sessionController.prompt`).
+- Multi-child fan-out settles via atomic SQLite `calls` + `waits` barriers (`waiting -> queued`), waking the parent once when all required children finish; cold crash recovery inspects real DSH Session logs (`agent/inbox/spliced`, `tool/call`, `tool/result`, `turn/end`) and fails closed (`needs_verification`) on interrupted tools or corrupt/unreadable logs.
+- Group chats enforce a strict 3-way message protocol (`visible` / `invite` / `call`): Bot body `@Name` text is display-only and never spawns wakes or calls; delegations enter explicitly via `delegate_work` / `post_to_group` with per-generation synthesis (`throughSeq`).
+- External `/v1` API Runs persist their `works` row, `Idempotency-Key`, and request payload in SQLite before any side effects.
 
-### 4. Non-interrupting work updates and progress-based loop guards
+### 4. Non-interrupting notes and hard-signal loop guards
 
-- Callers can attach mid-work corrections to an open delegation or group assignment via `note_bot(to, note, work_id)`. Updates persist in `coordination.sqlite` (`scope = 'work'`), reject unauthorized third parties, inject at the worker's next `agent/pre-step` without interrupting running commands, and clear only after `sessions.flush(session) === true`.
-- Foreground chats remain able to execute fast tools and direct Q&A without forcing every action into a background task; slow shell auto-backgrounding, explicit `fg-handoff`, and `bot-handoff` continue as designed.
-- Fixed turn-count cutoffs (`WORK_REWORK_CHECKPOINT` and `ROOM_ZERO_WORK_RELAY_LIMIT`) are replaced by content-hash no-progress detection and directed cycle detection so long productive chains run uninterrupted while genuine stalls pause visibly.
-- Permanent `session/not-found` failures during group model sync are dropped from `roomRetry` and logged once instead of retrying indefinitely (#2265).
+- `note_bot` persists zero-wake `inbox(kind='note')` entries in `coordination.sqlite`, attaches on the worker's next waking `agent/pre-step` without interrupting running commands, and acks only the note row on `user/message`.
+- Foreground chats keep direct fast tools and pure public `agent/inbox/inserted` foreground handoff durability (#2309).
+- Fixed turn-count cutoffs are replaced by wait-graph cycle detection and hard-signal no-progress detection (`progress_signature`), pausing only stagnant chains visibly until resumed.
 
 ## Non-goals
 
