@@ -42,9 +42,9 @@ const RG_ONLY_VALUE_FLAGS = new Set(['-g', '-t', '-T', '-r', '-M', '-j'])
 const API_FILE_NAMES = ['api-endpoint.json', 'api-tokens.json', 'api-audit.jsonl', 'api-config.json', 'api-runs.json', 'api-uploads']
 
 function referencesApiFile(text) {
-  for (const [, name, next] of text.matchAll(/(?:^|[^\w.-])(api-[\w.-]*)(?=(.?))/g)) {
-    if (name === 'api-' || API_FILE_NAMES.some(file => name === file || name.startsWith(`${file}.`)
-      || (/[$*?[{]/.test(next) && file.startsWith(name)))) return true
+  // Shell quoting, escapes and expansions can continue a filename at a token boundary.
+  for (const [, name] of text.matchAll(/(?:^|[^\w.-])(api-[\w.-]*)/g)) {
+    if (API_FILE_NAMES.some(file => file.startsWith(name) || name.startsWith(`${file}.`))) return true
   }
   return false
 }

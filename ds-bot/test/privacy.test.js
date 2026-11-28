@@ -1193,6 +1193,7 @@ test('shell permits API headers, branch names and project paths', async (t) => {
     'curl -H "APCA-API-KEY-ID: $APCA_API_KEY_ID" -H "APCA-API-SECRET-KEY: $APCA_API_SECRET_KEY" https://paper-api.alpaca.markets/v2/positions',
     'curl -H "x-api-key: $KEY" https://example.com/',
     'git switch -c feat/api-x',
+    'git switch -c feat/api-tokenize',
     'echo "xapi-y"',
     'cat src/api-client.ts',
   ]) {
@@ -1230,6 +1231,33 @@ test('run_code permits ordinary api- text even when cwd is the team home', async
   const agent = agentOf('b')
   agent.session.header.cwd = home
   assert.deepEqual(await run('run_code', { code: 'return ["x-api-key", "feat/api-x"]' }, 'b', agent), { ran: true })
+})
+
+test('shell and run_code block partial host API filenames that can continue', async (t) => {
+  const { run, home, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  agent.session.header.cwd = home
+  const fragments = [
+    ['double quotes', 'api-tok""ens.json'],
+    ['single quotes', "api-tok''ens.json"],
+    ['backslash', 'api-tok\\ens.json'],
+    ['command substitution', 'api-tok$(printf e)ns.json'],
+    ['backticks', 'api-tok`printf e`ns.json'],
+    ['end of input', 'api-tok'],
+  ]
+  for (const [label, fragment] of fragments) {
+    await t.test(label, async () => {
+      const res = await run('bash', { command: `cat ${fragment}` }, 'b', agent)
+      assert.equal(res.ran, false)
+      assert.match(res.error, /API token/)
+    })
+  }
+  await t.test('run_code string concatenation', async () => {
+    const res = await run('run_code', { code: 'return "api-tok" + "ens.json"' }, 'b', agent)
+    assert.equal(res.ran, false)
+    assert.match(res.error, /API token/)
+  })
 })
 
 test('run_code allows workspace api-*/mcp.json files while guardApiFiles still blocks rt.home API/MCP/telemetry files', async (t) => {
