@@ -4,6 +4,58 @@
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
+!define DSB_ROLLBACK "$LOCALAPPDATA\dsbot-updater\rollback"
+!define DSB_ROLLBACK_STAGING "$LOCALAPPDATA\dsbot-updater\rollback-staging"
+!define DSB_LEGACY_EXECUTABLE "DeepSeek Bot.exe"
+
+; The old uninstaller may remove $INSTDIR before the new payload is extracted.
+; Publish the fallback outside $INSTDIR and $PLUGINSDIR before that can happen.
+!macro customInit
+  ${If} ${Silent}
+  ${AndIf} ${isUpdated}
+    StrCpy $R8 "${APP_EXECUTABLE_FILENAME}"
+    ${IfNot} ${FileExists} "$INSTDIR\$R8"
+      StrCpy $R8 "${DSB_LEGACY_EXECUTABLE}"
+    ${EndIf}
+
+    ; A retry must not replace the fallback with a partially installed version.
+    ${IfNot} ${FileExists} "${DSB_ROLLBACK}\resources\app.asar"
+    ${AndIf} ${FileExists} "$INSTDIR\$R8"
+    ${AndIf} ${FileExists} "$INSTDIR\resources\app.asar"
+      RMDir /r "${DSB_ROLLBACK_STAGING}"
+      IfFileExists "${DSB_ROLLBACK_STAGING}" rollbackBackupFailed
+      ClearErrors
+      CreateDirectory "${DSB_ROLLBACK_STAGING}"
+      IfErrors rollbackBackupFailed
+      CopyFiles /SILENT "$INSTDIR\*" "${DSB_ROLLBACK_STAGING}"
+      IfErrors rollbackBackupFailed
+      IfFileExists "${DSB_ROLLBACK_STAGING}\$R8" 0 rollbackBackupFailed
+      IfFileExists "${DSB_ROLLBACK_STAGING}\resources\app.asar" 0 rollbackBackupFailed
+      RMDir /r "${DSB_ROLLBACK}"
+      ClearErrors
+      Rename "${DSB_ROLLBACK_STAGING}" "${DSB_ROLLBACK}"
+      IfErrors rollbackBackupFailed
+    ${EndIf}
+  ${EndIf}
+  Goto rollbackBackupDone
+  rollbackBackupFailed:
+    DetailPrint "Could not save a rollback copy. Continuing the update."
+    RMDir /r "${DSB_ROLLBACK_STAGING}"
+  rollbackBackupDone:
+    ClearErrors
+!macroend
+
+!macro customInstall
+  IfFileExists "${DSB_ROLLBACK}\resources\app.asar" 0 rollbackCleanupDone
+  IfFileExists "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 rollbackCleanupDone
+  IfFileExists "$INSTDIR\resources\app.asar" 0 rollbackCleanupDone
+  ClearErrors
+  Rename "${DSB_ROLLBACK}" "${DSB_ROLLBACK_STAGING}"
+  IfErrors rollbackCleanupDone
+  RMDir /r "${DSB_ROLLBACK_STAGING}"
+  rollbackCleanupDone:
+!macroend
+
 ; The LANG_* symbols exist only after addLangs, which runs just before this
 ; hook; a LangString for a language the build does not load would create a
 ; phantom language table (makensis warning 6040, treated as error).
