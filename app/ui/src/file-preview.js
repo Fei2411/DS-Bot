@@ -1,7 +1,9 @@
 // Multi-format document previewer for the workspace right panel:
-// Markdown, code/text with line numbers, CSV/TSV spreadsheet tables, images, SVG,
-// PDF (and libreoffice-kit converted Office documents), and strictly sandboxed HTML.
-import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
+// Markdown, virtualized code/text with line numbers and word-wrap toggle, CSV/TSV
+// spreadsheet tables, Excel workbooks, zoomable images & SVG, zoomable PDF (and
+// libreoffice-kit converted Office documents), strictly sandboxed HTML, and live
+// file-change reload / auto-refresh controls.
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { fileSizeText, MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CopyIcon, DownloadIcon, FileIcon } from '../../../ds-bot/src/client/icons.js'
@@ -10,6 +12,46 @@ import { prepareHtmlPreview } from './html-preview.js'
 
 const MAX_TABLE_ROWS = 500
 const MAX_TABLE_COLS = 64
+const CODE_LINE_HEIGHT = 19
+const CODE_VIRTUAL_THRESHOLD = 200
+const CODE_OVERSCAN = 24
+const DEFAULT_VIEWPORT_HEIGHT = 600
+const DEFAULT_VIEWPORT_WIDTH = 420
+const WRAP_STORAGE_KEY = 'dsb.preview.wrap'
+const IMAGE_ZOOM_STEPS = [25, 50, 75, 100, 125, 150, 200, 300, 400]
+const PDF_ZOOM_STEPS = [50, 75, 100, 125, 150, 200, 300]
+
+const WrapIcon = () => h('svg', {
+  width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+},
+h('path', { d: 'M3.5 5.5h13' }),
+h('path', { d: 'M3.5 10h10a2.5 2.5 0 0 1 0 5H10' }),
+h('path', { d: 'M12 13l-2 2 2 2' }),
+h('path', { d: 'M3.5 14.5h3.5' }))
+
+const MinusIcon = () => h('svg', {
+  width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': true,
+}, h('path', { d: 'M4.5 10h11' }))
+
+const PlusSmallIcon = () => h('svg', {
+  width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': true,
+}, h('path', { d: 'M10 4.5v11M4.5 10h11' }))
+
+const RefreshSmallIcon = () => h('svg', {
+  width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+}, h('path', { d: 'M15.5 10a5.5 5.5 0 1 1-1.6-3.9' }), h('path', { d: 'M15.5 3.5v3.5H12' }))
+
+function readSavedWrap() {
+  try { return globalThis.localStorage?.getItem(WRAP_STORAGE_KEY) === '1' } catch { return false }
+}
+
+function writeSavedWrap(value) {
+  try { globalThis.localStorage?.setItem(WRAP_STORAGE_KEY, value ? '1' : '0') } catch { /* ignore storage errors */ }
+}
 
 /**
  * Parses RFC 4180 CSV or TSV text into bounded rows for table rendering.
@@ -115,33 +157,556 @@ function useBlobUrl(base64, mime) {
   return url
 }
 
-function CodeLines({ text, language = '', targetLine = null }) {
+function findOffsetIndex(offsets, y) {
+  let lo = 0
+  let hi = offsets.length - 2
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (offsets[mid + 1] <= y) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/**
+ * Computes the visible line slice and top/bottom spacer heights for virtualized code rendering.
+ * Always clamps `scrollTop` into `[0, maxScroll]` and guarantees `0 <= start <= end <= lineCount`
+ * so shrinking content (e.g. turning word wrap off or reloading a shorter file) never blanks the view.
+ */
+export function computeCodeWindow({
+  lineCount,
+  scrollTop = 0,
+  viewportHeight = DEFAULT_VIEWPORT_HEIGHT,
+  lineHeight = CODE_LINE_HEIGHT,
+  overscan = CODE_OVERSCAN,
+  offsets = null,
+}) {
+  if (lineCount <= 0) return { start: 0, end: 0, topPad: 0, bottomPad: 0, totalHeight: 0 }
+  const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
+  if (offsets && offsets.length === lineCount + 1) {
+    const totalHeight = offsets[lineCount]
+    const maxScroll = Math.max(0, totalHeight - vh)
+    const st = Math.min(Math.max(0, scrollTop), maxScroll)
+    const first = findOffsetIndex(offsets, st)
+    const last = findOffsetIndex(offsets, st + vh)
+    const start = Math.max(0, Math.min(lineCount - 1, first - overscan))
+    const end = Math.max(start, Math.min(lineCount, last + 1 + overscan))
+    return {
+      start,
+      end,
+      topPad: offsets[start],
+      bottomPad: Math.max(0, totalHeight - offsets[end]),
+      totalHeight,
+    }
+  }
+  const totalHeight = lineCount * lineHeight
+  const maxScroll = Math.max(0, totalHeight - vh)
+  const st = Math.min(Math.max(0, scrollTop), maxScroll)
+  const first = Math.floor(st / lineHeight)
+  const last = Math.ceil((st + vh) / lineHeight)
+  const start = Math.max(0, Math.min(lineCount - 1, first - overscan))
+  const end = Math.max(start, Math.min(lineCount, last + overscan))
+  return {
+    start,
+    end,
+    topPad: start * lineHeight,
+    bottomPad: Math.max(0, (lineCount - end) * lineHeight),
+    totalHeight,
+  }
+}
+
+function firstVisibleLineOf({ lineCount, scrollTop = 0, viewportHeight = DEFAULT_VIEWPORT_HEIGHT, lineHeight = CODE_LINE_HEIGHT, offsets = null }) {
+  if (lineCount <= 0) return 0
+  const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
+  if (offsets && offsets.length === lineCount + 1) {
+    const maxScroll = Math.max(0, offsets[lineCount] - vh)
+    const st = Math.min(Math.max(0, scrollTop), maxScroll)
+    return Math.max(0, Math.min(lineCount - 1, findOffsetIndex(offsets, st)))
+  }
+  const maxScroll = Math.max(0, lineCount * lineHeight - vh)
+  const st = Math.min(Math.max(0, scrollTop), maxScroll)
+  return Math.max(0, Math.min(lineCount - 1, Math.floor(st / lineHeight)))
+}
+
+function scrollTopForLine({ lineIndex, lineCount, viewportHeight = DEFAULT_VIEWPORT_HEIGHT, lineHeight = CODE_LINE_HEIGHT, offsets = null }) {
+  if (lineCount <= 0) return 0
+  const vh = viewportHeight > 0 ? viewportHeight : DEFAULT_VIEWPORT_HEIGHT
+  const idx = Math.max(0, Math.min(lineCount - 1, lineIndex))
+  if (offsets && offsets.length === lineCount + 1) {
+    const maxScroll = Math.max(0, offsets[lineCount] - vh)
+    return Math.min(maxScroll, Math.max(0, offsets[idx]))
+  }
+  const maxScroll = Math.max(0, lineCount * lineHeight - vh)
+  return Math.min(maxScroll, Math.max(0, idx * lineHeight))
+}
+
+// Binary-searches rendered `tr[data-line]` rows in a live DOM container to find the exact
+// 0-based line index and sub-line offset (`containerTop - rowTop`) currently intersecting the
+// top of the viewport. Returns `null` when no rendered row intersects the viewport (e.g. right
+// after a large scroll jump before React commits the new virtual window).
+function measureVisibleDomAnchor(el) {
+  if (!el || typeof el.querySelectorAll !== 'function' || typeof el.getBoundingClientRect !== 'function') return null
+  const containerRect = el.getBoundingClientRect()
+  if (!containerRect || containerRect.height <= 0) return null
+  const rows = el.querySelectorAll('tr[data-line]')
+  if (!rows || rows.length === 0) return null
+  let lo = 0
+  let hi = rows.length - 1
+  let best = null
+  let bestRect = null
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1
+    const rect = rows[mid].getBoundingClientRect()
+    if (rect.bottom > containerRect.top + 1) {
+      best = rows[mid]
+      bestRect = rect
+      hi = mid - 1
+    } else {
+      lo = mid + 1
+    }
+  }
+  if (!best || !bestRect || bestRect.top >= containerRect.bottom) return null
+  const lineNum = Number(best.getAttribute?.('data-line'))
+  if (!Number.isInteger(lineNum) || lineNum <= 0) return null
+  return {
+    line: lineNum - 1,
+    subOffset: Math.max(0, containerRect.top - bestRect.top),
+  }
+}
+
+const ACTIVE_USER_SCROLL_GUARD_MS = 250
+
+function computeTargetScrollTop({ targetLine, lineCount, isVirtualized, wrapOffsets, viewportHeight }) {
+  if (!isVirtualized || !Number.isInteger(targetLine) || targetLine <= 0 || targetLine > lineCount) return 0
+  const idx = targetLine - 1
+  const lineY = wrapOffsets ? wrapOffsets[idx] : idx * CODE_LINE_HEIGHT
+  return Math.max(0, Math.round(lineY - viewportHeight / 2))
+}
+
+function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, wordWrap = false, fileKey = '' }) {
   const source = String(text ?? '')
+  const fileScope = fileKey || source
   const lines = useMemo(() => source.split(/\r?\n/), [source])
   const highlighted = useHighlightedLines(source, language)
+  const wrapRef = useRef(null)
   const targetRef = useRef(null)
+  const [viewport, setViewport] = useState({ height: DEFAULT_VIEWPORT_HEIGHT, width: DEFAULT_VIEWPORT_WIDTH })
+
+  const isVirtualized = lines.length > CODE_VIRTUAL_THRESHOLD
+
+  const wrapOffsets = useMemo(() => {
+    if (!isVirtualized || !wordWrap) return null
+    const charsPerLine = Math.max(20, Math.floor((viewport.width - 72) / 7.4))
+    const offsets = new Float64Array(lines.length + 1)
+    let y = 0
+    for (let i = 0; i < lines.length; i += 1) {
+      offsets[i] = y
+      const wrappedRows = Math.max(1, Math.ceil(Math.max(1, lines[i].length) / charsPerLine))
+      y += wrappedRows * CODE_LINE_HEIGHT
+    }
+    offsets[lines.length] = y
+    return offsets
+  }, [isVirtualized, wordWrap, lines, viewport.width])
+
+  const [scrollTop, setScrollTop] = useState(() => computeTargetScrollTop({
+    targetLine,
+    lineCount: lines.length,
+    isVirtualized,
+    wrapOffsets,
+    viewportHeight: viewport.height,
+  }))
+  const prevFileScopeRef = useRef(fileScope)
+  const jumpedKeyRef = useRef(null)
+  const linesLengthRef = useRef(lines.length)
+  linesLengthRef.current = lines.length
+  const wrapOffsetsRef = useRef(wrapOffsets)
+  wrapOffsetsRef.current = wrapOffsets
+  const viewportHeightRef = useRef(viewport.height)
+  viewportHeightRef.current = viewport.height
+  const liveScrollTopRef = useRef(scrollTop)
+  const domAnchorRef = useRef(null)
+  const pendingAnchorRef = useRef(null)
+  const committedWindowRef = useRef({ start: 0, end: 0, scrollTop })
+  const lastUserScrollTsRef = useRef(0)
+  const programmaticScrollTopRef = useRef(null)
+  const anchorRafRef = useRef(null)
+  const prevLayoutRef = useRef({ fileScope, wrapOffsets, wordWrap, width: viewport.width, lineCount: lines.length })
+
+  const resolveAnchor = useCallback((prevLayout) => {
+    const rawSt = liveScrollTopRef.current
+    const domAnchor = domAnchorRef.current
+    // Validate any cached DOM anchor against the model/committed window covering `rawSt`
+    // so a stale pre-render measurement after a big scroll jump can never poison the anchor.
+    let anchorLine = null
+    let subOffset = 0
+    if (domAnchor !== null && Math.abs(domAnchor.scrollTop - rawSt) <= 2) {
+      const modelWin = computeCodeWindow({
+        lineCount: prevLayout.lineCount,
+        scrollTop: rawSt,
+        viewportHeight: viewport.height,
+        lineHeight: CODE_LINE_HEIGHT,
+        overscan: CODE_OVERSCAN,
+        offsets: prevLayout.wrapOffsets,
+      })
+      const cw = committedWindowRef.current
+      const inModel = domAnchor.line >= modelWin.start && domAnchor.line < modelWin.end
+      const inCommitted = Math.abs(cw.scrollTop - rawSt) <= CODE_LINE_HEIGHT && domAnchor.line >= cw.start && domAnchor.line < cw.end
+      if (inModel || inCommitted) {
+        anchorLine = domAnchor.line
+        subOffset = Math.max(0, domAnchor.subOffset ?? 0)
+      }
+    }
+    if (anchorLine === null) {
+      // If the currently committed DOM still covers `rawSt` (e.g. a small sub-line scroll
+      // before rAF ran), measure it on demand; otherwise fall back purely to the model.
+      const cw = committedWindowRef.current
+      if (Math.abs(cw.scrollTop - rawSt) <= CODE_LINE_HEIGHT) {
+        const liveDom = measureVisibleDomAnchor(wrapRef.current)
+        if (liveDom !== null && liveDom.line >= cw.start && liveDom.line < cw.end) {
+          anchorLine = liveDom.line
+          subOffset = liveDom.subOffset
+        }
+      }
+    }
+    if (anchorLine === null) {
+      anchorLine = firstVisibleLineOf({
+        lineCount: prevLayout.lineCount,
+        scrollTop: rawSt,
+        viewportHeight: viewport.height,
+        lineHeight: CODE_LINE_HEIGHT,
+        offsets: prevLayout.wrapOffsets,
+      })
+      subOffset = 0
+    }
+    const clampedLine = Math.min(anchorLine, Math.max(0, lines.length - 1))
+    const baseScroll = scrollTopForLine({
+      lineIndex: clampedLine,
+      lineCount: lines.length,
+      viewportHeight: viewport.height,
+      lineHeight: CODE_LINE_HEIGHT,
+      offsets: wrapOffsets,
+    })
+    const totalHeight = wrapOffsets ? wrapOffsets[lines.length] : lines.length * CODE_LINE_HEIGHT
+    const maxScroll = Math.max(0, totalHeight - viewport.height)
+    const nextScroll = Math.min(maxScroll, baseScroll + Math.min(subOffset, Math.max(0, CODE_LINE_HEIGHT - 4)))
+    return { anchorLine: clampedLine, subOffset, nextScroll }
+  }, [lines.length, viewport.height, wrapOffsets])
 
   useEffect(() => {
-    if (Number.isInteger(targetLine) && targetLine > 0) {
+    const el = wrapRef.current
+    if (!el) return undefined
+    const measure = () => {
+      const nextH = el.clientHeight > 0 ? el.clientHeight : DEFAULT_VIEWPORT_HEIGHT
+      const nextW = el.clientWidth > 0 ? el.clientWidth : DEFAULT_VIEWPORT_WIDTH
+      setViewport(cur => (cur.height === nextH && cur.width === nextW ? cur : { height: nextH, width: nextW }))
+    }
+    measure()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [fileScope])
+
+  useEffect(() => () => {
+    if (anchorRafRef.current !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(anchorRafRef.current)
+      anchorRafRef.current = null
+    }
+  }, [])
+
+  // Jump at most once per unique `(fileScope, targetLine)` so subsequent user scrolling,
+  // viewport resizes, and word-wrap toggles stay at the user's current scroll position.
+  useEffect(() => {
+    const fileChanged = prevFileScopeRef.current !== fileScope
+    prevFileScopeRef.current = fileScope
+    const lineCount = linesLengthRef.current
+    const hasTarget = Number.isInteger(targetLine) && targetLine > 0 && targetLine <= lineCount
+    if (!hasTarget) {
+      jumpedKeyRef.current = null
+      if (fileChanged) {
+        liveScrollTopRef.current = 0
+        domAnchorRef.current = null
+        pendingAnchorRef.current = null
+        programmaticScrollTopRef.current = 0
+        if (wrapRef.current) wrapRef.current.scrollTop = 0
+        setScrollTop(0)
+      }
+      return
+    }
+    const jumpKey = `${fileScope}\0${targetLine}\0${lineNonce}`
+    if (jumpedKeyRef.current === jumpKey) return
+    jumpedKeyRef.current = jumpKey
+    if (isVirtualized) {
+      const el = wrapRef.current
+      const vh = el && el.clientHeight > 0 ? el.clientHeight : viewportHeightRef.current
+      const nextScroll = computeTargetScrollTop({
+        targetLine,
+        lineCount,
+        isVirtualized: true,
+        wrapOffsets: wrapOffsetsRef.current,
+        viewportHeight: vh,
+      })
+      liveScrollTopRef.current = nextScroll
+      domAnchorRef.current = null
+      pendingAnchorRef.current = null
+      programmaticScrollTopRef.current = nextScroll
+      if (el) el.scrollTop = nextScroll
+      setScrollTop(nextScroll)
+    } else {
       targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
     }
-  }, [targetLine, source])
+  }, [fileScope, targetLine, lineNonce, isVirtualized])
 
-  return h('div', { className: 'dsb-pv-code-wrap' },
-    h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
-      h('tbody', null, lines.map((line, idx) => {
-        const lineNum = idx + 1
-        const isTarget = targetLine === lineNum
-        const tokens = highlighted?.[idx]
-        const content = tokens && tokens.length > 0 ? renderTokenList(tokens, `l${idx}`) : (line || '\u00a0')
-        return h('tr', {
-          key: idx,
-          ref: isTarget ? targetRef : undefined,
-          'data-target-line': isTarget ? '' : undefined,
-        },
-        h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, lineNum),
-        h('td', { className: 'dsb-pv-line' }, content))
-      }))))
+  const markUserScrollIntent = useCallback(() => {
+    lastUserScrollTsRef.current = Date.now()
+    pendingAnchorRef.current = null
+  }, [])
+
+  const onScroll = useCallback((event) => {
+    if (!isVirtualized) return
+    const el = event.currentTarget
+    const next = Math.max(0, el?.scrollTop ?? 0)
+    if (programmaticScrollTopRef.current !== null && Math.abs(next - programmaticScrollTopRef.current) <= 2) {
+      programmaticScrollTopRef.current = null
+      return
+    }
+    programmaticScrollTopRef.current = null
+    // Only treat `onScroll` as continuing an active user scroll if a real user input inside the
+    // scroll container (`wheel`, `touch`, `pointerdown`, `keydown`) happened recently. Browser
+    // reflows during panel-splitter drags fire `scroll` without user scroll input inside this
+    // container and must NOT trigger the active-scroll guard.
+    if (Date.now() - lastUserScrollTsRef.current < 600) {
+      lastUserScrollTsRef.current = Date.now()
+    }
+    pendingAnchorRef.current = null
+    liveScrollTopRef.current = next
+    // Never measure DOM rows synchronously during `onScroll`: after a large jump, React has not
+    // yet rendered the new virtual window. Post-render `useLayoutEffect` (or rAF for sub-line
+    // scrolls that do not re-render) records the anchor once the rendered window covers `next`.
+    domAnchorRef.current = null
+    let willRerender = false
+    setScrollTop((cur) => {
+      if (cur === next) return cur
+      if (next === 0 || Math.abs(cur - next) >= CODE_LINE_HEIGHT) {
+        willRerender = true
+        return next
+      }
+      if (el && Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > 0 && next + el.clientHeight >= el.scrollHeight - 1) {
+        willRerender = true
+        return next
+      }
+      return cur
+    })
+    if (!willRerender && typeof requestAnimationFrame === 'function') {
+      if (anchorRafRef.current !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(anchorRafRef.current)
+      }
+      anchorRafRef.current = requestAnimationFrame(() => {
+        anchorRafRef.current = null
+        const node = wrapRef.current
+        if (!node || Math.abs(node.scrollTop - liveScrollTopRef.current) > 2) return
+        const cw = committedWindowRef.current
+        if (Math.abs(cw.scrollTop - liveScrollTopRef.current) > CODE_LINE_HEIGHT) return
+        const measured = measureVisibleDomAnchor(node)
+        if (measured !== null && measured.line >= cw.start && measured.line < cw.end) {
+          domAnchorRef.current = { line: measured.line, subOffset: measured.subOffset, scrollTop: liveScrollTopRef.current }
+        }
+      })
+    }
+  }, [isVirtualized])
+
+  // On the exact render where layout changes (e.g. toggling word wrap or width resize),
+  // derive the remapped scrollTop purely from the previous layout so frame 0 renders the
+  // anchored line immediately with zero blank frames.
+  const prevLayout = prevLayoutRef.current
+  const layoutWillChange = isVirtualized
+    && prevLayout.fileScope === fileScope
+    && (prevLayout.wrapOffsets !== wrapOffsets || prevLayout.lineCount !== lines.length)
+  const widthResizeDuringActiveScroll = layoutWillChange
+    && prevLayout.wordWrap === wordWrap
+    && prevLayout.lineCount === lines.length
+    && prevLayout.width !== viewport.width
+    && (Date.now() - lastUserScrollTsRef.current < ACTIVE_USER_SCROLL_GUARD_MS)
+  const effectiveScrollTop = layoutWillChange && !widthResizeDuringActiveScroll
+    ? resolveAnchor(prevLayout).nextScroll
+    : scrollTop
+
+  const { start, end, topPad, bottomPad } = isVirtualized
+    ? computeCodeWindow({
+      lineCount: lines.length,
+      scrollTop: effectiveScrollTop,
+      viewportHeight: viewport.height,
+      lineHeight: CODE_LINE_HEIGHT,
+      overscan: CODE_OVERSCAN,
+      offsets: wrapOffsets,
+    })
+    : { start: 0, end: lines.length, topPad: 0, bottomPad: 0 }
+
+  // Synchronously commit layout remaps, apply in-place DOM anchor correction before paint
+  // (eliminating cumulative drift from model-vs-DOM wrapped height differences), and record
+  // fresh post-render DOM anchors only when the rendered window covers `liveScrollTop`.
+  useLayoutEffect(() => {
+    const prev = prevLayoutRef.current
+    const nextLayout = { fileScope, wrapOffsets, wordWrap, width: viewport.width, lineCount: lines.length }
+    prevLayoutRef.current = nextLayout
+    committedWindowRef.current = { start, end, scrollTop: effectiveScrollTop }
+    if (!isVirtualized || prev.fileScope !== fileScope) return
+
+    const el = wrapRef.current
+    const totalHeight = wrapOffsets ? wrapOffsets[lines.length] : lines.length * CODE_LINE_HEIGHT
+    const maxModelScroll = Math.max(0, totalHeight - viewport.height)
+    const alignAnchorInDom = (anchorLine, desiredSubOffset, fallbackScroll, remainingPasses) => {
+      let targetScroll = fallbackScroll
+      let appliedSub = Math.max(0, desiredSubOffset)
+      if (el) {
+        programmaticScrollTopRef.current = targetScroll
+        el.scrollTop = targetScroll
+        const anchorRow = el.querySelector?.(`tr[data-line="${anchorLine + 1}"]`)
+        const cRect = el.getBoundingClientRect?.()
+        if (anchorRow && cRect && cRect.height > 0) {
+          const rowRect = anchorRow.getBoundingClientRect?.()
+          if (rowRect) {
+            appliedSub = Math.max(0, Math.min(desiredSubOffset, Math.max(0, Math.floor(rowRect.height) - 4)))
+            const delta = (rowRect.top - cRect.top) + appliedSub
+            const maxDomScroll = Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > el.clientHeight
+              ? el.scrollHeight - el.clientHeight
+              : maxModelScroll
+            if (Math.abs(delta) > 0.5) {
+              targetScroll = Math.max(0, Math.min(maxDomScroll, el.scrollTop + delta))
+              programmaticScrollTopRef.current = targetScroll
+              el.scrollTop = targetScroll
+            }
+          }
+        }
+      }
+      liveScrollTopRef.current = targetScroll
+      domAnchorRef.current = { line: anchorLine, subOffset: appliedSub, scrollTop: targetScroll }
+      if (remainingPasses > 0 && Math.abs(targetScroll - effectiveScrollTop) >= CODE_LINE_HEIGHT) {
+        pendingAnchorRef.current = { line: anchorLine, subOffset: appliedSub, remaining: remainingPasses }
+      } else {
+        pendingAnchorRef.current = null
+      }
+      setScrollTop(targetScroll)
+    }
+
+    const layoutChanged = prev.wrapOffsets !== wrapOffsets || prev.lineCount !== lines.length
+    if (layoutChanged) {
+      const pureWidthResize = prev.wordWrap === wordWrap && prev.lineCount === lines.length && prev.width !== viewport.width
+      if (pureWidthResize && Date.now() - lastUserScrollTsRef.current < ACTIVE_USER_SCROLL_GUARD_MS) {
+        domAnchorRef.current = null
+        if (liveScrollTopRef.current > maxModelScroll) {
+          liveScrollTopRef.current = maxModelScroll
+          programmaticScrollTopRef.current = maxModelScroll
+          if (el) el.scrollTop = maxModelScroll
+          setScrollTop(maxModelScroll)
+          return
+        }
+        if (el && Math.abs(el.scrollTop - liveScrollTopRef.current) <= 2) {
+          const measured = measureVisibleDomAnchor(el)
+          if (measured !== null && measured.line >= start && measured.line < end) {
+            domAnchorRef.current = { line: measured.line, subOffset: measured.subOffset, scrollTop: liveScrollTopRef.current }
+          }
+        }
+        return
+      }
+      const { anchorLine, subOffset, nextScroll } = resolveAnchor(prev)
+      alignAnchorInDom(anchorLine, subOffset, nextScroll, 3)
+      return
+    }
+
+    // Converge any pending 2nd-order DOM anchor correction (when `topPad` shifted on re-render)
+    // synchronously before browser paint.
+    if (pendingAnchorRef.current !== null) {
+      const pending = pendingAnchorRef.current
+      if (pending.remaining > 0 && el) {
+        const anchorRow = el.querySelector?.(`tr[data-line="${pending.line + 1}"]`)
+        const cRect = el.getBoundingClientRect?.()
+        if (anchorRow && cRect && cRect.height > 0) {
+          const rowRect = anchorRow.getBoundingClientRect?.()
+          if (rowRect) {
+            const appliedSub = Math.max(0, Math.min(pending.subOffset, Math.max(0, Math.floor(rowRect.height) - 4)))
+            const delta = (rowRect.top - cRect.top) + appliedSub
+            if (Math.abs(delta) > 0.5) {
+              const maxDomScroll = Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > el.clientHeight
+                ? el.scrollHeight - el.clientHeight
+                : maxModelScroll
+              const corrected = Math.max(0, Math.min(maxDomScroll, el.scrollTop + delta))
+              programmaticScrollTopRef.current = corrected
+              el.scrollTop = corrected
+              liveScrollTopRef.current = corrected
+              domAnchorRef.current = { line: pending.line, subOffset: appliedSub, scrollTop: corrected }
+              if (Math.abs(corrected - scrollTop) >= CODE_LINE_HEIGHT) {
+                pendingAnchorRef.current = { line: pending.line, subOffset: appliedSub, remaining: pending.remaining - 1 }
+                setScrollTop(corrected)
+                return
+              }
+              pendingAnchorRef.current = null
+              return
+            }
+          }
+        }
+      }
+      pendingAnchorRef.current = null
+    }
+
+    if (liveScrollTopRef.current > maxModelScroll) {
+      liveScrollTopRef.current = maxModelScroll
+      domAnchorRef.current = null
+      programmaticScrollTopRef.current = maxModelScroll
+      if (el) el.scrollTop = maxModelScroll
+      setScrollTop(maxModelScroll)
+      return
+    }
+
+    // Record a fresh post-render DOM anchor only when the committed window covers `liveScrollTop`.
+    if (el && Math.abs(el.scrollTop - liveScrollTopRef.current) <= 2) {
+      const measured = measureVisibleDomAnchor(el)
+      if (measured !== null && measured.line >= start && measured.line < end) {
+        domAnchorRef.current = { line: measured.line, subOffset: measured.subOffset, scrollTop: liveScrollTopRef.current }
+      }
+    }
+  }, [isVirtualized, fileScope, wrapOffsets, wordWrap, viewport.width, lines.length, viewport.height, start, end, scrollTop, effectiveScrollTop, resolveAnchor])
+
+  const visibleRows = []
+  if (topPad > 0) {
+    visibleRows.push(h('tr', { key: 'pad-top', className: 'dsb-pv-spacer', 'aria-hidden': true },
+      h('td', { colSpan: 2, style: { height: `${topPad}px`, padding: 0, border: 0 } })))
+  }
+  for (let idx = start; idx < end; idx += 1) {
+    const lineNum = idx + 1
+    const isTarget = targetLine === lineNum
+    const tokens = highlighted?.[idx]
+    const content = tokens && tokens.length > 0 ? renderTokenList(tokens, `l${idx}`) : (lines[idx] || '\u00a0')
+    visibleRows.push(h('tr', {
+      key: idx,
+      ref: isTarget ? targetRef : undefined,
+      'data-line': lineNum,
+      'data-target-line': isTarget ? '' : undefined,
+    },
+    h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, lineNum),
+    h('td', { className: 'dsb-pv-line' }, content)))
+  }
+  if (bottomPad > 0) {
+    visibleRows.push(h('tr', { key: 'pad-bot', className: 'dsb-pv-spacer', 'aria-hidden': true },
+      h('td', { colSpan: 2, style: { height: `${bottomPad}px`, padding: 0, border: 0 } })))
+  }
+
+  return h('div', {
+    ref: wrapRef,
+    className: 'dsb-pv-code-wrap',
+    style: isVirtualized ? { overflowAnchor: 'none' } : undefined,
+    'data-wrap': wordWrap ? '' : undefined,
+    'data-virtualized': isVirtualized ? '' : undefined,
+    'data-total-lines': lines.length,
+    onScroll,
+    onWheel: isVirtualized ? markUserScrollIntent : undefined,
+    onTouchStart: isVirtualized ? markUserScrollIntent : undefined,
+    onTouchMove: isVirtualized ? markUserScrollIntent : undefined,
+    onPointerDown: isVirtualized ? markUserScrollIntent : undefined,
+    onKeyDown: isVirtualized ? markUserScrollIntent : undefined,
+  },
+  h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
+    h('tbody', null, visibleRows)))
 }
 
 function TablePreview({ text, delimiter }) {
@@ -334,28 +899,123 @@ function SpreadsheetPreview({ file }) {
     }, entry.name))))
 }
 
+function stepZoom(steps, current, delta) {
+  const base = current ?? 100
+  if (delta > 0) {
+    const next = steps.find(step => step > base)
+    return next ?? steps[steps.length - 1]
+  }
+  const prev = [...steps].reverse().find(step => step < base)
+  return prev ?? steps[0]
+}
+
+function ZoomControls({ zoom, steps, onChange, allowFit = false }) {
+  const minStep = steps[0]
+  const maxStep = steps[steps.length - 1]
+  const effective = zoom ?? 100
+  const label = zoom === null ? t('Fit to view') : `${zoom}%`
+  return h('div', { className: 'dsb-pv-zoom', role: 'group', 'aria-label': t('Zoom') },
+    h('button', {
+      type: 'button',
+      className: 'bt-icon-btn dsb-pv-zoom-btn',
+      'aria-label': t('Zoom out'),
+      title: t('Zoom out'),
+      disabled: zoom !== null && effective <= minStep,
+      onClick: () => onChange(stepZoom(steps, zoom, -1)),
+    }, h(MinusIcon)),
+    h('button', {
+      type: 'button',
+      className: 'dsb-pv-zoom-readout',
+      'aria-label': t('Reset zoom'),
+      title: t('Reset zoom'),
+      onClick: () => onChange(allowFit ? (zoom === null ? 100 : null) : 100),
+    }, label),
+    h('button', {
+      type: 'button',
+      className: 'bt-icon-btn dsb-pv-zoom-btn',
+      'aria-label': t('Zoom in'),
+      title: t('Zoom in'),
+      disabled: zoom !== null && effective >= maxStep,
+      onClick: () => onChange(stepZoom(steps, zoom, 1)),
+    }, h(PlusSmallIcon)))
+}
+
 function PdfPreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime || 'application/pdf')
+  const [zoom, setZoom] = useState(100)
+  useEffect(() => { setZoom(100) }, [file?.path, file?.base64])
   const downloadName = file.convertedFrom
     ? `${file.name.replace(/\.[^.]+$/, '')}.pdf`
     : file.name
+  const frameSrc = blobUrl ? (zoom === 100 ? blobUrl : `${blobUrl}#zoom=${zoom}`) : null
   return h('div', { className: 'dsb-pv-pdf-wrap' },
-    file.convertedFrom ? h('div', { className: 'dsb-pv-banner' },
-      h('span', null, t('Converted from {ext}', { ext: file.convertedFrom.toUpperCase() })),
-      blobUrl ? h('a', { className: 'bt-soft bt-soft-sm', href: blobUrl, download: downloadName }, h(DownloadIcon), t('Save')) : null) : null,
-    blobUrl
-      ? h('iframe', { className: 'dsb-pv-frame', src: blobUrl, title: file.name })
+    h('div', { className: 'dsb-pv-banner dsb-pv-pdf-bar' },
+      h('div', { className: 'dsb-pv-pdf-left' },
+        file.convertedFrom ? h('span', null, t('Converted from {ext}', { ext: file.convertedFrom.toUpperCase() })) : null,
+        file.convertedFrom && blobUrl
+          ? h('a', { className: 'bt-soft bt-soft-sm', href: blobUrl, download: downloadName }, h(DownloadIcon), t('Save'))
+          : null),
+      blobUrl ? h(ZoomControls, { zoom, steps: PDF_ZOOM_STEPS, onChange: setZoom, allowFit: false }) : null),
+    frameSrc
+      ? h('iframe', { key: `${blobUrl}:${zoom}`, className: 'dsb-pv-frame', src: frameSrc, title: file.name, 'data-zoom': zoom })
       : h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
 }
 
 function ImagePreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime)
+  const [zoom, setZoom] = useState(null)
+  const [natural, setNatural] = useState({ w: 0, h: 0 })
+  const wrapRef = useRef(null)
+
+  useEffect(() => {
+    setZoom(null)
+    setNatural({ w: 0, h: 0 })
+  }, [file?.path, file?.base64])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el || typeof el.addEventListener !== 'function') return undefined
+    const onWheel = (event) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      const delta = event.deltaY < 0 ? 1 : -1
+      setZoom(current => stepZoom(IMAGE_ZOOM_STEPS, current, delta))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => { el.removeEventListener('wheel', onWheel) }
+  }, [file?.path, file?.base64])
+
   const src = blobUrl ?? (file.base64 ? `data:${file.mime};base64,${file.base64}` : '')
   if (!src) return h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment'))
-  return h('div', { className: 'dsb-pv-image-wrap' },
-    h('img', { className: 'dsb-pv-image', src, alt: file.name }))
-}
 
+  const imgStyle = zoom === null
+    ? undefined
+    : (natural.w > 0
+      ? { width: `${Math.round((natural.w * zoom) / 100)}px`, height: 'auto', maxWidth: 'none', maxHeight: 'none' }
+      : { width: `${zoom}%`, maxWidth: 'none', maxHeight: 'none' })
+
+  return h('div', { className: 'dsb-pv-image-shell' },
+    h('div', { className: 'dsb-pv-banner dsb-pv-image-bar' },
+      natural.w > 0 ? h('span', { className: 'dsb-pv-image-dims' }, `${natural.w} × ${natural.h}`) : h('span', null),
+      h('div', { className: 'dsb-pv-image-actions' },
+        h(ZoomControls, { zoom, steps: IMAGE_ZOOM_STEPS, onChange: setZoom, allowFit: true }))),
+    h('div', {
+      ref: wrapRef,
+      className: zoom === null ? 'dsb-pv-image-wrap' : 'dsb-pv-image-wrap is-zoomed',
+      'data-zoom': zoom === null ? 'fit' : String(zoom),
+    },
+    h('img', {
+      className: zoom === null ? 'dsb-pv-image' : 'dsb-pv-image is-zoomed',
+      src,
+      alt: file.name,
+      style: imgStyle,
+      onLoad: (event) => {
+        const w = event.currentTarget?.naturalWidth ?? 0
+        const ht = event.currentTarget?.naturalHeight ?? 0
+        if (w > 0 && ht > 0) setNatural({ w, h: ht })
+      },
+    })))
+}
 
 export function HtmlPreviewNotice() {
   return h('div', { className: 'dsb-pv-banner' }, t('Scripts and external or local resources are blocked in this preview'))
@@ -369,8 +1029,20 @@ export function HtmlPreviewFrame({ html, title }) {
 /**
  * Multi-format workspace file preview component.
  */
-export function FilePreview({ file, line = null, loading, error, onRetry }) {
+export function FilePreview({
+  file,
+  line = null,
+  lineNonce = 0,
+  loading,
+  error,
+  onRetry,
+  updated = false,
+  onReload = null,
+  autoRefresh = false,
+  onToggleAutoRefresh = null,
+}) {
   const [mode, setMode] = useState('preview')
+  const [wordWrap, setWordWrap] = useState(readSavedWrap)
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
   const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
@@ -381,7 +1053,7 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
   }, [file?.path, file?.kind, line])
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
 
-  if (loading) {
+  if (loading && !file) {
     return h('div', { className: 'dsb-rp-empty' }, t('Loading…'))
   }
   if (error) {
@@ -394,6 +1066,10 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
   }
 
   const canToggleSource = file.kind === 'markdown' || file.kind === 'html' || file.kind === 'table' || (file.kind === 'svg' && Boolean(file.base64))
+  const isCodeView = file.kind === 'code'
+    || file.kind === 'text'
+    || (canToggleSource && mode === 'source')
+    || (file.kind === 'svg' && !file.base64)
   const canCopyText = typeof file.text === 'string'
   const copy = () => {
     if (!canCopyText) return
@@ -402,6 +1078,13 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
       setCopied(true)
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => { copyTimerRef.current = 0; setCopied(false) }, 1200)
+    })
+  }
+  const toggleWrap = () => {
+    setWordWrap((cur) => {
+      const next = !cur
+      writeSavedWrap(next)
+      return next
     })
   }
 
@@ -430,6 +1113,24 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
           'aria-pressed': mode === 'source',
           onClick: () => setMode('source'),
         }, t('Source'))) : null,
+      isCodeView ? h('button', {
+        type: 'button',
+        className: 'bt-icon-btn dsb-pv-wrap-btn',
+        'aria-pressed': wordWrap,
+        'aria-label': t('Wrap lines'),
+        title: t('Wrap lines'),
+        onClick: toggleWrap,
+      }, h(WrapIcon)) : null,
+      onToggleAutoRefresh ? h('label', { className: 'dsb-pv-auto' },
+        h('span', { className: 'dsb-pv-auto-label' }, t('Auto-refresh')),
+        h('button', {
+          type: 'button',
+          role: 'switch',
+          className: 'bt-switch',
+          'aria-checked': autoRefresh,
+          'aria-label': t('Auto-refresh'),
+          onClick: onToggleAutoRefresh,
+        }, h('span', { className: 'bt-switch-knob', 'aria-hidden': true }))) : null,
       canCopyText ? h('button', {
         type: 'button',
         className: 'bt-icon-btn dsb-pv-copy',
@@ -437,32 +1138,38 @@ export function FilePreview({ file, line = null, loading, error, onRetry }) {
         title: copied ? t('Copied') : t('Copy'),
         onClick: copy,
       }, copied ? h(CheckIcon) : h(CopyIcon)) : null),
+    updated && onReload ? h('div', { className: 'dsb-pv-banner dsb-pv-updated', role: 'status' },
+      h('button', {
+        type: 'button',
+        className: 'dsb-pv-reload-btn',
+        onClick: onReload,
+      }, h(RefreshSmallIcon), h('span', null, t('Updated · Reload')))) : null,
     file.truncated ? h('div', { className: 'dsb-pv-banner' }, t('File truncated for preview')) : null,
     file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
-        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
+        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
           text: file.text,
           labels: { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } },
         })))
         : file.kind === 'table'
-          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
+          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
           : file.kind === 'spreadsheet'
             ? h(SpreadsheetPreview, { file })
             : file.kind === 'html'
             ? (mode === 'source'
-                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line })
+                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name })
                 : htmlPreview === null
                   ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
                   : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
-              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line }) : h(ImagePreview, { file }))
+              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name }) : h(ImagePreview, { file }))
               : file.kind === 'image'
                 ? h(ImagePreview, { file })
                 : file.kind === 'pdf'
                   ? h(PdfPreview, { file })
                   : file.kind === 'code' || file.kind === 'text'
-                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line })
+                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name })
                     : h('div', { className: 'dsb-pv-fallback' },
                       h('span', { className: 'dsb-pv-fallback-ico', 'aria-hidden': true }, h(FileIcon)),
                       h('strong', null, file.name),

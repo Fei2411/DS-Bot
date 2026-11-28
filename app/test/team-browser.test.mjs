@@ -912,7 +912,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
     'engine-settings-bridge.js': 'export const useDshSettingsBridge = () => ({})',
     'locale.js': 'export const getAppLocale = () => ({ subscribe: () => () => {} })',
     'plugin-runtime.js': 'export const pluginRuntime = {}; export const usePluginPage = () => {}',
-    'right-panel.js': 'export const WorkspacePaneBody = () => null; export const buildWorkspaceTabs = () => []',
+    'right-panel.js': 'export const WorkspacePaneBody = () => null; export const buildWorkspaceTabs = () => []; export const buildWorkspacePluginMenuItems = () => []',
     'shortcuts.js': 'export const ShortcutsDialog = () => null; export const matchGlobalShortcut = (...args) => globalThis.__testMatchShortcut?.(...args) ?? null; export const resolveActiveModal = () => null; export const setLiveShortcutContext = () => {}',
     'shortcuts-model.js': 'export const SHORTCUT_BY_ID = {}; export const isCommandAvailable = () => false; export const isShortcutRecording = () => false; export const shortcutsStore = { getSnapshot: () => ({}), subscribe: () => () => {} }; export const visibleClassicSessions = () => []; export const visibleSidebarTargets = () => globalThis.__testSidebarTargets ?? []',
     'sidebar-slots.js': 'export const useSidebarPanel = (_registry, id) => globalThis.__testSidebarPanels?.get(id); export const SidebarFooterActions = () => null; export const SidebarMainPanel = () => null; export const SidebarSlotRows = () => null',

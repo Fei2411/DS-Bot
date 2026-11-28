@@ -300,12 +300,16 @@ export function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids,
       box.removeEventListener?.('wheel', onWheel)
     }
   }, [])
-  const items = stripMenuKeys({
+  const baseItems = stripMenuKeys({
     canBrowse,
     canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true,
   }).map(key => menuItemFor(key, actions, key === 'browser' || key === 'new-tab' ? browserId : subject))
+  const extraItems = Array.isArray(workspace?.menuItems) ? workspace.menuItems.filter(Boolean) : []
+  const items = extraItems.length > 0
+    ? (baseItems.length > 0 ? [...baseItems, { sep: true }, ...extraItems] : extraItems)
+    : baseItems
   // `data-window-drag` is the shell's window drag-row mark on macOS: base.css turns it
   // into the drag geometry, and the shell's watcher re-collects that geometry while the
   // panel slides in. The rule in styles.js declares the same row for a shell without it.

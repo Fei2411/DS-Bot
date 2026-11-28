@@ -62,10 +62,10 @@ const stubs = {
 }
 
 const entryCode = `
-  export { parseDelimitedTable, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
+  export { parseDelimitedTable, computeCodeWindow, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
   export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
-  export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
+  export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs, buildWorkspacePluginMenuItems } from './ui/src/right-panel.js'
   export { createPluginRuntime } from './ui/src/plugin-runtime.js'
   export { createSlotRegistry, RIGHT_PANE_TAB_SLOT } from './ui/src/slots.js'
   export { createTeam } from './ui/src/team.js'
@@ -184,6 +184,7 @@ const sandbox = {
   },
   Blob,
   Event,
+  AbortController,
   atob: str => Buffer.from(str, 'base64').toString('binary'),
   URL: {
     createObjectURL: () => { const url = `blob:test/${createdUrls.length + 1}`; createdUrls.push(url); return url },
@@ -228,6 +229,7 @@ runInNewContext(outputFiles[0].text, sandbox)
 
 const {
   parseDelimitedTable,
+  computeCodeWindow,
   FilePreview,
   HtmlPreviewFrame,
   HtmlPreviewNotice,
@@ -240,6 +242,7 @@ const {
   RightPanel,
   WorkspacePaneBody,
   buildWorkspaceTabs,
+  buildWorkspacePluginMenuItems,
   createPluginRuntime,
   createSlotRegistry,
   RIGHT_PANE_TAB_SLOT,
@@ -312,6 +315,7 @@ const mount = (Component, props) => {
       current = inst
       const out = expand(react.createElement(Component, next))
       current = undefined
+      inst.onCommit?.(out)
       for (const run of inst.effects.splice(0)) run()
       return out
     },
@@ -590,22 +594,24 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
     assert.deepEqual(plain(snap.rightPanel.tabs), ['files'], 'switching to Side chat preserves open workspace tabs')
 
     team.actions.openFile('src/app.js')
+    const appPreviewId = probe.render().props.rightPanel.tab
+    assert.ok(appPreviewId.startsWith('preview:'), 'openFile assigns a unique per-file preview tab id')
     team.actions.newTerminal()
     await team.actions.openChanges({ sessionId: 'b1', seq: 7, turn: 1 })
     snap = probe.render().props
     assert.equal(snap.view, 'workspace')
     assert.equal(snap.side, 'sc1', 'opening workspace tabs keeps active side chat reference intact')
-    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview', 'terminal', 'changes'])
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', appPreviewId, 'terminal', 'changes'])
     assert.equal(snap.rightPanel.tab, 'changes')
 
     // Switching back to Details preserves all workspace tabs.
     team.actions.showDetails('b1')
     snap = probe.render().props
     assert.equal(snap.view, 'details')
-    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview', 'terminal', 'changes'])
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', appPreviewId, 'terminal', 'changes'])
 
     // Switching sessions drops stale preview & changes while preserving Files & Terminal.
-    team.actions.setRightPanelTab('preview')
+    team.actions.setRightPanelTab(appPreviewId)
     team.actions.openSession('b2')
     snap = probe.render().props
     assert.equal(snap.view, 'workspace')
@@ -663,7 +669,7 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
     snap = probe.render().props
     assert.equal(snap.details, 'as1')
     assert.equal(snap.view, 'workspace')
-    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview'])
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', appPreviewId])
 
     team.actions.openAgentSession('as2')
     snap = probe.render().props
@@ -693,7 +699,8 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
     probe.unmount()
   }
 
-  // `buildWorkspaceTabs` builds ordered descriptors + registered `sidebar.right.pane.tab` plugins.
+  // `buildWorkspaceTabs` builds ordered descriptors: unopened plugin tabs stay out of the strip
+  // (surfaced in `+` menu), while opened plugin tabs are closable.
   const reg = createSlotRegistry()
   function BrokenTab() { throw new Error('plugin crash') }
   reg.register({ name: RIGHT_PANE_TAB_SLOT, id: 'broken', meta: { label: 'Broken' } }, BrokenTab)
@@ -710,9 +717,21 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
       { id: 'preview', label: 'app.js', closable: true },
       { id: 'changes', label: 'Changes', closable: true },
       { id: 'terminal', label: 'Terminal', closable: true },
-      { id: 'plugin:broken', label: 'Broken', closable: false },
     ],
   )
+  const withPlugin = buildWorkspaceTabs(
+    { tabs: ['files', 'plugin:broken'], tab: 'plugin:broken' },
+    reg.list(RIGHT_PANE_TAB_SLOT),
+  )
+  assert.deepEqual(
+    plain(withPlugin.map(tab => ({ id: tab.id, label: tab.label, closable: tab.closable }))),
+    [
+      { id: 'files', label: 'Files', closable: true },
+      { id: 'plugin:broken', label: 'Broken', closable: true },
+    ],
+  )
+  const menuItems = buildWorkspacePluginMenuItems(reg.list(RIGHT_PANE_TAB_SLOT), () => {})
+  assert.deepEqual(plain(menuItems.map(item => ({ key: item.key, label: item.label }))), [{ key: 'plugin:broken', label: 'Broken' }])
 
   // `WorkspacePaneBody` keeps FileTree & Terminal mounted with `hidden` toggle when `visible` flips,
   // dispatches resize when Terminal becomes visible, and isolates crashing plugin tabs.
@@ -1844,5 +1863,902 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     sandbox.document.activeElement = prevActive5
     remountAuto.unmount()
     uiProbe5.unmount()
+  }
+})
+
+test('FileTree runs full-workspace batched search, supports cancellation, and surfaces incomplete notices', async () => {
+  const calls = []
+  let batch = 0
+  let resolveSecondBatch
+  sandbox.__testCall = (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'workspace-watch') return Promise.resolve({ watchId: 'w-search', root: '/repo', recursive: true })
+    if (endpoint === 'workspace-unwatch') return Promise.resolve({ ok: true })
+    if (endpoint === 'workspace-list') {
+      return Promise.resolve({
+        root: '/repo',
+        rootName: 'repo',
+        path: '',
+        truncated: false,
+        entries: [{ name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' }],
+      })
+    }
+    if (endpoint === 'workspace-search') {
+      if (body.cancel === true) return Promise.resolve({ ok: true, cancelled: true })
+      if (body.query === 'deep') {
+        batch += 1
+        return Promise.resolve({
+          root: '/repo',
+          searchId: 'srch-1',
+          done: false,
+          entries: [{ name: 'deep-a.js', path: 'src/unexpanded/deep-a.js', kind: 'file', size: 40, ext: '.js' }],
+          incomplete: false,
+          incompleteReasons: [],
+        })
+      }
+      if (body.searchId === 'srch-1') {
+        return new Promise((resolve) => { resolveSecondBatch = resolve })
+      }
+      if (body.query === 'perm') {
+        return Promise.resolve({
+          root: '/repo',
+          searchId: null,
+          done: true,
+          entries: [{ name: 'ok.js', path: 'src/ok.js', kind: 'file', size: 12, ext: '.js' }],
+          incomplete: true,
+          incompleteReasons: ['permission'],
+        })
+      }
+    }
+    return Promise.resolve({})
+  }
+
+  const team = createTeam()
+  const inst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files' },
+    team,
+    visible: true,
+  })
+  try {
+    inst.render()
+    await tick()
+    let tree = inst.render()
+    const input = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-ft-search-input')[0]
+    assert.ok(input)
+
+    // Typing 'deep' triggers workspace-search (finds unexpanded nested file without expanding src).
+    input.props.onChange({ target: { value: 'deep' } })
+    inst.render()
+    await tick()
+    tree = inst.render()
+    assert.equal(batch, 1)
+    assert.match(textOf(tree), /deep-a\.js/, 'renders first streamed batch immediately')
+    assert.match(textOf(tree), /src\/unexpanded/, 'shows parent path for search hit')
+    const cancelBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-ft-search-cancel')[0]
+    assert.ok(cancelBtn, 'shows Cancel button while multi-batch search is in progress')
+
+    // Resolve second batch -> appends seamlessly and completes.
+    resolveSecondBatch({
+      root: '/repo',
+      searchId: null,
+      done: true,
+      entries: [{ name: 'deep-b.js', path: 'src/unexpanded/deep-b.js', kind: 'file', size: 22, ext: '.js' }],
+      incomplete: false,
+      incompleteReasons: [],
+    })
+    await tick()
+    tree = inst.render()
+    assert.match(textOf(tree), /deep-a\.js/)
+    assert.match(textOf(tree), /deep-b\.js/)
+    assert.match(textOf(tree), /2 matches/)
+
+    // Starting another multi-batch search and clicking Cancel keeps partial matches and shows incomplete notice.
+    input.props.onChange({ target: { value: '' } })
+    inst.render()
+    input.props.onChange({ target: { value: 'deep' } })
+    inst.render()
+    await tick()
+    tree = inst.render()
+    const cancelBtn2 = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-ft-search-cancel')[0]
+    assert.ok(cancelBtn2)
+    cancelBtn2.props.onClick()
+    tree = inst.render()
+    assert.match(textOf(tree), /Search cancelled/, 'cancellation clearly flags partial results')
+    assert.match(textOf(tree), /deep-a\.js/, 'partial matches stay visible after cancel')
+    assert.equal(calls.some(([ep, b]) => ep === 'workspace-search' && b.cancel === true && b.searchId === 'srch-1'), true)
+
+    // Permission-incomplete search surfaces explicit notice.
+    input.props.onChange({ target: { value: 'perm' } })
+    inst.render()
+    await tick()
+    tree = inst.render()
+    assert.match(textOf(tree), /Some folders could not be read/)
+  } finally {
+    inst.unmount()
+  }
+})
+
+test('FilePreview virtualizes large code files, toggles word wrap, zooms images and PDFs, and shows live update reload + auto-refresh switch', () => {
+  // 1. Virtualized CodeLines: 5,000-line file renders only a bounded viewport slice, not all 5,000 rows.
+  const win = computeCodeWindow({ lineCount: 5000, scrollTop: 0, viewportHeight: 570, lineHeight: 19, overscan: 20 })
+  assert.equal(win.start, 0)
+  assert.equal(win.end, 50)
+  assert.equal(win.topPad, 0)
+  assert.equal(win.bottomPad, 4950 * 19)
+
+  const bigText = Array.from({ length: 5000 }, (_, i) => `const line_${i + 1} = ${i + 1}`).join('\n')
+  let reloadClicks = 0
+  let autoToggleClicks = 0
+  const codeView = mount(FilePreview, {
+    file: { kind: 'code', language: 'javascript', name: 'big.js', path: 'src/big.js', size: bigText.length, text: bigText },
+    updated: true,
+    onReload: () => { reloadClicks += 1 },
+    autoRefresh: false,
+    onToggleAutoRefresh: () => { autoToggleClicks += 1 },
+  })
+  try {
+    let tree = codeView.render()
+    const lineRows = all(tree, n => n.type === 'tr' && n.props?.['data-line'] !== undefined)
+    assert.ok(lineRows.length > 0 && lineRows.length < 150, `virtualized 5000-line file must mount < 150 rows (got ${lineRows.length})`)
+    assert.equal(lineRows[0].props['data-line'], 1)
+
+    // Scrolling down shifts the virtual window to the scrolled range.
+    const wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    assert.equal(wrapDiv.props['data-virtualized'], '')
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 2500 } })
+    tree = codeView.render()
+    const scrolledRows = all(tree, n => n.type === 'tr' && n.props?.['data-line'] !== undefined)
+    assert.ok(scrolledRows[0].props['data-line'] > 2400 && scrolledRows[0].props['data-line'] < 2520, 'scroll updates rendered line window')
+
+    // Word wrap toggle toggles data-wrap and aria-pressed.
+    const wrapBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0]
+    assert.ok(wrapBtn)
+    assert.equal(wrapBtn.props['aria-pressed'], false)
+    wrapBtn.props.onClick()
+    tree = codeView.render()
+    assert.equal(all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props['data-wrap'], '')
+
+    // Live update banner & Auto-refresh switch.
+    const reloadBtn = all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n)))[0]
+    assert.ok(reloadBtn, 'shows Updated · Reload button when file changed')
+    reloadBtn.props.onClick()
+    assert.equal(reloadClicks, 1)
+
+    const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+    assert.ok(autoSwitch, 'renders Auto-refresh switch')
+    assert.equal(autoSwitch.props['aria-checked'], false)
+    autoSwitch.props.onClick()
+    assert.equal(autoToggleClicks, 1)
+  } finally {
+    codeView.unmount()
+  }
+
+  // 2. Image zoom controls step cleanly from Fit -> 125% -> Fit.
+  const imgView = mount(FilePreview, {
+    file: { kind: 'image', name: 'logo.png', path: 'logo.png', size: 64, mime: 'image/png', base64: 'AP+AAQ==' },
+  })
+  try {
+    imgView.render()
+    let tree = imgView.render()
+    assert.equal(all(tree, n => n.props?.['data-zoom'] === 'fit').length, 1)
+    const zoomIn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Zoom in')[0]
+    zoomIn.props.onClick()
+    tree = imgView.render()
+    assert.equal(all(tree, n => n.props?.['data-zoom'] === '125').length, 1)
+    const resetBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Reset zoom')[0]
+    resetBtn.props.onClick()
+    tree = imgView.render()
+    assert.equal(all(tree, n => n.props?.['data-zoom'] === 'fit').length, 1)
+  } finally {
+    imgView.unmount()
+  }
+
+  // 3. PDF zoom controls update iframe #zoom fragment.
+  const pdfView = mount(FilePreview, {
+    file: { kind: 'pdf', name: 'doc.pdf', path: 'doc.pdf', size: 128, mime: 'application/pdf', base64: Buffer.from('%PDF-1.4').toString('base64') },
+  })
+  try {
+    pdfView.render()
+    let tree = pdfView.render()
+    const zoomIn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Zoom in')[0]
+    zoomIn.props.onClick()
+    tree = pdfView.render()
+    const iframe = all(tree, n => n.type === 'iframe')[0]
+    assert.match(String(iframe.props.src), /#zoom=125$/)
+  } finally {
+    pdfView.unmount()
+  }
+})
+
+test('Multi-preview tabs stay open side-by-side, follow workspace-changed live updates, and plugin tabs mount lazily and keep state across switches', async () => {
+  let versionA = 1
+  const readCalls = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-watch') return { watchId: 'w-pv', root: '/repo', recursive: true }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-read') {
+      readCalls.push(body.path)
+      if (body.path === 'src/index.js') {
+        return { kind: 'code', language: 'javascript', name: 'index.js', path: body.path, size: 32, text: `// a-v${versionA}` }
+      }
+      return { kind: 'code', language: 'javascript', name: 'index.js', path: body.path, size: 32, text: '// b-v1' }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  team.actions.openSession('b1')
+  team.actions.openFile({ path: 'src/index.js', root: '/repo' })
+  team.actions.openFile({ path: 'test/index.js', root: '/repo' })
+
+  const uiProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  const reg = createSlotRegistry()
+  let pluginMounts = 0
+  let pluginUnmounts = 0
+  function StatefulPlugin() {
+    const [count, setCount] = react.useState(0)
+    react.useEffect(() => {
+      pluginMounts += 1
+      return () => { pluginUnmounts += 1 }
+    }, [])
+    return react.createElement('button', { type: 'button', className: 'plugin-counter', onClick: () => setCount(c => c + 1) }, `count:${count}`)
+  }
+  reg.register({ name: RIGHT_PANE_TAB_SLOT, id: 'stateful', meta: { label: 'Stateful' } }, StatefulPlugin)
+
+  try {
+    let rp = uiProbe.render().props
+    const tabs = buildWorkspaceTabs(rp, reg.list(RIGHT_PANE_TAB_SLOT))
+    assert.equal(tabs.length, 2, 'opening two files keeps both preview tabs open without overwriting')
+    assert.deepEqual(plain(tabs.map(t => t.label)), ['src/index.js', 'test/index.js'], 'colliding basenames are disambiguated')
+    assert.equal(tabs.some(t => t.id === 'plugin:stateful'), false, 'unopened plugin tab is not pinned in tab strip')
+
+    const body = mount(WorkspacePaneBody, { sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+    try {
+      body.render()
+      await tick()
+      let tree = body.render()
+      assert.equal(pluginMounts, 0, 'unopened plugin tab is never mounted')
+      assert.match(textOf(tree), /\/\/ a-v1/)
+      assert.match(textOf(tree), /\/\/ b-v1/)
+
+      // Switch to src/index.js tab, emit workspace-changed -> shows Updated · Reload when auto-refresh is off.
+      const tabA = rp.tabs[0]
+      team.actions.setRightPanelTab(tabA)
+      rp = uiProbe.render().props
+      body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      await tick()
+      versionA = 2
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/index.js'] })
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      const reloadBtn = all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n)))[0]
+      assert.ok(reloadBtn, 'matching workspace-changed marks preview updated')
+
+      // Clicking reload fetches v2 cleanly.
+      reloadBtn.props.onClick()
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /\/\/ a-v2/)
+
+      // Turning on Auto-refresh reloads automatically on the next workspace-changed without needing manual click.
+      const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+      autoSwitch.props.onClick()
+      body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      versionA = 3
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/index.js'] })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /\/\/ a-v3/, 'auto-refresh reloads file silently on workspace-changed')
+
+      // Open plugin tab -> mounts once, retains state across switching away and back, unmounts on close.
+      team.actions.setRightPanelTab('plugin:stateful')
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.equal(pluginMounts, 1)
+      const counterBtn = all(tree, n => n.type === 'button' && n.props?.className === 'plugin-counter')[0]
+      counterBtn.props.onClick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /count:1/)
+
+      // Switch back to preview tab -> plugin tab stays mounted (hidden), does not unmount.
+      team.actions.setRightPanelTab(tabA)
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      const hiddenPluginPane = all(tree, n => n.props?.['data-plugin-tab'] === 'plugin:stateful')
+      assert.equal(hiddenPluginPane.length, 1, 'switching away keeps plugin pane mounted in DOM')
+      assert.equal(hiddenPluginPane[0].props.hidden, true, 'inactive plugin pane is hidden')
+      assert.equal(pluginUnmounts, 0, 'switching away from plugin tab must not unmount it')
+
+      // Switch back to plugin tab -> state `count:1` is preserved.
+      team.actions.setRightPanelTab('plugin:stateful')
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.match(textOf(tree), /count:1/, 'plugin tab state survives switching away and back')
+      assert.equal(pluginMounts, 1)
+
+      // Closing plugin tab removes it from rendered panes.
+      team.actions.closeWorkspaceTab('plugin:stateful')
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, registry: reg, visible: true })
+      assert.equal(all(tree, n => n.props?.['data-plugin-tab'] === 'plugin:stateful').length, 0, 'closing plugin tab unmounts its pane')
+    } finally {
+      body.unmount()
+    }
+  } finally {
+    uiProbe.unmount()
+  }
+})
+
+test('CodeLines jumps once to targetLine, renders scrolled rows without blanking, and never jumps back on scroll, resize, or wrap toggle', () => {
+  sandbox.localStorage.removeItem('dsb.preview.wrap')
+  const lineCount = 2400
+  const longText = Array.from({ length: lineCount }, (_, i) => `export const row_${i + 1} = ${i + 1}`).join('\n')
+  const file = { kind: 'code', language: 'javascript', name: 'long.js', path: 'src/long.js', size: longText.length, text: longText }
+
+  const prevObsCount = resizeObservers.length
+  const view = mount(FilePreview, { file, line: 1000 })
+  try {
+    // Initial render already includes line 1000 via initial scrollTop computation (no render-time override).
+    let tree = view.render()
+    const renderedLines = (node) => all(node, n => n.type === 'tr' && n.props?.['data-line'] !== undefined).map(n => n.props['data-line'])
+    let nums = renderedLines(tree)
+    assert.ok(nums.includes(1000), `initial render must include targetLine 1000 (got ${nums[0]}..${nums.at(-1)})`)
+
+    // Second render after mount effects still centers around line 1000.
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(1000), `post-effect render must include targetLine 1000 (got ${nums[0]}..${nums.at(-1)})`)
+
+    const obs = resizeObservers.slice(prevObsCount).at(-1)
+    assert.ok(obs && obs.targets[0], 'CodeLines observes its scroll wrapper')
+    const scrollEl = obs.targets[0]
+
+    // Scroll far down to line 1800 -> renders lines around 1800 (no blank screen, no snap-back to 1000).
+    let wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    scrollEl.scrollTop = 19 * 1800
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 1800, scrollHeight: 19 * lineCount, clientHeight: 600 } })
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(1800), `scrolling to line 1800 must render around 1800 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'scrolling away from targetLine must not force targetLine back into DOM')
+
+    // Trigger panel resize (ResizeObserver) while scrolled to line 1800 -> must NOT jump back to 1000.
+    scrollEl.clientHeight = 420
+    scrollEl.clientWidth = 360
+    obs.cb()
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(scrollEl.scrollTop, 19 * 1800, 'panel resize must not overwrite DOM scrollTop')
+    assert.ok(nums.includes(1800), `panel resize must keep scroll around line 1800 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'panel resize must not jump back to targetLine 1000')
+
+    // Toggle word wrap while scrolled to line 1800 -> must NOT jump back to 1000.
+    const wrapBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0]
+    assert.ok(wrapBtn)
+    wrapBtn.props.onClick()
+    tree = view.render()
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(scrollEl.scrollTop, 19 * 1800, 'enabling word wrap must not overwrite DOM scrollTop')
+    assert.ok(nums.includes(1800), `enabling word wrap must keep scroll around line 1800 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'enabling word wrap must not jump back to targetLine 1000')
+    // Toggle word wrap back off and verify we still did not snap back to 1000.
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    tree = view.render()
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(scrollEl.scrollTop, 19 * 1800, 'disabling word wrap must not overwrite DOM scrollTop')
+    assert.ok(nums.includes(1800), `disabling word wrap must keep scroll around line 1800 (got ${nums[0]}..${nums.at(-1)})`)
+
+    // Scroll far up to line 10 -> renders lines around 10, then small scroll to 0 reaches top cleanly.
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 10, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(10), `scrolling up to line 10 must render around line 10 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'scrolling up must not snap back to targetLine 1000')
+
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 8, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render()
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 0, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(nums[0], 1, 'scrolling smoothly to scrollTop 0 must update and include line 1')
+
+    // Explicit jump to a NEW targetLine (500) jumps once, and scrolling away works again.
+    view.render({ file, line: 500 })
+    tree = view.render({ file, line: 500 })
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(500), `changing targetLine to 500 must jump to line 500 (got ${nums[0]}..${nums.at(-1)})`)
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 2100, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render({ file, line: 500 })
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(2100), `scrolling after new jump must render line 2100 (got ${nums[0]}..${nums.at(-1)})`)
+  } finally {
+    view.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.wrap')
+  }
+})
+
+test('Absolute chat file links use canonical workspace-relative paths for workspace-watch dirs and live update matching', async () => {
+  sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  let version = 1
+  const watchCalls = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-watch') {
+      watchCalls.push(body)
+      return { watchId: `w-abs-${watchCalls.length}`, root: '/repo', recursive: false }
+    }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-read') {
+      // Mirrors real Host `workspace-read`: resolves `/repo/src/nested/chat-link.js` to canonical relative `src/nested/chat-link.js`.
+      assert.equal(body.path, '/repo/src/nested/chat-link.js')
+      return {
+        kind: 'code',
+        language: 'javascript',
+        name: 'chat-link.js',
+        path: 'src/nested/chat-link.js',
+        size: 32,
+        text: `// chat-link-v${version}`,
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  team.actions.openSession('b1')
+  // Chat link passes an absolute path with no `root`.
+  team.actions.openFile({ path: '/repo/src/nested/chat-link.js', sessionId: 'b1' })
+
+  const uiProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  try {
+    const rp = uiProbe.render().props
+    const body = mount(WorkspacePaneBody, { sessionId: 'b1', panel: rp, team, visible: true })
+    try {
+      body.render()
+      await tick()
+      let tree = body.render()
+      assert.match(textOf(tree), /\/\/ chat-link-v1/)
+      await tick()
+
+      // Watch registration must never pass the bogus stripped absolute path (`repo/src/nested`),
+      // and must register the canonical parent directory `src/nested` once workspace-read resolves.
+      assert.equal(
+        watchCalls.some(call => Array.isArray(call.dirs) && call.dirs.some(dir => dir.startsWith('repo/'))),
+        false,
+        'workspace-watch must not strip leading slash from absolute paths into invalid relative dirs',
+      )
+      assert.equal(
+        watchCalls.some(call => Array.isArray(call.dirs) && call.dirs.includes('src/nested')),
+        true,
+        'workspace-watch must register canonical parent directory returned by workspace-read',
+      )
+
+      // Host emits workspace-changed with canonical workspace-relative path -> shows Updated · Reload banner.
+      version = 2
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/nested/chat-link.js'] })
+      tree = body.render()
+      const reloadBtn = all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n)))[0]
+      assert.ok(reloadBtn, 'absolute chat link preview must show Updated · Reload on matching workspace-changed')
+
+      // Enable Auto-refresh -> next workspace-changed automatically reloads v3.
+      const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+      autoSwitch.props.onClick()
+      body.render()
+      version = 3
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/nested/chat-link.js'] })
+      await tick()
+      tree = body.render()
+      assert.match(textOf(tree), /\/\/ chat-link-v3/, 'absolute chat link preview auto-refreshes cleanly on workspace-changed')
+    } finally {
+      body.unmount()
+    }
+  } finally {
+    uiProbe.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  }
+})
+
+test('Active preview renews workspace-watch and detects edits on unresumed hello reconnect, search-mode context menu opens folder in tree, Refresh re-runs search, and team.openFile deduplicates tabs with lineNonce re-jumps', async () => {
+  sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  // 1. Unresumed `hello` reconnect re-registers preview watch and detects edits made during disconnect.
+  let version = 1
+  const watchCalls = []
+  let searchCalls = 0
+  const revealedFolders = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-watch') {
+      watchCalls.push(body)
+      return { watchId: `w-hello-${watchCalls.length}`, root: '/repo', recursive: true }
+    }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-read') {
+      return {
+        kind: 'code',
+        language: 'javascript',
+        name: 'app.js',
+        path: 'src/app.js',
+        root: '/repo',
+        size: 10 + version,
+        text: `// version-${version}\n`,
+      }
+    }
+    if (endpoint === 'workspace-list') {
+      return { root: '/repo', rootName: 'repo', path: body?.path ?? '', entries: [{ name: 'src', path: 'src', kind: 'dir' }], truncated: false }
+    }
+    if (endpoint === 'workspace-search') {
+      searchCalls += 1
+      return {
+        root: '/repo',
+        searchId: null,
+        done: true,
+        entries: [
+          { name: 'nested', path: 'src/nested', kind: 'dir', size: 0, mtimeMs: 1, ext: '' },
+          { name: `hit-${searchCalls}.js`, path: `src/nested/hit-${searchCalls}.js`, kind: 'file', size: 12, mtimeMs: 1, ext: '.js' },
+        ],
+        incomplete: false,
+        incompleteReasons: [],
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  team.actions.openSession('b1')
+  const origReveal = team.actions.revealFolder
+  team.actions.revealFolder = (arg) => {
+    revealedFolders.push(arg)
+    return origReveal(arg)
+  }
+
+  // Open from FileTree (relative + root), then open same file from chat link (absolute + sessionId) -> single deduplicated tab!
+  team.actions.openFile({ path: 'src/app.js', root: '/repo' })
+  team.actions.openFile({ path: '/repo/src/app.js', sessionId: 'b1', line: 2 })
+  const uiProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  try {
+    let rp = uiProbe.render().props
+    const previewTabs = rp.tabs.filter(id => id.startsWith('preview:'))
+    assert.equal(previewTabs.length, 1, 'opening same file via FileTree relative+root and chat absolute path must deduplicate into one tab')
+    const tabId = previewTabs[0]
+    const firstNonce = rp.previews[tabId].lineNonce
+    assert.equal(firstNonce, 1)
+
+    // Re-clicking the same file:line increments lineNonce so CodeLines jumps back.
+    team.actions.openFile({ path: '/repo/src/app.js', sessionId: 'b1', line: 2 })
+    rp = uiProbe.render().props
+    assert.equal(rp.previews[tabId].lineNonce, 2, 're-clicking the same file:line must increment lineNonce')
+
+    const body = mount(WorkspacePaneBody, { sessionId: 'b1', panel: rp, team, visible: true })
+    try {
+      body.render()
+      await tick()
+      let tree = body.render()
+      assert.match(textOf(tree), /\/\/ version-1/)
+      const watchesBeforeHello = watchCalls.length
+      assert.ok(watchesBeforeHello >= 1)
+
+      // Host restarts (unresumed hello) while file changed on disk to version 2 -> watch re-registered & Updated · Reload appears!
+      version = 2
+      team.chat.emit('hello', { resumed: false })
+      await tick()
+      await tick()
+      tree = body.render()
+      assert.ok(watchCalls.length > watchesBeforeHello, 'unresumed hello must re-register preview workspace-watch')
+      assert.ok(all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n))).length === 1, 'unresumed hello must detect file change during disconnect')
+
+      // Enable Auto-refresh and simulate another unresumed hello with version 3 -> reloads automatically!
+      const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+      autoSwitch.props.onClick()
+      body.render()
+      version = 3
+      team.chat.emit('hello', { resumed: false })
+      await tick()
+      await tick()
+      tree = body.render()
+      assert.match(textOf(tree), /\/\/ version-3/, 'unresumed hello with Auto-refresh enabled must reload active preview')
+
+      // Switch to Files tab -> search -> verify Refresh re-runs search and folder context menu triggers openSearchDir.
+      team.actions.openFiles()
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      const searchInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-ft-search-input')[0]
+      assert.ok(searchInput)
+      searchInput.props.onChange({ target: { value: 'hit' } })
+      body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      assert.equal(searchCalls, 1)
+      assert.match(textOf(tree), /hit-1\.js/)
+
+      // Clicking header Refresh while in search mode must re-run the active search query!
+      const refreshBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Refresh')[0]
+      assert.ok(refreshBtn)
+      refreshBtn.props.onClick()
+      body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      assert.equal(searchCalls, 2, 'header Refresh in search mode must re-run active search')
+      assert.match(textOf(tree), /hit-2\.js/)
+
+      // Right-clicking a folder hit in search mode exposes Open wired to openSearchDir (revealFolder), not Expand/Collapse.
+      const dirHit = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'src/nested')[0]
+      assert.ok(dirHit)
+      dirHit.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 40, clientY: 60, currentTarget: {} })
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      const openDirItem = all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'open-in-tree')[0]
+      assert.ok(openDirItem, 'search-mode folder context menu must render open-in-tree action')
+      assert.equal(all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'toggle').length, 0, 'search-mode folder menu must not show no-op Expand/Collapse')
+      openDirItem.props.onClick()
+      assert.ok(revealedFolders.some(item => item?.path === 'src/nested'), 'open-in-tree must call openSearchDir -> revealFolder')
+    } finally {
+      body.unmount()
+    }
+  } finally {
+    uiProbe.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  }
+
+  // 2. Re-jumping to the SAME line via incremented lineNonce scrolls back to targetLine after scrolling away.
+  const lineCount = 2400
+  const bigFile = {
+    kind: 'code',
+    language: 'javascript',
+    name: 'rejump.js',
+    path: 'src/rejump.js',
+    size: lineCount * 20,
+    text: Array.from({ length: lineCount }, (_, i) => `const v${i + 1} = ${i + 1}`).join('\n'),
+  }
+  const scrollEl = { scrollTop: 0, clientHeight: 380, clientWidth: 640 }
+  const view = mount(FilePreview, { file: bigFile, line: 1000, lineNonce: 1 })
+  try {
+    let tree = view.render({ file: bigFile, line: 1000, lineNonce: 1 })
+    const wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    if (wrapDiv.props?.ref && typeof wrapDiv.props.ref === 'object') wrapDiv.props.ref.current = scrollEl
+    tree = view.render({ file: bigFile, line: 1000, lineNonce: 1 })
+    // Scroll away to line 100.
+    scrollEl.scrollTop = 19 * 100
+    all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({
+      currentTarget: { scrollTop: 19 * 100, scrollHeight: 19 * lineCount, clientHeight: 380 },
+    })
+    tree = view.render({ file: bigFile, line: 1000, lineNonce: 1 })
+    assert.equal(all(tree, n => n.type === 'tr' && n.props?.['data-line'] === 1000).length, 0)
+    // Increment lineNonce with the same line 1000 -> jumps right back to line 1000!
+    view.render({ file: bigFile, line: 1000, lineNonce: 2 })
+    tree = view.render({ file: bigFile, line: 1000, lineNonce: 2 })
+    assert.equal(all(tree, n => n.type === 'tr' && n.props?.['data-line'] === 1000).length, 1, 'incremented lineNonce must re-jump to the same targetLine')
+  } finally {
+    view.unmount()
+  }
+})
+
+test('computeCodeWindow clamps scrollTop past maxScroll, and CodeLines preserves first visible line without blanking across word-wrap toggles and file shrinks', () => {
+  // 1. Direct computeCodeWindow clamping in fixed-height (unwrapped) and offsets (wrapped) modes.
+  const unwrappedPastEof = computeCodeWindow({ lineCount: 1000, scrollTop: 170285, viewportHeight: 500, lineHeight: 19, overscan: 24 })
+  assert.ok(unwrappedPastEof.start <= unwrappedPastEof.end, 'unwrapped start must be <= end')
+  assert.ok(unwrappedPastEof.end > unwrappedPastEof.start, 'unwrapped window past EOF must stay non-empty')
+  assert.equal(unwrappedPastEof.end, 1000, 'unwrapped window past EOF must clamp to final lines')
+  assert.ok(unwrappedPastEof.topPad < unwrappedPastEof.totalHeight, 'topPad must not exceed totalHeight')
+
+  const offsets = new Float64Array(1001)
+  for (let i = 0; i <= 1000; i += 1) offsets[i] = i * 190
+  const wrappedPastEof = computeCodeWindow({ lineCount: 1000, scrollTop: 500000, viewportHeight: 500, lineHeight: 19, overscan: 24, offsets })
+  assert.ok(wrappedPastEof.start <= wrappedPastEof.end, 'wrapped start must be <= end')
+  assert.ok(wrappedPastEof.end > wrappedPastEof.start, 'wrapped window past EOF must stay non-empty')
+  assert.equal(wrappedPastEof.end, 1000, 'wrapped window past EOF must clamp to final lines')
+
+  // 2. 1,000 lines x 400 chars: enable Word Wrap, scroll deep (~100,000px), toggle Word Wrap OFF ->
+  //    ZERO blank frames on first render, first visible line preserved, toggle back ON preserves same line!
+  const longText = Array.from({ length: 1000 }, (_, i) => `L${String(i + 1).padStart(4, '0')} ${'x'.repeat(394)}`).join('\n')
+  const wideFile = { kind: 'code', language: 'text', name: 'wide.txt', path: 'wide.txt', size: longText.length, text: longText }
+  sandbox.localStorage.removeItem('dsb.preview.wrap')
+  const view = mount(FilePreview, { file: wideFile })
+  try {
+    let tree = view.render({ file: wideFile })
+    const wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    const scrollEl = wrapDiv.props.ref.current
+    assert.ok(scrollEl, 'CodeLines attaches wrapRef to scroll container')
+    tree = view.render({ file: wideFile })
+
+    // Turn Word Wrap ON.
+    const wrapBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0]
+    assert.ok(wrapBtn)
+    wrapBtn.props.onClick()
+    tree = view.render({ file: wideFile })
+
+    // Scroll deep into wrapped file (~100,000 px, far beyond unwrapped totalHeight of 19,000 px).
+    const deepScroll = 100_000
+    scrollEl.scrollTop = deepScroll
+    all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({
+      currentTarget: { scrollTop: deepScroll, scrollHeight: 361_000, clientHeight: scrollEl.clientHeight },
+    })
+    tree = view.render({ file: wideFile })
+    const wrappedLines = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(wrappedLines.length > 0, 'wrapped deep scroll renders rows')
+
+    const charsPerLine = Math.max(20, Math.floor((scrollEl.clientWidth - 72) / 7.4))
+    const rowsPerLine = Math.ceil(400 / charsPerLine)
+    const expectedLineIdx = Math.floor(deepScroll / (rowsPerLine * 19))
+    const expectedLineNum = expectedLineIdx + 1
+    assert.ok(wrappedLines.includes(expectedLineNum), `anchored line ${expectedLineNum} is mounted before wrap-off`)
+
+    // Toggle Word Wrap OFF -> MUST be non-empty on the VERY FIRST render and anchored to expectedLineNum!
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    tree = view.render({ file: wideFile })
+    const afterOffRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(afterOffRows.length > 0, 'turning Word Wrap OFF must never produce a blank frame')
+    assert.ok(afterOffRows.includes(expectedLineNum), `turning Word Wrap OFF must keep anchored line ${expectedLineNum} visible`)
+    assert.equal(scrollEl.scrollTop, expectedLineIdx * 19, 'scrollTop must remap to anchored line top in unwrapped coordinates')
+
+    // Toggle Word Wrap back ON -> MUST keep the EXACT same anchored line!
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    tree = view.render({ file: wideFile })
+    const afterOnRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(afterOnRows.length > 0, 'turning Word Wrap back ON must stay non-empty')
+    assert.ok(afterOnRows.includes(expectedLineNum), `round-trip wrap ON/OFF/ON must keep anchored line ${expectedLineNum} visible`)
+    assert.equal(scrollEl.scrollTop, expectedLineIdx * rowsPerLine * 19, 'scrollTop must remap back to anchored line top in wrapped coordinates')
+
+    // 3. Live reload shrinks file from 1,000 lines to 300 lines while scrolled deep -> non-empty & clamped!
+    const shrunkText = Array.from({ length: 300 }, (_, i) => `S${i + 1} short`).join('\n')
+    const shrunkFile = { ...wideFile, size: shrunkText.length, text: shrunkText }
+    tree = view.render({ file: shrunkFile })
+    const shrunkRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
+    assert.ok(shrunkRows.length > 0, 'shrunk live-reloaded file must never render blank')
+    assert.ok(shrunkRows.includes(300), 'shrunk file clamps to bottom lines')
+  } finally {
+    view.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.wrap')
+  }
+})
+
+test('CodeLines has zero anchor drift across 20 wrap toggles + width resize under realistic DOM height mismatch, never resets to line 1 after a big jump, and does not fight active scrolling during resize', async () => {
+  const longText = Array.from({ length: 1000 }, (_, i) => `L${String(i + 1).padStart(4, '0')} ${'x'.repeat(394)}`).join('\n')
+  const wideFile = { kind: 'code', language: 'text', name: 'drift.txt', path: 'drift.txt', size: longText.length, text: longText }
+  sandbox.localStorage.removeItem('dsb.preview.wrap')
+
+  // Helper that simulates realistic Chromium DOM geometry where wrapped lines render at 152px
+  // (8 visual rows) even when CodeLines' model estimates 171px (9 visual rows) — reproducing the
+  // exact ~12% mismatch that caused cumulative drift across repeated toggles.
+  let latestTree = null
+  let currentWrapped = false
+  const realRowH = (w) => (currentWrapped ? (w <= 360 ? 190 : 152) : 19)
+  const makeDomMock = (scrollEl) => {
+    scrollEl.clientWidth = 440
+    scrollEl.clientHeight = 500
+    scrollEl.getBoundingClientRect = () => ({ top: 100, bottom: 100 + scrollEl.clientHeight, height: scrollEl.clientHeight, width: scrollEl.clientWidth })
+    const buildRows = () => {
+      if (!latestTree) return []
+      const topSpacer = all(latestTree, n => n.type === 'tr' && n.props?.className === 'dsb-pv-spacer' && n.props?.key === 'pad-top')[0]
+      const topPadPx = topSpacer ? Number.parseFloat(topSpacer.props.children?.[0]?.props?.style?.height || '0') : 0
+      const lineNodes = all(latestTree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line']))
+      const rh = realRowH(scrollEl.clientWidth)
+      let y = topPadPx
+      return lineNodes.map((n) => {
+        const lineNum = n.props['data-line']
+        const rowTopDoc = y
+        const rowBottomDoc = y + rh
+        y += rh
+        return {
+          getAttribute: (attr) => (attr === 'data-line' ? String(lineNum) : null),
+          getBoundingClientRect: () => ({
+            top: 100 + rowTopDoc - scrollEl.scrollTop,
+            bottom: 100 + rowBottomDoc - scrollEl.scrollTop,
+            height: rh,
+          }),
+        }
+      })
+    }
+    scrollEl.querySelectorAll = (sel) => (sel === 'tr[data-line]' ? buildRows() : [])
+    scrollEl.querySelector = (sel) => {
+      const m = /^tr\[data-line="(\d+)"\]$/.exec(sel)
+      if (!m) return null
+      return buildRows().find(r => r.getAttribute('data-line') === m[1]) ?? null
+    }
+    Object.defineProperty(scrollEl, 'scrollHeight', {
+      configurable: true,
+      get: () => {
+        if (!latestTree) return 19_000
+        const spacers = all(latestTree, n => n.type === 'tr' && n.props?.className === 'dsb-pv-spacer')
+        const linesCount = all(latestTree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).length
+        const padSum = spacers.reduce((s, sp) => s + Number.parseFloat(sp.props.children?.[0]?.props?.style?.height || '0'), 0)
+        return padSum + linesCount * realRowH(scrollEl.clientWidth)
+      },
+    })
+  }
+  const firstVisibleDomLineInMock = (scrollEl) => {
+    for (const r of scrollEl.querySelectorAll('tr[data-line]')) {
+      const rect = r.getBoundingClientRect()
+      if (rect.bottom > 101 && rect.top < 100 + scrollEl.clientHeight) {
+        return { line: Number(r.getAttribute('data-line')), subOffset: Math.max(0, Math.round(100 - rect.top)) }
+      }
+    }
+    return null
+  }
+
+  const prevObsCount = resizeObservers.length
+  const view = mount(FilePreview, { file: wideFile })
+  view.onCommit = (tree) => { latestTree = tree }
+  try {
+    latestTree = view.render({ file: wideFile })
+    const wrapDiv = all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    const scrollEl = wrapDiv.props.ref.current
+    makeDomMock(scrollEl)
+    const obs = resizeObservers[prevObsCount]
+    obs?.cb?.()
+    latestTree = view.render({ file: wideFile })
+
+    // Turn wrap ON and scroll to line 699 with 7px sub-line offset.
+    all(latestTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    currentWrapped = true
+    latestTree = view.render({ file: wideFile })
+    // Settle scroll cleanly onto line 699 with 7px sub-line offset (2 passes settle topPad in mock DOM).
+    scrollEl.scrollTop = 119_358
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+    latestTree = view.render({ file: wideFile })
+    for (let pass = 0; pass < 2; pass += 1) {
+      const row699 = scrollEl.querySelector('tr[data-line="699"]')
+      assert.ok(row699, 'line 699 mounted for setup')
+      scrollEl.scrollTop += (row699.getBoundingClientRect().top - 100) + 7
+      all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+      latestTree = view.render({ file: wideFile })
+    }
+    const initialVis = firstVisibleDomLineInMock(scrollEl)
+    assert.deepEqual(initialVis, { line: 699, subOffset: 7 }, 'starting at line 699 +7px sub-line offset')
+
+    // 1. Toggle Word Wrap 20 times in a row -> MUST stay locked at line 699 (+7px), 0 drift!
+    for (let i = 0; i < 20; i += 1) {
+      all(latestTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+      currentWrapped = !currentWrapped
+      latestTree = view.render({ file: wideFile })
+      latestTree = view.render({ file: wideFile })
+      const vis = firstVisibleDomLineInMock(scrollEl)
+      assert.equal(vis?.line, 699, `toggle #${i + 1} (${currentWrapped ? 'wrap ON' : 'wrap OFF'}) must stay on line 699 (got ${vis?.line})`)
+      assert.equal(vis?.subOffset, 7, `toggle #${i + 1} must preserve 7px sub-line offset (got ${vis?.subOffset})`)
+    }
+
+    // 2a. Panel width resize 440px -> 360px while wrapped (after quiet window) -> MUST stay on line 699 (+7px), 0 drift!
+    assert.equal(currentWrapped, true)
+    await new Promise(r => setTimeout(r, 270))
+    scrollEl.clientWidth = 360
+    obs?.cb?.()
+    latestTree = view.render({ file: wideFile })
+    latestTree = view.render({ file: wideFile })
+    const afterResize = firstVisibleDomLineInMock(scrollEl)
+    assert.equal(afterResize?.line, 699, `width resize 440->360 after quiet window must stay on line 699 (got ${afterResize?.line})`)
+    assert.equal(afterResize?.subOffset, 7, `width resize 440->360 must preserve 7px sub-line offset (got ${afterResize?.subOffset})`)
+
+    // 2b. Width resize DURING active user scroll -> MUST NOT overwrite scrollTop!
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onWheel?.()
+    const scrollDuringUserDrag = scrollEl.scrollTop
+    scrollEl.clientWidth = 400
+    obs?.cb?.()
+    latestTree = view.render({ file: wideFile })
+    assert.equal(scrollEl.scrollTop, scrollDuringUserDrag, 'width resize during active user scroll must not overwrite scrollTop')
+
+    // 3. Big jump from top (scrollTop = 0) straight to 0.7 depth (outside overscan) + IMMEDIATE wrap toggle ->
+    //    MUST NOT reset to line 1 / scrollTop = 0!
+    scrollEl.scrollTop = 0
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+    latestTree = view.render({ file: wideFile })
+    assert.equal(firstVisibleDomLineInMock(scrollEl)?.line, 1)
+
+    // Jump straight to 120,000px in one shot (rows in DOM are still [1..30], NONE intersect viewport!)
+    // and toggle wrap OFF immediately BEFORE React re-renders for 120,000px!
+    scrollEl.scrollTop = 120_000
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+    all(latestTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    currentWrapped = false
+    latestTree = view.render({ file: wideFile })
+    latestTree = view.render({ file: wideFile })
+    const afterJumpToggle = firstVisibleDomLineInMock(scrollEl)
+    assert.ok(afterJumpToggle && afterJumpToggle.line > 500, `big jump + immediate wrap toggle must land deep (>500), not reset to line 1 (got ${afterJumpToggle?.line})`)
+    assert.ok(scrollEl.scrollTop > 9000, `scrollTop must stay deep after big jump + wrap toggle (got ${scrollEl.scrollTop})`)
+  } finally {
+    view.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.wrap')
   }
 })

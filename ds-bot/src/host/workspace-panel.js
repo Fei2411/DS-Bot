@@ -14,6 +14,7 @@ import { basename, dirname, extname, isAbsolute, join, posix as posixPath, relat
 import { StringDecoder } from 'node:string_decoder'
 import { pathToFileURL } from 'node:url'
 import { within } from './folders.js'
+import { createWorkspaceSearcher } from './workspace-search.js'
 import { isInjectedGitConfigEnvKey } from './git-config-env.js'
 import { parseXlsxBuffer } from './xlsx-preview.js'
 
@@ -499,6 +500,7 @@ export function install(rt) {
     }
     return false
   }
+  const searcher = createWorkspaceSearcher({ withinRoot, isProtectedData })
 
   const resolveWorkspaceRoot = async (sessionId) => {
     await rt.load()
@@ -949,6 +951,7 @@ export function install(rt) {
   async function workspaceEndpoint(name, body = {}, signal) {
     if (name === 'changes') return changesDetail(body, signal)
     if (name === 'unwatch') return unwatchWorkspace(body)
+    if (name === 'search' && body.cancel === true) return searcher.cancel(body.searchId)
     const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
     let realRoot
     try {
@@ -1007,6 +1010,19 @@ export function install(rt) {
         entries: items,
         truncated,
       }
+    }
+
+    if (name === 'search') {
+      return await searcher.search({
+        realRoot,
+        query: typeof body.query === 'string' ? body.query : '',
+        includeHidden: body.includeHidden === true,
+        respectGitignore: body.respectGitignore !== false,
+        searchId: typeof body.searchId === 'string' ? body.searchId : '',
+        batchMs: body.batchMs,
+        maxDepth: body.maxDepth,
+        signal,
+      })
     }
 
     if (name === 'watch') {
@@ -1477,6 +1493,7 @@ export function install(rt) {
 
   async function terminalDispose() {
     disposed = true
+    searcher.dispose()
     offLocalClients?.()
     await closeAllWatches()
     const pending = [...inFlightSpawns]
