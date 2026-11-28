@@ -222,7 +222,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       }, h(SearchIcon))
       : null,
     h(NewMessagePills, { key: sessionId, sessionId, headRef, useSessions, useUi, useTurnClock }),
-    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
+    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, away, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
 }
 
 // Checks whether the scroller is currently unpinned from the bottom using DS Bot's

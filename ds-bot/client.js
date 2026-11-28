@@ -1987,6 +1987,11 @@ var JA = {
   "Teammate request": "仲間からの依頼",
   "{count} background tasks · {waiting} needs approval": "バックグラウンドタスク {count} 件・承認待ち {waiting} 件",
   "{count} background tasks running": "バックグラウンドタスク {count} 件を実行中",
+  "In background · {title}": "バックグラウンドで実行中 · {title}",
+  "Working in background": "バックグラウンドで作業中",
+  "Waiting for approval · {title}": "承認待ち · {title}",
+  "Waiting for teammate · {title}": "仲間の返答待ち · {title}",
+  "View background tasks": "バックグラウンドタスクを表示",
   "Sent to background task": "バックグラウンドタスクへ送信しました",
   "Background tasks": "バックグラウンドタスク",
   "Active": "実行中",
@@ -5689,6 +5694,11 @@ var KO = {
   "Teammate request": "동료 요청",
   "{count} background tasks · {waiting} needs approval": "백그라운드 작업 {count}개 · 승인 대기 {waiting}건",
   "{count} background tasks running": "백그라운드 작업 {count}개 실행 중",
+  "In background · {title}": "백그라운드 실행 중 · {title}",
+  "Working in background": "백그라운드에서 작업 중",
+  "Waiting for approval · {title}": "승인 대기 중 · {title}",
+  "Waiting for teammate · {title}": "동료 응답 대기 중 · {title}",
+  "View background tasks": "백그라운드 작업 보기",
   "Sent to background task": "백그라운드 작업으로 보냄",
   "Background tasks": "백그라운드 작업",
   "Active": "진행 중",
@@ -9394,6 +9404,11 @@ var ES = {
   "Teammate request": "Solicitud de compañero",
   "{count} background tasks · {waiting} needs approval": "{count} tareas en segundo plano · {waiting} requieren aprobación",
   "{count} background tasks running": "{count} tareas en segundo plano en curso",
+  "In background · {title}": "En segundo plano · {title}",
+  "Working in background": "Trabajando en segundo plano",
+  "Waiting for approval · {title}": "Esperando aprobación · {title}",
+  "Waiting for teammate · {title}": "Esperando a un compañero · {title}",
+  "View background tasks": "Ver tareas en segundo plano",
   "Sent to background task": "Enviado a la tarea en segundo plano",
   "Background tasks": "Tareas en segundo plano",
   "Active": "Activas",
@@ -13057,6 +13072,11 @@ var FR = {
   "Teammate request": "Demande d'un coéquipier",
   "{count} background tasks · {waiting} needs approval": "{count} tâches en arrière-plan · {waiting} en attente d'approbation",
   "{count} background tasks running": "{count} tâches en arrière-plan en cours",
+  "In background · {title}": "En arrière-plan · {title}",
+  "Working in background": "Travaille en arrière-plan",
+  "Waiting for approval · {title}": "En attente d'approbation · {title}",
+  "Waiting for teammate · {title}": "En attente d'un coéquipier · {title}",
+  "View background tasks": "Voir les tâches en arrière-plan",
   "Sent to background task": "Envoyé à la tâche en arrière-plan",
   "Background tasks": "Tâches en arrière-plan",
   "Active": "En cours",
@@ -16759,6 +16779,11 @@ var DE = {
   "Teammate request": "Anfrage eines Teammitglieds",
   "{count} background tasks · {waiting} needs approval": "{count} Hintergrundaufgaben · {waiting} warten auf Freigabe",
   "{count} background tasks running": "{count} Hintergrundaufgaben aktiv",
+  "In background · {title}": "Im Hintergrund · {title}",
+  "Working in background": "Arbeitet im Hintergrund",
+  "Waiting for approval · {title}": "Wartet auf Freigabe · {title}",
+  "Waiting for teammate · {title}": "Wartet auf Teammitglied · {title}",
+  "View background tasks": "Hintergrundaufgaben ansehen",
   "Sent to background task": "An Hintergrundaufgabe gesendet",
   "Background tasks": "Hintergrundaufgaben",
   "Active": "Aktiv",
@@ -20542,6 +20567,11 @@ var ZH = {
   "Teammate request": "同伴请求",
   "{count} background tasks · {waiting} needs approval": "{count} 个后台任务 · {waiting} 项待批准",
   "{count} background tasks running": "{count} 个后台任务运行中",
+  "In background · {title}": "后台运行 · {title}",
+  "Working in background": "正在后台运行",
+  "Waiting for approval · {title}": "等你允许 · {title}",
+  "Waiting for teammate · {title}": "等待同伴 · {title}",
+  "View background tasks": "查看后台任务",
   "Sent to background task": "已发给后台任务",
   "Background tasks": "后台任务",
   "Active": "进行中",
@@ -25429,8 +25459,8 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 var SHELL_CSS = `
 body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-seg-track:var(--bt-hover);--bt-seg-thumb:var(--bt-card);--bt-seg-shadow:0 1px 3px rgba(0,0,0,.08);--bt-palette-scrim:rgba(0,0,0,.28);--bt-cli-tile:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-island-rim:rgba(255,255,255,.92);--bt-island-shadow:0 22px 54px -16px rgba(15,23,42,.15),0 6px 20px -6px rgba(15,23,42,.07),0 0 0 .5px rgba(15,23,42,.08),inset 0 1px 0 rgba(255,255,255,1),inset 0 -1px 0 rgba(15,23,42,.04);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.06) 34%,transparent 60%);--bt-island-well:rgba(20,20,20,.045);--bt-island-well-focus:rgba(255,255,255,.92);--bt-island-btn:rgba(255,255,255,.75);--bt-island-btn-hover:rgba(20,20,20,.07);--bt-island-btn-shadow:0 2px 8px -2px rgba(0,0,0,.22);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-btn-shadow:0 1px 2px rgba(20,20,20,.04);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.07),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 22%,var(--bt-line-2));--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);--bt-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-typing-bg,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-sel){touch-action:manipulation}
-:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.bt-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-btn,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
+:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-typing-bg,.bt-typing-task,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-sel){touch-action:manipulation}
+:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.bt-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-typing-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-btn,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-danger:#ff6b72;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-seg-track:rgba(0,0,0,.32);--bt-seg-thumb:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-card));--bt-seg-shadow:0 1px 3px rgba(0,0,0,.32),inset 0 .5px 0 rgba(255,255,255,.1);--bt-palette-scrim:rgba(0,0,0,.64);--bt-cli-tile:#f0f0f2;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-island-rim:rgba(255,255,255,.14);--bt-island-shadow:0 26px 64px -14px rgba(0,0,0,.68),0 8px 24px -6px rgba(0,0,0,.4),0 0 0 .5px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.35);--bt-island-sheen:linear-gradient(180deg,rgba(255,255,255,.09) 0%,rgba(255,255,255,.015) 32%,transparent 56%);--bt-island-well:rgba(0,0,0,.28);--bt-island-well-focus:rgba(0,0,0,.36);--bt-island-btn:rgba(255,255,255,.07);--bt-island-btn-hover:rgba(255,255,255,.14);--bt-island-btn-shadow:0 2px 10px -2px rgba(0,0,0,.45);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-btn-shadow:0 1px 2px rgba(0,0,0,.2);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-accent) 18%,rgba(255,255,255,.07));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 0 0 .5px color-mix(in srgb,var(--bt-accent) 30%,rgba(255,255,255,.12));--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join("")}
@@ -27060,6 +27090,12 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-typing-task{height:28px;margin-left:-8px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing-task:hover:not(:disabled){background:var(--bt-hover)}
+.bt-typing-task:active:not(:disabled){background:var(--bt-active);scale:.98}
+.bt-typing-task:disabled{cursor:default}
+.bt-typing-task:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-typing-dot{flex:none;width:6px;height:6px;margin-right:8px;border-radius:50%;background:var(--bt-star)}
 .bt-typing-bg-wrap{flex:none;display:inline-grid;grid-template-columns:0fr;margin-left:-12px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s,margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s}
 .bt-typing-bg-in{min-width:0;overflow:hidden;display:inline-flex;align-items:center;padding:4px 0;margin:-4px 0}
 .bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translate(-10px,4px) scale(.92);transform-origin:0 50%;pointer-events:none;transition:opacity .16s ease,filter .16s ease,transform .18s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
@@ -27095,9 +27131,10 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-typing,.bt-typing[data-exiting]{animation-name:bt-fade-in;animation-duration:.12s;transform:none}
 .bt-typing[data-exiting]{animation-name:bt-fade-out}
 .bt-typing-text,.bt-typing-label{animation-name:bt-fade-in;animation-delay:0s}
-.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico{transition:none!important}
+.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task{transition:none!important}
 .bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{filter:none;transform:none}
 .bt-typing-bg:active:not(:disabled){scale:none}
+.bt-typing-task:active:not(:disabled){scale:none}
 .bt-shimmer{animation:none;background:none;color:var(--bt-ink-2)}
 [data-bt-enter="new"]{animation:none}
 [data-bt-enter="after-collapse"]{animation:bt-fade-in .12s ease-out}
@@ -27258,9 +27295,10 @@ body[data-bt-room] .bt-voice{display:none!important}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-bt-composer],.bt-to-bottom){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico){transition:none!important}
+body[data-bt-effects=off] :is([data-bt-composer],.bt-to-bottom,.bt-news,.bt-typing-bg-wrap,.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-task){transition:none!important}
 body[data-bt-effects=off] :is(.bt-typing-bg,.bt-typing-bg-ico,.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico){transform:none!important}
 body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled){scale:none!important}
+body[data-bt-effects=off] .bt-typing-task:active:not(:disabled){scale:none!important}
 body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],.bt-to-bottom,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `;
 var PLUGIN_ID = "ds-bot";
@@ -47995,6 +48033,33 @@ var import_react_dom8 = require("react-dom");
 var PHRASE_HOLD_MS = 800;
 var drawPhrase = (pool) => t(pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))]);
 var rowVisible = ({ running, streaming, tools, relaying, bot, room: room2 }) => running && (!streaming || tools.length > 0) && !relaying && (bot !== void 0 || room2 !== void 0);
+function backgroundActivity(bot, approvals = []) {
+  if (!bot) return null;
+  const active = tasksForChat({ bot }).filter(isActiveTask);
+  if (active.length === 0) return null;
+  const liveApprovalIds = new Set(
+    (approvals ?? []).filter((entry) => entry.roomId === void 0 && entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false).map((entry) => entry.taskId)
+  );
+  const waitingTasks = active.filter((item) => item.status === "waiting_approval" || liveApprovalIds.has(item.id));
+  const waitingCount = waitingTasks.length;
+  const needsApproval = waitingCount > 0;
+  const allWaitingWork = !needsApproval && active.every((item) => item.status === "waiting_work");
+  const primary = waitingTasks[0] ?? active[0];
+  const title = typeof primary?.title === "string" ? primary.title.trim() : "";
+  const state = needsApproval ? "alert" : allWaitingWork ? "waiting" : "background";
+  const label = active.length === 1 ? needsApproval ? title ? t("Waiting for approval · {title}", { title }) : t("Waiting for approval") : allWaitingWork ? title ? t("Waiting for teammate · {title}", { title }) : t("Waiting for teammate") : title ? t("In background · {title}", { title }) : t("Working in background") : needsApproval ? t("{count} background tasks · {waiting} needs approval", { count: active.length, waiting: waitingCount }) : t("{count} background tasks running", { count: active.length });
+  const starts = active.map((item) => item.startedAt ?? item.updatedAt).filter((at2) => typeof at2 === "number" && at2 > 0);
+  const startedAt = starts.length > 0 ? Math.min(...starts) : 0;
+  return {
+    key: `bg:${state}:${primary?.id ?? ""}:${label}`,
+    label,
+    state,
+    startedAt,
+    count: active.length,
+    needsApproval,
+    primaryId: primary?.id ?? null
+  };
+}
 var freshInputAt = (submissions, steeredAt) => Math.max(
   0,
   steeredAt ?? 0,
@@ -48121,7 +48186,7 @@ function useRowEntrances(replacing) {
     };
   }, []);
 }
-function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: useLive2, useSession, useWork, actions }) {
+function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatus, useLive: useLive2, useSession, useWork, actions }) {
   const roster = useRoster((value) => value);
   const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
   const turnAt = useWork?.((work) => work.turns?.[sessionId]);
@@ -48153,24 +48218,29 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
     const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
   }) ?? 0;
+  const bgApprovalsKey = useWork?.((work) => bot !== void 0 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === void 0 && entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false)) : "") ?? "";
+  const bgApprovals = (0, import_react41.useMemo)(() => bgApprovalsKey ? JSON.parse(bgApprovalsKey) : [], [bgApprovalsKey]);
   const entries2 = (0, import_react41.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
   const streaming = entries2.some((entry) => entry.text);
   const tools = entries2.filter((entry) => !entry.text).sort((a, b2) => a.at - b2.at);
   const relaying = tools.some((entry) => entry.relay);
-  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools, relaying, bot, room: room2 });
+  const fgVisible = rowVisible({ running, streaming, tools, relaying, bot, room: room2 });
+  const bgTask = !away && bot !== void 0 && !running && moveAt === 0 ? backgroundActivity(bot, bgApprovals) : null;
+  const visible = moveAt !== 0 || fgVisible || bgTask !== null;
   const tool = tools.at(-1);
   const inputRef = (0, import_react41.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES2.thinking, state: "thinking" };
+  const want = !visible ? null : moveAt !== 0 ? { mode: "move", key: "move", label: t("Switching working folder"), state: "thinking", bg: null } : fgVisible ? inputAt > (tool?.at ?? 0) ? { mode: "fg", key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking", bg: null } : tool ? { mode: "fg", key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working", bg: null } : { mode: "fg", key: "thinking", pool: PHRASES2.thinking, state: "thinking", bg: null } : { mode: "bg", key: bgTask.key, label: bgTask.label, state: bgTask.state, bg: bgTask };
   const [shown, setShown] = (0, import_react41.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react41.useRef)("thinking");
   if (want) markState.current = want.state;
   (0, import_react41.useEffect)(() => {
     if (wantKey === null || shown?.key === wantKey) return void 0;
-    const make = () => setShown({ key: wantKey, text: want.label ?? drawPhrase(want.pool), at: Date.now() });
-    const wait = shown ? shown.at + PHRASE_HOLD_MS - Date.now() : 0;
+    const make = () => setShown({ key: wantKey, mode: want.mode, text: want.label ?? drawPhrase(want.pool), bg: want.bg ?? null, at: Date.now() });
+    const immediate = !shown || shown.mode !== want.mode || want.mode === "bg";
+    const wait = immediate ? 0 : shown.at + PHRASE_HOLD_MS - Date.now();
     if (wait <= 0) {
       make();
       return void 0;
@@ -48184,6 +48254,10 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
   const leaving = (0, import_react41.useRef)(false);
   leaving.current = phase !== null && !visible;
   (0, import_react41.useEffect)(() => {
+    if (away) {
+      setPhase(null);
+      return void 0;
+    }
     if (visible) {
       setPhase("in");
       return void 0;
@@ -48194,7 +48268,7 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
       setPhase((current2) => current2 === "out" ? null : current2);
     }, reducedMotion() ? 0 : 140);
     return () => clearTimeout(timer2);
-  }, [visible]);
+  }, [away, visible]);
   (0, import_react41.useLayoutEffect)(() => {
     if (phase !== null) return;
     endedAt.current = Date.now();
@@ -48210,9 +48284,11 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
     if (!running) actions.clearLive(sessionId);
   }, [running, sessionId]);
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300);
-  const host = useRunningHost(running || moveAt !== 0);
+  const host = useRunningHost(!away && (running || moveAt !== 0 || bgTask !== null || phase !== null));
   if (!host || phase === null || !shown) return null;
-  const showBgAction = bot !== void 0 && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
+  const exiting = phase === "out";
+  const activeBg = bgTask ?? (exiting ? shown.bg : null);
+  const showBgAction = bot !== void 0 && running && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
   const moveToBg = () => {
     if (movingBg || !bgInfo) return;
     setMovingBg(true);
@@ -48228,12 +48304,25 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
     if (typeof target?.closest === "function" && target.closest("button,.bt-typing-mark")) return;
     setBgOpen((open) => !open);
   };
+  const canOpenTasks = activeBg !== null && (typeof actions?.toggleTaskDeck === "function" || typeof actions?.openTaskDeck === "function");
+  const openTasks = () => {
+    if (exiting || !bot) return;
+    if (typeof actions?.toggleTaskDeck === "function") actions.toggleTaskDeck(bot.id);
+    else actions?.openTaskDeck?.(bot.id, activeBg?.primaryId ?? null);
+  };
+  const elapsedAt = moveAt !== 0 ? moveAt : activeBg !== null ? activeBg.startedAt : Math.max(turnAt ?? runAt.current, inputAt);
+  const textContent = [
+    activeBg?.needsApproval ? (0, import_react41.createElement)("span", { key: "dot", className: "bt-typing-dot", "aria-hidden": true }) : null,
+    (0, import_react41.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react41.createElement)(Shimmer, null, `${shown.text}…`)),
+    elapsedAt > 0 ? (0, import_react41.createElement)(Elapsed, { key: "time", at: elapsedAt, className: "bt-typing-time" }) : null
+  ];
   return (0, import_react_dom8.createPortal)((0, import_react41.createElement)(
     "div",
     {
       ref: rowRef,
       className: "bt-typing",
-      "data-exiting": phase === "out" ? "" : void 0,
+      "data-exiting": exiting ? "" : void 0,
+      "data-bg-task": activeBg !== null ? "" : void 0,
       "data-bg-open": showBgAction && bgOpen ? "" : void 0,
       "data-bg-busy": showBgAction && movingBg ? "" : void 0,
       onClick: tapRow
@@ -48243,12 +48332,15 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
       { className: "bt-typing-mark", "aria-hidden": true },
       bot ? (0, import_react41.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react41.createElement)(RoomAvatar, { room: room2, roster, size: 28 })
     ),
-    (0, import_react41.createElement)(
-      "span",
-      { className: "bt-typing-text", "aria-hidden": true },
-      (0, import_react41.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react41.createElement)(Shimmer, null, `${shown.text}…`)),
-      (0, import_react41.createElement)(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
-    ),
+    canOpenTasks ? (0, import_react41.createElement)("button", {
+      type: "button",
+      className: "bt-typing-text bt-typing-task",
+      disabled: exiting,
+      "data-approval": activeBg.needsApproval || void 0,
+      "aria-label": `${shown.text} · ${t("View background tasks")}`,
+      title: t("View background tasks"),
+      onClick: openTasks
+    }, ...textContent) : (0, import_react41.createElement)("span", { className: "bt-typing-text", "aria-hidden": true }, ...textContent),
     showBgAction ? (0, import_react41.createElement)(
       "span",
       { className: "bt-typing-bg-wrap" },
@@ -67310,7 +67402,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       onClick: () => actions.openGroupSearch(room2.id)
     }, (0, import_react81.createElement)(SearchIcon)) : null,
     (0, import_react81.createElement)(NewMessagePills, { key: sessionId, sessionId, headRef, useSessions, useUi, useTurnClock }),
-    (0, import_react81.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive: useLive2, useWork, actions })
+    (0, import_react81.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, away, useRoster, useSessionStatus, useSession, useLive: useLive2, useWork, actions })
   );
 }
 function pinWatch() {
