@@ -768,11 +768,11 @@ test('Gmail Add distinguishes reachability from authentication without exporting
 
   for (const [fields, category, hint] of [
     [{ code: 'ENETUNREACH' }, 'network', /check.*network.*proxy/i],
-    [{ code: 'SELF_SIGNED_CERT_IN_CHAIN' }, 'network', /secure connection.*check.*network.*proxy/i],
-    [{ code: 'ESOCKET', originalCode: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }, 'network', /secure connection.*check.*network.*proxy/i],
+    [{ code: 'SELF_SIGNED_CERT_IN_CHAIN' }, 'tls', /secure connection.*check.*network.*proxy/i],
+    [{ code: 'ESOCKET', originalCode: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }, 'tls', /secure connection.*check.*network.*proxy/i],
     [{ code: 'ETIMEOUT' }, 'timeout', /timed out.*check.*network.*proxy/i],
     [{ code: 'GREETING_TIMEOUT' }, 'timeout', /timed out/i],
-    [{ code: 'EAUTH', responseCode: 534, response: `534-5.7.14 Sign in via your web browser: ${raw}` }, 'auth', /sign in to google in your browser/i],
+    [{ code: 'EAUTH', responseCode: 534, response: `534-5.7.14 Sign in via your web browser: ${raw}` }, 'signin', /sign in to google in your browser/i],
     [{ code: 'EAUTH', responseCode: 534, response: '534 5.7.9 Application-specific password required' }, 'auth', /check.*app password/i],
     [{ code: 'EAUTH', responseCode: 535 }, 'auth', /check.*app password/i],
     [{ authenticationFailed: true }, 'auth', /check.*app password/i],
