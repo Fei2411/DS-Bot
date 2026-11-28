@@ -590,7 +590,7 @@ test('schedules reports startup error diagnostic, redacts error/canEnable for re
       if (mode === 'failed') {
         return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: 'failed', diagnostic: 'corrupt_schedule_log' }]
       }
-      if (mode === 'overridden' || mode === 'pm-failed-code' || mode === 'coalesce') {
+      if (mode === 'overridden' || mode === 'pm-failed-code' || mode === 'pm-unaddressable' || mode === 'pm-failed-generic' || mode === 'coalesce') {
         return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: false, fiberPhase: null }]
       }
       return []
@@ -599,6 +599,8 @@ test('schedules reports startup error diagnostic, redacts error/canEnable for re
       pluginCalls.push([id, next])
       if (mode === 'overridden') return { changed: false, application: 'overridden' }
       if (mode === 'pm-failed-code') return { changed: false, application: 'failed', error: { code: 'management-required' } }
+      if (mode === 'pm-unaddressable') return { changed: false, application: 'failed', error: { code: 'unaddressable' } }
+      if (mode === 'pm-failed-generic') return { changed: false, application: 'failed', error: { code: 'unknown-plugin' } }
       if (mode === 'coalesce') {
         await new Promise((resolve) => { resolveSlowEnable = resolve })
         return { changed: true, application: 'restart-required' }
@@ -629,6 +631,14 @@ test('schedules reports startup error diagnostic, redacts error/canEnable for re
   const failedCodeRes = await call('schedule-enable')
   assert.equal(failedCodeRes.ok, false)
   assert.equal(failedCodeRes.error.message, 'Scheduled tasks cannot be changed here.')
+  mode = 'pm-unaddressable'
+  const unaddressableRes = await call('schedule-enable')
+  assert.equal(unaddressableRes.ok, false)
+  assert.equal(unaddressableRes.error.message, 'Scheduled tasks cannot be changed here.')
+  mode = 'pm-failed-generic'
+  const genericFailRes = await call('schedule-enable')
+  assert.equal(genericFailRes.ok, false)
+  assert.equal(genericFailRes.error.message, 'Could not turn on scheduled tasks.')
 
   // Concurrent schedule-enable calls coalesce into one pluginManager call and persist restartRequired across subsequent polls.
   mode = 'coalesce'
@@ -666,23 +676,30 @@ test('schedules safely handles real Cordis throwing proxy when pluginManager is 
   // 2. Enabled non-failed plugin whose fiberPhase is null reports pending:true within the
   // startup/enable grace window, and transitions to reason:'error' once the grace window
   // expires (e.g. Cordis module import failure) instead of looping forever.
-  const home2 = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-'))
   const pluginManager = {
     async listPlugins() {
       return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: null }]
     },
   }
-  const ctx2 = fakeContext({ services: { pluginManager } })
-  ctx2.inject = () => {}
-  const reg2 = ctx2.connection.fetch.register
-  ctx2.connection.fetch.register = (route) => { ctx2.route = route; return reg2(route) }
-  createRuntime(ctx2, { home: home2, scheduleAttachWaitMs: 60 })
-  const call2 = async (endpoint, payload = {}) => (await ctx2.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
-  t.after(async () => { await ctx2.dispose(); rmSync(home2, { recursive: true, force: true, maxRetries: 5 }) })
+  const homePending = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-pending-'))
+  const ctxPending = fakeContext({ services: { pluginManager } })
+  ctxPending.inject = () => {}
+  const regPending = ctxPending.connection.fetch.register
+  ctxPending.connection.fetch.register = (route) => { ctxPending.route = route; return regPending(route) }
+  createRuntime(ctxPending, { home: homePending, scheduleAttachWaitMs: 60_000 })
+  const callPending = async (endpoint, payload = {}) => (await ctxPending.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctxPending.dispose(); rmSync(homePending, { recursive: true, force: true, maxRetries: 5 }) })
+  assert.deepEqual((await callPending('schedules')).value, { available: false, tasks: [], pending: true })
 
-  assert.deepEqual((await call2('schedules')).value, { available: false, tasks: [], pending: true })
-  await new Promise(resolve => setTimeout(resolve, 90))
-  assert.deepEqual((await call2('schedules')).value, { available: false, tasks: [], reason: 'error' })
+  const homeExpired = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-expired-'))
+  const ctxExpired = fakeContext({ services: { pluginManager } })
+  ctxExpired.inject = () => {}
+  const regExpired = ctxExpired.connection.fetch.register
+  ctxExpired.connection.fetch.register = (route) => { ctxExpired.route = route; return regExpired(route) }
+  createRuntime(ctxExpired, { home: homeExpired, scheduleAttachWaitMs: 0 })
+  const callExpired = async (endpoint, payload = {}) => (await ctxExpired.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctxExpired.dispose(); rmSync(homeExpired, { recursive: true, force: true, maxRetries: 5 }) })
+  assert.deepEqual((await callExpired('schedules')).value, { available: false, tasks: [], reason: 'error' })
 })
 
 test('bundle fallback with setBundleEnabled flipping enabled=true preserves restartRequired across polls until attach', async (t) => {
