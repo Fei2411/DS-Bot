@@ -196,7 +196,7 @@ export function install(rt) {
       level: 'warn',
       source: 'host',
       text: line.replace(/^ds-bot: /, ''),
-      errorName: typeof error?.name === 'string' ? error.name : undefined,
+      errorName: typeof error?.name === 'string' && error.name !== '' ? error.name : undefined,
       code: typeof error?.code === 'string' ? error.code : undefined,
       stack: error?.stack,
     })

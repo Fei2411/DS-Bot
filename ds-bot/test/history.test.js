@@ -143,4 +143,50 @@ test('normalizeNoteHeadings unwraps code fences and normalizes numbered, bold, b
   assert.match(out, /^## Facts to keep$/m)
   assert.match(out, /^## Next step$/m)
   assert.match(out, /- Finish migration/)
+
+  // Nested fenced code blocks must not be rewritten or steal `seen` from real headings.
+  const withCodeBlock = [
+    '## 目标',
+    '- Ship fix',
+    '## 关键事实',
+    '```bash',
+    '# 下一步',
+    '## 下一步',
+    'echo ok',
+    '```',
+    '## 下一步',
+    '- Run tests',
+  ].join('\n')
+  const normalizedCode = normalizeNoteHeadings(withCodeBlock, names)
+  assert.match(normalizedCode, /```bash\n# 下一步\n## 下一步\necho ok\n```/)
+  assert.match(normalizedCode, /```\n## Next step\n- Run tests/)
+
+  // Already-valid notes with subheadings mentioning a section word must stay untouched.
+  const validWithSubheading = [
+    '## Goals',
+    '### PR #123 — Decisions',
+    '- Keep PR #123 scoped',
+    '## Constraints and preferences',
+    '- (none)',
+    '## Progress',
+    '- Done: fixed bug',
+    '## Decisions',
+    '- Kept existing contract',
+    '## Facts to keep',
+    '- (none)',
+    '## Open threads',
+    '- (none)',
+    '## Next step',
+    '- (none)',
+    '## Where to look',
+    '- (none)',
+  ].join('\n')
+  assert.equal(normalizeNoteHeadings(validWithSubheading, names), validWithSubheading)
+
+  // Two separate fenced blocks at the start and end must not be falsely unwrapped.
+  const twoFences = '```text\nfirst block\n```\n## 目标\n- keep fences\n```text\nlast block\n```'
+  const normalizedTwoFences = normalizeNoteHeadings(twoFences, names)
+  assert.match(normalizedTwoFences, /^```text\nfirst block\n```/)
+  assert.match(normalizedTwoFences, /```text\nlast block\n```$/)
+  assert.match(normalizedTwoFences, /^## Goals$/m)
 })

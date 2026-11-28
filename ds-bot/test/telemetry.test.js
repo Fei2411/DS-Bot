@@ -555,4 +555,13 @@ test('diagnostics warn forwards Error.name to telemetry while preserving schema-
   assert.equal(report.error_code, 'gateway/internal')
   const validated = validatePayload(report, now)
   assert.equal(validated.ok, true, validated.error)
+
+  // API-source internal failures also preserve Error.name even when error.code is omitted.
+  const apiErr = new RangeError('out of bounds')
+  rt.noteFailure({ source: 'api', text: `state: ${apiErr.message}`, errorName: apiErr.name, code: apiErr.name, stack: apiErr.stack })
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const apiReport = sent.find(item => item.type === 'error' && item.error_name === 'RangeError')
+  assert.ok(apiReport, 'expected RangeError telemetry report from api noteFailure')
+  assert.equal(apiReport.error_code, undefined)
+  assert.equal(validatePayload(apiReport, now).ok, true)
 })

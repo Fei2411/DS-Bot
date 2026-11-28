@@ -1067,3 +1067,33 @@ test('startup tracks only already-live Agents when ctx.agents exists and skips c
   await env.rt.changeCapabilityAttachment('attach', { name: 'echo' }, 'helper')
   assert.deepEqual(warnings.filter(line => line.includes('capability')), [])
 })
+
+test('capabilities startup and attachment tolerate a throwing Cordis ctx.agents getter', async t => {
+  const state = team()
+  state.capabilities = { items: { echo: { ...mcp('echo'), approved: true, createdBy: 'chief', createdAt: 1, updatedAt: 1 } } }
+  state.bots.chief.capabilities = ['echo']
+  const warnings = []
+  const env = await setup({
+    state,
+    beforeLoad: ({ ctx, rt, mounts, skills }) => {
+      Object.defineProperty(ctx, 'agents', {
+        configurable: true,
+        get() { throw new Error('cannot get property "agents" without inject') },
+      })
+      const existing = Object.fromEntries(['chief', 'worker'].map(id => [id, testAgent(id, mounts, skills)]))
+      rt.chatOf = botId => botId
+      rt.groupSessionsOf = () => []
+      rt.resolveAgent = async id => existing[id]
+      rt.warn = (...args) => warnings.push(args.join(' '))
+    },
+  })
+  t.after(() => env.dispose())
+  await new Promise(resolve => setImmediate(resolve))
+  await env.rt.scheduleCapabilitiesReconcile()
+  assert.deepEqual(warnings.filter(line => line.includes('capability')), [])
+  assert.deepEqual(env.mounts.map(mount => mount.sessionId), ['chief'])
+  await env.rt.changeCapabilityAttachment('attach', { name: 'echo' }, 'worker')
+  await env.rt.scheduleCapabilitiesReconcile()
+  assert.deepEqual(warnings.filter(line => line.includes('capability')), [])
+  assert.deepEqual(env.mounts.map(mount => mount.sessionId).sort(), ['chief', 'worker'])
+})

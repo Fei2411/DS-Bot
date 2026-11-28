@@ -749,7 +749,8 @@ export function install(rt) {
   // The display name the lease and the card show for an appKey, from any session's
   // records or the key itself. Foreground leases carry appKey: null.
   const appNameOf = (key) => {
-    if (typeof key !== 'string' || key === '') return null
+    if (typeof key !== 'string') return null
+    if (key === '') return 'an app'
     for (const map of sessionApps.values()) {
       for (const app of map.values()) if (app.key === key) return app.name
     }

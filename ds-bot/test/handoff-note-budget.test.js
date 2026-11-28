@@ -52,7 +52,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
     resolveModelInfo: async (provider, model) => info[`${provider}/${model}`] ?? {},
     stream: (options) => {
       const prompt = options.messages.at(-1).content.map(block => block.text).join('')
-      requests.push({ provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort, maxTokens: options.maxTokens, temperature: options.temperature, stop: options.stop, prompt })
+      requests.push({ provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort, maxTokens: options.maxTokens, temperature: options.temperature, stop: options.stop, tools: options.tools, toolHistory: options.toolHistory, prompt })
       const reply = queue.shift()
       if (reply === undefined) throw new Error('no reply left for the note')
       if (reply instanceof Error) throw reply
@@ -329,7 +329,10 @@ test('handoff note retries empty first response without tools/lower effort and r
   assert.equal(afterEmpty.bot.sessionId, 's2')
   assert.equal(afterEmpty.requests.length, 2)
   assert.equal(afterEmpty.requests[0].reasoningEffort, 'high')
+  assert.ok(Array.isArray(afterEmpty.requests[0].tools) && afterEmpty.requests[0].tools.length > 0)
   assert.equal(afterEmpty.requests[1].reasoningEffort, 'low')
+  assert.equal(afterEmpty.requests[1].tools, undefined)
+  assert.equal(afterEmpty.requests[1].toolHistory, undefined)
   assert.match(afterEmpty.requests[1].prompt, /empty/i)
   assert.match(afterEmpty.packageText, /after-empty/)
 
@@ -343,8 +346,22 @@ test('handoff note retries empty first response without tools/lower effort and r
   })
   assert.equal(afterShape.bot.sessionId, 's2')
   assert.equal(afterShape.requests.length, 2)
+  assert.ok(Array.isArray(afterShape.requests[0].tools) && afterShape.requests[0].tools.length > 0)
   assert.equal(afterShape.requests[1].reasoningEffort, 'off')
+  assert.equal(afterShape.requests[1].tools, undefined)
+  assert.equal(afterShape.requests[1].toolHistory, undefined)
+  assert.doesNotMatch(afterShape.requests[1].prompt, /cut off at the output limit/i)
   assert.match(afterShape.packageText, /after-shape-fallback/)
+
+  // A 400 with a non-shape error code (e.g. AUTH) must not trigger a wasted shape retry.
+  const auth400 = await switchPart({
+    replies: [
+      { text: '', kind: 'error', failure: { code: 'AUTH', status: 400, message: 'invalid api key' } },
+      { text: note('should-not-retry') },
+    ],
+    oldNote: note('earlier'),
+  })
+  assert.equal(auth400.requests.length, 1)
 
   const fencedNote = '```markdown\n' + NOTE_SECTIONS.map((name, i) => `## ${i + 1}. **${name}** (说明)\n- fenced-${i}`).join('\n\n') + '\n```'
   const fromFenced = await switchPart({ replies: [{ text: fencedNote }] })

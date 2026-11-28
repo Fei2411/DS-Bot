@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { encodeUrlComponent } from './secrets.js'
 import { matchSecretRefs } from './secret-refs.js'
+import { serviceOf } from './services.js'
 import { own } from './store.js'
 import { activeTasksOf, isMissingSessionError } from './threads.js'
 
@@ -715,7 +716,7 @@ export function install(rt) {
     }, `ds-bot: capabilities ${sessionId}`)
   }
   const liveAgentsService = () => {
-    const svc = ctx.get?.('agents') ?? ctx.agents
+    const svc = serviceOf(ctx, 'agents')
     return typeof svc?.get === 'function' ? svc : undefined
   }
   const trackBotAgents = async (bot, { liveOnly = false } = {}) => {

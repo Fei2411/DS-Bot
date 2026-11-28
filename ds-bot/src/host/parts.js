@@ -171,12 +171,39 @@ export function historyEntry(event, group) {
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
 
+// Iterates Markdown lines outside fenced code blocks (` ``` ` / `~~~`).
+function forEachOutsideFence(lines, fn) {
+  let fenceChar = ''
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (fenceChar === '') {
+      const open = /^\s*(`{3,}|~{3,})/.exec(line)
+      if (open) {
+        fenceChar = open[1][0]
+        fenceLen = open[1].length
+        continue
+      }
+      fn(line, i)
+    } else {
+      const close = new RegExp(`^\\s*${fenceChar === '`' ? '`' : '~'}{${fenceLen},}\\s*$`)
+      if (close.test(line)) {
+        fenceChar = ''
+        fenceLen = 0
+      }
+    }
+  }
+}
+
 // A note with every heading in order but some translated (e.g. "## 目标" for "## Goals")
 // gets the headings as written, so the note is not thrown away over its headings alone.
 // A known heading in another place (repeated or out of order) keeps the note as it is.
 export function canonicalHeadings(note, names) {
   const lines = note.split('\n')
-  const at = lines.flatMap((line, index) => /^##\s+\S/.test(line) ? [index] : [])
+  const at = []
+  forEachOutsideFence(lines, (line, index) => {
+    if (/^##\s+\S/.test(line)) at.push(index)
+  })
   const heading = index => lines[index].replace(/^##\s+/, '').trim()
   if (at.length !== names.length || at.every((index, n) => heading(index) === names[n])) return note
   if (at.some((index, n) => names.includes(heading(index)) && heading(index) !== names[n])) return note
@@ -248,37 +275,52 @@ const NOTE_HEADING_ALIASES = new Map([
   ['定位线索', 'Where to look'],
 ])
 
+// Unwrap only when the opening fence on line 1 stays open until the very last line,
+// never when a note starts and ends with two separate code blocks.
 function stripOuterFence(text) {
   const trimmed = text.trim()
-  const match = /^```(?:markdown|md|text)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(trimmed)
-  return match ? match[1].trim() : trimmed
+  const lines = trimmed.split(/\r?\n/)
+  if (lines.length < 3) return trimmed
+  const open = /^(`{3,}|~{3,})(?:markdown|md|text)?[ \t]*$/i.exec(lines[0])
+  if (!open) return trimmed
+  const fenceChar = open[1][0]
+  const fenceLen = open[1].length
+  const closeRe = new RegExp(`^${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
+  if (!closeRe.test(lines[lines.length - 1])) return trimmed
+  for (let i = 1; i < lines.length - 1; i += 1) {
+    if (closeRe.test(lines[i])) return trimmed
+  }
+  return lines.slice(1, -1).join('\n').trim()
 }
 
+const PURE_CJK_GLOSS = /^[\u4e00-\u9fff\s、与和及的]+$/
+
 function matchNoteHeading(rawHeading, allowed) {
-  let cleaned = rawHeading.trim()
+  const cleanPiece = value => value.trim()
     .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
     .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
-    .trim()
-    .replace(/^(?:(?:\(?\d{1,2}\)?|[一二三四五六七八])[.、)）]\s*|\（\d{1,2}\）\s*)/, '')
-    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
     .replace(/[:：]\s*$/, '')
     .trim()
+  const cleaned = cleanPiece(
+    cleanPiece(rawHeading)
+      .replace(/^(?:(?:\(?\d{1,2}\)?|[一二三四五六七八])[.、)）]\s*|（\d{1,2}）\s*)/, ''),
+  )
   if (cleaned === '') return undefined
   const direct = NOTE_HEADING_ALIASES.get(cleaned.toLowerCase())
   if (direct !== undefined && allowed.has(direct)) return direct
-  // Bilingual or parenthetical gloss, e.g. "Goals (目标)", "Goals — 目标", "目标 / Goals".
-  const stripped = cleaned
-    .replace(/\s*[（(][^()（）]{1,40}[)）]\s*$/, '')
-    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
-    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
-    .replace(/[:：]\s*$/, '')
-    .trim()
+  // Parenthetical gloss, e.g. "Goals (目标)" or "**Goals**（目标）".
+  const stripped = cleanPiece(cleaned.replace(/\s*[（(][^()（）]{1,40}[)）]\s*$/, ''))
   const fromGloss = NOTE_HEADING_ALIASES.get(stripped.toLowerCase())
   if (fromGloss !== undefined && allowed.has(fromGloss)) return fromGloss
-  for (const part of stripped.split(/\s*(?:\/|—|–|--|\|)\s*/)) {
-    const cleanPart = part.trim().replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1').trim()
-    const candidate = NOTE_HEADING_ALIASES.get(cleanPart.toLowerCase())
-    if (candidate !== undefined && allowed.has(candidate)) return candidate
+  // Two-part bilingual heading only, e.g. "决策 / Decisions" or "Goals — 目标与范围".
+  // Reject arbitrary subheadings like "PR #123 — Decisions".
+  const parts = stripped.split(/\s*(?:\/|—|–|--|\|)\s*/).map(cleanPiece).filter(Boolean)
+  if (parts.length === 2) {
+    const first = NOTE_HEADING_ALIASES.get(parts[0].toLowerCase())
+    const second = NOTE_HEADING_ALIASES.get(parts[1].toLowerCase())
+    if (first !== undefined && first === second && allowed.has(first)) return first
+    if (first !== undefined && allowed.has(first) && PURE_CJK_GLOSS.test(parts[1])) return first
+    if (second !== undefined && allowed.has(second) && PURE_CJK_GLOSS.test(parts[0])) return second
   }
   return undefined
 }
@@ -289,23 +331,32 @@ export function normalizeNoteHeadings(raw, names) {
   const unwrapped = stripOuterFence(String(raw ?? ''))
   if (unwrapped === '') return ''
   const allowed = new Set(names)
-  const seen = new Set()
+  const lowerToCanonical = new Map(names.map(name => [name.toLowerCase(), name]))
   const lines = unwrapped.split('\n')
+  const seen = new Set()
+  // Pre-seed with already-canonical headings outside code fences so subheadings earlier
+  // in an already-valid note are never hijacked.
+  forEachOutsideFence(lines, (line) => {
+    const match = /^\s*#{1,4}\s*([^#\n]+?)\s*:?\s*$/.exec(line)
+    if (!match) return
+    const canonical = lowerToCanonical.get(match[1].trim().toLowerCase())
+    if (canonical !== undefined) seen.add(canonical)
+  })
+  if (seen.size === allowed.size) return unwrapped
   let changed = false
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]
+  forEachOutsideFence(lines, (line, i) => {
     const headingMatch = /^\s*#{1,4}\s+(.+?)\s*#*$/.exec(line)
       ?? /^\s*\*\*([^*\n]{2,80})\*\*\s*[:：]?\s*$/.exec(line)
-    if (!headingMatch) continue
+    if (!headingMatch) return
     const canonical = matchNoteHeading(headingMatch[1], allowed)
-    if (canonical === undefined || seen.has(canonical)) continue
+    if (canonical === undefined || seen.has(canonical)) return
     seen.add(canonical)
     const next = `## ${canonical}`
     if (lines[i] !== next) {
       lines[i] = next
       changed = true
     }
-  }
+  })
   const normalized = changed ? lines.join('\n') : unwrapped
   return canonicalHeadings(normalized, names)
 }
@@ -957,8 +1008,13 @@ export function install(rt) {
   const CHECKPOINT_RETRY_SHORTER = 'Your last checkpoint summary was cut off at the output limit. Write it again, much shorter (at most about 500 words): keep thinking minimal, skip prose, use terse bullets only, and keep exact identifiers, decisions, and remaining work.'
   const CHECKPOINT_PARTIAL_MIN = 200
   const noteRetryMissing = missing => `Your last note lacked these headings, so it was not used: ${missing.map(name => `"## ${name}"`).join(', ')}. Write the whole note again with every heading exactly as given, in English.`
-  const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
-    .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
+  const missingSections = (note) => {
+    const outside = []
+    forEachOutsideFence(String(note ?? '').split('\n'), line => outside.push(line))
+    const text = outside.join('\n')
+    return NOTE_SECTIONS.map(([name]) => name)
+      .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(text))
+  }
 
   // What a note may spend on reasoning and on output. Thinking counts against the same
   // output budget, so ask for the least the model offers — 'off' when it has one, else
@@ -995,6 +1051,7 @@ export function install(rt) {
   }
 
   const PREFIX_SHAPE_CODES = new Set(['INVALID_REQUEST', 'BAD_REQUEST', 'INVALID_REPLAY_STATE'])
+  const AMBIGUOUS_400_CODES = new Set(['', 'UNKNOWN', 'PI_AI_ERROR'])
   const isPrefixShapeError = (error) => {
     const seen = new Set()
     let current = error
@@ -1005,7 +1062,8 @@ export function install(rt) {
       }
       const code = current?.code ?? current?.failure?.code
       const status = current?.status ?? current?.failure?.status
-      if (PREFIX_SHAPE_CODES.has(code) || status === 400) return true
+      if (PREFIX_SHAPE_CODES.has(code)) return true
+      if (status === 400 && (code === undefined || AMBIGUOUS_400_CODES.has(code))) return true
       current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
     }
     return false
@@ -1281,7 +1339,9 @@ export function install(rt) {
           problem = sizeFailure
             ? 'the conversation was too large for a full-prefix note'
             : 'the provider rejected the full-prefix note request'
-          retry = NOTE_RETRY_SHORTER
+          retry = sizeFailure
+            ? NOTE_RETRY_SHORTER
+            : 'Output the handoff note as plain Markdown text only, without calling any tools.'
           rt.warn(
             sizeFailure
               ? 'ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s'
