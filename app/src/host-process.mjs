@@ -12,8 +12,13 @@ export function hostExecutable(runtimeDir, platform = process.platform) {
     : process.execPath
 }
 
-// The web server prints its launch URL, and the launch token in it opens the Host.
-const redact = (text) => (text.includes('token=') ? text.replace(/([?&]token=)[^&\s]+/gu, '$1<hidden>') : text)
+// The web server prints its launch URL, and the launch token or proxy credentials in it must never surface.
+const redact = (text) => {
+  let out = text
+  if (out.includes('token=')) out = out.replace(/([?&]token=)[^&\s]+/gu, '$1<hidden>')
+  if (out.includes('://') && out.includes('@')) out = out.replace(/((?:https?|socks(?:4a?|5h?)?):\/\/)[^/\s"'<>@]+@/giu, '$1<hidden>@')
+  return out
+}
 
 // The engine's own report of a failure is on the Host's stderr; the error box
 // gets its tail with the message so the real cause reaches the user.

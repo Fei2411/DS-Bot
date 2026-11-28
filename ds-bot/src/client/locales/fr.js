@@ -2936,6 +2936,12 @@ export const FR = {
   "No new replies": "Aucune nouvelle réponse",
   "New replies": "Nouvelles réponses",
   "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
+  "Network": "Réseau",
+  "Proxy": "Proxy",
+  "No proxy": "Sans proxy",
+  "Proxy address": "Adresse du proxy",
+  "Bypass": "Ignorer pour",
+  "Invalid proxy address": "Adresse de proxy invalide",
 }
 
 export const HOST_ERRORS_FR = [

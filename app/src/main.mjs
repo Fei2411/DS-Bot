@@ -9,11 +9,13 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme,
 import { createChatGPTSignIn } from './chatgpt-signin.mjs'
 import { createChatGPTRelay } from './chatgpt-relay.mjs'
 import { createChatGPTBridge } from './chatgpt-bridge.mjs'
+import { createProxyBridge } from './proxy-bridge.mjs'
+import { readEnvProxyConfig, readProxyPrefs, stripBrackets, toChromiumProxyConfig, writeProxyPrefs } from './proxy-prefs.mjs'
 import { createWebFetchBridge } from './web-fetch.mjs'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -69,6 +71,7 @@ const IPC = {
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
   syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
   systemLanguage: 'ds-bot:system-language',
+  proxyGet: 'ds-bot:proxy-get', proxySet: 'ds-bot:proxy-set',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -132,6 +135,74 @@ let rawOutput
 let host
 let chatgpt
 let webFetch
+let proxyBridge
+let appFetch
+let proxyPrefs
+let proxyChromiumAuth = null
+const proxyAuthTriedAt = new Map()
+let cachedEnvProxy = { key: null, value: null }
+let updaterLoginBound = false
+const proxyPrefsFile = () => join(app.getPath('userData'), 'proxy-prefs.json')
+const currentProxyPrefs = () => (proxyPrefs ??= readProxyPrefs(proxyPrefsFile()))
+const routedFetch = (...args) => (appFetch ?? globalThis.fetch)(...args)
+
+function getCachedEnvProxy() {
+  const envFile = places?.dataDir ? join(places.dataDir, '.env') : undefined
+  let statKey = 'none'
+  if (envFile) {
+    try {
+      const info = statSync(envFile)
+      statKey = `${envFile}:${String(info.mtimeMs)}:${String(info.size)}`
+    } catch {
+      statKey = `${envFile}:missing`
+    }
+  }
+  if (cachedEnvProxy.key === statKey && cachedEnvProxy.value !== null) return cachedEnvProxy.value
+  const value = readEnvProxyConfig(process.env, envFile)
+  cachedEnvProxy = { key: statKey, value }
+  return value
+}
+
+function isActiveCustomProxyAuth(authInfo) {
+  return Boolean(authInfo?.isProxy && proxyChromiumAuth
+    && stripBrackets(authInfo.host) === proxyChromiumAuth.host
+    && Number(authInfo.port) === proxyChromiumAuth.port)
+}
+
+/** Match active custom proxy credentials with a 2 s retry guard so bad credentials cannot loop. */
+function resolveProxyLogin(details, authInfo) {
+  if (!isActiveCustomProxyAuth(authInfo)) return null
+  const key = `${authInfo.host}:${String(authInfo.port)}:${details?.url ?? ''}`
+  const now = Date.now()
+  const prev = proxyAuthTriedAt.get(key)
+  if (prev !== undefined && now - prev < 2_000) return null
+  proxyAuthTriedAt.set(key, now)
+  if (proxyAuthTriedAt.size > 64) {
+    for (const [k, ts] of proxyAuthTriedAt) {
+      if (now - ts >= 2_000) proxyAuthTriedAt.delete(k)
+    }
+  }
+  return { username: proxyChromiumAuth.username, password: proxyChromiumAuth.password }
+}
+
+async function applySessionProxy(ses) {
+  if (!ses?.setProxy) return
+  const { config, auth } = toChromiumProxyConfig(currentProxyPrefs())
+  proxyChromiumAuth = auth
+  await ses.setProxy(config)
+}
+
+async function applyProxyToAllSessions() {
+  const { config, auth } = toChromiumProxyConfig(currentProxyPrefs())
+  proxyChromiumAuth = auth
+  proxyAuthTriedAt.clear()
+  const updaterSession = session.fromPartition?.('electron-updater', { cache: false })
+  await Promise.allSettled([
+    Promise.resolve(session.defaultSession?.setProxy?.(config)),
+    Promise.resolve(updaterSession?.setProxy?.(config)),
+    browserGuests ? browserGuests.applyProxy(ses => ses?.setProxy?.(config)) : Promise.resolve(),
+  ])
+}
 // The Host's loopback origin, which the window loads.
 let origin
 let port
@@ -228,8 +299,15 @@ const shell = createShell({
   // Without a tray the close asks whether the app should end; unasked, the window minimizes.
   fallback: { show: options => boxInWindow(options, options.cancelId) },
 })
+app.on('login', (event, _webContents, details, authInfo, callback) => {
+  if (!isActiveCustomProxyAuth(authInfo)) return
+  event.preventDefault()
+  const creds = resolveProxyLogin(details, authInfo)
+  if (creds) callback(creds.username, creds.password)
+  else callback()
+})
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
-app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); webFetch?.close(); void chatgpt?.close() })
+app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); webFetch?.close(); void chatgpt?.close(); void proxyBridge?.close() })
 
 // A packaged app started through an 8.3 short path or a junction restarts once on the
 // canonical path: the lock below and every path the Host sees then agree with the long
@@ -359,6 +437,7 @@ function ensureChatGPT() {
           userData: app.getPath('userData'),
           safeStorage,
           mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
+          fetch: routedFetch,
           onChange: status => host?.send({ type: 'chatgpt:changed', status }),
         })
         console.log(`DS Bot: chatgpt: signIn init took ${String(Date.now() - since)} ms`)
@@ -366,7 +445,7 @@ function ensureChatGPT() {
       },
       getRelay: async (signIn) => {
         const since = Date.now()
-        const relay = await createChatGPTRelay({ signIn })
+        const relay = await createChatGPTRelay({ signIn, fetch: routedFetch })
         console.log(`DS Bot: chatgpt: relay init took ${String(Date.now() - since)} ms`)
         return relay
       },
@@ -412,8 +491,23 @@ async function prepare() {
   startWindow.open(startKind())
   startupStep('startWindow.open', openAt)
   if (!webFetch) {
-    webFetch = createWebFetchBridge({ BrowserWindow, session })
+    webFetch = createWebFetchBridge({ BrowserWindow, session, configureSession: applySessionProxy, onProxyLogin: resolveProxyLogin })
   }
+  const proxyWork = proxyBridge === undefined
+    ? (async () => {
+        const proxyAt = Date.now()
+        proxyPrefs = readProxyPrefs(proxyPrefsFile())
+        await applyProxyToAllSessions().catch((error) => { console.error('DS Bot: proxy session setup failed:', error) })
+        proxyBridge = await createProxyBridge({
+          getPrefs: () => currentProxyPrefs(),
+          resolveSystemProxy: url => session.defaultSession.resolveProxy(url),
+          getEnvProxy: getCachedEnvProxy,
+          log: console,
+        })
+        appFetch = proxyBridge.createFetch()
+        startupStep('proxyBridge', proxyAt)
+      })()
+    : Promise.resolve()
   // Before the team window: its preload is told the Host's origin.
   const portWork = port === undefined
     ? (async () => {
@@ -434,7 +528,7 @@ async function prepare() {
     modulesLoading = undefined
     throw error
   }))
-  await Promise.all([portWork, modulesWork])
+  await Promise.all([proxyWork, portWork, modulesWork])
   // The team window is made once the start window has painted, already on its final rect, and
   // made again when it is gone for good (a cancelled shutdown kept the app without one), so
   // that the next engine has a window to load into.
@@ -465,11 +559,18 @@ async function loadModules() {
   ;({ readAutoUpdate, writeAutoUpdate } = updatePrefsModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
-  browserGuests = new BotBrowserGuests({ session, origin: () => origin, devTools: !app.isPackaged })
+  browserGuests = new BotBrowserGuests({
+    session,
+    origin: () => origin,
+    devTools: !app.isPackaged,
+    configureSession: applySessionProxy,
+    onProxyLogin: resolveProxyLogin,
+  })
   botViews = new BotViews({
     window: () => mainWindow, WebContentsView, guests: browserGuests, origin: () => origin, devTools: !app.isPackaged,
     statePath: join(app.getPath('userData'), 'bot-views.json'),
     onChange: state => mainWindow?.webContents.send(IPC.browserViewChanged, state),
+    onProxyLogin: resolveProxyLogin,
     onInputShortcut: (input) => {
       const id = matchForwardedShortcut(input, activeShortcuts, process.platform)
       if (!id) return false
@@ -734,7 +835,7 @@ const pnpmEntry = () => join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'p
 const runtimeDir = () => app.isPackaged ? process.resourcesPath : join(here, '..', 'build', 'runtime')
 const hostOutput = (stream, chunk) => {
   logs.write('engine', chunk)
-  rawOutput[stream](/token=/iu.test(chunk) ? logs.redact(chunk) : chunk)
+  rawOutput[stream](/token=|(?::\/\/[^/\s"'<>@]+@)/iu.test(chunk) ? logs.redact(chunk) : chunk)
 }
 
 function dshTelemetryEnv(dataDir) {
@@ -753,10 +854,12 @@ function dshTelemetryEnv(dataDir) {
 function newHost() {
   // A Host of an attempt that a retry has replaced no longer stands for the start.
   const mine = attempt
+  const baseEnv = { ...process.env, ...dshTelemetryEnv(places.dataDir), DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_APP_VERSION: app.getVersion(), DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) }
+  const env = proxyBridge ? proxyBridge.applyHostEnv(baseEnv) : baseEnv
   const child = new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, ...dshTelemetryEnv(places.dataDir), DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_APP_VERSION: app.getVersion(), DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env,
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -1302,6 +1405,17 @@ function handleIpc() {
     }
     return updates.setAutoUpdate(enabled)
   })
+  ipcMain.handle(IPC.proxyGet, (event) => {
+    assertWindow(event)
+    return currentProxyPrefs()
+  })
+  ipcMain.handle(IPC.proxySet, async (event, next) => {
+    assertWindow(event)
+    const saved = writeProxyPrefs(proxyPrefsFile(), next)
+    proxyPrefs = saved
+    await applyProxyToAllSessions()
+    return saved
+  })
   // The plugin keeps the team workspace; the app remembers it for its own checks.
   ipcMain.on(IPC.teamWorkspace, (event, path) => {
     if (fixed || !fromWindow(event) || typeof path !== 'string' || !isAbsolute(path)) return
@@ -1550,6 +1664,7 @@ function startUpdates() {
         appPath: bundle.appPath,
         stagingRoot: join(app.getPath('userData'), 'mac-updates'),
         logFile: join(app.getPath('userData'), 'logs', 'mac-updater.log'),
+        fetch: routedFetch,
         quit: () => { app.quit() },
         onWillQuit: (fn) => { app.once('will-quit', fn) },
         shouldInstallOnQuit: () => !relaunching && !shell.isSessionEnding(),
@@ -1561,7 +1676,7 @@ function startUpdates() {
     }
     console.log(`DS Bot: macOS in-place update unavailable (${bundle.reason}); falling back to release page`)
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, fetch: routedFetch, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
     })
   }
   // electron-updater's Linux updater works only from inside an AppImage (APPIMAGE is set there);
@@ -1570,11 +1685,18 @@ function startUpdates() {
   if (process.platform === 'linux' && process.env.APPIMAGE === undefined) {
     const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, fetch: routedFetch, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
       asset: version => `DS-Bot-${version}-linux-${debArch}.deb`,
     })
   }
   if (process.platform === 'win32' || process.platform === 'linux') {
+    if (!updaterLoginBound && typeof electronUpdater?.autoUpdater?.on === 'function') {
+      updaterLoginBound = true
+      electronUpdater.autoUpdater.on('login', (authInfo, callback) => {
+        const creds = resolveProxyLogin(undefined, authInfo)
+        if (creds) callback(creds.username, creds.password)
+      })
+    }
     // The update ends the app: the window closes for good, and the Host stops before the
     // installer replaces its files.
     return watchUpdates({

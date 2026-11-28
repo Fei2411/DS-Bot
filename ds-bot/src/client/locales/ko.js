@@ -2970,6 +2970,12 @@ export const KO = {
   "No new replies": "새 답장이 없습니다",
   "New replies": "새 답장",
   "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
+  "Network": "네트워크",
+  "Proxy": "프록시",
+  "No proxy": "직접 연결",
+  "Proxy address": "프록시 주소",
+  "Bypass": "우회 목록",
+  "Invalid proxy address": "유효하지 않은 프록시 주소입니다",
 }
 
 export const HOST_ERRORS_KO = [

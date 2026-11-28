@@ -2936,6 +2936,12 @@ export const JA = {
   "No new replies": "新しい返信はありません",
   "New replies": "新しい返信",
   "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む",
+  "Network": "ネットワーク",
+  "Proxy": "プロキシ",
+  "No proxy": "直接接続",
+  "Proxy address": "プロキシアドレス",
+  "Bypass": "バイパス",
+  "Invalid proxy address": "無効なプロキシアドレスです",
 }
 
 export const HOST_ERRORS_JA = [

@@ -821,7 +821,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
 .bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
-.bt-set-hint.bt-danger{color:var(--bt-danger)}
+.bt-set-network .bt-set-proxy-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
+.bt-set-network .bt-set-proxy-form>.bt-set-row>.bt-set-control{flex:0 1 65%;min-width:0;justify-content:flex-end}
+.bt-set-proxy-input{width:min(320px,100%);max-width:320px}
+.bt-set-proxy-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:.5px solid var(--bt-line)}
+.bt-set-hint.bt-danger,.bt-set-note.bt-danger{color:var(--bt-danger)}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}

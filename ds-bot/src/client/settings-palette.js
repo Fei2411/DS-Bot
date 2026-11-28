@@ -15,6 +15,7 @@ export const SEARCH_ENTRIES = [
   { id: 'default-model', label: 'Default model', group: 'General', page: 'general', icon: 'general', keywords: 'new bots model 默认模型' },
   { id: 'enter-send', label: 'Enter sends message', group: 'General', page: 'general', icon: 'general', keywords: 'input keyboard enter 回车 发送' },
   { id: 'locations', label: 'Locations', group: 'General', page: 'general', icon: 'general', keywords: 'team workspace data location folder path 目录 位置 文件夹 总工作区 数据位置' },
+  { id: 'network', label: 'Proxy', group: 'General', page: 'general', icon: 'general', requiresDesktopProxy: true, keywords: 'network proxy http https socks socks5 pac system direct custom clash tun 代理 网络 系统代理 直连 自定义' },
   { id: 'memory', label: 'Memory', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回' },
   { id: 'background', label: 'Background work', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'background commands after seconds timeout 后台 命令 超时 秒' },
   { id: 'mode', label: 'Classic Agent mode', group: 'General', page: 'general', icon: 'general', requiresSurface: true, keywords: 'bot mode agent mode surface 经典模式 切换' },
@@ -125,8 +126,9 @@ export function searchHits(query, { roster, extra = [], dsh = null, pageAvailabl
       }]
       : []),
   ]
+  const hasDesktopProxy = Boolean(globalThis.dsBotApp?.proxy)
   const settings = [
-    ...SEARCH_ENTRIES.filter(entry => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map(entry => ({
+    ...SEARCH_ENTRIES.filter(entry => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface) && (!entry.requiresDesktopProxy || hasDesktopProxy)).map(entry => ({
       ...entry,
       kind: 'setting',
       title: t(entry.label),

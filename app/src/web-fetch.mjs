@@ -108,6 +108,8 @@ export function createWebFetchBridge({
   BrowserWindow,
   session,
   lookup = dnsLookup,
+  configureSession,
+  onProxyLogin,
   maxConcurrent = DEFAULT_MAX_CONCURRENT,
   settlePollMs = SETTLE_POLL_MS,
   maxSettleWaitMs = MAX_SETTLE_WAIT_MS,
@@ -246,6 +248,8 @@ export function createWebFetchBridge({
 
       // Bounded non-persistent partition pool: memory-only, isolated per slot, cleared on release.
       ses = session.fromPartition(partition)
+      await Promise.resolve(configureSession?.(ses)).catch(() => {})
+      if (task.aborted || settled) return
       ses.setPermissionRequestHandler?.((_wc, _permission, callback) => { callback(false) })
       ses.setPermissionCheckHandler?.(() => false)
 
@@ -386,7 +390,12 @@ export function createWebFetchBridge({
       const wc = win.webContents
       wc.setAudioMuted?.(true)
       wc.setWindowOpenHandler?.(() => ({ action: 'deny' }))
-      wc.on?.('login', (event) => { event.preventDefault?.() })
+      wc.on?.('login', (event, details, authInfo, callback) => {
+        event.preventDefault?.()
+        const creds = authInfo?.isProxy ? onProxyLogin?.(details, authInfo) : null
+        if (creds) callback?.(creds.username, creds.password)
+        else callback?.()
+      })
       wc.on?.('select-client-certificate', (event) => { event.preventDefault?.() })
 
       await new Promise((resolve, reject) => {

@@ -104,8 +104,8 @@ var PHRASES = [
   ["配置文件", "設定檔"],
   ["折叠", "摺疊"]
 ];
-var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
-var HANT = "與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別劃辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備複夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘";
+var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绕绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
+var HANT = "與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別劃辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備複夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繞繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘";
 var CHAR_MAP = /* @__PURE__ */ new Map();
 for (let i = 0; i < HANS.length; i++) CHAR_MAP.set(HANS[i], HANT[i]);
 var DICT_OVERRIDES = {
@@ -3065,7 +3065,13 @@ var JA = {
   "Nothing waits for you": "対応待ちはありません",
   "No new replies": "新しい返信はありません",
   "New replies": "新しい返信",
-  "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む"
+  "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む",
+  "Network": "ネットワーク",
+  "Proxy": "プロキシ",
+  "No proxy": "直接接続",
+  "Proxy address": "プロキシアドレス",
+  "Bypass": "バイパス",
+  "Invalid proxy address": "無効なプロキシアドレスです"
 };
 var HOST_ERRORS_JA = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -6778,7 +6784,13 @@ var KO = {
   "Nothing waits for you": "확인할 항목이 없습니다",
   "No new replies": "새 답장이 없습니다",
   "New replies": "새 답장",
-  "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터"
+  "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
+  "Network": "네트워크",
+  "Proxy": "프록시",
+  "No proxy": "직접 연결",
+  "Proxy address": "프록시 주소",
+  "Bypass": "우회 목록",
+  "Invalid proxy address": "유효하지 않은 프록시 주소입니다"
 };
 var HOST_ERRORS_KO = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -10492,7 +10504,13 @@ var ES = {
   "Nothing waits for you": "No hay nada pendiente",
   "No new replies": "No hay respuestas nuevas",
   "New replies": "Respuestas nuevas",
-  "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo"
+  "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
+  "Network": "Red",
+  "Proxy": "Proxy",
+  "No proxy": "Sin proxy",
+  "Proxy address": "Dirección del proxy",
+  "Bypass": "Omitir para",
+  "Invalid proxy address": "Dirección de proxy no válida"
 };
 var HOST_ERRORS_ES = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -14162,7 +14180,13 @@ var FR = {
   "Nothing waits for you": "Rien ne vous attend",
   "No new replies": "Aucune nouvelle réponse",
   "New replies": "Nouvelles réponses",
-  "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe"
+  "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
+  "Network": "Réseau",
+  "Proxy": "Proxy",
+  "No proxy": "Sans proxy",
+  "Proxy address": "Adresse du proxy",
+  "Bypass": "Ignorer pour",
+  "Invalid proxy address": "Adresse de proxy invalide"
 };
 var HOST_ERRORS_FR = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -17875,7 +17899,13 @@ var DE = {
   "Nothing waits for you": "Nichts wartet auf dich",
   "No new replies": "Keine neuen Antworten",
   "New replies": "Neue Antworten",
-  "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern"
+  "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern",
+  "Network": "Netzwerk",
+  "Proxy": "Proxy",
+  "No proxy": "Kein Proxy",
+  "Proxy address": "Proxy-Adresse",
+  "Bypass": "Umgehen für",
+  "Invalid proxy address": "Ungültige Proxy-Adresse"
 };
 var HOST_ERRORS_DE = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -21343,7 +21373,13 @@ var ZH = {
   "Nothing waits for you": "没有等你处理的事",
   "No new replies": "没有新回复",
   "New replies": "新回复",
-  "Filter by Bot or group chat": "按 Bot 或群聊筛选"
+  "Filter by Bot or group chat": "按 Bot 或群聊筛选",
+  "Network": "网络",
+  "Proxy": "代理",
+  "No proxy": "直连",
+  "Proxy address": "代理地址",
+  "Bypass": "绕过列表",
+  "Invalid proxy address": "代理地址格式无效"
 };
 var HOST_ERRORS = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],
@@ -26287,7 +26323,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
 .bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
-.bt-set-hint.bt-danger{color:var(--bt-danger)}
+.bt-set-network .bt-set-proxy-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
+.bt-set-network .bt-set-proxy-form>.bt-set-row>.bt-set-control{flex:0 1 65%;min-width:0;justify-content:flex-end}
+.bt-set-proxy-input{width:min(320px,100%);max-width:320px}
+.bt-set-proxy-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:.5px solid var(--bt-line)}
+.bt-set-hint.bt-danger,.bt-set-note.bt-danger{color:var(--bt-danger)}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
@@ -63736,6 +63776,7 @@ var SEARCH_ENTRIES = [
   { id: "default-model", label: "Default model", group: "General", page: "general", icon: "general", keywords: "new bots model 默认模型" },
   { id: "enter-send", label: "Enter sends message", group: "General", page: "general", icon: "general", keywords: "input keyboard enter 回车 发送" },
   { id: "locations", label: "Locations", group: "General", page: "general", icon: "general", keywords: "team workspace data location folder path 目录 位置 文件夹 总工作区 数据位置" },
+  { id: "network", label: "Proxy", group: "General", page: "general", icon: "general", requiresDesktopProxy: true, keywords: "network proxy http https socks socks5 pac system direct custom clash tun 代理 网络 系统代理 直连 自定义" },
   { id: "memory", label: "Memory", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回" },
   { id: "background", label: "Background work", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "background commands after seconds timeout 后台 命令 超时 秒" },
   { id: "mode", label: "Classic Agent mode", group: "General", page: "general", icon: "general", requiresSurface: true, keywords: "bot mode agent mode surface 经典模式 切换" },
@@ -63835,8 +63876,9 @@ function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () 
       haystack: `${ENGINE_MODELS_SEARCH_ENTRY.label} ${t(ENGINE_MODELS_SEARCH_ENTRY.label)} dsh engine ${t("Engine")} ${ENGINE_MODELS_SEARCH_ENTRY.keywords}`.toLowerCase()
     }] : []
   ];
+  const hasDesktopProxy = Boolean(globalThis.dsBotApp?.proxy);
   const settings = [
-    ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map((entry) => ({
+    ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface) && (!entry.requiresDesktopProxy || hasDesktopProxy)).map((entry) => ({
       ...entry,
       kind: "setting",
       title: t(entry.label),
@@ -64454,6 +64496,7 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
       )
     ),
     (0, import_react76.createElement)(LocationsSection, { key: "places", actions, run: run2 }),
+    (0, import_react76.createElement)(NetworkSection, { key: "network" }),
     actions.setSurface && !inAgentMode ? (0, import_react76.createElement)(
       SetSection,
       { key: "classic-mode", title: t("Mode") },
@@ -64546,6 +64589,147 @@ function LocationsSection({ actions, run: run2 }) {
         if (!busy.current) void run2(app.moveData(team ?? void 0));
       } }, t("Change…"))
     )
+  );
+}
+var PROXY_OPTIONS = [
+  ["system", "System"],
+  ["custom", "Custom"],
+  ["direct", "No proxy"]
+];
+function NetworkSection() {
+  const proxyApi = globalThis.dsBotApp?.proxy;
+  const [saved, setSaved] = (0, import_react76.useState)(null);
+  const [mode, setMode] = (0, import_react76.useState)("system");
+  const [url, setUrl] = (0, import_react76.useState)("");
+  const [bypass, setBypass] = (0, import_react76.useState)("");
+  const [busy, setBusy] = (0, import_react76.useState)(false);
+  const [error, setError] = (0, import_react76.useState)("");
+  const urlInputRef = (0, import_react76.useRef)(null);
+  const epochRef = (0, import_react76.useRef)(0);
+  (0, import_react76.useEffect)(() => {
+    if (!proxyApi) return;
+    let active = true;
+    void Promise.resolve(proxyApi.get()).then((info) => {
+      if (!active || epochRef.current !== 0 || !info || typeof info !== "object") return;
+      const next = {
+        mode: info.mode === "custom" || info.mode === "direct" ? info.mode : "system",
+        url: typeof info.url === "string" ? info.url : "",
+        bypass: typeof info.bypass === "string" ? info.bypass : ""
+      };
+      setSaved(next);
+      setMode(next.mode);
+      setUrl(next.url);
+      setBypass(next.bypass);
+    }).catch(() => {
+    });
+    return () => {
+      active = false;
+    };
+  }, [proxyApi]);
+  if (!proxyApi) return null;
+  const apply2 = (next) => {
+    const seq = ++epochRef.current;
+    setBusy(true);
+    setError("");
+    void Promise.resolve(proxyApi.set(next)).then((result) => {
+      if (seq !== epochRef.current) return;
+      const clean = {
+        mode: result?.mode === "custom" || result?.mode === "direct" ? result.mode : "system",
+        url: typeof result?.url === "string" ? result.url : next.url,
+        bypass: typeof result?.bypass === "string" ? result.bypass : next.bypass
+      };
+      setSaved(clean);
+      setMode(clean.mode);
+      setUrl(clean.url);
+      setBypass(clean.bypass);
+    }, (err) => {
+      if (seq !== epochRef.current) return;
+      if (next.mode !== "custom") setMode(saved?.mode ?? "system");
+      const msg = String(err?.message ?? "");
+      if (/invalid|required|unsupported|port|host|protocol|character|path/iu.test(msg)) setError(t("Invalid proxy address"));
+      else setError(t("Could not save. Try again."));
+    }).finally(() => {
+      if (seq === epochRef.current) setBusy(false);
+    });
+  };
+  const pickMode = (nextMode) => {
+    setMode(nextMode);
+    setError("");
+    if (nextMode === "custom") {
+      if (url.trim() !== "") {
+        apply2({ mode: "custom", url: url.trim(), bypass: bypass.trim() });
+      } else {
+        setTimeout(() => urlInputRef.current?.focus({ preventScroll: true }), 0);
+      }
+      return;
+    }
+    apply2({ mode: nextMode, url: url.trim(), bypass: bypass.trim() });
+  };
+  const saveCustom = (event) => {
+    event?.preventDefault();
+    if (busy) return;
+    if (url.trim() === "") {
+      setError(t("Invalid proxy address"));
+      urlInputRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    apply2({ mode: "custom", url: url.trim(), bypass: bypass.trim() });
+  };
+  const dirty = saved === null || saved.mode !== "custom" || saved.url !== url.trim() || saved.bypass !== bypass.trim();
+  return (0, import_react76.createElement)(
+    SetSection,
+    { title: t("Network"), className: "bt-set-network" },
+    (0, import_react76.createElement)(
+      SetRow,
+      { label: t("Proxy") },
+      (0, import_react76.createElement)(Choice2, { label: t("Proxy"), value: mode, options: PROXY_OPTIONS, pick: pickMode })
+    ),
+    mode === "custom" ? (0, import_react76.createElement)(
+      "form",
+      { className: "bt-set-proxy-form", onSubmit: saveCustom },
+      (0, import_react76.createElement)(
+        SetRow,
+        { label: t("Proxy address") },
+        (0, import_react76.createElement)("input", {
+          ref: urlInputRef,
+          className: "bt-input bt-set-proxy-input",
+          type: "text",
+          spellCheck: false,
+          autoComplete: "off",
+          placeholder: "http://127.0.0.1:7890",
+          "aria-label": t("Proxy address"),
+          value: url,
+          onChange: (event) => {
+            setUrl(event.target.value);
+            if (error) setError("");
+          }
+        })
+      ),
+      (0, import_react76.createElement)(
+        SetRow,
+        { label: t("Bypass") },
+        (0, import_react76.createElement)("input", {
+          className: "bt-input bt-set-proxy-input",
+          type: "text",
+          spellCheck: false,
+          autoComplete: "off",
+          placeholder: "localhost, 127.0.0.1, .local",
+          "aria-label": t("Bypass"),
+          value: bypass,
+          onChange: (event) => {
+            setBypass(event.target.value);
+            if (error) setError("");
+          }
+        })
+      ),
+      (0, import_react76.createElement)(
+        "div",
+        { className: "bt-set-proxy-foot" },
+        error ? (0, import_react76.createElement)("span", { className: "bt-set-hint bt-danger", role: "alert" }, error) : (0, import_react76.createElement)("span"),
+        (0, import_react76.createElement)("button", { type: "submit", className: "bt-send bt-soft-sm", disabled: busy || !dirty }, t("Save"))
+      )
+    ) : null,
+    mode !== "custom" && error ? (0, import_react76.createElement)("div", { className: "bt-set-note bt-danger", role: "alert" }, error) : null
   );
 }
 function MainBotsSection({ roster, actions, run: run2 }) {
