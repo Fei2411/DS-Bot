@@ -4,6 +4,49 @@
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
+!define DSB_ROLLBACK "$LOCALAPPDATA\dsbot-updater\rollback"
+!define DSB_ROLLBACK_STAGING "$LOCALAPPDATA\dsbot-updater\rollback-staging"
+
+; The old uninstaller may remove $INSTDIR before the new payload is extracted.
+; Publish the fallback outside $INSTDIR and $PLUGINSDIR before that can happen.
+!macro customInit
+  ${If} ${Silent}
+  ${AndIf} ${isUpdated}
+    ${If} ${FileExists} "${DSB_ROLLBACK}\${APP_EXECUTABLE_FILENAME}"
+      ; A retry must not replace the fallback with a partially installed version.
+    ${ElseIf} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    ${AndIf} ${FileExists} "$INSTDIR\resources\app.asar"
+      RMDir /r "${DSB_ROLLBACK_STAGING}"
+      IfFileExists "${DSB_ROLLBACK_STAGING}" rollbackBackupFailed
+      ClearErrors
+      CreateDirectory "${DSB_ROLLBACK_STAGING}"
+      IfErrors rollbackBackupFailed
+      CopyFiles /SILENT "$INSTDIR\*" "${DSB_ROLLBACK_STAGING}"
+      IfErrors rollbackBackupFailed
+      IfFileExists "${DSB_ROLLBACK_STAGING}\${APP_EXECUTABLE_FILENAME}" 0 rollbackBackupFailed
+      IfFileExists "${DSB_ROLLBACK_STAGING}\resources\app.asar" 0 rollbackBackupFailed
+      Rename "${DSB_ROLLBACK_STAGING}" "${DSB_ROLLBACK}"
+      IfErrors rollbackBackupFailed
+    ${EndIf}
+  ${EndIf}
+  Goto rollbackBackupDone
+  rollbackBackupFailed:
+    SetErrorLevel 2
+    Abort
+  rollbackBackupDone:
+!macroend
+
+!macro customInstall
+  IfFileExists "${DSB_ROLLBACK}\${APP_EXECUTABLE_FILENAME}" 0 rollbackCleanupDone
+  IfFileExists "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 rollbackCleanupDone
+  IfFileExists "$INSTDIR\resources\app.asar" 0 rollbackCleanupDone
+  ClearErrors
+  Rename "${DSB_ROLLBACK}" "${DSB_ROLLBACK_STAGING}"
+  IfErrors rollbackCleanupDone
+  RMDir /r "${DSB_ROLLBACK_STAGING}"
+  rollbackCleanupDone:
+!macroend
+
 ; The LANG_* symbols exist only after addLangs, which runs just before this
 ; hook; a LangString for a language the build does not load would create a
 ; phantom language table (makensis warning 6040, treated as error).
