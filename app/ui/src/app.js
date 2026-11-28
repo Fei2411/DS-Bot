@@ -29,6 +29,7 @@ import { getAppLocale } from './locale.js'
 import { pluginRuntime, usePluginPage } from './plugin-runtime.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal, setLiveShortcutContext } from './shortcuts.js'
+import { SidebarFooterActions, SidebarMainPanel, SidebarSlotRows, useSidebarPanel } from './sidebar-slots.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
 export { ShellOverlayHost }
@@ -301,6 +302,13 @@ export function App() {
   })
   const isNarrow = useNarrowViewport()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [sidebarPanelId, setSidebarPanelId] = useState(null)
+  const sidebarPanel = useSidebarPanel(slots, sidebarPanelId)
+  const closeSidebarPanel = useCallback(() => setSidebarPanelId(null), [])
+  useEffect(() => { closeSidebarPanel() }, [shown, surfaceMode, closeSidebarPanel])
+  useEffect(() => {
+    if (sidebarPanelId !== null && !sidebarPanel) closeSidebarPanel()
+  }, [sidebarPanelId, sidebarPanel, closeSidebarPanel])
   const drawerOpenRef = useRef(drawerOpen)
   drawerOpenRef.current = drawerOpen
   const mobileMenuRef = useRef(null)
@@ -319,6 +327,10 @@ export function App() {
     restoreMobileMenuFocusRef.current = restoreFocus
     setDrawerOpen(false)
   }, [])
+  const renderPluginRows = wide => h(SidebarSlotRows, {
+    wide, activePanel: sidebarPanel?.key,
+    onSelectPanel: (id) => { setSidebarPanelId(id); closeDrawer({ restoreFocus: true }) },
+  })
   const inClassicMode = surfaceMode === 'agent'
   const classicHidden = inClassicMode && !isNarrow && sidebarPref === 'hidden'
   const sideWidthCss = isNarrow
@@ -357,26 +369,26 @@ export function App() {
         else openDrawer()
       } else actions.toggleLeftHidden()
     },
-    openSession: (...args) => { closeDrawer(); return actions.openSession?.(...args) },
-    openAgent: (...args) => { closeDrawer(); return actions.openAgent?.(...args) },
-    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession?.(...args) },
-    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession?.(...args) },
+    openSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openSession?.(...args) },
+    openAgent: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openAgent?.(...args) },
+    openAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openAgentSession?.(...args) },
+    newAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.newAgentSession?.(...args) },
     openInbox: (...args) => { closeDrawer(); return actions.openInbox?.(...args) },
     openSettings: (...args) => { closeDrawer(); return actions.openSettings(...args) },
     selectPanel: (...args) => { closeDrawer(); return actions.selectPanel(...args) },
     openNewChat: (...args) => { closeDrawer(); return actions.openNewChat(...args) },
     openPalette: (...args) => { closeDrawer(); return actions.openPalette(...args) },
-  }), [actions, isNarrow, openDrawer, closeDrawer])
+  }), [actions, isNarrow, openDrawer, closeDrawer, closeSidebarPanel])
   const classicSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: () => {
       if (isNarrow) closeDrawer({ restoreFocus: true })
       else actions.toggleLeftHidden()
     },
-    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession(...args) },
-    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession(...args) },
+    openAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.openAgentSession(...args) },
+    newAgentSession: (...args) => { closeSidebarPanel(); closeDrawer(); return actions.newAgentSession(...args) },
     addAgent: (...args) => { closeDrawer(); return actions.addAgent(...args) },
-  }), [actions, isNarrow, closeDrawer])
+  }), [actions, isNarrow, closeDrawer, closeSidebarPanel])
   const useTeamUi = useMemo(
     () => makeTeamUiHook(hooks.useUi, isNarrow, drawerOpen),
     [hooks.useUi, isNarrow, drawerOpen],
@@ -823,7 +835,7 @@ export function App() {
         : h('aside', { className: 'dsb-side' },
           h('div', { className: 'dsb-band' }),
           h('div', { className: 'dsb-side-list' },
-            h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: true })),
+            h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: true, pluginRows: renderPluginRows(true) })),
           h('div', { className: 'dsb-side-foot' },
             h('button', {
               type: 'button',
@@ -832,7 +844,8 @@ export function App() {
               title: t('Settings'),
               onClick: () => { closeDrawer(); actions.openSettings() },
             }, h(YouAvatar)),
-            h(BotReturn, { ...views, wide: true }))))
+            h(BotReturn, { ...views, wide: true }),
+            h(SidebarFooterActions, { wide: true }))))
     : h(TeamSidebar, {
       ...views,
       useUi: useTeamUi,
@@ -841,6 +854,8 @@ export function App() {
       useSidebarPref: useOwnSidebarPref,
       wide: effectivePref === 'open',
       hideTitleToggle: isNarrow,
+      renderPluginRows,
+      renderFooterActions: wide => h(SidebarFooterActions, { wide }),
     }),
   // The unified right panel makes room by giving `[data-bt-center]` a right margin.
   h('main', { className: 'dsb-main', 'data-bt-center': '', 'data-classic': shownAgent ? '' : undefined },
@@ -851,6 +866,8 @@ export function App() {
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': false,
       onClick: openDrawer,
     }, h(SidebarIcon)) : null,
+    sidebarPanel ? h(SidebarMainPanel, { entry: sidebarPanel, onClose: closeSidebarPanel }) : null,
+    h('div', { className: 'dsb-conversation-seat', hidden: Boolean(sidebarPanel) },
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },
         shownAgent
@@ -868,7 +885,7 @@ export function App() {
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
       : (inClassicMode
         ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))
-        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null))),
+        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null)))),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
     h(DeepSeekSignIn, views),

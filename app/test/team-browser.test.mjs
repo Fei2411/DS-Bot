@@ -915,6 +915,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
     'right-panel.js': 'export const WorkspacePaneBody = () => null; export const buildWorkspaceTabs = () => []',
     'shortcuts.js': 'export const ShortcutsDialog = () => null; export const matchGlobalShortcut = (...args) => globalThis.__testMatchShortcut?.(...args) ?? null; export const resolveActiveModal = () => null; export const setLiveShortcutContext = () => {}',
     'shortcuts-model.js': 'export const SHORTCUT_BY_ID = {}; export const isCommandAvailable = () => false; export const isShortcutRecording = () => false; export const shortcutsStore = { getSnapshot: () => ({}), subscribe: () => () => {} }; export const visibleClassicSessions = () => []; export const visibleSidebarTargets = () => []',
+    'sidebar-slots.js': 'export const useSidebarPanel = (_registry, id) => globalThis.__testSidebarPanels?.get(id); export const SidebarFooterActions = () => null; export const SidebarMainPanel = () => null; export const SidebarSlotRows = () => null',
     'slots.js': 'export const RIGHT_PANE_TAB_SLOT = "rp"; export const ShellOverlayHost = () => null; export const slots = {}; export const useSlotEntries = () => []',
     'team.js': 'export const createTeam = () => globalThis.__testTeam',
     'window-title.js': 'export const conversationTitleOf = () => ""; export const useWindowTitle = () => {}',
@@ -1246,4 +1247,28 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   for (const fn of [...(winListeners.get('resize') ?? [])]) fn()
   tree = render()
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 0)
+
+  sandbox.__testSidebarPanels = new Map([['sample', { key: 'sample' }]])
+  const panelNode = () => findAll(tree, n => n.type?.name === 'SidebarMainPanel')[0]
+  const chatSeat = () => findAll(tree, n => n.props?.className === 'dsb-conversation-seat')[0]
+  const botSidebar = findAll(tree, n => n.type?.name === 'TeamSidebar')[0]
+  assert.equal(botSidebar.props.renderFooterActions(false).props.wide, false)
+  botSidebar.props.renderPluginRows(true).props.onSelectPanel('sample')
+  tree = render()
+  assert.equal(panelNode().props.entry.key, 'sample')
+  assert.equal(chatSeat().props.hidden, true)
+  panelNode().props.onClose()
+  tree = render()
+  assert.equal(panelNode(), undefined)
+  assert.equal(chatSeat().props.hidden, false)
+
+  surfaceMode = 'agent'
+  tree = render()
+  assert.equal(findAll(tree, n => n.type?.name === 'SidebarFooterActions')[0].props.wide, true)
+  findAll(tree, n => n.type?.name === 'ClassicSidebar')[0].props.pluginRows.props.onSelectPanel('sample')
+  tree = render()
+  assert.equal(panelNode().props.entry.key, 'sample')
+  sandbox.__testSidebarPanels.delete('sample')
+  tree = render()
+  assert.equal(panelNode(), undefined)
 })

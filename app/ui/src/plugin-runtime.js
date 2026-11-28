@@ -214,13 +214,37 @@ export function createPluginRuntime({
       return safe
     }
 
+    const registerSlot = (spec, component) => track(slots.register({ ...spec, pluginId: entry.id, runtime: runtimeRef.api }, component))
+    const pluginSlots = Object.freeze({
+      register: registerSlot,
+      spec: slots.spec,
+      entries: slots.entries,
+      inject: (name, callback) => {
+        if (entry.disposed || entry.generation !== gen) return () => {}
+        let installing = true
+        const dispose = slots.inject(name, function* () {
+          try {
+            const effect = callback()
+            if (typeof effect === 'function') yield effect
+            else if (effect?.[Symbol.iterator]) yield* effect
+          } catch (error) {
+            if (installing) throw error
+            fail(entry, error)
+            scheduleReconcile()
+          }
+        })
+        installing = false
+        return track(dispose)
+      },
+    })
     const ctx = Object.freeze({
       id: entry.id,
       retryCount: entry.retryCount,
-      get: name => services.get(name),
+      get: name => name === 'slots' && services.get(name) === slots ? pluginSlots : services.get(name),
       has: name => services.has(name),
       provide: (name, value) => track(provide(name, value)),
-      slot: (spec, component) => track(slots.register({ ...spec, pluginId: entry.id, runtime: runtimeRef.api }, component)),
+      slots: pluginSlots,
+      slot: registerSlot,
       theme: (id, themeDef) => {
         if (themeDef && typeof themeDef === 'object' && typeof themeDef.css === 'string' && themeDef.css.trim() !== '') {
           const safeCss = sanitizePluginCss(themeDef.css)

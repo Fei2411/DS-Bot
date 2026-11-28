@@ -1,0 +1,3 @@
+.dsb-conversation-seat:not([hidden]){display:contents}
+.dsb-sidebar-plugin-panel{flex:1 1 auto;min-height:0;min-width:0;overflow:auto;margin-top:var(--dsb-band);padding:12px}
+.dsb-sidebar-plugin-panel-head{display:flex;justify-content:flex-end;margin-bottom:8px}
