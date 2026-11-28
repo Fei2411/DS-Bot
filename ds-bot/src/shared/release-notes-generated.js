@@ -1,6 +1,36 @@
 // Generated from src/shared/release-notes.json and ../CHANGELOG.md by `npm run build` (scripts/build-client.mjs). Do not edit by hand.
 export const RELEASE_NOTES = [
   {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "items": [
+          "优化 ChatGPT 订阅 Prompt Cache 命中率与思考强度切换：保留系统提示词缓存前缀、透传会话亲和头、支持多步工具调用保留加密推理，并可选择和记住推理思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "增强网页读取：新增自动抓取模式，直连失败或遇到动态渲染页时自动回退到隔离浏览器渲染",
+          "修复会话偶发无法输入与焦点抢占问题，并新增失控循环/重复重试可见暂停护栏，避免异常卡死消耗额度",
+          "修复桌面端账号菜单无法打开定时任务的问题，支持一键开启定时任务",
+          "全面修复窄宽卡片与设置行字体挤压、开关裁切和宽度溢出，支持弹窗打开时拖动窗口，并优化 Bot 侧边栏收起/展开动效",
+          "修复外部浏览器插件侧边栏状态判断、从内置插件目录移除 Ego Lite，并修复 DSH 插件态启动报错与退出时 SQLite 句柄竞态"
+        ],
+        "intro": "重点提升 ChatGPT 订阅体验、macOS 原地自动更新与网页读取成功率，并修复输入框锁死、防死循环耗额度、定时任务入口与多处界面细节。"
+      },
+      "en": {
+        "items": [
+          "Improved ChatGPT subscription prompt cache hit rates and added selectable, persisted reasoning effort levels across Bot settings and the model switcher",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement so macOS users no longer need to manually re-download DMGs",
+          "Added automatic web-fetch mode with an isolated, SSRF-guarded browser fallback for JS-heavy and anti-bot pages",
+          "Fixed composer input locks and focus stealing, and added visible pause guards with resume controls to prevent runaway tool loops and retry storms from burning quota",
+          "Fixed desktop Scheduled Tasks failing to open from the account menu and added one-click schedule enablement",
+          "Fixed narrow settings/switch label squeezing and layout overflows, kept the top window drag strip active while modals are open, and smoothed Bot sidebar collapse/expand motion",
+          "Fixed external browser plugin sidebar status detection, removed Ego Lite from the built-in catalog, and fixed DSH plugin-host startup crashes and SQLite shutdown handle races"
+        ],
+        "intro": "Improves ChatGPT subscription caching and reasoning effort, adds macOS in-place auto-updates and resilient web fetching, and fixes input locks, runaway loop protection, scheduled tasks, and UI polish."
+      }
+    }
+  },
+  {
     "version": "0.4.1",
     "date": "2026-11-27",
     "notes": {

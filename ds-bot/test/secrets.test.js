@@ -343,8 +343,7 @@ test('tool results and model requests lose the values', async (t) => {
   const plain = { isError: false, value: 'nothing here' }
   assert.equal(await execute({}, async () => plain), plain)
 
-  // The usage meter registers after the secrets listener.
-  const stream = bench.listeners['llm/stream'].at(-2)
+  const stream = bench.listeners['llm/stream'].find(listener => /redactDeep/.test(String(listener)))
   const passed = []
   const next = () => { passed.push(true); return (async function* () {})() }
   const options = {
@@ -369,7 +368,7 @@ function redactRequest(bench, messages, system) {
   const options = { provider: 'p', model: 'm', messages, system }
   let sent = options
   const before = bench.streamed.length
-  bench.listeners['llm/stream'].at(-2)(options, () => (async function* () {})())
+  bench.listeners['llm/stream'].find(listener => /redactDeep/.test(String(listener)))(options, () => (async function* () {})())
   if (bench.streamed.length > before) sent = bench.streamed.at(-1)
   return sent
 }

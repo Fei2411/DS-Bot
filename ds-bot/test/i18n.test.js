@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { DICTIONARY, LANGUAGES, dateLocale, hostText, installLocale, language, t } from '../src/client/i18n.js'
+import { DICTIONARY, LANGUAGES, dateLocale, ensureLocale, hostText, installLocale, isLocaleLoaded, language, loadAllLocales, t } from '../src/client/i18n.js'
+import * as i18nMod from '../src/client/i18n.js'
 import { DSH_JA, HOST_ERRORS_JA } from '../src/client/locales/ja.js'
 import { DSH_KO, HOST_ERRORS_KO } from '../src/client/locales/ko.js'
 import { DSH_ES, HOST_ERRORS_ES } from '../src/client/locales/es.js'
@@ -55,7 +56,108 @@ function fakeLocale(initial = 'zh') {
   }
 }
 
-test('every literal the client translates has an entry in all supported locales', () => {
+test('i18n starts English-only and loads non-English locales dynamically on demand', async () => {
+  assert.deepEqual(Object.keys(DICTIONARY), [])
+  assert.equal(isLocaleLoaded('en'), true)
+  for (const loc of ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']) {
+    assert.equal(isLocaleLoaded(loc), false, `${loc} should not be eagerly loaded`)
+  }
+  const mock = fakeLocale('en')
+  const off = installLocale(mock)
+  try {
+    assert.equal(t('Settings'), 'Settings')
+    assert.equal(isLocaleLoaded('ja'), false)
+    mock.setActive('ja')
+    await ensureLocale('ja')
+    assert.equal(isLocaleLoaded('ja'), true)
+    assert.equal(isLocaleLoaded('zh'), false)
+    assert.equal(isLocaleLoaded('de'), false)
+    assert.notEqual(t('Settings'), 'Settings')
+    assert.equal(dateLocale(), 'ja-JP')
+  } finally {
+    off()
+  }
+  await loadAllLocales()
+  for (const loc of ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']) {
+    assert.equal(isLocaleLoaded(loc), true)
+    assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Reload window'), `${loc} must include Reload window translation`)
+    assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Reload window?'), `${loc} must include Reload window? translation`)
+    assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Unsent attachments will be removed.'), `${loc} must include Unsent attachments will be removed. translation`)
+  }
+})
+
+test('ensureLocale retries transient failures with incrementing ?retry=N busting and recovers on switch or window focus (B3)', async () => {
+  assert.equal(typeof i18nMod.setLocaleTestHooks, 'function', 'i18n should expose test hook for locale chunk retry verification')
+  const calls = []
+  let failUntil = 2 // First 2 attempts fail (0 and 1), 3rd (attempt 2, ?retry=2) succeeds during auto-retry.
+  const fakeWindowListeners = new Map()
+  const prevWindow = globalThis.window
+  globalThis.window = {
+    addEventListener(type, fn) {
+      if (!fakeWindowListeners.has(type)) fakeWindowListeners.set(type, new Set())
+      fakeWindowListeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) { fakeWindowListeners.get(type)?.delete(fn) },
+  }
+  const origErr = console.error
+  console.error = () => {}
+  i18nMod.setLocaleTestHooks({
+    resetLangs: ['de', 'fr'],
+    retryDelayMs: 5,
+    importChunk: async (chunkKey, _defaultImport, attempt, bustedUrl) => {
+      calls.push({ chunkKey, attempt, bustedUrl })
+      if (calls.length <= failUntil) {
+        throw new Error(`Failed to fetch dynamically imported module: http://127.0.0.1:4123/assets/${chunkKey}-abc.js`)
+      }
+      if (chunkKey === 'de') {
+        const mod = await import('../src/client/locales/de.js')
+        return mod
+      }
+      const mod = await import('../src/client/locales/fr.js')
+      return mod
+    },
+  })
+  try {
+    // 1. Auto-retry recovers on ?retry=2 within the same ensureLocale call.
+    await ensureLocale('de')
+    assert.equal(isLocaleLoaded('de'), true)
+    assert.deepEqual(calls.map(c => [c.chunkKey, c.attempt, c.bustedUrl]), [
+      ['de', 0, null],
+      ['de', 1, 'http://127.0.0.1:4123/assets/de-abc.js?retry=1'],
+      ['de', 2, 'http://127.0.0.1:4123/assets/de-abc.js?retry=2'],
+    ])
+
+    // 2. When all auto-retries exhaust, onError is called, and window focus retries with ?retry=3 and recovers.
+    calls.length = 0
+    failUntil = 3 // Attempts 0, 1, 2 fail -> error reported; attempt 3 on focus succeeds.
+    const errors = []
+    const mock = fakeLocale('fr')
+    const off = installLocale(mock, { onError: (lang, err) => errors.push([lang, err]) })
+    try {
+      await new Promise(r => setTimeout(r, 60))
+      assert.equal(isLocaleLoaded('fr'), false)
+      assert.equal(errors.length, 1, 'final exhausted failure must report diagnostic error')
+      assert.equal(errors[0][0], 'fr')
+      assert.equal(calls.length, 3)
+
+      // Trigger window focus -> retries with ?retry=3 and recovers.
+      for (const fn of fakeWindowListeners.get('focus') ?? []) fn()
+      await new Promise(r => setTimeout(r, 40))
+      assert.equal(isLocaleLoaded('fr'), true, 'window focus must retry unloaded active locale with ?retry=3')
+      assert.equal(calls.at(-1).attempt, 3)
+      assert.equal(calls.at(-1).bustedUrl, 'http://127.0.0.1:4123/assets/fr-abc.js?retry=3')
+    } finally {
+      off()
+    }
+  } finally {
+    i18nMod.setLocaleTestHooks(null)
+    console.error = origErr
+    globalThis.window = prevWindow
+  }
+})
+
+test('every literal the client translates has an entry in all supported locales', async () => {
+  await loadAllLocales()
   const dir = new URL('../src/client/', import.meta.url)
   const missing = []
   const locales = ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']
@@ -387,4 +489,84 @@ test('unloading DS Bot removes only its own dictionaries', async (t) => {
   assert.equal(text('label'), '设置')
   assert.doesNotThrow(() => locale.register('locale-owner', 'zh-TW', { label: '原生設定' }))
   removeOwner()
+})
+
+test('built plugin client.js registers all 7 non-English locales synchronously without async regression', async () => {
+  const { runInNewContext } = await import('node:vm')
+  const code = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  let entry = null
+  const stub = () => new Proxy(function () {}, {
+    get: (_, key) => (key === 'then' ? undefined : key === Symbol.toPrimitive ? () => '' : stub()),
+    apply: () => stub(),
+    construct: () => stub(),
+  })
+  const sandbox = {
+    window: { __ModuleLoader__: { load: mod => { entry = mod } } },
+    document: { title: '', documentElement: { lang: 'en', dataset: {}, style: { setProperty() {}, removeProperty() {} } }, head: { appendChild() {}, append() {}, querySelector: () => null }, body: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, createElement: () => ({ dataset: {}, style: {}, remove() {} }), addEventListener() {}, removeEventListener() {} },
+    navigator: { language: 'en', platform: 'MacIntel' },
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    console,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    URL,
+    Blob,
+    Event,
+    CustomEvent: class {},
+    MutationObserver: class { observe() {} disconnect() {} },
+    Promise,
+  }
+  sandbox.globalThis = sandbox
+  runInNewContext(code, sandbox)
+  assert.ok(entry && typeof entry.factory === 'function', 'client.js should register module factory')
+  const plugin = entry.factory(() => stub())
+  assert.equal(typeof plugin.apply, 'function')
+
+  // Verify the built plugin registers all 7 non-English dictionaries synchronously on installLocale.
+  const mock = fakeLocale('en')
+  const registered = new Map()
+  const origRegister = mock.register
+  mock.register = (ns, loc, dict) => {
+    if (ns === 'ds-bot' && typeof loc === 'string') registered.set(loc, dict)
+    return origRegister(ns, loc, dict)
+  }
+  const cleanups = []
+  const ctx = {
+    locale: mock,
+    get: name => (name === 'locale' ? mock : undefined),
+    effect: fn => { const off = fn(); if (typeof off === 'function') cleanups.push(off) },
+    inject: (_deps, fn) => {
+      if (Array.isArray(_deps) && _deps.includes('locale')) {
+        const sub = { locale: mock, effect: f => { const off = f(); if (typeof off === 'function') cleanups.push(off) } }
+        fn(sub)
+      }
+      return { dispose() {} }
+    },
+    on: () => () => {},
+    slots: { register: () => () => {}, getVersion: () => 0, entries: () => [], subscribe: () => () => {} },
+    sessions: { getSnapshot: () => ({ byId: {}, ids: [] }), subscribe: () => () => {} },
+    uiWorkspace: stub(),
+    uiConversation: stub(),
+    uiSession: stub(),
+    theme: stub(),
+    layout: stub(),
+  }
+  try {
+    plugin.apply(ctx)
+  } catch {
+    // Only locale initialization at the top of apply() is exercised here.
+  }
+  try {
+    for (const loc of ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']) {
+      assert.ok(registered.has(loc), `plugin client.js must synchronously register ${loc}`)
+      mock.setActive(loc)
+      const translated = mock.bind('ds-bot')('Settings')
+      assert.notEqual(translated, 'Settings', `plugin client.js must synchronously translate Settings in ${loc}`)
+    }
+    mock.setActive('en')
+    assert.equal(mock.bind('ds-bot')('Settings'), 'Settings')
+  } finally {
+    for (const off of cleanups.reverse()) { try { off() } catch { /* ignore */ } }
+  }
 })

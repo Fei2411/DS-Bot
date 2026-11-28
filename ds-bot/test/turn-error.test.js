@@ -11,6 +11,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
+      "import './src/client/locales/all.js'",
       "export { FailureCell, accountModel, failureFacts, failureText, fixesFor, retryShown } from './src/client/turn-error.js'",
       "export { installLocale } from './src/client/i18n.js'",
     ].join('\n'),

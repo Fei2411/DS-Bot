@@ -242,7 +242,7 @@ export function MarkdownText({ text, labels, variant, streaming = false, onOpenF
   // `null` from the splitter means the text holds document-wide syntax and stays whole.
   const blocks = streaming && source.length > STREAM_SPLIT_MIN ? splitMarkdownBlocks(source) : null
   const split = blocks !== null && blocks.length >= 2
-  return h('div', { className: variant === 'compact' ? 'md_markdown md-compact' : 'md_markdown' },
+  return h('div', { className: variant === 'compact' ? 'md_markdown bt-md md-compact' : 'md_markdown bt-md' },
     split
       ? [
         ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins, urlTransform })),

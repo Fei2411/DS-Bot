@@ -379,13 +379,12 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
 export const USER_MESSAGE_CSS = `
 .bt-umsg{display:flex;flex-direction:row-reverse;align-items:center;justify-content:flex-start;gap:4px}
 .bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
+.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--bt-content-fs,14px);line-height:calc(var(--bt-content-fs,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
 .bt-ubody a{color:inherit}
 /* The host's content stack sits in DS Bot's: the width follows --bt-msg-w (the user's
    message width) through .bt-ustack, not the host's own cap. The fold control goes
    under the stack, at its right edge. */
 .bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
-.bt-uhost [class*="_userStack"]{max-width:100%}
 .bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
