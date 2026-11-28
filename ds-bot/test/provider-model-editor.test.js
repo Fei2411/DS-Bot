@@ -300,14 +300,14 @@ test('ProviderConfigEditor edits retry policy (mode/maxRetries/retryableCodes/ba
     defaultMode: 'normal',
     branches: {
       normal: {
-        maxRetries: { type: 'number', default: 5, minimum: 0, integer: true },
+        maxRetries: { type: 'number', default: 5, min: 0, max: 9007199254740991, step: 1 },
         retryableCodes: { type: 'codes', choices: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'QUOTA'], default: ['RATE_LIMIT', 'SERVER'] },
         backoff: {
           type: 'object',
           fields: {
-            initialDelayMs: { type: 'number', default: 500 },
-            maxDelayMs: { type: 'number', default: 10000 },
-            jitterRatio: { type: 'number', default: 0.1 },
+            initialDelayMs: { type: 'number', default: 500, min: 5e-324, max: 2147483647 },
+            maxDelayMs: { type: 'number', default: 10000, min: 5e-324, max: 2147483647 },
+            jitterRatio: { type: 'number', default: 0.1, min: 0, max: 1 },
           },
         },
       },
@@ -315,9 +315,9 @@ test('ProviderConfigEditor edits retry policy (mode/maxRetries/retryableCodes/ba
         backoff: {
           type: 'object',
           fields: {
-            initialDelayMs: { type: 'number', default: 500 },
-            maxDelayMs: { type: 'number', default: 10000 },
-            jitterRatio: { type: 'number', default: 0.1 },
+            initialDelayMs: { type: 'number', default: 500, min: 5e-324, max: 2147483647 },
+            maxDelayMs: { type: 'number', default: 10000, min: 5e-324, max: 2147483647 },
+            jitterRatio: { type: 'number', default: 0.1, min: 0, max: 1 },
           },
         },
       },
@@ -388,4 +388,280 @@ test('ProviderConfigEditor edits retry policy (mode/maxRetries/retryableCodes/ba
     retryableCodes: ['RATE_LIMIT', 'SERVER', 'UPSTREAM_BUSY'],
     backoff: { initialDelayMs: 750 },
   })
+})
+
+test('ProviderConfigEditor clears invalid ModelListEditor capacity text on Discard', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  const props = {
+    provider: {
+      id: 'my-gw', name: 'My Gateway', family: 'pi-ai', custom: true, editable: true, revision: 2,
+      displayName: 'My Gateway', baseURL: 'https://gw.example/v1', api: 'openai-completions',
+      apiKeyEnv: 'MY_GW_API_KEY', modelsOverridden: true,
+      models: [{ id: 'alpha', ref: 'my-gw/alpha', name: 'Alpha' }],
+      editableModels: [{ id: 'alpha', name: 'Alpha', contextWindow: 128_000 }],
+    },
+    protocols: ['openai-completions'], reasoningLevels: ['off', 'low', 'high'],
+    readOnly: false, apply: async () => true,
+    actions: { saveProviderConfig: async () => ({ providers: [] }), providers: async () => ({ providers: [] }) },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  }
+  let tree = render(ProviderConfigEditor, props)
+  const btn = label => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+  const btnAria = label => findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === label)[0]
+  const inputAria = label => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+
+  btnAria('Model details 1').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  inputAria('Context window 1').props.onChange({ target: { value: 'abc' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Context window 1').props.value, 'abc')
+  assert.equal(btn('Discard').props.disabled, false)
+
+  btn('Discard').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  btnAria('Model details 1').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Context window 1').props.value, '128K', 'invalid raw text cleared after Discard')
+})
+
+test('ProviderConfigEditor detects upstream revision drift without wiping dirty draft, and offers Reload on bot/stale', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  let reloadCalls = 0
+  const baseProvider = {
+    id: 'my-gw', name: 'My Gateway', family: 'pi-ai', custom: true, editable: true, revision: 5,
+    displayName: 'My Gateway', baseURL: 'https://gw.example/v1', api: 'openai-completions',
+    apiKeyEnv: 'MY_GW_API_KEY', modelsOverridden: true,
+    models: [{ id: 'alpha', ref: 'my-gw/alpha', name: 'Alpha' }],
+    editableModels: [{ id: 'alpha', name: 'Alpha' }],
+  }
+  const props = {
+    provider: baseProvider,
+    protocols: ['openai-completions'], reasoningLevels: ['off', 'low', 'high'],
+    readOnly: false, apply: async (p) => { await p; return true },
+    actions: {
+      saveProviderConfig: async () => { throw Object.assign(new Error('stale'), { code: 'bot/stale' }) },
+      providers: async () => { reloadCalls += 1; return { providers: [{ ...baseProvider, revision: 6 }] } },
+    },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  }
+  let tree = render(ProviderConfigEditor, props)
+  const btn = label => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+  const inputAria = label => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+
+  // Dirty the Base URL
+  inputAria('Base URL').props.onChange({ target: { value: 'https://gw-new.example/v1' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Base URL').props.value, 'https://gw-new.example/v1')
+
+  // Simulate upstream revision advance while dirty -> must NOT wipe unsaved edit, must show conflict & Reload
+  tree = render(ProviderConfigEditor, { ...props, provider: { ...baseProvider, revision: 6 } })
+  assert.equal(inputAria('Base URL').props.value, 'https://gw-new.example/v1', 'dirty draft preserved on upstream drift')
+  assert.ok(btn('Reload'), 'Reload button shown on revision conflict')
+  assert.equal(btn('Save').props.disabled, true, 'Save disabled while conflicted')
+
+  // Clicking Reload fetches actions.providers()
+  btn('Reload').props.onClick()
+  await settle(); await settle()
+  assert.equal(reloadCalls, 1)
+})
+
+test('ProviderConfigEditor shows inherited catalog hint instead of No models configured on unoverridden pi-ai catalog provider', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  const tree = render(ProviderConfigEditor, {
+    provider: {
+      id: 'openai', name: 'OpenAI', family: 'pi-ai', custom: false, editable: true, revision: 1,
+      modelsOverridden: false,
+      models: [{ id: 'gpt-5', ref: 'openai/gpt-5', name: 'GPT-5' }, { id: 'gpt-4o', ref: 'openai/gpt-4o', name: 'GPT-4o' }],
+      editableModels: [],
+    },
+    protocols: ['openai-completions'], reasoningLevels: [],
+    readOnly: false, apply: async () => true,
+    actions: { saveProviderConfig: async () => ({ providers: [] }) },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  })
+  assert.match(textOf(tree), /Using built-in catalog \(2 models\)/)
+  assert.doesNotMatch(textOf(tree), /No models configured\./)
+})
+
+test('RetryPolicyEditor Backoff fold starts open when backoff overrides exist and collapses when clicked', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  const retryDefaults = {
+    modes: ['normal', 'always'],
+    defaultMode: 'normal',
+    branches: {
+      normal: {
+        maxRetries: { type: 'number', default: 5, min: 0, max: 9007199254740991, step: 1 },
+        backoff: {
+          type: 'object',
+          fields: {
+            initialDelayMs: { type: 'number', default: 500, min: 5e-324, max: 2147483647 },
+            maxDelayMs: { type: 'number', default: 10000, min: 5e-324, max: 2147483647 },
+            jitterRatio: { type: 'number', default: 0.1, min: 0, max: 1 },
+          },
+        },
+      },
+    },
+  }
+  const props = {
+    provider: {
+      id: 'openai', name: 'OpenAI', family: 'pi-ai', custom: false, editable: true, revision: 1,
+      modelsOverridden: false, models: [{ id: 'gpt-5', ref: 'openai/gpt-5', name: 'GPT-5' }], editableModels: [],
+      retryPolicy: { mode: 'normal', maxRetries: 3, backoff: { initialDelayMs: 750 } },
+      retryDefaults,
+    },
+    protocols: ['openai-completions'], reasoningLevels: [],
+    readOnly: false, apply: async () => true,
+    actions: { saveProviderConfig: async () => ({ providers: [] }), providers: async () => ({ providers: [] }) },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  }
+  let tree = render(ProviderConfigEditor, props)
+  const btn = label => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+  const inputAria = label => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+
+  // Initially expanded because backoff overrides are present
+  assert.equal(btn('Backoff').props['aria-expanded'], true)
+  assert.ok(inputAria('Initial delay (ms)'))
+
+  // Clicking Backoff collapses the section even though backoff overrides exist
+  btn('Backoff').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(btn('Backoff').props['aria-expanded'], false)
+  assert.equal(inputAria('Initial delay (ms)'), undefined)
+})
+
+test('ProviderConfigEditor clears stale invalid RetryPolicyEditor text on Discard and enforces host min/max/step schema bounds', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  const retryDefaults = {
+    modes: ['normal', 'always'],
+    defaultMode: 'normal',
+    branches: {
+      normal: {
+        maxRetries: { type: 'number', default: 5, min: 1, max: 10, step: 1 },
+        backoff: {
+          type: 'object',
+          fields: {
+            initialDelayMs: { type: 'number', default: 500, min: 5e-324, max: 2147483647 },
+            maxDelayMs: { type: 'number', default: 10000, min: 5e-324, max: 2147483647 },
+            jitterRatio: { type: 'number', default: 0.1, min: 0, max: 0.5 },
+          },
+        },
+      },
+    },
+  }
+  const props = {
+    provider: {
+      id: 'openai', name: 'OpenAI', family: 'pi-ai', custom: false, editable: true, revision: 1,
+      modelsOverridden: false, models: [{ id: 'gpt-5', ref: 'openai/gpt-5', name: 'GPT-5' }], editableModels: [],
+      retryPolicy: { mode: 'normal', maxRetries: 3, backoff: { initialDelayMs: 500 } },
+      retryDefaults,
+    },
+    protocols: ['openai-completions'], reasoningLevels: [],
+    readOnly: false, apply: async () => true,
+    actions: { saveProviderConfig: async () => ({ providers: [] }), providers: async () => ({ providers: [] }) },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  }
+  let tree = render(ProviderConfigEditor, props)
+  const btn = label => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+  const inputAria = label => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+
+  // Exceeding host schema max on initialDelayMs (> 2147483647) or maxRetries (> 10) or non-integer (step: 1) disables Save
+  inputAria('Max retries').props.onChange({ target: { value: '12' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(btn('Save').props.disabled, true, 'maxRetries above host meta.max disables Save')
+
+  inputAria('Max retries').props.onChange({ target: { value: '2.5' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(btn('Save').props.disabled, true, 'non-integer maxRetries with step: 1 disables Save')
+
+  inputAria('Max retries').props.onChange({ target: { value: '3' } })
+  tree = render(ProviderConfigEditor, props)
+  inputAria('Initial delay (ms)').props.onChange({ target: { value: '3000000000' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(btn('Save').props.disabled, true, 'initialDelayMs above host meta.max disables Save')
+
+  // Typing garbage text and clicking Discard must revert raw input values cleanly
+  inputAria('Max retries').props.onChange({ target: { value: 'xyz' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Max retries').props.value, 'xyz')
+  btn('Discard').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Max retries').props.value, '3', 'invalid Max retries text cleared on Discard')
+  assert.equal(inputAria('Initial delay (ms)').props.value, '500', 'invalid Initial delay text cleared on Discard')
+})
+
+test('KeyEditor hides Remove key and uses API key label for env-sourced credentials, shows them for file keys', async () => {
+  const envMod = await loadProvidersPageBundle()
+  const envTree = envMod.render(envMod.exports.KeyEditor, {
+    provider: { id: 'openai', name: 'OpenAI', key: { configured: true, writable: true, source: 'env' }, apiKeyEnv: 'OPENAI_API_KEY' },
+    apply: async () => true,
+    actions: { setProviderKey: async () => ({ providers: [] }) },
+  })
+  assert.doesNotMatch(textOf(envTree), /Replace the API key/)
+  assert.match(textOf(envTree), /API key/)
+  assert.equal(findAll(envTree, n => n.type === 'button' && textOf(n) === 'Remove key')[0], undefined)
+
+  const fileMod = await loadProvidersPageBundle()
+  const fileTree = fileMod.render(fileMod.exports.KeyEditor, {
+    provider: { id: 'openai', name: 'OpenAI', key: { configured: true, writable: true, source: 'file', masked: 'sk-***' }, apiKeyEnv: 'OPENAI_API_KEY' },
+    apply: async () => true,
+    actions: { setProviderKey: async () => ({ providers: [] }) },
+  })
+  assert.match(textOf(fileTree), /Replace the API key/)
+  assert.ok(findAll(fileTree, n => n.type === 'button' && textOf(n) === 'Remove key')[0])
+})
+
+test('KnownForm and CustomForm forward view.revision to addProviderConfig, and CustomForm shows discover error inline', async () => {
+  const knownMod = await loadProvidersPageBundle()
+  const knownPayloads = []
+  const knownProps = {
+    view: { addable: [{ id: 'openai', name: 'OpenAI' }], providers: [], revision: 42 },
+    apply: async (p) => { await p; return true },
+    actions: { addProviderConfig: async (body) => { knownPayloads.push(body); return { providers: [] } } },
+    onDone() {},
+  }
+  let kTree = knownMod.render(knownMod.exports.KnownForm, knownProps)
+  const kMenu = findAll(kTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Provider')[0]
+  kMenu.props.onClick()
+  kTree = knownMod.render(knownMod.exports.KnownForm, knownProps)
+  findAll(kTree, n => n.type === 'button' && n.props?.role === 'option' && textOf(n) === 'OpenAI')[0].props.onClick()
+  kTree = knownMod.render(knownMod.exports.KnownForm, knownProps)
+  findAll(kTree, n => n.type === 'button' && textOf(n) === 'Add')[0].props.onClick()
+  await settle(); await settle()
+  assert.equal(knownPayloads.length, 1)
+  assert.equal(knownPayloads[0].revision, 42)
+
+  const customMod = await loadProvidersPageBundle()
+  const customPayloads = []
+  let applyCalls = 0
+  const customProps = {
+    view: { protocols: ['openai-completions'], reasoningLevels: [], revision: 42 },
+    apply: async (p) => { applyCalls += 1; await p; return true },
+    actions: {
+      addProviderConfig: async (body) => { customPayloads.push(body); return { providers: [] } },
+      discoverProviderModels: async () => { throw new Error('endpoint answered 401') },
+    },
+    onDone() {},
+  }
+  let cTree = customMod.render(customMod.exports.CustomForm, customProps)
+  const cInput = label => findAll(cTree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+  const cBtn = label => findAll(cTree, n => n.type === 'button' && textOf(n) === label)[0]
+  cInput('Provider ID').props.onChange({ target: { value: 'my-gw' } })
+  cTree = customMod.render(customMod.exports.CustomForm, customProps)
+  cInput('Endpoint').props.onChange({ target: { value: 'https://gw.example/v1' } })
+  cTree = customMod.render(customMod.exports.CustomForm, customProps)
+  cInput('Model ids').props.onChange({ target: { value: 'm1' } })
+  cTree = customMod.render(customMod.exports.CustomForm, customProps)
+
+  // Fetch models error renders inline without invoking top-level apply
+  cBtn('Fetch models').props.onClick()
+  await settle(); await settle()
+  cTree = customMod.render(customMod.exports.CustomForm, customProps)
+  assert.equal(applyCalls, 0, 'CustomForm fetch error stays inline and does not call top-level apply')
+  const alerts = findAll(cTree, n => n.props?.['data-error'] !== undefined)
+  assert.ok(alerts.some(a => /endpoint answered 401/.test(textOf(a))), 'inline error shows discover failure')
+
+  cBtn('Add').props.onClick()
+  await settle(); await settle()
+  assert.equal(customPayloads.length, 1)
+  assert.equal(customPayloads[0].revision, 42)
 })

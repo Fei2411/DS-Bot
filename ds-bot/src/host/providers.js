@@ -16,10 +16,13 @@ const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 export const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
 // The protocols whose model-listing the pi-ai adapter can read. A route on any other
 // protocol has no refresh entry: the adapter would answer DISCOVERY_UNSUPPORTED.
-const LISTABLE_PROTOCOLS = new Set(PROTOCOLS)
-const DEFAULT_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const GEMINI_PROTOCOL = 'google-generative-ai'
+const LISTABLE_PROTOCOLS = new Set([...PROTOCOLS, GEMINI_PROTOCOL])
+const DEFAULT_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const GEMINI_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
+const isKeylessNativeAuth = entry => entry?.nativeAuth !== undefined
+  && (entry.nativeAuth.env ?? []).length === 0
+  && entry.nativeAuth.oauth === true
 const MODALITIES = new Set(['text', 'image'])
 const CRED_BATCH_SIZE = 64
 const MAX_MODELS = 500
@@ -598,7 +601,6 @@ export function install(rt) {
       const ref = refOf(profile)
       const models = catalog.filter(model => model.provider === entry.provider).map(model => ({ id: model.id, ref: model.ref, name: model.name }))
       if (ref === undefined && models.length === 0 && entry.error === undefined) continue
-      const info = ref === undefined ? undefined : credMap.get(ref)
       const section = map.get(entry.settingsNs)
       const userProfile = profileOf(entry, map, 'user')
       const baseProfile = profileOf(entry, map, 'base')
@@ -606,6 +608,9 @@ export function install(rt) {
       const isAccount = entry.provider === 'deepseek-account'
       const isChatGPT = entry.provider === CHATGPT_PROVIDER
       const editable = !isAccount && !isChatGPT && (family === 'deepseek' || family === 'pi-ai')
+      const allowKey = editable && !isKeylessNativeAuth(entry)
+      const effectiveKeyRef = ref ?? (allowKey ? keyRefFor(entry.provider) : undefined)
+      const info = effectiveKeyRef === undefined ? undefined : credMap.get(effectiveKeyRef)
 
       // A route can be refreshed when DSH's pi-ai discovery can list its endpoint and
       // the route has a user layer to write the new model list into. Native and
@@ -635,20 +640,30 @@ export function install(rt) {
       const defaultModels = rawDefaultModels.map(cloneModelItem)
 
       const credentialChecks = {}
-      const checkRefs = ref !== undefined ? [ref] : (entry.nativeAuth?.env ?? [])
+      const checkRefs = effectiveKeyRef !== undefined ? [effectiveKeyRef] : (entry.nativeAuth?.env ?? [])
       for (const checkRef of checkRefs) {
         const projected = projectCred(credMap.get(checkRef))
         if (projected) credentialChecks[checkRef] = projected
       }
-      const keyObj = ref === undefined
+      const keyObj = effectiveKeyRef === undefined
         ? null
         : {
             configured: info?.configured === true,
             writable: !isChatGPT && info?.writable !== false,
+            ...(ref === undefined ? { optional: true } : {}),
             ...(info?.source !== undefined ? { source: info.source } : {}),
             ...(info?.masked !== undefined ? { masked: info.masked } : {}),
           }
       const retryDefaults = editable ? retryDefaultsOf(section, entry.settingsPath, baseProfile?.retryPolicy) : undefined
+      const hydratedRetryPolicy = isRecord(userProfile?.retryPolicy)
+        ? (() => {
+            const cloned = structuredClone(userProfile.retryPolicy)
+            if ((typeof cloned.mode !== 'string' || cloned.mode === '') && retryDefaults?.defaultMode) {
+              cloned.mode = retryDefaults.defaultMode
+            }
+            return cloned
+          })()
+        : undefined
       providers.push({
         id: entry.provider,
         ...(isChatGPT ? { auth: 'chatgpt' } : {}),
@@ -682,7 +697,7 @@ export function install(rt) {
         ...(family === 'deepseek' && typeof profile?.maxTokens === 'number' ? { defaultMaxTokens: profile.maxTokens }
           : typeof profile?.defaultMaxTokens === 'number' ? { defaultMaxTokens: profile.defaultMaxTokens } : {}),
         ...(Array.isArray(profile?.defaultInput) ? { defaultInput: [...profile.defaultInput] } : {}),
-        ...(isRecord(userProfile?.retryPolicy) ? { retryPolicy: structuredClone(userProfile.retryPolicy) } : {}),
+        ...(hydratedRetryPolicy !== undefined ? { retryPolicy: hydratedRetryPolicy } : {}),
         ...(retryDefaults !== undefined ? { retryDefaults } : {}),
       })
     }
@@ -717,7 +732,27 @@ export function install(rt) {
     const { settings, credentials } = usable()
     assertWritable(settings)
     const key = checkKey(value)
-    await credentials.set(await writableRef(provider), key)
+    const existingRef = keyRefs().get(provider)
+    if (existingRef !== undefined) {
+      if ((await credentials.describe(existingRef)).writable === false) {
+        throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
+      }
+      await credentials.set(existingRef, key)
+      rt.dropCatalog()
+      return
+    }
+    const map = sections(settings)
+    const entry = entryOf(provider)
+    const profile = entry ? profileOf(entry, map) : undefined
+    if (entry === undefined || entry.settingsNs !== PI_AI || profile === undefined || isKeylessNativeAuth(entry)) {
+      throw invalid(`${provider} takes no API key here`)
+    }
+    const derivedRef = keyRefFor(provider)
+    if ((await credentials.describe(derivedRef)).writable === false) {
+      throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
+    }
+    await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'apiKeyEnv'], value: derivedRef }], map.get(PI_AI)?.revision)
+    await credentials.set(derivedRef, key)
     rt.dropCatalog()
   }
 

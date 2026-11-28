@@ -3043,10 +3043,13 @@ export const ES = {
   "Max delay must be a positive number": "El retraso máximo debe ser un número positivo",
   "Initial delay cannot exceed max delay": "El retraso inicial no puede superar el retraso máximo",
   "Jitter ratio must be between 0 and 1": "La proporción de jitter debe estar entre 0 y 1",
+  "Value is out of range": "El valor está fuera de rango",
   "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra",
   "Saved but currently unavailable": "Guardados pero no disponibles actualmente",
   "Currently unavailable": "No disponible actualmente",
   "Settings changed elsewhere. Discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Descarta tus cambios e inténtalo de nuevo.",
+  "Using built-in catalog ({count} models)": "Usando catálogo integrado ({count} modelos)",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Recarga o descarta tus cambios e inténtalo de nuevo.",
 }
 
 export const HOST_ERRORS_ES = [

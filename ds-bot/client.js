@@ -3211,10 +3211,13 @@ var init_zh = __esm({
       "Max delay must be a positive number": "最大延迟必须是正数",
       "Initial delay cannot exceed max delay": "初始延迟不能大于最大延迟",
       "Jitter ratio must be between 0 and 1": "抖动比例必须在 0 到 1 之间",
+      "Value is out of range": "数值超出允许范围",
       "Use lowercase letters, digits, and dashes, starting with a letter": "仅使用小写字母、数字和连字符，且以字母开头",
       "Saved but currently unavailable": "已保存但当前不可用",
       "Currently unavailable": "当前不可用",
-      "Settings changed elsewhere. Discard your changes and try again.": "设置已在别处更改。请放弃当前修改后重试。"
+      "Settings changed elsewhere. Discard your changes and try again.": "设置已在别处更改。请放弃当前修改后重试。",
+      "Using built-in catalog ({count} models)": "使用内置目录（{count} 个模型）",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "设置已在别处更改。请重新加载或放弃修改后重试。"
     };
     Object.assign(ZH, HOST_ZH);
   }
@@ -6340,10 +6343,13 @@ var init_ja = __esm({
       "Max delay must be a positive number": "最大待機時間は正の数である必要があります",
       "Initial delay cannot exceed max delay": "初期待機時間は最大待機時間を超えられません",
       "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
+      "Value is out of range": "値が許容範囲外です",
       "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
       "Saved but currently unavailable": "保存済み（現在利用不可）",
       "Currently unavailable": "現在利用不可",
-      "Settings changed elsewhere. Discard your changes and try again.": "別の場所で設定が変更されました。変更を破棄して再試行してください。"
+      "Settings changed elsewhere. Discard your changes and try again.": "別の場所で設定が変更されました。変更を破棄して再試行してください。",
+      "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。"
     };
     HOST_ERRORS_JA = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -10141,10 +10147,13 @@ var init_ko = __esm({
       "Max delay must be a positive number": "최대 지연 시간은 양수여야 합니다",
       "Initial delay cannot exceed max delay": "초기 지연 시간은 최대 지연 시간을 초과할 수 없습니다",
       "Jitter ratio must be between 0 and 1": "지터 비율은 0에서 1 사이여야 합니다",
+      "Value is out of range": "값이 허용 범위를 벗어났습니다",
       "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요",
       "Saved but currently unavailable": "저장되었으나 현재 사용 불가",
       "Currently unavailable": "현재 사용 불가",
-      "Settings changed elsewhere. Discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 변경사항을 취소하고 다시 시도하세요."
+      "Settings changed elsewhere. Discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 변경사항을 취소하고 다시 시도하세요.",
+      "Using built-in catalog ({count} models)": "내장 카탈로그 사용 중 ({count}개 모델)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 새로고침하거나 변경사항을 취소한 뒤 다시 시도하세요."
     };
     HOST_ERRORS_KO = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -13943,10 +13952,13 @@ var init_es = __esm({
       "Max delay must be a positive number": "El retraso máximo debe ser un número positivo",
       "Initial delay cannot exceed max delay": "El retraso inicial no puede superar el retraso máximo",
       "Jitter ratio must be between 0 and 1": "La proporción de jitter debe estar entre 0 y 1",
+      "Value is out of range": "El valor está fuera de rango",
       "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra",
       "Saved but currently unavailable": "Guardados pero no disponibles actualmente",
       "Currently unavailable": "No disponible actualmente",
-      "Settings changed elsewhere. Discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Descarta tus cambios e inténtalo de nuevo."
+      "Settings changed elsewhere. Discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Descarta tus cambios e inténtalo de nuevo.",
+      "Using built-in catalog ({count} models)": "Usando catálogo integrado ({count} modelos)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Recarga o descarta tus cambios e inténtalo de nuevo."
     };
     HOST_ERRORS_ES = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -17701,10 +17713,13 @@ var init_fr = __esm({
       "Max delay must be a positive number": "Le délai maximal doit être un nombre positif",
       "Initial delay cannot exceed max delay": "Le délai initial ne peut pas dépasser le délai maximal",
       "Jitter ratio must be between 0 and 1": "Le ratio de gigue doit être compris entre 0 et 1",
+      "Value is out of range": "La valeur est hors plage",
       "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre",
       "Saved but currently unavailable": "Enregistré mais actuellement indisponible",
       "Currently unavailable": "Actuellement indisponible",
-      "Settings changed elsewhere. Discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez."
+      "Settings changed elsewhere. Discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez.",
+      "Using built-in catalog ({count} models)": "Catalogue intégré utilisé ({count} modèles)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Rechargez ou abandonnez vos modifications puis réessayez."
     };
     HOST_ERRORS_FR = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -21502,10 +21517,13 @@ var init_de = __esm({
       "Max delay must be a positive number": "Die maximale Verzögerung muss eine positive Zahl sein",
       "Initial delay cannot exceed max delay": "Die Anfangsverzögerung darf die maximale Verzögerung nicht überschreiten",
       "Jitter ratio must be between 0 and 1": "Der Jitter-Anteil muss zwischen 0 und 1 liegen",
+      "Value is out of range": "Der Wert liegt außerhalb des zulässigen Bereichs",
       "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben",
       "Saved but currently unavailable": "Gespeichert, aber derzeit nicht verfügbar",
       "Currently unavailable": "Derzeit nicht verfügbar",
-      "Settings changed elsewhere. Discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Verwirf deine Änderungen und versuche es erneut."
+      "Settings changed elsewhere. Discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Verwirf deine Änderungen und versuche es erneut.",
+      "Using built-in catalog ({count} models)": "Integrierter Katalog aktiv ({count} Modelle)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Lade neu oder verwirf deine Änderungen und versuche es erneut."
     };
     HOST_ERRORS_DE = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -62714,6 +62732,8 @@ function ModelListEditor({
   models: models2,
   family,
   overridden,
+  inheritedCount = 0,
+  resetEpoch = 0,
   defaultContextWindow,
   defaultMaxTokens,
   defaultInput,
@@ -62725,6 +62745,12 @@ function ModelListEditor({
   extraActions = null
 }) {
   const rowState = useModelRows(models2, onChange, disabled);
+  const lastEpoch = (0, import_react70.useRef)(resetEpoch);
+  (0, import_react70.useEffect)(() => {
+    if (lastEpoch.current === resetEpoch) return;
+    lastEpoch.current = resetEpoch;
+    rowState.reset();
+  }, [resetEpoch]);
   const inputField = family === "deepseek" ? "inputModalities" : "input";
   const updateField = (index, field, value) => {
     const next = models2.map((model, at2) => {
@@ -62785,7 +62811,11 @@ function ModelListEditor({
         extraActions
       )
     ),
-    models2.length === 0 ? (0, import_react70.createElement)("div", { className: "bt-set-hint" }, t("No models configured.")) : (0, import_react70.createElement)(
+    models2.length === 0 ? (0, import_react70.createElement)(
+      "div",
+      { className: "bt-set-hint" },
+      overridden === false && family === "pi-ai" && inheritedCount > 0 ? t("Using built-in catalog ({count} models)", { count: inheritedCount }) : t("No models configured.")
+    ) : (0, import_react70.createElement)(
       "div",
       { className: "bt-model-list" },
       rowState.rows.map(({ model, key, expanded, order }, index) => (0, import_react70.createElement)(ModelRowItem, {
@@ -62846,7 +62876,7 @@ function parseNumberText(text, meta) {
   if (trimmed2 === "") return void 0;
   const num2 = Number(trimmed2);
   if (!Number.isFinite(num2)) return Number.NaN;
-  if (meta?.integer && !Number.isInteger(num2)) return Number.NaN;
+  if ((meta?.integer === true || meta?.step === 1) && !Number.isInteger(num2)) return Number.NaN;
   return num2;
 }
 function validateRetryPolicy(policy, retryDefaults) {
@@ -62860,8 +62890,14 @@ function validateRetryPolicy(policy, retryDefaults) {
   if (policy.mode === "normal") {
     if (policy.maxRetries !== void 0) {
       const m = branch.maxRetries;
-      if (typeof policy.maxRetries !== "number" || !Number.isInteger(policy.maxRetries) || policy.maxRetries < (m?.minimum ?? 0)) {
+      const min = m?.min ?? m?.minimum ?? 0;
+      const max = m?.max ?? m?.maximum;
+      const intOnly = m?.step === 1 || m?.integer === true || m === void 0;
+      if (typeof policy.maxRetries !== "number" || !Number.isFinite(policy.maxRetries) || intOnly && !Number.isInteger(policy.maxRetries) || policy.maxRetries < 0) {
         return "Max retries must be a non-negative whole number";
+      }
+      if (policy.maxRetries < min || typeof max === "number" && policy.maxRetries > max) {
+        return "Value is out of range";
       }
     }
     if (policy.retryableCodes !== void 0) {
@@ -62882,19 +62918,43 @@ function validateRetryPolicy(policy, retryDefaults) {
     const init = policy.backoff.initialDelayMs;
     const max = policy.backoff.maxDelayMs;
     const jitter2 = policy.backoff.jitterRatio;
-    if (init !== void 0 && (typeof init !== "number" || !Number.isFinite(init) || init <= 0)) {
-      return "Initial delay must be a positive number";
+    if (init !== void 0) {
+      const m = bFields.initialDelayMs;
+      const minBound = m?.min ?? m?.minimum;
+      const maxBound = m?.max ?? m?.maximum;
+      if (typeof init !== "number" || !Number.isFinite(init) || init <= 0 || (m?.step === 1 || m?.integer === true) && !Number.isInteger(init)) {
+        return "Initial delay must be a positive number";
+      }
+      if (typeof minBound === "number" && init < minBound || typeof maxBound === "number" && init > maxBound) {
+        return "Value is out of range";
+      }
     }
-    if (max !== void 0 && (typeof max !== "number" || !Number.isFinite(max) || max <= 0)) {
-      return "Max delay must be a positive number";
+    if (max !== void 0) {
+      const m = bFields.maxDelayMs;
+      const minBound = m?.min ?? m?.minimum;
+      const maxBound = m?.max ?? m?.maximum;
+      if (typeof max !== "number" || !Number.isFinite(max) || max <= 0 || (m?.step === 1 || m?.integer === true) && !Number.isInteger(max)) {
+        return "Max delay must be a positive number";
+      }
+      if (typeof minBound === "number" && max < minBound || typeof maxBound === "number" && max > maxBound) {
+        return "Value is out of range";
+      }
     }
     const effInit = init ?? bFields.initialDelayMs?.default ?? 500;
     const effMax = max ?? bFields.maxDelayMs?.default ?? 1e4;
     if (typeof effInit === "number" && typeof effMax === "number" && effInit > effMax) {
       return "Initial delay cannot exceed max delay";
     }
-    if (jitter2 !== void 0 && (typeof jitter2 !== "number" || !Number.isFinite(jitter2) || jitter2 < 0 || jitter2 > 1)) {
-      return "Jitter ratio must be between 0 and 1";
+    if (jitter2 !== void 0) {
+      const m = bFields.jitterRatio;
+      const minBound = m?.min ?? m?.minimum ?? 0;
+      const maxBound = m?.max ?? m?.maximum ?? 1;
+      if (typeof jitter2 !== "number" || !Number.isFinite(jitter2) || jitter2 < 0 || jitter2 > 1) {
+        return "Jitter ratio must be between 0 and 1";
+      }
+      if (jitter2 < minBound || jitter2 > maxBound) {
+        return "Value is out of range";
+      }
     }
   }
   return void 0;
@@ -62918,10 +62978,18 @@ function cleanRetryPolicyForSave(policy) {
   }
   return out;
 }
-function RetryPolicyEditor({ policy, retryDefaults, disabled = false, onChange }) {
-  const [openBackoff, setOpenBackoff] = (0, import_react71.useState)(false);
+function RetryPolicyEditor({ policy, retryDefaults, disabled = false, resetEpoch = 0, onChange }) {
+  const [openBackoff, setOpenBackoff] = (0, import_react71.useState)(() => isRecord3(policy?.backoff) && Object.keys(policy.backoff).length > 0);
   const [customCode, setCustomCode] = (0, import_react71.useState)("");
   const [editing, setEditing] = (0, import_react71.useState)(() => ({}));
+  const lastReset = (0, import_react71.useRef)(resetEpoch);
+  (0, import_react71.useEffect)(() => {
+    if (lastReset.current === resetEpoch) return;
+    lastReset.current = resetEpoch;
+    setEditing({});
+    setCustomCode("");
+    setOpenBackoff(isRecord3(policy?.backoff) && Object.keys(policy.backoff).length > 0);
+  }, [resetEpoch]);
   if (!retryDefaults || !Array.isArray(retryDefaults.modes) || retryDefaults.modes.length === 0) {
     return null;
   }
@@ -63010,8 +63078,6 @@ function RetryPolicyEditor({ policy, retryDefaults, disabled = false, onChange }
     { value: "", label: t("Default ({mode})", { mode: defaultModeLabel }) },
     ...retryDefaults.modes.map((m) => ({ value: m, label: MODE_LABELS[m] ? t(MODE_LABELS[m]) : m }))
   ];
-  const hasBackoffOverrides = isRecord3(policy?.backoff) && Object.keys(policy.backoff).length > 0;
-  const backoffExpanded = openBackoff || hasBackoffOverrides;
   return (0, import_react71.createElement)(
     "div",
     { className: "bt-retry-editor" },
@@ -63117,10 +63183,10 @@ function RetryPolicyEditor({ policy, retryDefaults, disabled = false, onChange }
       (0, import_react71.createElement)("button", {
         type: "button",
         className: "bt-retry-fold-btn",
-        "aria-expanded": backoffExpanded,
+        "aria-expanded": openBackoff,
         onClick: () => setOpenBackoff((open) => !open)
-      }, backoffExpanded ? (0, import_react71.createElement)(ChevronDownIcon) : (0, import_react71.createElement)(ChevronRightIcon), t("Backoff")),
-      backoffExpanded ? (0, import_react71.createElement)(
+      }, openBackoff ? (0, import_react71.createElement)(ChevronDownIcon) : (0, import_react71.createElement)(ChevronRightIcon), t("Backoff")),
+      openBackoff ? (0, import_react71.createElement)(
         "div",
         { className: "bt-retry-backoff-grid" },
         [
@@ -63164,7 +63230,9 @@ var ENDPOINT_HINTS = {
 };
 var SHOWN_MODELS = 8;
 var translated = (promise) => Promise.resolve(promise).catch((failure) => {
-  throw new Error(hostText(failure?.message ?? String(failure)));
+  const err = new Error(hostText(failure?.message ?? String(failure)));
+  if (failure?.code !== void 0) err.code = failure.code;
+  throw err;
 });
 function draftFrom(provider, discovered) {
   const existing = Array.isArray(provider.declaredModels) && provider.declaredModels.length > 0 ? provider.declaredModels : provider.models ?? [];
@@ -63327,7 +63395,7 @@ function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced
 }
 function keyState(key) {
   if (key === null) return null;
-  if (!key.configured) return ["missing", t("Needs an API key")];
+  if (!key.configured) return key.optional ? null : ["missing", t("Needs an API key")];
   return key.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
 }
 function detectedEnvVars(provider) {
@@ -63575,24 +63643,14 @@ function ProviderConfigEditor({
   const [discovered, setDiscovered] = (0, import_react72.useState)(null);
   const [discovering, setDiscovering] = (0, import_react72.useState)(false);
   const [discoverError, setDiscoverError] = (0, import_react72.useState)("");
+  const [draftRevision, setDraftRevision] = (0, import_react72.useState)(provider.revision);
+  const [conflicted, setConflicted] = (0, import_react72.useState)(false);
+  const [reloading, setReloading] = (0, import_react72.useState)(false);
+  const [resetEpoch, setResetEpoch] = (0, import_react72.useState)(0);
   const [saving, setSaving] = (0, import_react72.useState)(false);
   const [savedNotice, setSavedNotice] = (0, import_react72.useState)(false);
   const [saveError, setSaveError] = (0, import_react72.useState)("");
   const [confirmImpact, setConfirmImpact] = (0, import_react72.useState)(false);
-  (0, import_react72.useEffect)(() => {
-    setDisplayName(provider.displayName ?? "");
-    setBaseURL(provider.baseURL ?? "");
-    setApi(provider.api ?? "");
-    setModels(normalizeModelDrafts(provider.editableModels));
-    setModelsEdited(false);
-    setResetModels(false);
-    setRetryPolicy(provider.retryPolicy ?? void 0);
-    setRetryEdited(false);
-    setDiscovered(null);
-    setDiscoverError("");
-    setSaveError("");
-    setConfirmImpact(false);
-  }, [provider.revision, provider.id]);
   const effectiveApi = ownsIdentity ? api || provider.api : provider.api;
   const allowReasoning = family === "pi-ai" && (provider.custom === true || models2.some((m) => m?.reasoningEfforts !== void 0));
   const reasoning = allowReasoning ? protocolReasoningLevels(effectiveApi, reasoningLevels) : { levels: [], levelsOnly: false };
@@ -63604,7 +63662,7 @@ function ProviderConfigEditor({
     requireNonEmpty: ownsIdentity
   }) : void 0;
   const retryError = retryEdited ? validateRetryPolicy(retryPolicy, provider.retryDefaults) : void 0;
-  const protocolKeyMissing = family === "pi-ai" && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv;
+  const protocolKeyMissing = family === "pi-ai" && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv && !provider.key?.configured;
   const displayNameChanged = ownsIdentity && displayName.trim() !== initialDisplayName.trim();
   const baseURLChanged = baseURL.trim() !== initialBaseURL.trim();
   const apiChanged = ownsIdentity && api !== initialApi && api !== "";
@@ -63612,23 +63670,66 @@ function ProviderConfigEditor({
   const retryChanged = retryEdited && JSON.stringify(retryPolicy ?? null) !== JSON.stringify(initialRetryPolicy ?? null);
   const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged || retryChanged;
   const invalid = Boolean(baseUrlError || modelError || retryError || protocolKeyMissing);
-  const disabled = readOnly || saving;
-  const impact = modelsChanged ? modelEditorImpact(provider, models2, resetModels, roster) : { switching: [], failed: [], local: [] };
-  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0;
-  const discard = () => {
-    setDisplayName(initialDisplayName);
-    setBaseURL(initialBaseURL);
-    setApi(initialApi);
-    setModels(initialModels);
+  const disabled = readOnly || saving || reloading;
+  const syncFromProvider = (source = provider) => {
+    setDisplayName(source.displayName ?? "");
+    setBaseURL(source.baseURL ?? "");
+    setApi(source.api ?? "");
+    setModels(normalizeModelDrafts(source.editableModels));
     setModelsEdited(false);
     setResetModels(false);
-    setRetryPolicy(initialRetryPolicy);
+    setRetryPolicy(source.retryPolicy ?? void 0);
     setRetryEdited(false);
     setDiscovered(null);
     setDiscoverError("");
+    setDraftRevision(source.revision);
+    setConflicted(false);
+    setSaveError("");
+    setConfirmImpact(false);
+    setResetEpoch((n) => n + 1);
+  };
+  const lastProviderId = (0, import_react72.useRef)(provider.id);
+  (0, import_react72.useEffect)(() => {
+    if (lastProviderId.current === provider.id) return;
+    lastProviderId.current = provider.id;
+    syncFromProvider();
+  }, [provider.id]);
+  (0, import_react72.useEffect)(() => {
+    if (saving || reloading || provider.revision === draftRevision) return;
+    if (!dirty && !conflicted) {
+      syncFromProvider();
+    } else {
+      setConflicted(true);
+    }
+  }, [provider.revision, saving, reloading]);
+  const impact = modelsChanged ? modelEditorImpact(provider, models2, resetModels, roster) : { switching: [], failed: [], local: [] };
+  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0;
+  const reload = () => {
+    if (reloading || typeof actions.providers !== "function") {
+      syncFromProvider();
+      setSavedNotice(false);
+      return;
+    }
+    setReloading(true);
     setSaveError("");
     setSavedNotice(false);
-    setConfirmImpact(false);
+    void translated(actions.providers()).then((next) => {
+      const fresh = next?.providers?.find((p) => p.id === provider.id);
+      if (fresh) syncFromProvider(fresh);
+      else syncFromProvider();
+      if (next?.providers) return apply2(Promise.resolve(next));
+      return true;
+    }).catch((error) => {
+      setSaveError(error?.message ?? String(error));
+    }).finally(() => setReloading(false));
+  };
+  const discard = () => {
+    const wasConflicted = conflicted;
+    syncFromProvider();
+    setSavedNotice(false);
+    if (wasConflicted && typeof actions.providers === "function") {
+      reload();
+    }
   };
   const canDiscover = family === "pi-ai" && !readOnly && (typeof actions.discoverProviderModels === "function" || canRefresh);
   const fetchModels = () => {
@@ -63648,14 +63749,14 @@ function ProviderConfigEditor({
     }).catch((error) => setDiscoverError(error?.message ?? String(error))).finally(() => setDiscovering(false));
   };
   const save = () => {
-    if (disabled || !dirty || invalid || typeof actions.saveProviderConfig !== "function") return;
+    if (disabled || !dirty || invalid || conflicted || typeof actions.saveProviderConfig !== "function") return;
     if (hasImpact && !confirmImpact) {
       setConfirmImpact(true);
       return;
     }
     const payload = {
       provider: provider.id,
-      ...provider.revision !== void 0 ? { revision: provider.revision } : {}
+      ...draftRevision !== void 0 ? { revision: draftRevision } : {}
     };
     if (displayNameChanged) payload.displayName = displayName.trim() === "" ? null : displayName.trim();
     if (baseURLChanged) payload.baseURL = baseURL.trim() === "" ? null : baseURL.trim();
@@ -63671,18 +63772,24 @@ function ProviderConfigEditor({
     setSaveError("");
     setSavedNotice(false);
     void translated(actions.saveProviderConfig(payload)).then((next) => {
+      const fresh = next?.providers?.find((p) => p.id === provider.id);
+      if (fresh) syncFromProvider(fresh);
+      else {
+        setModelsEdited(false);
+        setResetModels(false);
+        setRetryEdited(false);
+        setDiscovered(null);
+        setConflicted(false);
+        setConfirmImpact(false);
+      }
       if (next?.providers) return apply2(Promise.resolve(next));
       return true;
     }).then((ok) => {
       if (ok === false) return;
-      setModelsEdited(false);
-      setResetModels(false);
-      setRetryEdited(false);
-      setDiscovered(null);
-      setConfirmImpact(false);
       setSavedNotice(true);
       void actions.refreshModels?.();
     }).catch((error) => {
+      if (error?.code === "bot/stale") setConflicted(true);
       setSaveError(error?.message ?? String(error));
     }).finally(() => setSaving(false));
   };
@@ -63775,9 +63882,12 @@ function ProviderConfigEditor({
         setSavedNotice(false);
       }
     }) : (0, import_react72.createElement)(ModelListEditor, {
+      key: resetEpoch,
+      resetEpoch,
       models: models2,
       family,
       overridden: effectiveOverridden,
+      inheritedCount: provider.models?.length ?? 0,
       defaultContextWindow: provider.defaultContextWindow,
       defaultMaxTokens: provider.defaultMaxTokens,
       defaultInput: provider.defaultInput,
@@ -63807,6 +63917,8 @@ function ProviderConfigEditor({
       modelError.index >= 0 ? t("Model {index}: {error}", { index: modelError.index + 1, error: t(modelError.key) }) : t(modelError.key)
     ) : null,
     provider.retryDefaults ? (0, import_react72.createElement)(RetryPolicyEditor, {
+      key: resetEpoch,
+      resetEpoch,
       policy: retryPolicy,
       retryDefaults: provider.retryDefaults,
       disabled,
@@ -63827,21 +63939,32 @@ function ProviderConfigEditor({
       { key: `fail-${bot.id}`, className: "bt-set-hint bt-provider-used", role: "status" },
       t("{name} has no model to fall back to; its next turn will fail.", { name: bot.name })
     )),
-    saveError ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, saveError) : null,
+    conflicted ? (0, import_react72.createElement)(
+      "div",
+      { className: "bt-set-hint", "data-error": "", role: "alert" },
+      t("Settings changed elsewhere. Reload or discard your changes and try again.")
+    ) : null,
+    saveError && !conflicted ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, saveError) : null,
     (0, import_react72.createElement)(
       "div",
       { className: "bt-secret-row-actions bt-provider-form-bar" },
-      savedNotice && !dirty ? (0, import_react72.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react72.createElement)(CheckIcon), t("Saved.")) : null,
+      savedNotice && !dirty && !conflicted ? (0, import_react72.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react72.createElement)(CheckIcon), t("Saved.")) : null,
+      conflicted ? (0, import_react72.createElement)("button", {
+        type: "button",
+        className: "bt-soft bt-soft-sm",
+        disabled: readOnly || reloading,
+        onClick: reload
+      }, t("Reload")) : null,
       (0, import_react72.createElement)("button", {
         type: "button",
         className: "bt-soft bt-soft-sm",
-        disabled: disabled || !dirty,
+        disabled: disabled || !dirty && !conflicted,
         onClick: discard
       }, t("Discard")),
       (0, import_react72.createElement)("button", {
         type: "button",
         className: "bt-send bt-soft-sm",
-        disabled: disabled || !dirty || invalid,
+        disabled: disabled || !dirty || invalid || conflicted,
         onClick: save
       }, saving ? t("Saving…") : confirmImpact && hasImpact ? t("Save anyway") : t("Save"))
     )
@@ -64107,17 +64230,18 @@ function KeyEditor({ provider, apply: apply2, actions, compact: compact2 = false
       (0, import_react72.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: !ready, onClick: save }, t("Save"))
     );
   }
+  const hasLocalKey = provider.key?.configured === true && provider.key?.source !== "env";
   return (0, import_react72.createElement)(
     "div",
     { className: "bt-secret-edit-block" },
-    (0, import_react72.createElement)("div", { className: "bt-secret-edit-label" }, provider.key.configured ? t("Replace the API key") : t("API key")),
+    (0, import_react72.createElement)("div", { className: "bt-secret-edit-label" }, hasLocalKey ? t("Replace the API key") : t("API key")),
     (0, import_react72.createElement)(CredentialHint, { provider }),
     (0, import_react72.createElement)(
       "div",
       { className: "bt-secret-inline" },
       (0, import_react72.createElement)(ApiKeyField, { value, onChange: edit, onEnter: save, label, disabled }),
       (0, import_react72.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: save }, t("Save")),
-      provider.key.configured ? (0, import_react72.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-secret-danger", disabled, onClick: () => apply2(actions.setProviderKey(provider.id, null)) }, t("Remove key")) : null
+      hasLocalKey ? (0, import_react72.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-secret-danger", disabled, onClick: () => apply2(actions.setProviderKey(provider.id, null)) }, t("Remove key")) : null
     ),
     keyError ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, t(keyError)) : null,
     saved ? (0, import_react72.createElement)("div", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react72.createElement)(CheckIcon), t("Saved.")) : null
@@ -64186,12 +64310,13 @@ function KnownForm({ view, apply: apply2, actions, onDone }) {
   };
   const add = () => {
     if (!ready) return;
-    const hasRich = baseURL.trim() !== "" || models2.length > 0 || retryPolicy !== void 0;
-    if (typeof actions.addProviderConfig === "function" && hasRich) {
+    const rev = view.revision !== void 0 ? { revision: view.revision } : {};
+    if (typeof actions.addProviderConfig === "function") {
       const cleanedRetry = cleanRetryPolicyForSave(retryPolicy);
       void apply2(actions.addProviderConfig({
         provider,
         key,
+        ...rev,
         ...baseURL.trim() !== "" ? { baseURL: baseURL.trim() } : {},
         ...models2.length > 0 ? { models: models2 } : {},
         ...cleanedRetry !== void 0 ? { retryPolicy: cleanedRetry } : {}
@@ -64200,7 +64325,7 @@ function KnownForm({ view, apply: apply2, actions, onDone }) {
       });
       return;
     }
-    void apply2((actions.addProviderConfig ?? actions.addProvider)({ provider, key })).then((ok) => {
+    void apply2(actions.addProvider({ provider, key })).then((ok) => {
       if (ok) onDone();
     });
   };
@@ -64276,7 +64401,7 @@ function KnownForm({ view, apply: apply2, actions, onDone }) {
           { className: "bt-set-hint", "data-error": "", role: "alert" },
           modelError.index >= 0 ? t("Model {index}: {error}", { index: modelError.index + 1, error: t(modelError.key) }) : t(modelError.key)
         ) : null,
-        view.retryDefaults ? (0, import_react72.createElement)(RetryPolicyEditor, { policy: retryPolicy, retryDefaults: view.retryDefaults, onChange: setRetryPolicy }) : null,
+        view.retryDefaults ? (0, import_react72.createElement)(RetryPolicyEditor, { key: provider, resetEpoch: provider, policy: retryPolicy, retryDefaults: view.retryDefaults, onChange: setRetryPolicy }) : null,
         retryError ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, t(retryError)) : null
       ) : null
     ) : null,
@@ -64290,6 +64415,7 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const [retryPolicy, setRetryPolicy] = (0, import_react72.useState)(void 0);
   const [showAdvanced, setShowAdvanced] = (0, import_react72.useState)(false);
   const [asking, setAsking] = (0, import_react72.useState)(false);
+  const [fetchError, setFetchError] = (0, import_react72.useState)("");
   const set = (field, value) => setDraft((current2) => ({ ...current2, [field]: value }));
   const typed = draft.typed.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean);
   const configuredIds = new Set(configuredModels.map((m) => typeof m?.id === "string" ? m.id.trim() : "").filter(Boolean));
@@ -64320,11 +64446,12 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   );
   const fetchModels = () => {
     const discover = actions.discoverProviderModels ?? actions.providerModels;
-    if (typeof discover !== "function") return;
+    if (typeof discover !== "function" || asking) return;
     setAsking(true);
-    void apply2(Promise.resolve(discover({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
+    setFetchError("");
+    void translated(discover({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
       setFound(Array.isArray(list) ? list : []);
-    })).finally(() => setAsking(false));
+    }).catch((error) => setFetchError(error?.message ?? String(error))).finally(() => setAsking(false));
   };
   const add = () => {
     if (!ready) return;
@@ -64338,6 +64465,7 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
       api: draft.api,
       key: draft.key,
       models: models2,
+      ...view.revision !== void 0 ? { revision: view.revision } : {},
       ...cleanedRetry !== void 0 ? { retryPolicy: cleanedRetry } : {}
     })).then((ok) => {
       if (ok) onDone();
@@ -64395,6 +64523,7 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
           setShowAdvanced(true);
         }
       }) : null,
+      fetchError ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, fetchError) : null,
       input("typed", t("Model ids"), t("Model ids, separated by commas"))
     ),
     (0, import_react72.createElement)("button", {
