@@ -81,6 +81,8 @@ test('i18n starts English-only and loads non-English locales dynamically on dema
   for (const loc of ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']) {
     assert.equal(isLocaleLoaded(loc), true)
     assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Reload window'), `${loc} must include Reload window translation`)
+    assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Reload window?'), `${loc} must include Reload window? translation`)
+    assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Unsent attachments will be removed.'), `${loc} must include Unsent attachments will be removed. translation`)
   }
 })
 

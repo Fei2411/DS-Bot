@@ -52,7 +52,6 @@ class SettingsEntryBoundary extends Component {
   }
 
   retry() {
-    LazySettingsDialog.reset()
     this.setState(prev => ({ failed: false, retryCount: prev.retryCount + 1 }))
   }
 

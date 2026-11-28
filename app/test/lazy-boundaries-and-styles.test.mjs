@@ -301,12 +301,129 @@ test('createRetryableLazy + SlotErrorBoundary recovers from dynamic import failu
   }
 })
 
-test('WorkspacePaneBody terminal uses SlotErrorBoundary, Loading fallback, and retryable lazy loader', () => {
+test('WorkspacePaneBody terminal uses SlotErrorBoundary, Loading fallback, and retryable lazy loader without duplicate reset', () => {
   const rpSrc = readFileSync(new URL('../ui/src/right-panel.js', import.meta.url), 'utf8')
   assert.match(rpSrc, /createRetryableLazy/, 'right-panel.js must use createRetryableLazy for WorkspaceTerminal')
   assert.match(rpSrc, /slotName:\s*['"]workspace:terminal['"]/, 'terminal pane must be isolated by a local SlotErrorBoundary')
   assert.match(rpSrc, /className:\s*['"]dsb-rp-empty['"][\s\S]*t\(['"]Loading…['"]\)/, 'terminal Suspense fallback must use .dsb-rp-empty Loading…')
-  assert.match(rpSrc, /WorkspaceTerminal\.reset\?\.\(\)/, 'terminal SlotErrorBoundary retry must reset the lazy loader')
+  assert.match(rpSrc, /onError:\s*\(\)\s*=>\s*\{\s*WorkspaceTerminal\.reset\?\.\(\)\s*\}/, 'terminal SlotErrorBoundary onError must reset the lazy loader')
+  assert.doesNotMatch(rpSrc, /onRetry:\s*\(\)\s*=>\s*\{\s*WorkspaceTerminal\.reset\?\.\(\)\s*\}/, 'terminal SlotErrorBoundary must not double-call WorkspaceTerminal.reset in both onError and onRetry')
+  const pagesSrc = readFileSync(new URL('../ui/src/settings-pages-lazy.js', import.meta.url), 'utf8')
+  assert.match(pagesSrc, /onError:\s*\(\)\s*=>\s*\{\s*Lazy\.reset\(\)\s*\}/, 'LazySettingsPage onError must reset the lazy loader')
+  assert.doesNotMatch(pagesSrc, /onRetry:\s*\(\)\s*=>\s*\{\s*Lazy\.reset\(\)\s*\}/, 'LazySettingsPage must not double-call Lazy.reset in both onError and onRetry')
+})
+
+test('reloadWindowSafely reloads immediately without attachments and confirms before discarding unsent attachments (B4)', async () => {
+  const { outputFiles } = await build({
+    stdin: {
+      contents: [
+        "export { reloadWindowSafely } from './app/ui/src/retryable-lazy.js'",
+        "export { ReloadConfirmHost } from './ds-bot/src/client/reload-recovery.js'",
+        "export { forgetKeptFiles, hasKeptDraftFiles, keepDraft } from './ds-bot/src/client/draft-keep.js'",
+      ].join('\n'),
+      resolveDir: repoDir,
+      loader: 'js',
+    },
+    bundle: true,
+    format: 'cjs',
+    platform: 'browser',
+    write: false,
+    logLevel: 'silent',
+    nodePaths: [`${appDir}/node_modules`],
+    external: ['react', 'react-dom'],
+  })
+
+  const React = await import('react')
+  const ReactDOM = await import('react-dom')
+  const { createRoot } = await import('react-dom/client')
+  const { installMiniDom } = await import('./mini-dom.mjs')
+  installMiniDom()
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  const store = new Map()
+  const fakeStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)) },
+    removeItem: k => { store.delete(k) },
+  }
+  let reloaded = 0
+  const fakeLocation = { reload() { reloaded += 1 } }
+  const mod = { exports: {} }
+  const sandbox = {
+    module: mod,
+    exports: mod.exports,
+    window: globalThis.window,
+    document: globalThis.document,
+    navigator: globalThis.navigator,
+    localStorage: fakeStorage,
+    location: fakeLocation,
+    console,
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame: cb => setTimeout(cb, 0),
+    cancelAnimationFrame: clearTimeout,
+    require: name => (name === 'react' ? React : name === 'react-dom' ? ReactDOM : {}),
+  }
+  sandbox.globalThis = sandbox
+  runInNewContext(outputFiles[0].text, sandbox)
+  const { reloadWindowSafely, ReloadConfirmHost, forgetKeptFiles, hasKeptDraftFiles, keepDraft } = mod.exports
+
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    forgetKeptFiles()
+    await React.act(async () => {
+      root.render(React.createElement(ReloadConfirmHost))
+    })
+
+    // 1. No unsent attachments -> reloads immediately without confirmation dialog.
+    assert.equal(hasKeptDraftFiles(), false)
+    await React.act(async () => { reloadWindowSafely() })
+    assert.equal(reloaded, 1, 'should reload immediately when no unsent attachments exist')
+    assert.equal(document.querySelector('[role="alertdialog"]'), null, 'no dialog when no attachments exist')
+
+    // 2. Stage an in-memory attachment (e.g. long folded paste) -> shows confirmation dialog.
+    keepDraft({
+      chatId: 'bot-paste',
+      part: 'p1',
+      text: '',
+      files: [{ kind: 'file', file: { name: 'paste-1.txt' }, pastedText: 'long log content' }],
+    }, fakeStorage)
+    assert.equal(hasKeptDraftFiles(), true)
+
+    await React.act(async () => { reloadWindowSafely() })
+    assert.equal(reloaded, 1, 'must NOT reload immediately when unsent attachments exist')
+    const dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog, 'must show confirmation alertdialog when unsent attachments exist')
+    assert.match(dialog.textContent, /Unsent attachments will be removed/, 'dialog must warn about unsent attachments')
+
+    // Cancel keeps attachments intact and does not reload.
+    const buttons = [...dialog.querySelectorAll('button')]
+    const cancelBtn = buttons.find(b => b.textContent === 'Cancel')
+    assert.ok(cancelBtn, 'confirmation dialog must offer Cancel button')
+    await React.act(async () => {
+      clickEl(cancelBtn)
+      await new Promise(r => setTimeout(r, 200))
+    })
+    assert.equal(reloaded, 1, 'canceling confirmation must not reload')
+    assert.equal(hasKeptDraftFiles(), true, 'canceling must preserve unsent attachments')
+    assert.equal(document.querySelector('[role="alertdialog"]'), null, 'dialog must close after cancel')
+
+    // Re-trigger and confirm -> reloads window.
+    await React.act(async () => { reloadWindowSafely() })
+    const dialog2 = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog2)
+    const confirmBtn = [...dialog2.querySelectorAll('button')].find(b => b.textContent === 'Reload window')
+    assert.ok(confirmBtn, 'confirmation dialog must offer Reload window confirm button')
+    await React.act(async () => { clickEl(confirmBtn) })
+    assert.equal(reloaded, 2, 'confirming dialog must reload window')
+
+    await React.act(async () => { root.unmount() })
+    container.remove()
+  } finally {
+    forgetKeptFiles()
+  }
 })
 
 test('SettingsPalette failure in SettingsDialog is caught locally without unmounting SettingsDialog', async () => {

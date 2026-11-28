@@ -7,6 +7,7 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
+import { ReloadConfirmHost } from '../../../ds-bot/src/client/reload-recovery.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
 import { allThemes, effectsOf, flatWidthOf, layoutOf, themeCss, themesOf, widthOf } from '../../../ds-bot/src/client/themes.js'
@@ -671,5 +672,6 @@ export function App() {
       onClose: actions.closeShortcuts,
     }),
     h(ShellOverlayHost, { registry: slots, views })),
+  h(ReloadConfirmHost),
   h(ErrorToast, views))
 }

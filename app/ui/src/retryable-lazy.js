@@ -2,20 +2,16 @@
 // inside React's lazy payload. Reused by engine-settings-bridge, right-panel terminal,
 // settings-entry-lazy, and settings-pages-lazy.
 import { createElement as h, lazy } from 'react'
-import { flushDrafts } from '../../../ds-bot/src/client/draft-keep.js'
+import { requestWindowReload } from '../../../ds-bot/src/client/reload-recovery.js'
 import { bustImportUrl } from './plugin-runtime.js'
 
 /**
  * Flush any debounced composer drafts into browser storage synchronously before
  * performing a full window reload to clear Chromium's poisoned module map.
+ * When unsent in-memory attachments exist, prompts for explicit confirmation first.
  */
-export function reloadWindowSafely() {
-  try {
-    flushDrafts()
-  } catch {
-    // Storage may be unavailable in restricted contexts.
-  }
-  globalThis.location?.reload?.()
+export function reloadWindowSafely(options) {
+  return requestWindowReload(options)
 }
 
 function findChunkUrl(error, chunkPattern) {

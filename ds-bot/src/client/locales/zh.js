@@ -477,6 +477,8 @@ export const ZH = {
   'Top up ↗': '去充值 ↗',
   Retry: '重试',
   'Reload window': '重新加载窗口',
+  'Reload window?': '重新加载窗口？',
+  'Unsent attachments will be removed.': '未发送的附件将会被移除。',
   'Retrying…': '正在重试…',
   'Continuing…': '正在继续…',
   '{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.': '{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。',

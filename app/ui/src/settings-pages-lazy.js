@@ -31,7 +31,6 @@ function lazyPage(load, exportName, { chunkPattern, styles = [], boundary = true
       slotName: `settings:${exportName}`,
       resetKey: exportName,
       onError: () => { Lazy.reset() },
-      onRetry: () => { Lazy.reset() },
     }, content)
   }
   LazySettingsPage.reset = () => { Lazy.reset() }
