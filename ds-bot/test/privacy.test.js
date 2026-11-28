@@ -1192,7 +1192,9 @@ test('shell permits API headers, branch names and project paths', async (t) => {
   for (const command of [
     'curl -H "APCA-API-KEY-ID: $APCA_API_KEY_ID" -H "APCA-API-SECRET-KEY: $APCA_API_SECRET_KEY" https://paper-api.alpaca.markets/v2/positions',
     'curl -H "x-api-key: $KEY" https://example.com/',
+    'curl -H "X-Api-Key: $KEY" -H "x-api-version: 2" https://example.com/',
     'git switch -c feat/api-x',
+    'git switch -c feat/api-foo',
     'git switch -c feat/api-tokenize',
     'echo "xapi-y"',
     'cat src/api-client.ts',
@@ -1258,6 +1260,24 @@ test('shell and run_code block partial host API filenames that can continue', as
     assert.equal(res.ran, false)
     assert.match(res.error, /API token/)
   })
+})
+
+test('shell and run_code block host API filenames embedded in longer strings', async (t) => {
+  const { run, home, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  agent.session.header.cwd = home
+  for (const [label, name, args] of [
+    ['shell prefix trimming', 'bash', { command: 'X=xapi-tokens.json; cat "${X#x}"' }],
+    ['shell suffix trimming', 'bash', { command: 'X=api-tokens.jsonx; cat "${X%x}"' }],
+    ['run_code prefix trimming', 'run_code', { code: 'return "xapi-tokens.json".slice(1)' }],
+  ]) {
+    await t.test(label, async () => {
+      const res = await run(name, args, 'b', agent)
+      assert.equal(res.ran, false)
+      assert.match(res.error, /API token/)
+    })
+  }
 })
 
 test('run_code allows workspace api-*/mcp.json files while guardApiFiles still blocks rt.home API/MCP/telemetry files', async (t) => {
