@@ -1,6 +1,10 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'Reconnecting…': 'Reconectando…',
+  'Reconnect': 'Reconectar',
+  'Waiting to confirm…': 'Esperando confirmación…',
+  'Live updates paused: message too large': 'Actualizaciones en vivo en pausa: mensaje demasiado grande',
   'Auto review': 'Revisión automática',
   'Session only': 'Solo esta sesión',
   'Permission preset': 'Preajuste de permisos',
@@ -2623,6 +2627,7 @@ export const ES = {
   "Usage details": "Detalles de uso",
   "Web": "Web",
   "Web search API": "API de búsqueda web",
+  "Edit in config file": "Editar en el archivo de configuración",
   "Chat background": "Fondo del chat",
   "While this chat is open, its background takes the place of the team background.": "Mientras este chat está abierto, su fondo sustituye al fondo del equipo.",
   "This chat uses the team background.": "Este chat usa el fondo del equipo.",

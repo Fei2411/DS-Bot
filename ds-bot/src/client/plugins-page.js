@@ -9,6 +9,7 @@ import { writeClipboard } from './dsh-primitives.js'
 import { BotAvatar } from './mark.js'
 import { ExtensionsClusterMark, PluginMark, browserMetaFor } from './plugin-marks.js'
 import { isExternalBrowserPlugin } from './browser-plugin-mode.js'
+import { isBlockedEngineBundle } from '../shared/engine-bundles.js'
 import {
   CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon,
   PlusIcon, SearchIcon, SpinnerIcon, TrashIcon,
@@ -47,27 +48,12 @@ const SLOT_CHOICES = [
 // (safe across POSIX shells, PowerShell, and Windows Command Prompt).
 const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
-// Internal DSH profiles, experimental engine bundles, and subagent/agent-team bundles
-// belong only to Engine plugins (or are disallowed in DS Bot) and must never leak into
-// DS Bot's Plugins catalog or Discover section.
-const HIDDEN_ENGINE_BUNDLES = new Set([
-  'dsbot-engine',
-  '@deepseek-ai/dsh-acp-app',
-  '@deepseek-ai/dsh-headless',
-  '@deepseek-ai/dsh-sdk-app',
-  '@deepseek-ai/dsh-sdk-minimal',
-  '@deepseek-ai/dsh-experimental-agent-team-profile',
-  '@deepseek-ai/dsh-experimental-ralph-bundle',
-  '@deepseek-ai/dsh-experimental-terminal-bundle',
-  '@deepseek-ai/dsh-experimental-tool-worktree',
-])
-
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false
   if (plugin.sourceId === 'installed' && !plugin.installed) return true
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? '').startsWith('dsh:') ? String(plugin.id).slice(4) : '')).trim()
   if (!pkg) return false
-  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith('@deepseek-ai/dsh-subagent-')
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) })
 }
 
 function safeExternalUrl(raw) {
@@ -674,7 +660,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     h(ChevronRightIcon))
 }
 
-export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null }) {
+export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -817,8 +803,8 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   }
 
   const plugins = useMemo(
-    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p)),
-    [view],
+    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow],
   )
   const bots = roster?.bots ?? []
   const browserSlot = view?.slots?.browser

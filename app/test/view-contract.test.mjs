@@ -982,3 +982,63 @@ test('AST collector detects computed indexing, memo/arrow components, hooks dest
   assert.deepEqual([...actions.keys()].sort(), ['aliasAct', 'fallbackAct', 'literalAct', 'loopActOne', 'loopActTwo', 'nestedAct'])
   assert.deepEqual([...hooks.keys()].sort(), ['useAlpha', 'useBeta', 'useDelta', 'useGamma'])
 })
+
+test('resumed feed replay and fillGap canonical facts do not duplicate synthetic turns or corrupt unread boundary', async () => {
+  const { team, emitFeed } = await createDesktopHarness({
+    callHandler: async (endpoint) => {
+      if (endpoint === 'state') {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [
+            { id: 'bot-a', sessionId: 'sess-a', name: 'Alpha' },
+            { id: 'bot-b', sessionId: 'sess-b', name: 'Beta' },
+          ],
+          rooms: [],
+        }
+      }
+      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      return {}
+    },
+  })
+  const stop = team.start()
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    team.actions.openSession('bot-a')
+
+    // Bot B replies in background (unnumbered feed item at seq 10), then user opens and reads Bot B.
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'first reply', seq: 10, time: 1000 } })
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], true)
+    team.actions.openSession('bot-b')
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], undefined)
+
+    // Transcript fillGap / historyReloaded publishes canonical facts covering through seq 30 (turns 0 and 1).
+    team.actions.noteTurnFacts('sess-b', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed', start: { seq: 1, time: 900 }, end: { seq: 12, time: 1000 } }],
+        [1, { turn: 1, status: 'closed', start: { seq: 20, time: 1900 }, end: { seq: 30, time: 2000 } }],
+      ]),
+      closingReplies: new Map([
+        [0, 'first reply'],
+        [1, 'backfilled reply'],
+      ]),
+    })
+    team.actions.openSession('bot-a')
+
+    // Resumed SSE reconnect replays seq 10 (already seen) and seq 25 (already covered by canonical facts).
+    emitFeed('hello', { revision: 1, feedSeq: 30, resumed: true })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'first reply', seq: 10, time: 1000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'backfilled reply', seq: 25, time: 2000 } })
+
+    const outlineAfterReplay = team.snapshots.sessions().byId['sess-b']?.projectionValues?.turnOutline
+    assert.deepEqual(Array.from(outlineAfterReplay, entry => entry.turn), [0, 1])
+    assert.equal(outlineAfterReplay[0].response, 'first reply')
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], undefined, 'replayed/covered feed items must not create phantom turns or false unread dot')
+
+    // A genuinely new background turn (turn 2, seq 40) still lights up the unread dot cleanly.
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'new reply', turn: 2, seq: 40, time: 3000 } })
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], true)
+  } finally {
+    stop()
+  }
+})

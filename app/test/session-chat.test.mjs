@@ -717,6 +717,233 @@ test('useSessionFollow resyncs once without the stale cursor and replaces rows w
   }
 })
 
+test('useSessionFollow preserves already-loaded earlier pages on bot/stale and fills only the gap', async () => {
+  fetchCtrl.reset()
+  const pageCalls = []
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+  sandbox.__testCall = async (name, body) => {
+    pageCalls.push([name, body])
+    if (name === 'session-page' && body.beforeSeq === 6) {
+      return { records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `earlier ${seq}`) })), hasMore: false }
+    }
+    if (name === 'session-page' && body.beforeSeq === 13) {
+      return { records: [11, 12].map(seq => ({ type: 'event', event: msg(seq, `gap ${seq}`) })), hasMore: true }
+    }
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    // Initial snapshot loads 6..10 with hasMore: true.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [6, 7, 8, 9, 10].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    // User scrolls up and loads earlier page 1..5 (hasMore becomes false).
+    await view.loadEarlier(null)
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert.equal(view.log.hasMore, false)
+
+    // bot/stale arrives -> reopens without cursor -> fresh snapshot starts at 13..15 (gap 11..12).
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale cursor' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 15, hasMore: true,
+      records: [13, 14, 15].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    // A live event 16 arrives right after the snapshot while gap fill is settling.
+    fetchCtrl.latest().push('frame', { type: 'event', event: msg(16, 'live 16') })
+    await tick()
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    assert.equal(view.log.hasMore, false, 'earlier loaded page boundary (hasMore: false) is preserved')
+    assert.equal(view.historyReloaded, false, 'gap fill preserves history without marking full reload')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow falls back cleanly when bot/stale gap fill fails and ignores stale gap fills after superseding snapshot', async () => {
+  fetchCtrl.reset()
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+
+  // Part 1: fillGap failure falls back to opening events + historyReloaded: true (never leaves a silent middle hole).
+  sandbox.__testCall = async (name) => {
+    if (name === 'session-page') throw new Error('network failed')
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [10, 11, 12], 'failed gap fill must drop unreachable prefix instead of leaving a permanent middle hole')
+    assert.equal(view.log.hasMore, true, 'failed gap fill restores snapshot hasMore so Load earlier works')
+    assert.equal(view.historyReloaded, true, 'failed gap fill surfaces historyReloaded banner')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+
+  // Part 2: superseding snapshot/rewind arriving while fillGap is in flight cancels the old gap fill.
+  let resolveGap
+  sandbox.__testCall = (name) => {
+    if (name === 'session-page') {
+      return new Promise((resolve) => { resolveGap = resolve })
+    }
+    return Promise.resolve({ records: [], hasMore: false })
+  }
+  const inst2 = mount(Probe, {})
+  try {
+    inst2.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    assert.equal(typeof resolveGap, 'function', 'fillGap should be in flight')
+
+    // Superseding rewind snapshot arrives while fillGap is still pending.
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'rewound' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 4, hasMore: false,
+      records: [2, 3, 4].map(seq => ({ type: 'event', event: msg(seq, `rewind ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+
+    // Old fillGap now resolves with outdated gap events 6..9 -> must be ignored!
+    resolveGap({ records: [6, 7, 8, 9].map(seq => ({ type: 'event', event: msg(seq, `stale-gap ${seq}`) })), hasMore: false })
+    await tick()
+    await tick()
+    inst2.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [2, 3, 4], 'stale in-flight fillGap must not splice outdated events into superseding snapshot')
+    assert.equal(view.log.cursor, 4)
+  } finally {
+    sandbox.__testCall = origCall
+    inst2.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow in read-only mode ignores hello { resumed: true }, reopens on hello { resumed: false } and catalog updatedAt change', async () => {
+  fetchCtrl.reset()
+  const listeners = new Set()
+  const feed = { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } }
+  const emit = (ev, data) => { for (const fn of listeners) fn(ev, data) }
+  let view
+  const Probe = ({ updatedAt }) => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, feed, readOnly: true, readOnlyUpdatedAt: updatedAt })
+    return null
+  }
+  const inst = mount(Probe, { updatedAt: 100 })
+  try {
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1)
+    emit('hello', { revision: 1, feedSeq: 1, resumed: true })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'resumed hello must not reopen read-only session follow')
+    // Same updatedAt keeps it idle.
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'unchanged updatedAt must not reopen read-only session follow')
+    // Advancing catalog updatedAt (same DM segment updated in writer process) reopens to pick up new messages.
+    inst.render({ updatedAt: 200 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'advancing readOnlyUpdatedAt reopens read-only session follow')
+    emit('hello', { revision: 1, feedSeq: 1, resumed: false })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 3, 'unresumed hello reopens read-only session follow')
+    void view
+  } finally {
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('openSessionFollow stops reconnecting and surfaces a terminal error when a single SSE frame exceeds the buffer limit', async () => {
+  fetchCtrl.reset()
+  recordedTimers.length = 0
+  const events = []
+  let cancelled = false
+  fetchCtrl.setImpl(async () => ({
+    ok: true,
+    body: {
+      getReader: () => {
+        let sent = false
+        return {
+          async read() {
+            if (!sent) {
+              sent = true
+              return { value: new TextEncoder().encode('data: ' + 'x'.repeat(8 * 1024 * 1024 + 64)), done: false }
+            }
+            return { value: undefined, done: true }
+          },
+          async cancel() { cancelled = true },
+        }
+      },
+    },
+  }))
+  const handle = openSessionFollow({ sessionId: 'b1' }, (event, data) => events.push([event, data]))
+  try {
+    await tick()
+    await tick()
+    assert.equal(cancelled, true)
+    assert.equal(recordedTimers.length, 0, 'oversized session SSE frame must not schedule a retry')
+    assert.equal(events.some(([ev, data]) => ev === 'error' && data?.code === 'bot/stream-overflow'), true)
+  } finally {
+    handle.close()
+    fetchCtrl.reset()
+  }
+})
+
 test('Chat DM renders real recorded session, show_view via WidgetCell, legacy reactions, EarlierParts across rollover, pagination, and pending dedup', async () => {
   fetchCtrl.reset()
   const listeners = new Set()

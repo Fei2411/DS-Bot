@@ -78,12 +78,115 @@ test('openFeed escalates backoff on repeated 200-EOF responses, resets on valid 
   fireTimer()
   await tick()
   await tick()
-  assert.equal(calls, 5, 'oversized incomplete SSE frame throws and transitions to retry')
+  assert.equal(calls, 5, 'oversized incomplete SSE frame throws and stops reconnecting')
   assert.equal(overflowCancelled, true, 'oversized SSE stream reader must be cancelled')
   assert.equal(overflowSignal?.aborted, true, 'oversized SSE fetch controller must be aborted')
-  assert.equal(pendingTimers.size, 1, 'retry timer is armed before stop()')
+  assert.equal(pendingTimers.size, 0, 'oversized SSE frame stops retry loop instead of retrying forever')
+  assert.equal(events.some(([ev, data]) => ev === 'error' && data?.code === 'bot/stream-overflow'), true, 'oversized SSE frame emits visible terminal error')
   stop()
-  assert.equal(pendingTimers.size, 0, 'stop() cancels active backoff timer immediately')
+  assert.equal(pendingTimers.size, 0, 'stop() leaves no active timers')
+})
+
+test('openFeed passes after, boot, and Last-Event-ID on reconnect and parses chunk-split CRLF/frame boundaries', async (t) => {
+  const origFetch = globalThis.fetch
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  t.after(() => {
+    globalThis.fetch = origFetch
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+  globalThis.setTimeout = () => 1
+  globalThis.clearTimeout = () => {}
+
+  const requests = []
+  const events = []
+  let calls = 0
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url, headers: init?.headers })
+    calls += 1
+    if (calls === 1) {
+      // Split CRLF (\r | \n), frame separator (\n | \n), and boot-scoped SSE id (`b-1:8`) across chunks.
+      return {
+        ok: true,
+        status: 200,
+        body: makeStream([
+          'id: b-1:7\r',
+          '\nevent: hello\r\ndata: {"revision":1,"boot":"b-1","feedSeq":7,"resumed":false}\r\n\r',
+          '\nid: b-1:8\nevent: live\ndata: {}\n',
+          '\n: rotate\n\n',
+        ]),
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        getReader() {
+          let sent = false
+          return {
+            async read() {
+              if (!sent) {
+                sent = true
+                return { value: new TextEncoder().encode('id: b-1:8\nevent: hello\ndata: {"revision":1,"boot":"b-1","feedSeq":8,"resumed":true}\n\n'), done: false }
+              }
+              return await new Promise(() => {})
+            },
+            async cancel() {},
+          }
+        },
+      },
+    }
+  }
+
+  const stop = openFeed((event, data) => events.push([event, data]))
+  await tick()
+  await tick()
+  await tick()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].url, 'api/bot/feed')
+  assert.equal(requests[1].url, 'api/bot/feed?after=8&boot=b-1')
+  assert.equal(requests[1].headers?.['Last-Event-ID'], 'b-1:8')
+  assert.deepEqual(events, [
+    ['hello', { revision: 1, boot: 'b-1', feedSeq: 7, resumed: false }],
+    ['live', {}],
+    ['hello', { revision: 1, boot: 'b-1', feedSeq: 8, resumed: true }],
+  ])
+  stop()
+})
+
+test('openFeed decodes multi-byte UTF-8 characters split across SSE byte chunks without corruption', async (t) => {
+  const origFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = origFetch })
+
+  const full = new TextEncoder().encode('id: b-utf:1\nevent: message\ndata: {"text":"你好 🚀 世界"}\n\n')
+  // Split right inside multi-byte UTF-8 sequences (1-byte slices across the CJK and emoji bytes).
+  const chunks = []
+  for (let i = 0; i < full.length; i += 2) {
+    chunks.push(full.slice(i, i + 2))
+  }
+  let idx = 0
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (idx < chunks.length) return { value: chunks[idx++], done: false }
+            return await new Promise(() => {})
+          },
+          async cancel() {},
+        }
+      },
+    },
+  })
+
+  const events = []
+  const stop = openFeed((event, data) => events.push([event, data]))
+  for (let i = 0; i < chunks.length + 4; i += 1) await tick()
+  assert.deepEqual(events, [['message', { text: '你好 🚀 世界' }]])
+  stop()
 })
 
 test('openFeed reconnects immediately without backoff or lost event on server : rotate comment', async (t) => {
@@ -290,6 +393,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   t.after(stop)
   await tick()
   assert.equal(pullCount, 1)
+  assert.equal(team.snapshots.shown(), 'b1', 'Bot mode lands on the Main Bot immediately on first pull without a 400 ms blank delay')
   assert.equal(intervalsStarted, 1)
   assert.ok(intervalCb !== null)
 
@@ -423,6 +527,55 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
     team.actions.closeSettings()
   })
 
+  // 6. Clean resumed hello does not trigger state pull; unresumed hello does; hidden window defers live pull until visible; lost > 2s surfaces reconnecting state.
+  const pullsBeforeResumed = pullCount
+  sandbox.__feedCb('hello', { revision: rosterValue.revision, feedSeq: 5, resumed: true })
+  await tick()
+  assert.equal(pullCount, pullsBeforeResumed, 'hello { resumed: true } must not trigger a redundant state pull')
+
+  sandbox.__feedCb('hello', { revision: rosterValue.revision, feedSeq: 5, resumed: false })
+  await tick()
+  assert.equal(pullCount, pullsBeforeResumed + 1, 'hello { resumed: false } triggers catch-up state pull')
+
+  // Hidden window defers live-triggered pull until visible again.
+  const pullsWhileHidden = pullCount
+  isHidden = true
+  docListeners.get('visibilitychange')()
+  sandbox.__feedCb('live', {})
+  await tick()
+  assert.equal(pullCount, pullsWhileHidden, 'live event while hidden does not trigger immediate state pull')
+  isHidden = false
+  docListeners.get('visibilitychange')()
+  await tick()
+  assert.equal(pullCount, pullsWhileHidden + 1, 'becoming visible flushes deferred pull')
+
+  // Disconnect visibility: lost > 2s marks reconnecting, hello clears it; fatal stream error surfaces error state.
+  assert.equal(team.hooks.useConnection(c => c.status), 'connected')
+  sandbox.__feedCb('lost', {})
+  assert.equal(team.hooks.useConnection(c => c.status), 'connected', 'brief lost does not flash reconnecting immediately')
+  await new Promise(resolve => setTimeout(resolve, 2100))
+  assert.equal(team.hooks.useConnection(c => c.status), 'reconnecting', 'lost > 2s shows reconnecting banner')
+  sandbox.__feedCb('hello', { revision: rosterValue.revision, feedSeq: 6, resumed: true })
+  assert.equal(team.hooks.useConnection(c => c.status), 'connected', 'hello restores connected state')
+  sandbox.__feedCb('error', { code: 'bot/stream-overflow', message: 'SSE buffer limit exceeded', fatal: true })
+  assert.equal(team.hooks.useConnection(c => c.status), 'error', 'fatal SSE overflow surfaces visible error state')
+
+  // 7. When liveKey is unchanged on a state pull, pull skips per-field JSON.stringify comparisons.
+  rosterValue = { ...rosterValue, revision: 5, liveKey: 'lk-stable', connectors: [{ id: 'c1' }] }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  const origStringify = sandbox.JSON?.stringify ?? JSON.stringify
+  let stringifyCalls = 0
+  sandbox.JSON = Object.assign(Object.create(JSON), {
+    stringify: (...args) => { stringifyCalls += 1; return origStringify(...args) },
+    parse: JSON.parse,
+  })
+  nextRead = {
+    promise: Promise.resolve({ revision: 5, unchanged: true, liveKey: 'lk-stable', connectors: [{ id: 'c1' }], activity: {} }),
+  }
+  intervalCb()
+  await tick()
+  assert.equal(stringifyCalls, 0, 'unchanged liveKey skips all per-field JSON.stringify checks in pull()')
   void liveUpdates
   void unsubLive
   stop()

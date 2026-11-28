@@ -10,6 +10,7 @@ import { inkText, paintCss } from '../../../ds-bot/src/client/inks.js'
 import { PendingLearning } from '../../../ds-bot/src/client/learning-card.js'
 import { lookOf } from '../../../ds-bot/src/client/mark.js'
 import { DeepSeekSignIn } from '../../../ds-bot/src/client/model-menu.js'
+import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
@@ -31,6 +32,7 @@ import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore
 import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
 export { ShellOverlayHost }
 import { createTeam } from './team.js'
+import { conversationTitleOf, useWindowTitle } from './window-title.js'
 
 const CLASSIC_BROWSER_OWNER = 'classic'
 
@@ -172,6 +174,26 @@ function ClassicTitleToggle({ hidden, onToggle }) {
     title: label,
     onClick: onToggle,
   }, h(SidebarIcon)), document.body)
+}
+
+function ConnectionBanner({ useConnection, onReconnect }) {
+  const conn = useConnection ? useConnection(state => state) : null
+  const active = conn && conn.status !== 'connected' ? conn : null
+  const [shown, leaving] = useLinger(active, 180)
+  if (!shown) return null
+  const isError = shown.status === 'error'
+  return h('div', {
+    className: 'dsb-conn-banner',
+    role: isError ? 'alert' : 'status',
+    'aria-live': isError ? 'assertive' : 'polite',
+    'data-tone': isError ? 'error' : 'warn',
+    'data-leaving': leaving ? '' : undefined,
+  },
+  h('span', { className: 'dsb-conn-dot', 'aria-hidden': true }),
+  h('span', { className: 'dsb-conn-text' }, isError ? t('Live updates paused: message too large') : t('Reconnecting…')),
+  isError && typeof onReconnect === 'function'
+    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm dsb-conn-btn', onClick: onReconnect }, t('Reconnect'))
+    : null)
 }
 
 export function App() {
@@ -558,6 +580,13 @@ export function App() {
     const agentId = value.agentOf?.[shown]
     return agentId ? value.agentsById?.[agentId] : undefined
   })
+  const shownSessionTitle = hooks.useSessions((list) => {
+    if (!shown) return ''
+    const row = list.byId?.[shown]
+    if (!row || row.blank === true) return ''
+    return row.displayTitle || row.title || ''
+  })
+  useWindowTitle(conversationTitleOf({ shown, chat, shownAgent, sessionTitle: shownSessionTitle }))
   useTheme(prefs, chat, actions, registryVersion)
   useMentions(bots, registryVersion)
   const closeOverlays = (error) => {
@@ -663,6 +692,7 @@ export function App() {
   // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
   h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
+    h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
     isNarrow ? h('button', {
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t(drawerOpen ? 'Collapse sidebar' : 'Expand sidebar'), 'aria-expanded': drawerOpen,
       onClick: () => setDrawerOpen(open => !open),
@@ -682,7 +712,9 @@ export function App() {
           })
           : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), PendingLearning })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
-      : (inClassicMode ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true })) : null)),
+      : (inClassicMode
+        ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))
+        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null))),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
     h(DeepSeekSignIn, views),

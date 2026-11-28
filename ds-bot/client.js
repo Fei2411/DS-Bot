@@ -101,6 +101,7 @@ var PHRASES = [
   ["标准", "標準"],
   ["为准", "為準"],
   ["关系", "關係"],
+  ["配置文件", "設定檔"],
   ["折叠", "摺疊"]
 ];
 var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
@@ -131,6 +132,10 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Reconnecting…": "再接続中…",
+  "Reconnect": "再接続",
+  "Waiting to confirm…": "確認待ち…",
+  "Live updates paused: message too large": "ライブ更新が一時停止されました：メッセージが大きすぎます",
   "Auto review": "自動審査",
   "Session only": "このセッションのみ",
   "Permission preset": "権限プリセット",
@@ -2718,6 +2723,7 @@ var JA = {
   "Usage details": "利用状況の詳細",
   "Web": "Web",
   "Web search API": "Web 検索 API",
+  "Edit in config file": "設定ファイルで編集",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",
   "This chat uses the team background.": "このチャットはチームの背景を使います。",
@@ -3777,6 +3783,10 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Reconnecting…": "다시 연결하는 중…",
+  "Reconnect": "다시 연결",
+  "Waiting to confirm…": "확인 대기 중…",
+  "Live updates paused: message too large": "실시간 업데이트 일시 중지됨: 메시지가 너무 큽니다",
   "Auto review": "자동 검토",
   "Session only": "이 세션만",
   "Permission preset": "권한 프리셋",
@@ -6408,6 +6418,7 @@ var KO = {
   "Usage details": "사용 내역",
   "Web": "웹",
   "Web search API": "웹 검색 API",
+  "Edit in config file": "설정 파일에서 편집",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",
   "This chat uses the team background.": "이 채팅은 팀 배경을 씁니다.",
@@ -7468,6 +7479,10 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Reconnecting…": "Reconectando…",
+  "Reconnect": "Reconectar",
+  "Waiting to confirm…": "Esperando confirmación…",
+  "Live updates paused: message too large": "Actualizaciones en vivo en pausa: mensaje demasiado grande",
   "Auto review": "Revisión automática",
   "Session only": "Solo esta sesión",
   "Permission preset": "Preajuste de permisos",
@@ -10099,6 +10114,7 @@ var ES = {
   "Usage details": "Detalles de uso",
   "Web": "Web",
   "Web search API": "API de búsqueda web",
+  "Edit in config file": "Editar en el archivo de configuración",
   "Chat background": "Fondo del chat",
   "While this chat is open, its background takes the place of the team background.": "Mientras este chat está abierto, su fondo sustituye al fondo del equipo.",
   "This chat uses the team background.": "Este chat usa el fondo del equipo.",
@@ -11159,6 +11175,10 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Reconnecting…": "Reconnexion…",
+  "Reconnect": "Reconnecter",
+  "Waiting to confirm…": "En attente de confirmation…",
+  "Live updates paused: message too large": "Mises à jour en direct en pause : message trop volumineux",
   "Auto review": "Validation automatique",
   "Session only": "Cette session uniquement",
   "Permission preset": "Préréglage de permissions",
@@ -13746,6 +13766,7 @@ var FR = {
   "Usage details": "Détails d'utilisation",
   "Web": "Web",
   "Web search API": "API de recherche web",
+  "Edit in config file": "Modifier dans le fichier de configuration",
   "Chat background": "Fond de la discussion",
   "While this chat is open, its background takes the place of the team background.": "Tant que cette discussion est ouverte, son fond remplace celui de l'équipe.",
   "This chat uses the team background.": "Cette discussion utilise le fond de l'équipe.",
@@ -14805,6 +14826,10 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Reconnecting…": "Verbindung wird wiederhergestellt…",
+  "Reconnect": "Neu verbinden",
+  "Waiting to confirm…": "Warte auf Bestätigung…",
+  "Live updates paused: message too large": "Live-Updates pausiert: Nachricht zu groß",
   "Auto review": "Automatische Prüfung",
   "Session only": "Nur diese Sitzung",
   "Permission preset": "Berechtigungsprofil",
@@ -17436,6 +17461,7 @@ var DE = {
   "Usage details": "Nutzungsdetails",
   "Web": "Web",
   "Web search API": "Websuche-API",
+  "Edit in config file": "In Konfigurationsdatei bearbeiten",
   "Chat background": "Chat-Hintergrund",
   "While this chat is open, its background takes the place of the team background.": "Solange dieser Chat offen ist, ersetzt sein Hintergrund den des Teams.",
   "This chat uses the team background.": "Dieser Chat nutzt den Hintergrund des Teams.",
@@ -18497,6 +18523,10 @@ var DSH_DE = {
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Reconnecting…": "正在重新连接…",
+  "Reconnect": "重新连接",
+  "Waiting to confirm…": "等待确认…",
+  "Live updates paused: message too large": "实时推送已暂停：单条消息超过上限",
   "Auto review": "自动审批",
   "Session only": "仅本次会话",
   "Permission preset": "权限模式",
@@ -20928,6 +20958,7 @@ var ZH = {
   "Usage details": "用量明细",
   "Web": "网页",
   "Web search API": "网页搜索 API",
+  "Edit in config file": "在配置文件中编辑",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",
   "This chat uses the team background.": "这个聊天用团队背景。",
@@ -58470,6 +58501,44 @@ function browserMetaFor(plugin) {
   };
 }
 
+// src/shared/engine-bundles.js
+var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "dsbot-engine",
+  "@deepseek-ai/dsh-base",
+  "@deepseek-ai/dsh-web-app",
+  "@deepseek-ai/dsh-headless",
+  "@deepseek-ai/dsh-sdk-app",
+  "@deepseek-ai/dsh-acp-app",
+  "@deepseek-ai/dsh-sdk-minimal",
+  "@deepseek-ai/dsh-experimental-terminal-bundle",
+  "@deepseek-ai/dsh-experimental-tool-worktree"
+]);
+var BANNED_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "@deepseek-ai/dsh-subagent-codex",
+  "@deepseek-ai/dsh-subagent-claude-code",
+  "@deepseek-ai/dsh-experimental-agent-team-profile",
+  "@deepseek-ai/dsh-experimental-ralph-bundle"
+]);
+var DESKTOP_UNSUPPORTED_UI_BUNDLES = /* @__PURE__ */ new Set([
+  "@deepseek-ai/dsh-experimental-inspector-profile",
+  "@deepseek-ai/dsh-experimental-cot-translation-bundle",
+  "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+  "@deepseek-ai/dsh-experimental-liveshare",
+  "@deepseek-ai/dsh-experimental-forge-bundle",
+  "@deepseek-ai/dsh-personalized-recommendations",
+  "@deepseek-ai/dsh-deepseek-chat-import"
+]);
+var OFFICIAL_SUBAGENT_BUNDLE_RE = /^@deepseek-ai\/dsh-(?:experimental-)?subagent(?:$|-)/i;
+function isBlockedEngineBundle(name, { desktop = false, enabled = false } = {}) {
+  if (typeof name !== "string") return false;
+  const clean = name.trim();
+  if (clean === "") return false;
+  if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || OFFICIAL_SUBAGENT_BUNDLE_RE.test(clean)) {
+    return true;
+  }
+  return desktop && !enabled && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean);
+}
+
 // src/client/plugins-page.js
 var import_react63 = require("react");
 var PREVIEW_COUNT = 6;
@@ -58495,23 +58564,12 @@ var SLOT_CHOICES = [
   ["browser", "Browser slot"]
 ];
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
-var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
-  "dsbot-engine",
-  "@deepseek-ai/dsh-acp-app",
-  "@deepseek-ai/dsh-headless",
-  "@deepseek-ai/dsh-sdk-app",
-  "@deepseek-ai/dsh-sdk-minimal",
-  "@deepseek-ai/dsh-experimental-agent-team-profile",
-  "@deepseek-ai/dsh-experimental-ralph-bundle",
-  "@deepseek-ai/dsh-experimental-terminal-bundle",
-  "@deepseek-ai/dsh-experimental-tool-worktree"
-]);
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false;
   if (plugin.sourceId === "installed" && !plugin.installed) return true;
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? "").startsWith("dsh:") ? String(plugin.id).slice(4) : "")).trim();
   if (!pkg) return false;
-  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith("@deepseek-ai/dsh-subagent-");
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) });
 }
 function safeExternalUrl(raw) {
   if (typeof raw !== "string") return null;
@@ -59213,7 +59271,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     (0, import_react63.createElement)(ChevronRightIcon)
   );
 }
-function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null }) {
+function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = (0, import_react63.useState)(null);
   const [loading, setLoading] = (0, import_react63.useState)(true);
   const [error, setError] = (0, import_react63.useState)("");
@@ -59364,8 +59422,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     });
   };
   const plugins = (0, import_react63.useMemo)(
-    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p)),
-    [view]
+    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow]
   );
   const bots = roster?.bots ?? [];
   const browserSlot = view?.slots?.browser;
@@ -59939,6 +59997,24 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   const [state, setState] = (0, import_react65.useState)(null);
   const [showLog, setShowLog] = (0, import_react65.useState)(false);
   const [note, setNote] = (0, import_react65.useState)("");
+  const noteTimer = (0, import_react65.useRef)(0);
+  const mounted2 = (0, import_react65.useRef)(true);
+  (0, import_react65.useEffect)(() => {
+    mounted2.current = true;
+    return () => {
+      mounted2.current = false;
+      clearTimeout(noteTimer.current);
+    };
+  }, []);
+  const flashNote = (message) => {
+    clearTimeout(noteTimer.current);
+    setNote(message);
+    if (message) {
+      noteTimer.current = setTimeout(() => {
+        if (mounted2.current) setNote("");
+      }, 2200);
+    }
+  };
   const load = () => (typeof actions.telemetryStatus === "function" ? actions.telemetryStatus() : Promise.resolve(null)).then((next) => {
     setState(next);
     return next;
@@ -59946,18 +60022,27 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   (0, import_react65.useEffect)(() => {
     void run2(load());
   }, []);
-  const save = (patch) => run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote("");
-  }));
-  const resetId = () => run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote(t("Anonymous ID rotated."));
-  }));
-  const clearLog = () => run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote(t("Cleared sent telemetry history."));
-  }));
+  const save = (patch) => {
+    flashNote("");
+    return run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Saved"));
+    }));
+  };
+  const resetId = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Anonymous ID rotated."));
+    }));
+  };
+  const clearLog = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Cleared sent telemetry history."));
+    }));
+  };
   const disabled = state?.envDisabled === true;
   const recent = state?.recentSent ?? [];
   const logText = recent.length === 0 ? t("No telemetry data has been sent yet.") : JSON.stringify(recent, null, 2);
@@ -62388,39 +62473,105 @@ var b = (code, { mod = false, ctrl = false, alt = false, shift = false } = {}) =
   alt: Boolean(alt),
   shift: Boolean(shift)
 });
+var DESKTOP_ONLY = Object.freeze(["desktop"]);
+var BOTH_HOSTS = Object.freeze(["desktop", "plugin"]);
 var SHORTCUT_DEFS = [
   // Navigation
-  { id: "palette", group: "navigation", label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
-  { id: "switch-surface", group: "navigation", label: "Switch Bot / Classic Agent mode", defaultBinding: b("KeyM", { mod: true, shift: true }), requiresSurface: true },
-  { id: "inbox", group: "navigation", label: "Open Inbox", defaultBinding: b("KeyI", { mod: true }), requiresInbox: true, allowInModal: ["inbox"] },
-  { id: "prev-chat", group: "navigation", label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
-  { id: "next-chat", group: "navigation", label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
+  { id: "palette", group: "navigation", hosts: DESKTOP_ONLY, label: "Search", defaultBinding: b("KeyK", { mod: true }), allowInModal: ["palette"] },
+  {
+    id: "switch-surface",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Switch Bot / Classic Agent mode",
+    defaultBinding: b("KeyM", { mod: true, shift: true }),
+    requiresSurface: true,
+    plugin: { id: "ds-bot.switch-surface", aliases: ["classic", "agent", "bot", "mode"], webModifiers: ["primary", "shift"] }
+  },
+  {
+    id: "inbox",
+    group: "navigation",
+    hosts: BOTH_HOSTS,
+    label: "Open Inbox",
+    defaultBinding: b("KeyI", { mod: true }),
+    requiresInbox: true,
+    allowInModal: ["inbox"],
+    plugin: { id: "ds-bot.open-inbox", aliases: ["inbox", "notifications"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "prev-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Previous conversation", defaultBinding: b("BracketLeft", { mod: true }) },
+  { id: "next-chat", group: "navigation", hosts: DESKTOP_ONLY, label: "Next conversation", defaultBinding: b("BracketRight", { mod: true }) },
   // Panels
-  { id: "sidebar", group: "panels", label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
-  { id: "right-panel", group: "panels", label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
-  { id: "browser", group: "panels", label: "Toggle Bot browser", classicLabel: "Toggle browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
-  { id: "terminal", group: "panels", label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
-  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
-  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
+  { id: "sidebar", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
+  { id: "right-panel", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
+  {
+    id: "browser",
+    group: "panels",
+    hosts: BOTH_HOSTS,
+    label: "Toggle Bot browser",
+    classicLabel: "Toggle browser",
+    defaultBinding: b("KeyB", { mod: true, shift: true }),
+    requiresBrowser: true,
+    plugin: { id: "ds-bot.open-browser", aliases: ["browser", "web"], webModifiers: ["primary", "alt", "shift"] }
+  },
+  { id: "terminal", group: "panels", hosts: DESKTOP_ONLY, label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
+  { id: "details", group: "panels", hosts: DESKTOP_ONLY, label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
+  { id: "memory", group: "panels", hosts: DESKTOP_ONLY, label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
   // Conversation
-  { id: "new-chat", group: "conversation", label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
-  { id: "focus-composer", group: "conversation", label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
-  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ["groupSearch"] },
-  { id: "stop-turn", group: "conversation", label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
+  { id: "new-chat", group: "conversation", hosts: DESKTOP_ONLY, label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
+  { id: "focus-composer", group: "conversation", hosts: DESKTOP_ONLY, label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
+  {
+    id: "group-search",
+    group: "conversation",
+    hosts: BOTH_HOSTS,
+    label: "Search in group",
+    defaultBinding: b("KeyF", { mod: true, shift: true }),
+    requiresGroupSearch: true,
+    allowInModal: ["groupSearch"],
+    plugin: { id: "ds-bot.group-search", aliases: ["search", "group"], webModifiers: ["primary", "alt"] }
+  },
+  { id: "stop-turn", group: "conversation", hosts: DESKTOP_ONLY, label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
   // Application
-  { id: "settings", group: "application", label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
-  { id: "shortcuts", group: "application", label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
+  { id: "settings", group: "application", hosts: DESKTOP_ONLY, label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
+  { id: "shortcuts", group: "application", hosts: DESKTOP_ONLY, label: "Keyboard shortcuts", defaultBinding: b("Slash", { mod: true }), allowInModal: ["shortcuts", "settings", "palette"] },
   // Quick switch 1..9 (#1694)
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `switch-bot-${index + 1}`,
     group: "chats",
+    hosts: BOTH_HOSTS,
     label: "Switch to conversation {n}",
     labelVars: { n: index + 1 },
     slot: index,
-    defaultBinding: b(`Digit${index + 1}`, { mod: true })
+    defaultBinding: b(`Digit${index + 1}`, { mod: true }),
+    plugin: { id: `ds-bot.switch-bot-${index + 1}`, aliases: ["bot", "switch", String(index + 1)], webModifiers: ["primary", "alt"] }
   }))
 ];
 var SHORTCUT_BY_ID = Object.fromEntries(SHORTCUT_DEFS.map((def) => [def.id, def]));
+function shortcutsForHost(host = "desktop") {
+  return SHORTCUT_DEFS.filter((def) => Array.isArray(def.hosts) && def.hosts.includes(host));
+}
+function bindingToDshModifiers(binding) {
+  if (!binding) return [];
+  const mods = [];
+  if (binding.mod) mods.push("primary");
+  if (binding.ctrl) mods.push("control");
+  if (binding.alt) mods.push("alt");
+  if (binding.shift) mods.push("shift");
+  return mods;
+}
+function pluginShortcutDefaults(def) {
+  const code = def?.defaultBinding?.code;
+  if (!code) return {};
+  const desktopModifiers = bindingToDshModifiers(def.defaultBinding);
+  const webModifiers = def?.plugin?.webModifiers;
+  return {
+    "desktop:macos": { code, modifiers: desktopModifiers },
+    "desktop:windows": { code, modifiers: desktopModifiers },
+    "desktop:linux": { code, modifiers: desktopModifiers },
+    ...webModifiers ? {
+      "web:macos": { code, modifiers: webModifiers },
+      "web:windows": { code, modifiers: webModifiers }
+    } : {}
+  };
+}
 var MODIFIER_CODES = /* @__PURE__ */ new Set([
   "ShiftLeft",
   "ShiftRight",
@@ -62678,10 +62829,10 @@ function effectiveBinding(id, overrides = {}) {
   }
   return def.defaultBinding ?? null;
 }
-function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) {
+function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform(), host = "desktop") {
   const key = bindingKey(binding, mac);
   if (!key) return null;
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost(host)) {
     if (def.id === targetId) continue;
     const current2 = effectiveBinding(def.id, overrides);
     if (current2 && bindingKey(current2, mac) === key) return def;
@@ -62690,6 +62841,27 @@ function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) 
 }
 function platformBucket(mac = isMacPlatform()) {
   return mac ? "mac" : "other";
+}
+function isDesktopDef(def) {
+  return Boolean(def && Array.isArray(def.hosts) && def.hosts.includes("desktop"));
+}
+function resolveEffectiveOverrides(explicit = {}, mac = isMacPlatform(), host = "desktop") {
+  const effective = { ...explicit };
+  const usedByExplicit = /* @__PURE__ */ new Set();
+  for (const [id, binding] of Object.entries(explicit)) {
+    if (!binding) continue;
+    const def = SHORTCUT_BY_ID[id];
+    if (!def || !Array.isArray(def.hosts) || !def.hosts.includes(host)) continue;
+    const key = bindingKey(binding, mac);
+    if (key) usedByExplicit.add(key);
+  }
+  for (const def of shortcutsForHost(host)) {
+    if (Object.prototype.hasOwnProperty.call(explicit, def.id)) continue;
+    if (!def.defaultBinding) continue;
+    const key = bindingKey(def.defaultBinding, mac);
+    if (key && usedByExplicit.has(key)) effective[def.id] = null;
+  }
+  return effective;
 }
 function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? null : localStorage, mac = isMacPlatform()) {
   if (!storage) return {};
@@ -62702,11 +62874,15 @@ function loadShortcutOverrides(storage = typeof localStorage === "undefined" ? n
     if (!bucket || typeof bucket !== "object") return {};
     const clean = {};
     for (const [id, value] of Object.entries(bucket)) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     return clean;
@@ -62725,11 +62901,15 @@ function saveShortcutOverrides(overrides, storage = typeof localStorage === "und
     }
     const clean = {};
     for (const [id, value] of Object.entries(overrides ?? {})) {
-      if (!SHORTCUT_BY_ID[id]) continue;
-      if (value === null) clean[id] = null;
-      else {
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) continue;
+      if (value === null) {
+        if (def.defaultBinding !== null) clean[id] = null;
+      } else {
         const normalized = normalizeBinding(value);
-        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized;
+        if (normalized && validateBinding(normalized, mac).ok && !bindingsEqual(normalized, def.defaultBinding, mac)) {
+          clean[id] = normalized;
+        }
       }
     }
     parsed[platformBucket(mac)] = clean;
@@ -62746,65 +62926,71 @@ function isShortcutRecording() {
 }
 function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
   const resolveStorage = () => storage !== void 0 ? storage : typeof localStorage === "undefined" ? null : localStorage;
-  let overrides = loadShortcutOverrides(resolveStorage(), mac);
+  let explicit = loadShortcutOverrides(resolveStorage(), mac);
+  let effective = resolveEffectiveOverrides(explicit, mac, "desktop");
   const listeners3 = /* @__PURE__ */ new Set();
   const notify = () => {
     for (const fn of listeners3) fn();
   };
-  const commit = (next) => {
-    overrides = next;
-    saveShortcutOverrides(overrides, resolveStorage(), mac);
+  const commit = (nextExplicit) => {
+    explicit = nextExplicit;
+    effective = resolveEffectiveOverrides(explicit, mac, "desktop");
+    saveShortcutOverrides(explicit, resolveStorage(), mac);
     notify();
   };
   return {
-    getSnapshot: () => overrides,
+    getSnapshot: () => effective,
     subscribe(listener) {
       listeners3.add(listener);
       return () => listeners3.delete(listener);
     },
-    bindingOf: (id) => effectiveBinding(id, overrides),
-    isCustomized: (id) => Object.prototype.hasOwnProperty.call(overrides, id),
-    hasCustomizations: () => Object.keys(overrides).length > 0,
+    bindingOf: (id) => effectiveBinding(id, effective),
+    isCustomized: (id) => Object.prototype.hasOwnProperty.call(explicit, id),
+    hasCustomizations: () => Object.keys(explicit).length > 0,
     setBinding(id, binding, { replaceConflict = false } = {}) {
-      if (!SHORTCUT_BY_ID[id]) return { ok: false, reason: "unknown" };
-      const next = { ...overrides };
+      const def = SHORTCUT_BY_ID[id];
+      if (!isDesktopDef(def)) return { ok: false, reason: "unknown" };
+      const nextExplicit = { ...explicit };
       if (binding === null) {
-        if (SHORTCUT_BY_ID[id].defaultBinding === null) delete next[id];
-        else next[id] = null;
-        commit(next);
+        if (def.defaultBinding === null) delete nextExplicit[id];
+        else nextExplicit[id] = null;
+        commit(nextExplicit);
         return { ok: true };
       }
       const normalized = normalizeBinding(binding);
       const check = validateBinding(normalized, mac);
       if (!check.ok) return check;
-      const conflict = findConflict(id, normalized, next, mac);
+      const conflict = findConflict(id, normalized, effective, mac);
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      if (bindingsEqual(normalized, SHORTCUT_BY_ID[id].defaultBinding, mac)) {
-        delete next[id];
+      if (bindingsEqual(normalized, def.defaultBinding, mac)) {
+        delete nextExplicit[id];
       } else {
-        next[id] = normalized;
+        nextExplicit[id] = normalized;
       }
-      commit(next);
+      commit(nextExplicit);
       return { ok: true };
     },
     resetBinding(id, { replaceConflict = false } = {}) {
       const def = SHORTCUT_BY_ID[id];
-      if (!def || !Object.prototype.hasOwnProperty.call(overrides, id)) return { ok: true };
-      const next = { ...overrides };
-      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, next, mac) : null;
+      if (!isDesktopDef(def)) return { ok: true };
+      if (!Object.prototype.hasOwnProperty.call(effective, id) && !Object.prototype.hasOwnProperty.call(explicit, id)) {
+        return { ok: true };
+      }
+      const nextExplicit = { ...explicit };
+      const conflict = def.defaultBinding ? findConflict(id, def.defaultBinding, effective, mac) : null;
       if (conflict) {
         if (!replaceConflict) return { ok: false, reason: "conflict", conflict, binding: def.defaultBinding };
-        next[conflict.id] = null;
+        nextExplicit[conflict.id] = null;
       }
-      delete next[id];
-      commit(next);
+      delete nextExplicit[id];
+      commit(nextExplicit);
       return { ok: true };
     },
     resetAll() {
-      if (Object.keys(overrides).length === 0) return;
+      if (Object.keys(explicit).length === 0) return;
       commit({});
     },
     /**
@@ -62812,9 +62998,9 @@ function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
      */
     activeBindings(capabilities = {}) {
       const list = [];
-      for (const def of SHORTCUT_DEFS) {
+      for (const def of shortcutsForHost("desktop")) {
         if (!isCommandAvailable(def, capabilities)) continue;
-        const binding = effectiveBinding(def.id, overrides);
+        const binding = effectiveBinding(def.id, effective);
         if (!binding) continue;
         list.push({ id: def.id, ...binding });
       }
@@ -62848,7 +63034,7 @@ function matchShortcutEvent(event, {
     event.target?.closest?.(".xterm") || !event.target?.closest && typeof document !== "undefined" && document.activeElement?.closest?.(".xterm")
   );
   const activeModal = modal ?? (settingsOpen ? "settings" : null);
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost("desktop")) {
     if (!isCommandAvailable(def, capabilities)) continue;
     const binding = effectiveBinding(def.id, overrides);
     if (!binding || binding.code !== code) continue;
@@ -63046,7 +63232,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react73.useMemo)(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
-    return SHORTCUT_DEFS.filter((def) => {
+    return shortcutsForHost("desktop").filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false;
       if (!wanted) return true;
       const label = labelForDef(def, classic).toLowerCase();
@@ -63063,7 +63249,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
     }
     return SHORTCUT_GROUPS.map((group) => ({ ...group, items: byGroup.get(group.id) ?? [] })).filter((group) => group.items.length > 0);
   }, [visibleDefs]);
-  const hasCustom = Object.keys(overrides).length > 0;
+  const hasCustom = store.hasCustomizations();
   const modCap = mac ? "⌘" : "Ctrl";
   const shiftCap = mac ? "⇧" : "Shift";
   const fixedRows = (0, import_react73.useMemo)(() => {
@@ -63153,7 +63339,8 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
       group.items.map((def) => {
         const binding = effectiveBinding(def.id, overrides);
         const caps = formatBindingCaps(binding, mac);
-        const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
+        const customized = store.isCustomized(def.id);
+        const suppressed = !customized && Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
         const label = labelForDef(def, classic);
@@ -63173,7 +63360,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
             (0, import_react73.createElement)(
               "div",
               { className: "bt-sc-controls" },
-              customized ? (0, import_react73.createElement)("button", {
+              customized || suppressed ? (0, import_react73.createElement)("button", {
                 type: "button",
                 className: "bt-mini bt-sc-reset",
                 onClick: () => resetOne(def.id)
@@ -63294,10 +63481,25 @@ var SEARCH_ENTRIES = [
   { id: "feedback", label: "Feedback", group: "About DS Bot", page: "feedback", icon: "feedback", keywords: "bug error log diagnostics issue 反馈 报错 日志 诊断" }
 ];
 var DSH_KEYWORDS = {
-  account: "account profile login sign in sync 账户 账号 登录 个人资料",
+  account: "account profile login sign in sync billing balance top up 账户 账号 登录 个人资料 余额 账单 充值",
   plugins: "plugins web search shell bash agent loop extension 插件 网页搜索 命令执行 运行 扩展",
-  "agent-presets": "agent presets persona prompt template 预设 角色 提示词 模板",
-  "archived-sessions": "archived sessions history chats archive 归档 会话 历史 聊天"
+  "agent-presets": "agent presets persona prompt template standard ptc minimal creator 预设 角色 提示词 模板 标准 模式",
+  "archived-sessions": "archived sessions history chats archive restore 归档 会话 历史 聊天 恢复"
+};
+var ENGINE_PLUGIN_SEARCH_ENTRIES = [
+  { id: "engine:plugins", label: "Engine plugins", page: "plugins", target: "dsh", icon: "plugins", keywords: "engine plugins bundles extensions install 引擎插件 插件 扩展 安装" },
+  { id: "engine:web-search", label: "Web search", page: "plugins", target: "dsh:web-search", icon: "browser", keywords: "web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费" },
+  { id: "engine:shell", label: "Shell", page: "plugins", target: "dsh:shell", icon: "local-agents", keywords: "shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时" },
+  { id: "engine:agent-loop", label: "Agent loop", page: "plugins", target: "dsh:agent-loop", icon: "models", keywords: "agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用" },
+  { id: "engine:subagent", label: "Subagents", page: "plugins", target: "dsh:subagent", icon: "bot-models", surfaceMode: "agent", keywords: "subagents subagent max depth active models 子代理 子智能体 深度" }
+];
+var ENGINE_MODELS_SEARCH_ENTRY = {
+  id: "engine:models",
+  label: "Advanced settings",
+  page: "models",
+  target: "advanced",
+  icon: "models",
+  keywords: "advanced settings engine models provider config 高级设置 引擎 模型 配置"
 };
 var QUICK_IDS = ["general", "appearance", "models", "bots", "plugins", "connectors", "usage"];
 var matches2 = (haystack, tokens) => tokens.every((token) => haystack.includes(token));
@@ -63324,10 +63526,31 @@ function quickHits({ roster, pageAvailable = () => true, hasSurface = false }) {
   }));
   return [...settings, ...bots];
 }
-function searchHits(query, { roster, extra = [], pageAvailable = () => true, hasSurface = false }) {
+function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () => true, hasSurface = false }) {
   const raw = query.trim().toLowerCase();
   const tokens = raw.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
+  const dshSections = dsh?.sections ?? [];
+  const hasDshPlugins = dshSections.some((row) => row?.id === "plugins");
+  const hasDshModels = dshSections.some((row) => row?.id === "models");
+  const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow);
+  const surfaceMode = dsh?.surfaceMode ?? "bot";
+  const engineEntries = [
+    ...hasDshPlugins && pageAvailable("plugins") ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => (entry.target === "dsh" || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode)).map((entry) => ({
+      ...entry,
+      kind: "setting",
+      title: t(entry.label),
+      meta: t("Engine"),
+      haystack: `${entry.label} ${t(entry.label)} dsh engine ${t("Engine")} ${entry.keywords}`.toLowerCase()
+    })) : [],
+    ...hasDshModels && pageAvailable("models") ? [{
+      ...ENGINE_MODELS_SEARCH_ENTRY,
+      kind: "setting",
+      title: t(ENGINE_MODELS_SEARCH_ENTRY.label),
+      meta: t("Engine"),
+      haystack: `${ENGINE_MODELS_SEARCH_ENTRY.label} ${t(ENGINE_MODELS_SEARCH_ENTRY.label)} dsh engine ${t("Engine")} ${ENGINE_MODELS_SEARCH_ENTRY.keywords}`.toLowerCase()
+    }] : []
+  ];
   const settings = [
     ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map((entry) => ({
       ...entry,
@@ -63345,7 +63568,8 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
       dshId: row.id,
       dshRow: row,
       haystack: `${row.label} ${row.id} dsh engine ${t("Engine")} ${DSH_KEYWORDS[row.id] ?? ""}`.toLowerCase()
-    }))
+    })),
+    ...engineEntries
   ].filter((entry) => matches2(entry.haystack, tokens)).sort((a, b2) => scoreSetting(b2, raw, tokens) - scoreSetting(a, raw, tokens));
   const bots = (roster.bots ?? []).map((bot) => ({
     id: `bot:${bot.id}`,
@@ -63393,8 +63617,8 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
   }, []);
   const empty = query.trim() === "";
   const hits = (0, import_react74.useMemo)(
-    () => empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, pageAvailable, hasSurface }),
-    [empty, query, roster, extra, hasSurface]
+    () => empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, dsh, pageAvailable, hasSurface }),
+    [empty, query, roster, extra, dsh, hasSurface]
   );
   (0, import_react74.useEffect)(() => {
     setIndex(0);
@@ -64574,8 +64798,8 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         }) : null,
         shown === "general" ? (0, import_react76.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react76.createElement)(AppearancePage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Choice: Choice2, Switch, ownWindow: dsh?.ownWindow ?? dsh === void 0, dshRows: lookRows(dsh) }) : null,
-        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
-        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: "plugins" })) : null,
+        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, ownWindow: dsh?.ownWindow, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
+        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget, jump }, { only: "plugins" })) : null,
         advanced ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
         section ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: section.id })) : null,
         creatingBot ? (0, import_react76.createElement)("div", { className: "bt-settings-form" }, (0, import_react76.createElement)(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings("bots"), onCreated: (created) => actions.openSettings("bots", created.id) })) : null,
@@ -64693,6 +64917,36 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
+  {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "items": [
+          "优化 ChatGPT 订阅 Prompt Cache 命中率与思考强度切换：保留系统提示词缓存前缀、透传会话亲和头、支持多步工具调用保留加密推理，并可选择和记住推理思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "增强网页读取：新增自动抓取模式，直连失败或遇到动态渲染页时自动回退到隔离浏览器渲染",
+          "修复会话偶发无法输入与焦点抢占问题，并新增失控循环/重复重试可见暂停护栏，避免异常卡死消耗额度",
+          "修复桌面端账号菜单无法打开定时任务的问题，支持一键开启定时任务",
+          "全面修复窄宽卡片与设置行字体挤压、开关裁切和宽度溢出，支持弹窗打开时拖动窗口，并优化 Bot 侧边栏收起/展开动效",
+          "修复外部浏览器插件侧边栏状态判断、从内置插件目录移除 Ego Lite，并修复 DSH 插件态启动报错与退出时 SQLite 句柄竞态"
+        ],
+        "intro": "重点提升 ChatGPT 订阅体验、macOS 原地自动更新与网页读取成功率，并修复输入框锁死、防死循环耗额度、定时任务入口与多处界面细节。"
+      },
+      "en": {
+        "items": [
+          "Improved ChatGPT subscription prompt cache hit rates and added selectable, persisted reasoning effort levels across Bot settings and the model switcher",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement so macOS users no longer need to manually re-download DMGs",
+          "Added automatic web-fetch mode with an isolated, SSRF-guarded browser fallback for JS-heavy and anti-bot pages",
+          "Fixed composer input locks and focus stealing, and added visible pause guards with resume controls to prevent runaway tool loops and retry storms from burning quota",
+          "Fixed desktop Scheduled Tasks failing to open from the account menu and added one-click schedule enablement",
+          "Fixed narrow settings/switch label squeezing and layout overflows, kept the top window drag strip active while modals are open, and smoothed Bot sidebar collapse/expand motion",
+          "Fixed external browser plugin sidebar status detection, removed Ego Lite from the built-in catalog, and fixed DSH plugin-host startup crashes and SQLite shutdown handle races"
+        ],
+        "intro": "Improves ChatGPT subscription caching and reasoning effort, adds macOS in-place auto-updates and resilient web fetching, and fixes input locks, runaway loop protection, scheduled tasks, and UI polish."
+      }
+    }
+  },
   {
     "version": "0.4.1",
     "date": "2026-11-27",
@@ -74289,15 +74543,6 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 }
 
 // src/client/plugin-shortcuts.js
-var pluginDefaults = (code, desktopModifiers, webModifiers) => ({
-  "desktop:macos": { code, modifiers: desktopModifiers },
-  "desktop:windows": { code, modifiers: desktopModifiers },
-  "desktop:linux": { code, modifiers: desktopModifiers },
-  ...webModifiers ? {
-    "web:macos": { code, modifiers: webModifiers },
-    "web:windows": { code, modifiers: webModifiers }
-  } : {}
-});
 function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, sessionsById }) {
   const activeBotTarget = () => {
     const snap = roster.getSnapshot();
@@ -74305,98 +74550,76 @@ function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, s
     if (current2 && snap.byId?.[current2]) return snap.byId[current2].id;
     return snap.mainBotId ?? snap.bots?.[0]?.id ?? null;
   };
-  return [
-    {
-      id: "ds-bot.switch-surface",
-      label: () => t("Switch Bot / Classic Agent mode"),
-      aliases: ["classic", "agent", "bot", "mode"],
-      defaults: pluginDefaults("KeyM", ["primary", "shift"], ["primary", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
-      }
+  const resolvers = {
+    "switch-surface": ({ modal }) => {
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
     },
-    ...typeof actions.openInbox === "function" ? [{
-      id: "ds-bot.open-inbox",
-      label: () => t("Open Inbox"),
-      aliases: ["inbox", "notifications"],
-      defaults: pluginDefaults("KeyI", ["primary"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        return {
-          status: "handled",
-          run: () => {
-            if (ui.getSnapshot().inbox) actions.closeInbox?.();
-            else actions.openInbox();
-          }
-        };
-      }
-    }] : [],
-    ...typeof actions.openBrowser === "function" ? [{
-      id: "ds-bot.open-browser",
-      label: () => t("Toggle Bot browser"),
-      aliases: ["browser", "web"],
-      defaults: pluginDefaults("KeyB", ["primary", "shift"], ["primary", "alt", "shift"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        const snap = roster.getSnapshot();
-        if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const botId = activeBotTarget();
-        if (!botId) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => actions.toggleBrowser(botId)
-        };
-      }
-    }] : [],
-    {
-      id: "ds-bot.group-search",
-      label: () => t("Search in group"),
-      aliases: ["search", "group"],
-      defaults: pluginDefaults("KeyF", ["primary", "shift"], ["primary", "alt"]),
-      regions: ["page", "editable"],
-      modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const current2 = mainView();
-        const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
-        return {
-          status: "handled",
-          run: () => {
-            if (room2) actions.openGroupSearch?.(room2.id);
-            else actions.openPalette();
-          }
-        };
-      }
+    inbox: ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      return {
+        status: "handled",
+        run: () => {
+          if (ui.getSnapshot().inbox) actions.closeInbox?.();
+          else actions.openInbox();
+        }
+      };
     },
-    ...Array.from({ length: 9 }, (_, index) => ({
-      id: `ds-bot.switch-bot-${index + 1}`,
-      label: () => t("Switch to conversation {n}", { n: index + 1 }),
-      aliases: ["bot", "switch", String(index + 1)],
-      defaults: pluginDefaults(`Digit${index + 1}`, ["primary"], ["primary", "alt"]),
+    browser: ({ modal }) => {
+      const snap = roster.getSnapshot();
+      if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const botId = activeBotTarget();
+      if (!botId) return { status: "blocked", reason: "unavailable" };
+      return {
+        status: "handled",
+        run: () => actions.toggleBrowser(botId)
+      };
+    },
+    "group-search": ({ modal }) => {
+      if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      const current2 = mainView();
+      const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
+      return {
+        status: "handled",
+        run: () => {
+          if (room2) actions.openGroupSearch?.(room2.id);
+          else actions.openPalette();
+        }
+      };
+    }
+  };
+  const resolveSlot = (slot) => ({ modal }) => {
+    if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+    if (modal !== null) return { status: "blocked", reason: "modal" };
+    const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
+    const target = targets[slot];
+    if (!target) return { status: "blocked", reason: "unavailable" };
+    return {
+      status: "handled",
+      run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
+    };
+  };
+  const commands = [];
+  for (const def of shortcutsForHost("plugin")) {
+    if (!def.plugin?.id) continue;
+    if (def.requiresInbox && typeof actions.openInbox !== "function") continue;
+    if (def.requiresBrowser && typeof actions.openBrowser !== "function") continue;
+    const resolve2 = Number.isInteger(def.slot) ? resolveSlot(def.slot) : resolvers[def.id];
+    if (typeof resolve2 !== "function") continue;
+    commands.push({
+      id: def.plugin.id,
+      label: () => def.labelVars ? t(def.label, def.labelVars) : t(def.label),
+      aliases: def.plugin.aliases ?? [],
+      defaults: pluginShortcutDefaults(def),
       regions: ["page", "editable"],
       modals: [],
-      resolve: ({ modal }) => {
-        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-        if (modal !== null) return { status: "blocked", reason: "modal" };
-        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
-        const target = targets[index];
-        if (!target) return { status: "blocked", reason: "unavailable" };
-        return {
-          status: "handled",
-          run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
-        };
-      }
-    }))
-  ];
+      resolve: resolve2
+    });
+  }
+  return commands;
 }
 function registerPluginShortcuts(shortcuts, { onError, ...deps }) {
   const commands = buildPluginShortcutCommands(deps);

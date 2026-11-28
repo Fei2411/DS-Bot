@@ -11,6 +11,10 @@ import { DSH_DE, HOST_ERRORS_DE, DE } from './locales/de.js'
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Reconnecting…': '正在重新连接…',
+  'Reconnect': '重新连接',
+  'Waiting to confirm…': '等待确认…',
+  'Live updates paused: message too large': '实时推送已暂停：单条消息超过上限',
   'Auto review': '自动审批',
   'Session only': '仅本次会话',
   'Permission preset': '权限模式',
@@ -2435,6 +2439,7 @@ const ZH = {
   "Usage details": "用量明细",
   "Web": "网页",
   "Web search API": "网页搜索 API",
+  "Edit in config file": "在配置文件中编辑",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",
   "This chat uses the team background.": "这个聊天用团队背景。",

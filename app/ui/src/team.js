@@ -33,7 +33,7 @@ import { slots } from './slots.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
-const READ_AGAIN = new Set(['hello', 'revision', 'live'])
+const RECONNECT_NOTICE_MS = 2_000
 const NO_WORK = { bots: {}, approvals: [] }
 const EMPTY_PENDING = Object.freeze([])
 export const CLASSIC_BROWSER_OWNER = 'classic'
@@ -108,6 +108,8 @@ export function createTeam() {
   const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
+  const connection = createSource({ status: 'connected', error: null, code: null })
+  let restartFeed = () => {}
   const mergeUpdate = (value) => {
     if (!value || typeof value !== 'object') return
     update.set(previous => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }))
@@ -304,38 +306,46 @@ export function createTeam() {
     const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
     if (order < applied) return
     applied = order
+    const liveSame = liveKey !== undefined && value.liveKey !== undefined && value.liveKey === liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
-    if (value.activity !== undefined) setChanged(activity, value.activity)
-    if (value.work !== undefined) setChanged(work, value.work)
-    if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
-    if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
-    if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
-    if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
-    if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    if (!liveSame) {
+      if (value.activity !== undefined) setChanged(activity, value.activity)
+      if (value.work !== undefined) setChanged(work, value.work)
+      if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
+      if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
+      if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
+      if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
+      if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    }
     const current = roster.getSnapshot()
-    const changed = {}
-    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
-    if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
-    if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
-    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
-    // What waits for the user across the team (ds-bot/src/host/inbox.js).
-    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
-    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
-    if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
-    if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
-    if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
-    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
-    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
-    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
-    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
-    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
-    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
-    if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
-    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
-    if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
-    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
-    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
+    const computeChanged = (base) => {
+      const next = {}
+      if (value.readOnly !== undefined && (value.readOnly ?? null) !== (base.readOnly ?? null)) next.readOnly = value.readOnly
+      if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(base.connectors ?? [])) next.connectors = value.connectors
+      if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(base.capabilityStatuses ?? {})) next.capabilityStatuses = value.capabilityStatuses
+      if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(base.learning ?? {})) next.learning = value.learning
+      // What waits for the user across the team (ds-bot/src/host/inbox.js).
+      if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(base.inbox ?? null)) next.inbox = value.inbox
+      if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(base.learningSettled ?? {})) next.learningSettled = value.learningSettled
+      if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(base.btwCards ?? {})) next.btwCards = value.btwCards
+      if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(base.sideChats ?? {})) next.sideChats = value.sideChats
+      if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(base.phone ?? null)) next.phone = value.phone
+      if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(base.api ?? null)) next.api = value.api
+      if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(base.apiVia ?? {})) next.apiVia = value.apiVia
+      if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(base.imStatus ?? {})) next.imStatus = value.imStatus
+      if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(base.imVia ?? {})) next.imVia = value.imVia
+      if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(base.secrets ?? [])) next.secrets = value.secrets
+      if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(base.secretStore ?? {})) next.secretStore = value.secretStore
+      if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(base.memoryReviews ?? {})) next.memoryReviews = value.memoryReviews
+      if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(base.plugins ?? null)) next.plugins = value.plugins
+      if (value.speech !== undefined && Boolean(value.speech) !== Boolean(base.speech)) next.speech = Boolean(value.speech)
+      if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(base.telemetryPrompt)) next.telemetryPrompt = Boolean(value.telemetryPrompt)
+      if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(base.releaseNotes ?? null)) next.releaseNotes = value.releaseNotes
+      return next
+    }
     if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (liveSame) return
+      const changed = computeChanged(current)
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
@@ -349,6 +359,8 @@ export function createTeam() {
       || (hydrated.rooms ?? []).some(room => room?.avatar?.image !== latest.roomsById?.[room.id]?.avatar?.image)
     )
     if (sameState && !avatarsChanged) {
+      if (liveSame) return
+      const changed = computeChanged(latest)
       if (Object.keys(changed).length > 0) roster.set({ ...latest, ...changed })
       return
     }
@@ -373,6 +385,8 @@ export function createTeam() {
       void refreshClassicSessions()
     }
     // Follow a Bot or group chat onto its new segment when context rolls over or moves to background.
+    // On first load in Bot mode, land on the Main Bot in the same tick as `roster.set` so the
+    // team window paints the chat immediately instead of sitting 400 ms on a blank main area.
     const open = shown.getSnapshot()
     if (open) {
       const target = indexed.byId[open] ?? indexed.roomsById[open]
@@ -382,6 +396,9 @@ export function createTeam() {
       const firstAgent = (indexed.agents ?? [])[0]
       const latest = firstAgent ? (latestAgentSession(firstAgent.id) ?? firstAgent.sessions?.[0]) : undefined
       if (latest) show(latest)
+    } else {
+      const target = indexed.mainBotId ?? indexed.bots?.[0]?.id
+      if (target) show(partFor(target))
     }
     pruneSessions(indexed)
   }
@@ -570,6 +587,35 @@ export function createTeam() {
       try { listener(sessionId, maxTurn) } catch {}
     }
   }
+  const seenFeedItems = new Map()
+  const rememberFeedItem = (sessionId, seq, kind, text) => {
+    if (!sessionId || !Number.isInteger(seq) || !text) return false
+    let bySeq = seenFeedItems.get(sessionId)
+    if (!bySeq) { bySeq = new Map(); seenFeedItems.set(sessionId, bySeq) }
+    const sig = `${kind}\0${text}`
+    let set = bySeq.get(seq)
+    if (set?.has(sig)) return true
+    if (!set) {
+      set = new Set()
+      bySeq.set(seq, set)
+      if (bySeq.size > 128) {
+        const oldest = bySeq.keys().next().value
+        bySeq.delete(oldest)
+      }
+    }
+    set.add(sig)
+    return false
+  }
+  const maxCoveredSeqOf = (sessionId) => {
+    const facts = turnFactsBySession.get(sessionId)
+    if (!facts?.turns || facts.turns.size === 0) return -1
+    let maxSeq = -1
+    for (const entry of facts.turns.values()) {
+      if (Number.isInteger(entry?.end?.seq) && entry.end.seq > maxSeq) maxSeq = entry.end.seq
+      if (Number.isInteger(entry?.start?.seq) && entry.start.seq > maxSeq) maxSeq = entry.start.seq
+    }
+    return maxSeq
+  }
 
   const syncOutlineFromFacts = (sessionId, facts) => {
     if (!facts?.turns || facts.turns.size === 0) return
@@ -579,6 +625,7 @@ export function createTeam() {
       .sort((a, b) => a.turn - b.turn)
     if (ordered.length === 0) return
     let prunedSynthetic = false
+    let reconciledMaxTurn = ordered[ordered.length - 1].turn
     sessions.set((list) => {
       const row = list.byId[sessionId] ?? { id: sessionId }
       const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
@@ -622,6 +669,7 @@ export function createTeam() {
       }
       if (!changed) return list
       const nextOutline = [...byTurn.values()].sort((a, b) => a.turn - b.turn)
+      if (nextOutline.length > 0) reconciledMaxTurn = nextOutline[nextOutline.length - 1].turn
       return {
         ids: list.ids.includes(sessionId) ? list.ids : [...list.ids, sessionId],
         byId: {
@@ -634,7 +682,7 @@ export function createTeam() {
       }
     })
     if (prunedSynthetic) {
-      notifyOutlineReconciled(sessionId, ordered[ordered.length - 1].turn)
+      notifyOutlineReconciled(sessionId, reconciledMaxTurn)
     }
   }
 
@@ -1324,6 +1372,7 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    reconnectFeed: () => { restartFeed() },
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
@@ -1482,41 +1531,53 @@ export function createTeam() {
   })
 
   const onFeed = (event, data) => {
-    if (event === 'hello') {
+    if (event === 'hello' && data?.resumed !== true) {
       for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
       streamingReply.clear()
     }
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
-      if (item.kind === 'bot') {
-        if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
-        // Set completionUnread BEFORE updating turnOutline so watchBotCompletions sees the
-        // unread flag on the first turnOutline snapshot for a background Bot.
-        if (shown.getSnapshot() !== sessionId || isCovered(ui.getSnapshot())) setStatus(sessionId, { completionUnread: true })
-      }
-      let effectiveTurn = null
-      editRow(sessionId, (row) => {
-        const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
-        if (!text) return { ...row, updatedAt }
-        const resolvedTurn = Number.isInteger(item.turn) && item.turn >= 0 ? item.turn : openTurnOf(sessionId)
-        const next = appendTurnOutline(row, {
-          kind: item.kind,
-          text,
-          turn: resolvedTurn,
-          seq: Number.isInteger(item.seq) ? item.seq : null,
-        })
-        effectiveTurn = next.turn
-        return {
-          ...row,
-          updatedAt,
-          projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
+      const hasSeq = Number.isInteger(item.seq)
+      const isReplay = Boolean(text && hasSeq && rememberFeedItem(sessionId, item.seq, item.kind, text))
+      const coveredByFacts = Boolean(
+        text
+        && hasSeq
+        && !(Number.isInteger(item.turn) && item.turn >= 0)
+        && item.seq <= maxCoveredSeqOf(sessionId),
+      )
+      if (!isReplay && !coveredByFacts) {
+        if (item.kind === 'bot') {
+          if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
+          // Set completionUnread BEFORE updating turnOutline so watchBotCompletions sees the
+          // unread flag on the first turnOutline snapshot for a background Bot.
+          if (shown.getSnapshot() !== sessionId || isCovered(ui.getSnapshot())) setStatus(sessionId, { completionUnread: true })
         }
-      })
-      if (item.kind === 'bot' && text && Number.isInteger(effectiveTurn)) {
-        recordClosingReply(sessionId, effectiveTurn, text, Number.isInteger(item.seq) ? item.seq : null)
+        let effectiveTurn = null
+        editRow(sessionId, (row) => {
+          const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
+          if (!text) return { ...row, updatedAt }
+          const resolvedTurn = Number.isInteger(item.turn) && item.turn >= 0 ? item.turn : openTurnOf(sessionId)
+          const next = appendTurnOutline(row, {
+            kind: item.kind,
+            text,
+            turn: resolvedTurn,
+            seq: hasSeq ? item.seq : null,
+          })
+          effectiveTurn = next.turn
+          return {
+            ...row,
+            updatedAt,
+            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
+          }
+        })
+        if (item.kind === 'bot' && text && Number.isInteger(effectiveTurn)) {
+          recordClosingReply(sessionId, effectiveTurn, text, hasSeq ? item.seq : null)
+        }
+        if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
+      } else if (item.kind === 'bot' && streamingReply.delete(sessionId)) {
+        actions.noteLive(sessionId, 'reply', null)
       }
-      if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
     }
     if (event === 'notice' && data?.kind === 'group' && data.roomId) {
       const room = roster.getSnapshot().roomsById?.[data.roomId]
@@ -1551,6 +1612,9 @@ export function createTeam() {
   const start = () => {
     let stopped = false
     let timer
+    let lostTimer
+    let lostSince = 0
+    let closeFeed = () => {}
     const read = () => {
       void pull().catch((error) => {
         if (stopped) return
@@ -1570,7 +1634,61 @@ export function createTeam() {
     const onVisibility = () => {
       if (stopped) return
       if (document.hidden) stopTimer()
-      else { read(); startTimer() }
+      else {
+        read()
+        startTimer()
+      }
+    }
+    const clearLost = () => {
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = 0
+      if (connection.getSnapshot().status !== 'connected') {
+        connection.set({ status: 'connected', error: null, code: null })
+      }
+    }
+    const noteLost = () => {
+      if (stopped || lostSince > 0 || connection.getSnapshot().status === 'error') return
+      lostSince = Date.now()
+      lostTimer = setTimeout(() => {
+        lostTimer = undefined
+        if (!stopped && lostSince > 0) {
+          connection.set({ status: 'reconnecting', error: null, code: null })
+        }
+      }, RECONNECT_NOTICE_MS)
+    }
+    const handleFeedEvent = (event, data) => {
+      if (stopped) return
+      if (event === 'lost') {
+        noteLost()
+        onFeed(event, data)
+        return
+      }
+      if (event === 'error' && data?.fatal === true) {
+        if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+        lostSince = 0
+        connection.set({ status: 'error', error: data?.message ?? null, code: data?.code ?? null })
+        onFeed(event, data)
+        return
+      }
+      clearLost()
+      if (event === 'revision') read()
+      else if (event === 'live') {
+        if (typeof document === 'undefined' || !document.hidden) read()
+      } else if (event === 'hello' && data?.resumed !== true) {
+        if (typeof document === 'undefined' || !document.hidden) read()
+      }
+      onFeed(event, data)
+    }
+    const connectFeed = () => {
+      closeFeed()
+      closeFeed = openFeed(handleFeedEvent)
+    }
+    restartFeed = () => {
+      if (stopped) return
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = Date.now()
+      connection.set({ status: 'reconnecting', error: null, code: null })
+      connectFeed()
     }
     read()
     let updateTimer
@@ -1620,10 +1738,7 @@ export function createTeam() {
         return () => { outlineReconcileListeners.delete(listener) }
       },
     })
-    const closeFeed = openFeed((event, data) => {
-      if (READ_AGAIN.has(event)) read()
-      onFeed(event, data)
-    })
+    connectFeed()
     const stopApprovalNotices = noticeApprovals({
       work,
       roster,
@@ -1806,9 +1921,13 @@ export function createTeam() {
     return () => {
       stopped = true
       clearTimeout(updateTimer)
+      clearTimeout(lostTimer)
+      lostTimer = undefined
+      lostSince = 0
       wakeUpdate = () => {}
       scheduleUpdate = () => {}
       unsubscribeAppUpdates?.()
+      restartFeed = () => {}
       unsubscribeOwnApp?.()
       stopAccountExternal()
       stopBotCompletions()
@@ -1839,6 +1958,7 @@ export function createTeam() {
     useRescuedDrafts: use(questionDrafts.rescued),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
+    useConnection: use(connection),
     useRegistry: use(registry),
     useComputer: use(computer),
     useBrowserHolds: use(browserHolds),
@@ -1877,6 +1997,7 @@ export function createTeam() {
     shown: () => shown.getSnapshot(),
     surface: () => surface.getSnapshot(),
     status: () => status.getSnapshot(),
+    connection: () => connection.getSnapshot(),
   }
   return { actions, hooks, snapshots, sessionHook, chat, start }
 }

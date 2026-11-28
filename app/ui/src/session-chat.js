@@ -146,7 +146,7 @@ function reasoningStartFrom(log, existing, now) {
  * Follows one Bot's current Session via `api/bot/session` and pages older records
  * via `session-page`, keeping `SessionLog` in sync across reconnects and read-only updates.
  */
-export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readOnly, onUserMessage, keep, openFollow = openSessionFollow }) {
+export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readOnly, readOnlyUpdatedAt, onUserMessage, keep, openFollow = openSessionFollow }) {
   const [state, setState] = useState(() => ({
     log: emptyLog(),
     thinkingAt: {},
@@ -160,10 +160,12 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
   const genRef = useRef(0)
+  const gapGenRef = useRef(0)
   const pagingRef = useRef(false)
   const openedRef = useRef(false)
   const resyncRef = useRef(false)
   const seenUserSeqsRef = useRef(new Set())
+  const readOnlyUpdatedAtRef = useRef(readOnlyUpdatedAt)
   const onUserRef = useRef(onUserMessage)
   onUserRef.current = onUserMessage
   const openFollowRef = useRef(openFollow)
@@ -171,14 +173,78 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
 
   useEffect(() => {
     const myGen = ++genRef.current
+    gapGenRef.current += 1
     pagingRef.current = false
     openedRef.current = false
     resyncRef.current = false
     seenUserSeqsRef.current = new Set()
+    readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
     const fresh = emptyLog()
     logRef.current = fresh
     setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false })
     if (!enabled || !sessionId) return undefined
+
+    const fillGap = async (myGapGen, prevLastSeq, openingFirstSeq, snapshotCursor, snapshotHasMore) => {
+      const isCurrent = () => genRef.current === myGen && gapGenRef.current === myGapGen
+      const fallbackToOpening = () => {
+        if (!isCurrent()) return
+        const cur = logRef.current
+        const kept = cur.events.filter(ev => ev.seq >= openingFirstSeq)
+        const replaced = { ...cur, events: kept, hasMore: snapshotHasMore, revision: cur.revision + 1 }
+        logRef.current = replaced
+        setState(current => ({ ...current, log: replaced, historyReloaded: true, pageFailed: false }))
+      }
+      const pages = []
+      let beforeSeq = openingFirstSeq
+      let bridged = false
+      try {
+        for (;;) {
+          const page = await call('session-page', {
+            sessionId,
+            ...(parent ? { parent } : {}),
+            ...(mode ? { mode } : {}),
+            beforeSeq,
+            throughSeq: snapshotCursor,
+            maxMessages: PAGE_SIZE,
+          })
+          if (!isCurrent()) return
+          const events = (page?.records ?? []).map(record => record.event).filter(ev => Number.isSafeInteger(ev?.seq))
+          if (events.length === 0) break
+          pages.unshift(events)
+          const oldest = events[0].seq
+          if (oldest >= beforeSeq) break
+          if (oldest <= prevLastSeq + 1) {
+            bridged = true
+            break
+          }
+          if (!page?.hasMore) break
+          beforeSeq = oldest
+        }
+      } catch {
+        // Never leave a permanent silent hole in the middle of the transcript when gap paging fails.
+        fallbackToOpening()
+        return
+      }
+      if (!isCurrent()) return
+      if (bridged) {
+        const cur = logRef.current
+        const gapEvents = pages.flat().filter(ev => ev.seq > prevLastSeq && ev.seq < openingFirstSeq)
+        for (const userEv of collectUserEvents(gapEvents)) {
+          if (seenUserSeqsRef.current.has(userEv.seq)) continue
+          seenUserSeqsRef.current.add(userEv.seq)
+          const summary = userSummaryOf(userEv)
+          onUserRef.current?.(summary.text, userEv.time, false, summary)
+        }
+        const head = cur.events.filter(ev => ev.seq <= prevLastSeq)
+        const tail = cur.events.filter(ev => ev.seq >= openingFirstSeq)
+        const spliced = { ...cur, events: [...head, ...gapEvents, ...tail], revision: cur.revision + 1 }
+        logRef.current = spliced
+        setState(current => ({ ...current, log: spliced, pageFailed: false }))
+      } else {
+        // The durable log genuinely no longer reaches the earlier prefix; fall back cleanly.
+        fallbackToOpening()
+      }
+    }
 
     const handle = openFollowRef.current({
       sessionId,
@@ -189,9 +255,41 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
+        if (data?.type === 'snapshot') gapGenRef.current += 1
         const resyncing = data?.type === 'snapshot' && resyncRef.current
-        const next = applyFrame(resyncing ? emptyLog() : logRef.current, data)
-        if (resyncing) resyncRef.current = false
+        let next
+        let reloaded = false
+        if (resyncing) {
+          resyncRef.current = false
+          const prev = logRef.current
+          const opening = Array.isArray(data.records) ? data.records.map(record => record.event) : []
+          const prevLastSeq = prev.events.length > 0 ? prev.events.at(-1).seq : undefined
+          const openingFirstSeq = opening.length > 0 ? opening[0].seq : undefined
+          const sameSession = prev.header?.id !== undefined && prev.header.id === data.header?.id
+          const rewound = Number.isSafeInteger(data.cursor) && data.cursor < prev.cursor
+          if (!sameSession || rewound) {
+            next = applyFrame(emptyLog(), data)
+            reloaded = true
+          } else if (opening.length === 0 || prevLastSeq === undefined || prevLastSeq >= openingFirstSeq - 1) {
+            next = applyFrame(prev, data)
+          } else {
+            // Preserve already-loaded earlier pages across a forward stale gap and page in only the gap.
+            const myGapGen = gapGenRef.current
+            const freshSnap = applyFrame(emptyLog(), data)
+            next = {
+              log: {
+                ...freshSnap.log,
+                events: [...prev.events, ...opening],
+                hasMore: prev.hasMore,
+                revision: prev.revision + 1,
+              },
+              reopen: false,
+            }
+            void fillGap(myGapGen, prevLastSeq, openingFirstSeq, data.cursor, data.hasMore === true)
+          }
+        } else {
+          next = applyFrame(logRef.current, data)
+        }
         logRef.current = next.log
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
         // matching historical duplicates or dropping messages on a gap-reopen frame.
@@ -220,18 +318,22 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
           loading: false,
           failed: false,
           terminalError: null,
-          historyReloaded: current.historyReloaded || resyncing,
+          historyReloaded: current.historyReloaded || reloaded,
         }))
         if (next.reopen) followRef.current?.reopen()
       } else if (event === 'error') {
         if (data?.code === 'bot/stale' && !resyncRef.current) {
           // The durable log no longer reaches this window's cursor. Reopen once without
-          // `after`; the fresh opening replaces the rows instead of looping on that cursor.
+          // `after` and keep any already-loaded earlier pages by paging only the missing gap.
           resyncRef.current = true
           followRef.current?.reopen()
           return
         }
-        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid' || data?.code === 'bot/stale'
+        const terminal = data?.code === 'bot/not-found'
+          || data?.code === 'bot/refused'
+          || data?.code === 'bot/invalid'
+          || data?.code === 'bot/stale'
+          || data?.code === 'bot/stream-overflow'
         setState(current => ({
           ...current,
           loading: false,
@@ -245,19 +347,30 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     followRef.current = handle
     return () => {
       if (genRef.current === myGen) genRef.current += 1
+      gapGenRef.current += 1
       handle.close()
       if (followRef.current === handle) followRef.current = null
     }
   }, [sessionId, parent, mode, enabled])
 
   // Read-only windows only receive the opening snapshot from DSH (host/session-follow.js):
-  // reopen when the team live feed reports a revision or reconnects.
+  // reopen when the team live feed reports a revision/unresumed reconnect, or when the
+  // catalog reports a newer updatedAt for this same segment written by another process.
   useEffect(() => {
     if (!enabled || !sessionId || !feed) return undefined
-    return feed.on((event) => {
-      if (readOnly && (event === 'revision' || event === 'hello')) followRef.current?.reopen()
+    return feed.on((event, data) => {
+      if (readOnly && (event === 'revision' || (event === 'hello' && data?.resumed !== true))) followRef.current?.reopen()
     })
   }, [enabled, sessionId, parent, mode, feed, readOnly])
+
+  useEffect(() => {
+    const prev = readOnlyUpdatedAtRef.current
+    readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
+    if (!enabled || !readOnly || !sessionId) return
+    if (Number.isFinite(readOnlyUpdatedAt) && Number.isFinite(prev) && readOnlyUpdatedAt > prev) {
+      followRef.current?.reopen()
+    }
+  }, [enabled, readOnly, sessionId, readOnlyUpdatedAt])
 
   const loadEarlier = useCallback(async (scroller) => {
     if (!enabled || !sessionId || pagingRef.current) return

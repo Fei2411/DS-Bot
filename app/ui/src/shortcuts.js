@@ -4,7 +4,6 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
 import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import {
-  SHORTCUT_DEFS,
   SHORTCUT_GROUPS,
   bindingsEqual,
   effectiveBinding,
@@ -12,6 +11,7 @@ import {
   isCommandAvailable,
   isMacPlatform,
   matchShortcutEvent,
+  shortcutsForHost,
   shortcutsStore,
 } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { useShortcutOverrides } from '../../../ds-bot/src/client/shortcuts-page.js'
@@ -98,10 +98,11 @@ export function ShortcutsDialog({
   const sections = useMemo(() => {
     const out = []
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch }
+    const desktopDefs = shortcutsForHost('desktop')
     const regularGroups = SHORTCUT_GROUPS.filter(group => group.id !== 'chats')
     for (const group of regularGroups) {
       const rows = []
-      for (const def of SHORTCUT_DEFS) {
+      for (const def of desktopDefs) {
         if (def.group !== group.id) continue
         if (!isCommandAvailable(def, capabilities)) continue
         const binding = effectiveBinding(def.id, overrides)
@@ -113,7 +114,7 @@ export function ShortcutsDialog({
         })
       }
       if (group.id === 'navigation') {
-        const chatDefs = SHORTCUT_DEFS.filter(def => def.group === 'chats')
+        const chatDefs = desktopDefs.filter(def => def.group === 'chats')
         const allDefault = chatDefs.every(def => bindingsEqual(effectiveBinding(def.id, overrides), def.defaultBinding, mac))
         if (allDefault) {
           rows.push({

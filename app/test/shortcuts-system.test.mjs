@@ -202,19 +202,20 @@ function loadUi() {
 }
 
 test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts and return focus safely', async () => {
-  const whitelist = [
-    { id: 'browser', code: 'KeyB', mod: true, ctrl: false, alt: false, shift: false },
-    { id: 'switch-surface', code: 'KeyM', mod: true, ctrl: false, alt: false, shift: true },
-    { id: 'terminal', code: 'Backquote', mod: false, ctrl: true, alt: false, shift: false },
-  ]
-  // Exact matching across darwin and win32, guarding keyUp, IME, and auto-repeat.
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB' }, whitelist, 'darwin'), 'browser')
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'KeyB' }, whitelist, 'win32'), 'browser')
+  const { exports } = loadUi()
+  const store = exports.createShortcutStore({ storage: null, mac: true })
+  const whitelist = store.activeBindings()
+  // Exact matching across darwin and win32 using real store defaults (browser on Mod+Shift+B),
+  // guarding keyUp, IME, auto-repeat, and passing plain Mod+B through to web pages.
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyB' }, whitelist, 'darwin'), 'browser')
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, shift: true, code: 'KeyB' }, whitelist, 'win32'), 'browser')
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB' }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'KeyB' }, whitelist, 'win32'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyM' }, whitelist, 'darwin'), 'switch-surface')
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'Backquote' }, whitelist, 'darwin'), 'terminal')
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB', isAutoRepeat: true }, whitelist, 'darwin'), null)
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB', isComposing: true }, whitelist, 'darwin'), null)
-  assert.equal(matchForwardedShortcut({ type: 'keyUp', meta: true, code: 'KeyB' }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyB', isAutoRepeat: true }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyB', isComposing: true }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyUp', meta: true, shift: true, code: 'KeyB' }, whitelist, 'darwin'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyC' }, whitelist, 'darwin'), null)
   // On Windows/Linux, Ctrl+Alt on non-function keys is reserved for AltGr character entry across all layouts,
   // while Ctrl+Alt+F-keys, macOS Option dead keys, and macOS Cmd/Ctrl+Alt shortcuts still match consistently.
@@ -263,12 +264,13 @@ test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts a
   try {
     const entry = views.create(BOT, { url: 'https://example.com' })
     let prevented = 0
-    entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, code: 'KeyB' })
+    entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, shift: true, code: 'KeyB' })
     assert.deepEqual(received, ['browser'])
     assert.equal(prevented, 1)
     assert.equal(focusedMain, 1)
 
-    // Ordinary page typing or unmatched shortcut must NOT be prevented or steal focus.
+    // Plain Mod+B (e.g., Bold in web editors) and ordinary page shortcuts must NOT be prevented or steal focus.
+    entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, code: 'KeyB' })
     entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, code: 'KeyC' })
     assert.equal(prevented, 1)
     assert.equal(focusedMain, 1)
@@ -379,6 +381,48 @@ test('ShortcutsDialog and ShortcutsPage filter by capability, honor IME/conflict
     assert.equal(store.bindingOf('browser'), null)
   } finally {
     pageInst.unmount()
+  }
+
+  // Upgrade-suppressed default on ShortcutsPage: browser has no Customized dot, offers Reset->Replace
+  // conflict alert, and auto-restores to Mod+Shift+B when the conflicting shortcut (`details`) is reset.
+  const upgradeBag = new Map([[
+    'ds-bot.shortcuts.v1',
+    JSON.stringify({ mac: { details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true } } }),
+  ]])
+  const upgradeStore = exports.createShortcutStore({
+    mac: true,
+    storage: {
+      getItem: k => (upgradeBag.has(k) ? upgradeBag.get(k) : null),
+      setItem: (k, v) => { upgradeBag.set(k, v) },
+    },
+  })
+  const upgradePage = mount(exports.ShortcutsPage, {
+    roster: { prefs: { enterToSend: true }, browser: true },
+    actions: { setSurface() {}, openBrowser() {}, openInbox() {} },
+    Section,
+    Row,
+    store: upgradeStore,
+  })
+  try {
+    let tree = upgradePage.render()
+    const browserRow = all(tree, n => n.props?.['data-shortcut-row'] === 'browser')[0]
+    assert.equal(all(browserRow, n => n.props?.className === 'bt-sc-dot').length, 0)
+    assert.match(textOf(browserRow), /Not set/)
+    const browserReset = all(browserRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-sc-reset'))[0]
+    assert.ok(browserReset, 'suppressed row still exposes Reset to reclaim via conflict prompt')
+    browserReset.props.onClick()
+    tree = upgradePage.render()
+    assert.match(textOf(tree), /Already used by/)
+
+    const detailsRow = all(tree, n => n.props?.['data-shortcut-row'] === 'details')[0]
+    const detailsReset = all(detailsRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-sc-reset'))[0]
+    assert.ok(detailsReset)
+    detailsReset.props.onClick()
+    tree = upgradePage.render()
+    assert.deepEqual({ ...upgradeStore.bindingOf('browser') }, { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+    assert.doesNotMatch(textOf(tree), /Reset all/)
+  } finally {
+    upgradePage.unmount()
   }
 })
 
