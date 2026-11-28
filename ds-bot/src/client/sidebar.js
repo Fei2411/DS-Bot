@@ -612,7 +612,11 @@ export function TeamSidebar(props) {
   const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
-    for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
+    for (const id of list.ids) {
+      // A row opened before its first message has no time yet; the Bot keeps its place.
+      const at = list.byId[id]?.updatedAt
+      if (Number.isFinite(at)) stamps[id] = at
+    }
     return JSON.stringify(stamps)
   })
   const order = useMemo(() => {
