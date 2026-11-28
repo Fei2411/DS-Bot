@@ -1184,6 +1184,54 @@ test('run_code enforces private Bot, shared-state, API, secret fences and privat
   assert.equal(approval.requests.length, 3)
 })
 
+test('shell permits API headers, branch names and project paths', async (t) => {
+  const { run, project, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  agent.session.header.cwd = project
+  for (const command of [
+    'curl -H "APCA-API-KEY-ID: $APCA_API_KEY_ID" -H "APCA-API-SECRET-KEY: $APCA_API_SECRET_KEY" https://paper-api.alpaca.markets/v2/positions',
+    'curl -H "x-api-key: $KEY" https://example.com/',
+    'git switch -c feat/api-x',
+    'echo "xapi-y"',
+    'cat src/api-client.ts',
+  ]) {
+    await t.test(command, async () => {
+      assert.deepEqual(await run('bash', { command }, 'b', agent), { ran: true })
+    })
+  }
+})
+
+test('shell still blocks host API file references', async (t) => {
+  const { run, home, team, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  agent.session.header.cwd = team
+  for (const command of [
+    `cat "${join(home, 'api-tokens.json')}"`,
+    'cat ../api-endpoint.json',
+    'cat ../api-config.json',
+    'cat ../api-runs.json',
+    'cat ../api-audit.jsonl',
+    'cat ../api-tokens.json.bak',
+    'cat ../api-*',
+    'cat ../api-t*.json',
+    'ls ../api-uploads',
+  ]) {
+    const res = await run('bash', { command }, 'b', agent)
+    assert.equal(res.ran, false, command)
+    assert.match(res.error, /API token/, command)
+  }
+})
+
+test('run_code permits ordinary api- text even when cwd is the team home', async (t) => {
+  const { run, home, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  agent.session.header.cwd = home
+  assert.deepEqual(await run('run_code', { code: 'return ["x-api-key", "feat/api-x"]' }, 'b', agent), { ran: true })
+})
+
 test('run_code allows workspace api-*/mcp.json files while guardApiFiles still blocks rt.home API/MCP/telemetry files', async (t) => {
   const { run, home, team, project, agentOf, stop } = await start({ privateBot: false })
   t.after(stop)
