@@ -5,6 +5,12 @@
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 
 const MAX_HIGHLIGHT_CHARS = 200_000
+const HIGHLIGHT_CACHE_MAX = 128
+// Total character budget across cached keys + highlighted HTML values (~8 MB UTF-16 max);
+// evicted entries simply recompute on demand with zero visible content loss.
+const HIGHLIGHT_CACHE_MAX_CHARS = 4_000_000
+const highlightCache = new Map()
+let highlightCacheChars = 0
 
 let hljsCore = null
 let hljsCorePromise = null
@@ -198,8 +204,27 @@ export function highlightSync(code, rawLang) {
   const canonical = normalizeLanguage(rawLang)
   if (canonical === '' || canonical === 'plaintext') return null
   if (!loadedLangs.has(canonical) && !hljsCore.getLanguage(canonical)) return null
+  const cacheKey = `${canonical}\u0000${code}`
+  if (highlightCache.has(cacheKey)) {
+    const cached = highlightCache.get(cacheKey)
+    highlightCache.delete(cacheKey)
+    highlightCache.set(cacheKey, cached)
+    return cached
+  }
   try {
-    return hljsCore.highlight(code, { language: canonical, ignoreIllegals: true }).value
+    const value = hljsCore.highlight(code, { language: canonical, ignoreIllegals: true }).value
+    const entryChars = cacheKey.length + value.length
+    if (entryChars <= HIGHLIGHT_CACHE_MAX_CHARS) {
+      highlightCache.set(cacheKey, value)
+      highlightCacheChars += entryChars
+      while (highlightCache.size > HIGHLIGHT_CACHE_MAX || highlightCacheChars > HIGHLIGHT_CACHE_MAX_CHARS) {
+        const oldest = highlightCache.entries().next().value
+        if (!oldest) break
+        highlightCache.delete(oldest[0])
+        highlightCacheChars -= oldest[0].length + oldest[1].length
+      }
+    }
+    return value
   } catch {
     return null
   }

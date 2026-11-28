@@ -24,10 +24,12 @@ const reactMarkdown = fileURLToPath(import.meta.resolve('react-markdown'))
 // invocation of react-markdown's component through a shim. One bundle means one copy of
 // React, which memoization needs.
 const entryCode = `
-  export { createElement, Fragment } from 'react'
+  export { createElement, Fragment, Profiler } from 'react'
   export { createRoot } from 'react-dom/client'
   export { flushSync } from 'react-dom'
   export { MarkdownText } from './ui/src/primitives.js'
+  export { MathExpression, ensureKatex, normalizeMathDelimiters } from './ui/src/math-render.js'
+  export { ensureLanguage } from './ui/src/code-highlight.js'
 `
 // A tiny real file stands in for the react-markdown import inside the bundle and counts
 // every component invocation, so the test can measure how often anything re-parses.
@@ -61,7 +63,17 @@ const { outputFiles } = await build({
 
 const bundlePath = join(dir, 'bundle.mjs')
 writeFileSync(bundlePath, outputFiles[0].text)
-const { createElement: h, createRoot, flushSync, MarkdownText } = await import(pathToFileURL(bundlePath).href)
+const {
+  createElement: h,
+  Profiler,
+  createRoot,
+  flushSync,
+  MarkdownText,
+  MathExpression,
+  ensureKatex,
+  normalizeMathDelimiters,
+  ensureLanguage,
+} = await import(pathToFileURL(bundlePath).href)
 
 const labels = { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } }
 const renderCount = () => globalThis.__mdCount ?? 0
@@ -474,6 +486,412 @@ test('list-hosted fences never truncate top-level code blocks or restart numbere
   assert.equal(fold(streamedDeep.container.innerHTML), deepRef, '4-space closing fence inside list followed by link def matches settled')
   assert.ok(streamedDeep.container.querySelectorAll('a').length > 0, 'link definition after 4-space closing fence still resolves')
   streamedDeep.unmount()
+})
+
+test('display math (\\[...\\] and $$...$$) keeps block splitting intact and matches settled render', async () => {
+  await ensureKatex()
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const normalized = normalizeMathDelimiters('Intro paragraph \\[a^2 + b^2\\] outro paragraph')
+  assert.equal(normalized, 'Intro paragraph\n\n$$\na^2 + b^2\n$$\n\noutro paragraph')
+  assert.deepEqual(splitMarkdownBlocks(normalized), ['Intro paragraph\n\n', '$$\na^2 + b^2\n$$\n\n', 'outro paragraph'])
+
+  const mathReply = [
+    'Introduction with enough text to exceed the streaming split threshold smoothly. '.repeat(8).trim(),
+    '',
+    '\\[',
+    '\\sum_{k=1}^{n} k^2 = \\frac{n(n+1)(2n+1)}{6}',
+    '\\]',
+    '',
+    'Middle explanation with inline $E = mc^2$ and \\(\\alpha + \\beta\\) and $5 and $10 currency.',
+    '',
+    '$$',
+    '\\int_0^1 x^2\\,dx = \\frac{1}{3}',
+    '$$',
+    '',
+    'Closing summary paragraph.',
+  ].join('\n')
+
+  const settled = mounted()
+  settled.render(h(MarkdownText, { text: mathReply, labels }))
+  const fold = html => html.replace(/>\n</g, '><')
+  const reference = fold(settled.container.innerHTML)
+  settled.unmount()
+
+  const streamed = mounted()
+  let acc = ''
+  let beforeCount = renderCount()
+  const perChunk = []
+  for (let at = 0; at < mathReply.length; at += 19) {
+    acc = mathReply.slice(0, at + 19)
+    streamed.render(h(MarkdownText, { text: acc, streaming: true, labels }))
+    perChunk.push(renderCount() - beforeCount)
+    beforeCount = renderCount()
+  }
+  const beforeSettle = renderCount()
+  streamed.render(h(MarkdownText, { text: mathReply, streaming: false, labels }))
+  const settleParses = renderCount() - beforeSettle
+  assert.equal(fold(streamed.container.innerHTML), reference, 'streamed display math matches settled render')
+  assert.equal(streamed.container.querySelectorAll('.dsb-math-block').length, 2, 'both \\[...\\] and $$...$$ render as display math')
+  assert.ok(settleParses <= 1, `streaming -> settled transition only touches tail block, got ${settleParses} parses`)
+  streamed.unmount()
+})
+
+test('streaming tail defers syntax highlighting for unclosed code fences and defers KaTeX for unclosed math until closed', async () => {
+  await ensureLanguage('javascript')
+  await ensureKatex()
+
+  const prefix = 'Closed introductory paragraph long enough to pass the streaming block threshold. '.repeat(8).trim()
+  const view = mounted()
+  try {
+    // Unclosed JS fence in streaming tail renders plain code without hljs tokens.
+    const unclosedCode = `${prefix}\n\n\`\`\`javascript\nconst value = 42\nexport function run() {`
+    view.render(h(MarkdownText, { text: unclosedCode, streaming: true, labels }))
+    assert.equal(view.container.querySelectorAll('.hljs-keyword').length, 0, 'unclosed fence skips syntax highlighting while streaming')
+    assert.ok(view.container.textContent.includes('const value = 42'), 'unclosed fence still shows plain code text')
+
+    // Closing the fence highlights immediately.
+    const closedCode = `${unclosedCode}\n  return value\n}\n\`\`\``
+    view.render(h(MarkdownText, { text: closedCode, streaming: true, labels }))
+    assert.ok(view.container.querySelectorAll('.hljs-keyword').length > 0, 'closed fence syntax-highlights')
+
+    // Unclosed `$$` display math in streaming tail skips KaTeX until closing `$$`.
+    const unclosedDollar = `${prefix}\n\n$$\n\\frac{a + b}{c`
+    view.render(h(MarkdownText, { text: unclosedDollar, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed $$ skips KaTeX while streaming')
+    assert.ok(view.container.textContent.includes('\\frac{a + b}{c'), 'unclosed $$ displays raw TeX fallback')
+
+    const closedDollar = `${unclosedDollar}}\n$$`
+    view.render(h(MarkdownText, { text: closedDollar, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), true, 'closed $$ renders KaTeX')
+
+    // Unclosed single-line `$$` and unclosed inline `$` skip KaTeX while streaming.
+    const unclosedInlineDollar = `${prefix}\n\nThe partial formula is $E = m c^2`
+    view.render(h(MarkdownText, { text: unclosedInlineDollar, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed single $ skips KaTeX')
+
+    const unclosedSingleLineDisplay = `${prefix}\n\n$$x^2 + y^2`
+    view.render(h(MarkdownText, { text: unclosedSingleLineDisplay, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed single-line $$ skips KaTeX')
+
+    // Unclosed ```math fence skips KaTeX until closed.
+    const unclosedMathFence = `${prefix}\n\n\`\`\`math\nx^2 + y^2`
+    view.render(h(MarkdownText, { text: unclosedMathFence, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed ```math fence skips KaTeX')
+  } finally {
+    view.unmount()
+  }
+})
+
+test('MathExpression is memoized and skips re-render when tex and display are unchanged', async () => {
+  await ensureKatex()
+  assert.equal(MathExpression.$$typeof, Symbol.for('react.memo'), 'MathExpression is wrapped in React.memo')
+  let renders = 0
+  const origType = MathExpression.type
+  MathExpression.type = function SpyMathExpression(props) {
+    renders += 1
+    return origType(props)
+  }
+  function Wrapper({ tick, tex }) {
+    return h('div', { 'data-tick': tick },
+      h(MathExpression, { tex, display: false }))
+  }
+  const view = mounted()
+  try {
+    view.render(h(Wrapper, { tick: 1, tex: 'E = mc^2' }))
+    assert.equal(renders, 1)
+    view.render(h(Wrapper, { tick: 2, tex: 'E = mc^2' }))
+    view.render(h(Wrapper, { tick: 3, tex: 'E = mc^2' }))
+    assert.equal(renders, 1, 'memoized MathExpression does not re-render on unrelated parent updates')
+    view.render(h(Wrapper, { tick: 4, tex: 'a^2 + b^2' }))
+    assert.equal(renders, 2, 'memoized MathExpression re-renders when tex changes')
+  } finally {
+    MathExpression.type = origType
+    view.unmount()
+  }
+})
+
+test('differential streaming contract: final streaming:false DOM matches whole-document render byte-for-byte across adversarial and random Markdown corpuses', async () => {
+  await ensureKatex()
+  await ensureLanguage('javascript')
+  await ensureLanguage('python')
+  const fold = html => html.replace(/>\n</g, '><')
+  const pad = 'Introductory prose long enough to cross the 512-byte streaming split threshold cleanly. '.repeat(7).trim()
+
+  const corpus = [
+    ['orderedListSplitMidDigit2', `${pad}\n\n1. First item\n\n2. Second item\n\nAfter.\n`],
+    ['orderedListSplitMidDigit1', `${pad}\n\n1. First item\n\n1. Second item\n\nAfter.\n`],
+    ['unclosedLiteralLatexBeforeLinkDef', `See [x]. ${pad}\n\nHere is a literal \\[ bracket.\n\n[x]: https://example.com\n`],
+    ['multilineInlineCodeLatexBeforeLinkDef', `See [x]. ${pad}\n\nHere is \`multi-line\ncode with \\[ inside\` end.\n\n[x]: https://example.com\n`],
+    ['unclosedLatexBeforeFenceWithCloseBracket', `See [x]. ${pad}\n\nStart \\[ unclosed\n\n\`\`\`js\nconst s = "\\\\]"\n\`\`\`\n\n[x]: https://example.com\n`],
+    ['literalLatexClosedInInlineCodeAfterLinkDef', `See [x]. ${pad}\n\nLiteral \\[ open\n\n[x]: https://example.com\n\n\`\\]\`\n`],
+    ['inlineDollarWithCjkPunctBeforeDisplayAndDef', `See [x]. ${pad}\n\n$$x^2$$。\n$$\na + b\n$$\n\n[x]: https://example.com\n`],
+    ['inlineDollarWithProseThenPara', `${pad}\n\n$$x^2$$ and more prose.\n\nNext paragraph with $y = 2$.\n`],
+    ['indentedSetextInList', `${pad}\n\n## item\n\n- item\n  -\n\nNext.\n`],
+    ['nestedLooseLists', `${pad}\n\n- outer 1\n\n  - inner a\n\n  - inner b\n\n- outer 2\n\nDone.\n`],
+    ['codeFenceContainingMathTokens', `${pad}\n\n\`\`\`js\nconst a = "$$x^2$$"\nconst b = "\\\\[y\\\\]"\nconst c = "$5"\n\`\`\`\n\nAfter.\n`],
+    ['inlineCodeContainingDollars', `${pad}\n\nUse \`$$raw$$\` and \`\\[raw\\]\` inline.\n\nNext.\n`],
+    ['currencyAndEscapedDollars', `${pad}\n\nItems cost $5 and $10, or \\$20 total, while $x + y = z$.\n\nNext.\n`],
+    ['tableWithMathAndCurrency', `${pad}\n\n| expr | price |\n| --- | --- |\n| $a^2$ | $5 |\n| \\(b^2\\) | $10 |\n\nAfter.\n`],
+    ['blockquoteWithDisplayMath', `${pad}\n\n> $$\n> x^2 + 1\n> $$\n\n> \\[\n> y^2\n> \\]\n\nAfter.\n`],
+    ['rawHtmlBlock', `${pad}\n\n<div>\n<p>raw</p>\n</div>\n\nAfter.\n`],
+    ['footnoteAcrossBlocks', `${pad} with note[^1].\n\nMiddle paragraph.\n\n[^1]: Footnote body.\n`],
+    ['crlfDocument', `${pad}\r\n\r\n$$\r\nx^2\r\n$$\r\n\r\nAfter.\r\n`],
+    ['cjkAndEmoji', `${pad}\n\n中文段落 🚀 与行内公式 $E=mc^2$ 和 $$a+b$$。\n\n下一段。\n`],
+    ['unclosedFenceAtEof', `${pad}\n\n\`\`\`javascript\nconst a = 1\nexport function f() {`],
+    ['unclosedIndentedFenceAtEof', `${pad}\n\n  \`\`\`javascript\n  const a = 1\n  return a`],
+    ['unclosedLatexAtEof', `${pad}\n\n\\[\n\\sum_{k=1}^n k`],
+    ['unclosedMultilineDollarWithMetaText', `${pad}\n\n$$x^2 + y\n+ z`],
+    ['closedMultilineDollarWithBody', `${pad}\n\n$$\n\\frac{1}{2}\n\n+ \\frac{1}{3}\n$$\n\nAfter.\n`],
+    ['closedLatexDisplayWithBlankLine', `${pad}\n\n\\[\n\\int_0^1 x\\,dx\n\n= \\frac{1}{2}\n\\]\n\nAfter.\n`],
+    ['duplicateCodeBlocksNoSplit', `See [x]. ${pad}\n\n\`\`\`javascript\nconst dup = 1\n\`\`\`\n\n\`\`\`javascript\nconst dup = 1\n\`\`\`\n\n[x]: https://example.com\n`],
+    ['lazyContinuationList', `${pad}\n\n1. First line\nlazy second line\n\n2. Second item\n\nDone.\n`],
+    ['indentedCodeContinuation', `${pad}\n\n    line one\n\n    line two\n\nPlain.\n`],
+    ['listWithIndentedFence', `${pad}\n\n1. Step\n\n   \`\`\`python\n   x = 1\n   \`\`\`\n\n2. Step two\n\nDone.\n`],
+    ['thematicBreakAndSetext', `${pad}\n\nHeading\n---\n\n***\n\nAfter.\n`],
+    ['containerDirective', `${pad}\n\n::: note\ninside\n:::\n\nAfter.\n`],
+    ['inlineLatexDisplayMidParagraph', `${pad}\n\nBefore \\[a^2 + b^2\\] after.\n\nDone.\n`],
+    ['strayBacktickBeforeLatexDisplayAndInlineCode', `${'The explanation goes on at length here, with enough words to pass the threshold. '.repeat(8)}use the \` character for code.\n\nHere is \\[x^2 + y^2\\] math and \`inline code\` after.\n`],
+    ['strayBacktickBeforeCurrencyAcrossBlankLine', `${pad} stray \` backtick here.\n\nCosts $5 and $10, plus \`code\` and \\(a+b\\).\n`],
+    ['inlineDoubleDollarAcrossBlankLineBeforeCurrency', `${pad} start $$a + b\n\nCosts $5 and $10 then $$c + d$$.\n`],
+  ]
+
+  // Deterministic seeded pseudo-random Markdown generator to catch unexpected boundary interactions.
+  let seed = 0x5eed1234
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+  const fragments = [
+    'Plain paragraph with $E = mc^2$ and $5 currency.',
+    '## Section Heading',
+    '1. Ordered item one\n\n2. Ordered item two',
+    '- Bullet item one\n\n- Bullet item two',
+    '```javascript\nconst k = 42\nreturn k + 1\n```',
+    '$$\n\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\n$$',
+    '\\[\n\\int_0^1 x^2\\,dx\n\\]',
+    '$$x^2$$。',
+    'Literal \\[ without close.',
+    'See [ref] in text.',
+    '[ref]: https://example.com/ref',
+    '> Quoted line\n> second line',
+  ]
+  for (let i = 0; i < 8; i += 1) {
+    const parts = [pad]
+    const count = 4 + Math.floor(rand() * 5)
+    for (let j = 0; j < count; j += 1) {
+      parts.push(fragments[Math.floor(rand() * fragments.length)])
+    }
+    corpus.push([`randomDoc_${i}`, `${parts.join('\n\n')}\n`])
+  }
+
+  for (const [name, doc] of corpus) {
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+    const expected = fold(settled.container.innerHTML)
+    settled.unmount()
+
+    // Test multiple chunking schedules including prime sizes and randomized variable steps.
+    const schedules = [
+      () => {
+        const cuts = []
+        for (let at = 17; at < doc.length; at += 17) cuts.push(at)
+        return cuts
+      },
+      () => {
+        const cuts = []
+        let at = 0
+        while (at < doc.length) {
+          at += 1 + Math.floor(rand() * 37)
+          if (at < doc.length) cuts.push(at)
+        }
+        return cuts
+      },
+    ]
+
+    for (let sIdx = 0; sIdx < schedules.length; sIdx += 1) {
+      const view = mounted()
+      try {
+        for (const cut of schedules[sIdx]()) {
+          view.render(h(MarkdownText, { text: doc.slice(0, cut), streaming: true, labels }))
+        }
+        view.render(h(MarkdownText, { text: doc, streaming: true, labels }))
+        view.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+        assert.equal(
+          fold(view.container.innerHTML),
+          expected,
+          `differential mismatch on ${name} (schedule ${sIdx})`,
+        )
+      } finally {
+        view.unmount()
+      }
+    }
+  }
+
+  // Exact targeted boundary repros:
+  // (a) Chunk cut right after bare digit `2` in loose ordered list.
+  const orderedDoc = `${pad}\n\n1. First item\n\n2. Second item\n\nAfter.\n`
+  const orderedCut = orderedDoc.indexOf('2. Second') + 1
+  const settledOrdered = mounted()
+  settledOrdered.render(h(MarkdownText, { text: orderedDoc, streaming: false, labels }))
+  const expectedOrdered = fold(settledOrdered.container.innerHTML)
+  settledOrdered.unmount()
+
+  const streamedOrdered = mounted()
+  streamedOrdered.render(h(MarkdownText, { text: orderedDoc.slice(0, orderedCut), streaming: true, labels }))
+  streamedOrdered.render(h(MarkdownText, { text: orderedDoc, streaming: true, labels }))
+  streamedOrdered.render(h(MarkdownText, { text: orderedDoc, streaming: false, labels }))
+  assert.equal(fold(streamedOrdered.container.innerHTML), expectedOrdered, 'exact bare-digit cut keeps single loose <ol>')
+  streamedOrdered.unmount()
+
+  // (b) Tail rewrite from plain text to `- second item`.
+  const rewriteBefore = `${pad}\n\n- first item\n\nplain text`
+  const rewriteAfter = `${pad}\n\n- first item\n\n- second item\n`
+  const settledRewrite = mounted()
+  settledRewrite.render(h(MarkdownText, { text: rewriteAfter, streaming: false, labels }))
+  const expectedRewrite = fold(settledRewrite.container.innerHTML)
+  settledRewrite.unmount()
+
+  const streamedRewrite = mounted()
+  streamedRewrite.render(h(MarkdownText, { text: rewriteBefore, streaming: true, labels }))
+  streamedRewrite.render(h(MarkdownText, { text: rewriteAfter, streaming: true, labels }))
+  streamedRewrite.render(h(MarkdownText, { text: rewriteAfter, streaming: false, labels }))
+  assert.equal(fold(streamedRewrite.container.innerHTML), expectedRewrite, 'tail rewrite to list item keeps single loose <ul>')
+  streamedRewrite.unmount()
+})
+
+test('unclosed streaming code fence targets only the last block by position, defers indented fences, and keeps multi-line $$ opening text visible', async () => {
+  await ensureLanguage('javascript')
+  await ensureKatex()
+
+  const view = mounted()
+  try {
+    // 1. Duplicate code block (split === false): an unclosed second fence with identical text
+    //    must NOT strip syntax highlighting from the earlier closed code block.
+    const dupStreaming = 'Short doc\n\n```javascript\nconst x = 1\n```\n\n```javascript\nconst x = 1'
+    view.render(h(MarkdownText, { text: dupStreaming, streaming: true, labels }))
+    const codeBlocks = view.container.querySelectorAll('.md-code')
+    assert.equal(codeBlocks.length, 2)
+    assert.ok(codeBlocks[0].querySelectorAll('.hljs-keyword').length > 0, 'earlier closed duplicate code block keeps highlighting')
+    assert.equal(codeBlocks[1].querySelectorAll('.hljs-keyword').length, 0, 'only the trailing unclosed code block defers highlighting')
+
+    // 2. Indented unclosed code fence (2 spaces) still defers highlighting while streaming.
+    const indentedStreaming = 'Short doc\n\n  ```javascript\n  const y = 2\n  return y'
+    view.render(h(MarkdownText, { text: indentedStreaming, streaming: true, labels }))
+    assert.equal(view.container.querySelectorAll('.hljs-keyword').length, 0, 'indented unclosed fence defers highlighting')
+
+    // 3. Multi-line unclosed `$$x^2 + y\n+ z` keeps `x^2 + y` visible instead of swallowing it as meta.
+    const multiLineUnclosedMath = 'Short doc\n\n$$x^2 + y\n+ z'
+    view.render(h(MarkdownText, { text: multiLineUnclosedMath, streaming: true, labels }))
+    assert.ok(view.container.textContent.includes('x^2 + y'), 'multi-line unclosed $$ keeps opening-line body visible')
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed multi-line $$ skips KaTeX')
+  } finally {
+    view.unmount()
+  }
+})
+
+test('seeded differential fuzz guard: 160 random/adversarial Markdown docs (char-by-char & random chunks) + 40 tail rewrites end byte-identical to settled render', async () => {
+  await ensureKatex()
+  await ensureLanguage('javascript')
+  await ensureLanguage('python')
+  const fold = html => html.replace(/>\n</g, '><')
+  const pad = 'The explanation goes on at length here, with enough words to pass the threshold. '.repeat(7).trim()
+
+  const pool = [
+    'Use the ` character in prose without closing it.',
+    'Multi-line `code span\nstill inside one paragraph` and $E = mc^2$.',
+    'Here is \\[x^2 + y^2\\] display math and `inline code` after.',
+    'Inline \\(\\alpha + \\beta\\) with $5 and $10 currency and \\$20 escaped.',
+    '$$x^2$$。',
+    'Inline $$a + b unclosed in paragraph',
+    '$$\n\\int_0^1 x^2\\,dx\n\n= \\frac{1}{3}\n$$',
+    '\\[\n\\sum_{k=1}^n k\n\n= \\frac{n(n+1)}{2}\n\\]',
+    '1. Ordered first\n\n2. Ordered second',
+    '- Bullet one\n\n  - Nested bullet\n\n- Bullet two',
+    '- Setext candidate\n  -',
+    '```javascript\nconst s = "$$x^2$$ and \\\\[y\\\\]"\nreturn s\n```',
+    '```python\ndef f(x):\n    return x * 2\n```',
+    '| col | val |\n| --- | --- |\n| $a^2$ | $5 |',
+    '> Quoted $$x^2$$\n> second line',
+    'See [ref] in prose.',
+    '[ref]: https://example.com/ref',
+    'Note[^1] here.\n\n[^1]: Footnote text.',
+    '<div>\nhtml block\n</div>',
+    'Heading\n---',
+    'Literal \\[ unclosed bracket.',
+    '中文段落 🚀 和 `代码` 与 $$a+b$$。',
+  ]
+
+  let seed = 0x9e3779b9
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+  const pick = list => list[Math.floor(rand() * list.length)]
+
+  // 1. 160 deterministic random/adversarial documents (mix of char-by-char and random 1-37 chunks,
+  //    plus occasional single-character mutations).
+  for (let i = 0; i < 160; i += 1) {
+    const parts = [pad]
+    const n = 2 + Math.floor(rand() * 4)
+    for (let j = 0; j < n; j += 1) parts.push(pick(pool))
+    let doc = `${parts.join('\n\n')}\n`
+    if (i % 5 === 0) {
+      // Inject a random single-char mutation (stray backtick, $, [, -, or digit) after the pad.
+      const mutPos = pad.length + Math.floor(rand() * Math.max(1, doc.length - pad.length))
+      const mutChar = pick(['`', '$', '[', '-', '2', '\\'])
+      doc = `${doc.slice(0, mutPos)}${mutChar}${doc.slice(mutPos)}`
+    }
+
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+    const expected = fold(settled.container.innerHTML)
+    settled.unmount()
+
+    const view = mounted()
+    try {
+      if (i < 16) {
+        // Character-by-character streaming across the active suffix (after the 512-byte pad).
+        view.render(h(MarkdownText, { text: doc.slice(0, pad.length), streaming: true, labels }))
+        for (let at = pad.length + 1; at < doc.length; at += 1) {
+          view.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+        }
+      } else {
+        let at = pad.length
+        view.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+        while (at < doc.length) {
+          at += 1 + Math.floor(rand() * 37)
+          if (at < doc.length) view.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+        }
+      }
+      view.render(h(MarkdownText, { text: doc, streaming: true, labels }))
+      view.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+      assert.equal(fold(view.container.innerHTML), expected, `fuzz mismatch on doc #${i}`)
+    } finally {
+      view.unmount()
+    }
+  }
+
+  // 2. 40 non-append tail-rewrite cases (streaming one tail, rewriting to a different tail, then settling).
+  for (let i = 0; i < 40; i += 1) {
+    const prefix = `${pad}\n\n${pick(pool)}\n\n`
+    const beforeDoc = `${prefix}${pick(pool)}\n`
+    const afterDoc = `${prefix}${pick(pool)}\n`
+
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text: afterDoc, streaming: false, labels }))
+    const expected = fold(settled.container.innerHTML)
+    settled.unmount()
+
+    const view = mounted()
+    try {
+      view.render(h(MarkdownText, { text: beforeDoc, streaming: true, labels }))
+      view.render(h(MarkdownText, { text: afterDoc, streaming: true, labels }))
+      view.render(h(MarkdownText, { text: afterDoc, streaming: false, labels }))
+      assert.equal(fold(view.container.innerHTML), expected, `rewrite fuzz mismatch #${i}`)
+    } finally {
+      view.unmount()
+    }
+  }
 })
 
 after(() => {
