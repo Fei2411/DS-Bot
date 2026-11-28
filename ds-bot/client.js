@@ -24079,7 +24079,7 @@ function createTeamStore({
     goalOpen: null,
     approvalOpen: null,
     inbox: false,
-    ...extraUi ?? {}
+    ...extraUi
   });
   let sidebarSaved = readSidebar(storage);
   const sidebarPref = createSource(sidebarSaved.pref);
@@ -24090,7 +24090,7 @@ function createTeamStore({
     collapsedWidth: 0,
     collapsed: false
   });
-  const surface = createSource({ mode: readMode(), ...surfaceExtra ?? {} });
+  const surface = createSource({ mode: readMode(), ...surfaceExtra });
   const activity = createSource({});
   const work = createSource(NO_WORK);
   const computer = createSource({});
@@ -28387,7 +28387,7 @@ ${text}`, seq });
           [sessionId]: {
             ...row,
             replyCount: row.replyCount ?? 0,
-            projectionValues: { ...row.projectionValues ?? {}, turnOutline: nextOutline }
+            projectionValues: { ...row.projectionValues, turnOutline: nextOutline }
           }
         }
       };
@@ -28539,10 +28539,10 @@ ${text}`, seq });
       for (const id of keys) if (keep(id)) next[id] = state[id];
       return next;
     });
-    for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id);
-    for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id);
-    for (const id of [...lastFeedMessageCursor.keys()]) if (!keep(id)) lastFeedMessageCursor.delete(id);
-    for (const id of [...confirmedUsersBySession.keys()]) if (!keep(id)) confirmedUsersBySession.delete(id);
+    for (const id of turnFactsBySession.keys()) if (!keep(id)) turnFactsBySession.delete(id);
+    for (const id of closingRepliesBySession.keys()) if (!keep(id)) closingRepliesBySession.delete(id);
+    for (const id of lastFeedMessageCursor.keys()) if (!keep(id)) lastFeedMessageCursor.delete(id);
+    for (const id of confirmedUsersBySession.keys()) if (!keep(id)) confirmedUsersBySession.delete(id);
     for (const id of [...evictedConfirmedSeqBySession.keys()]) if (!keep(id)) evictedConfirmedSeqBySession.delete(id);
     for (const id of [...maxConfirmedUserSeqBySession.keys()]) if (!keep(id)) maxConfirmedUserSeqBySession.delete(id);
     for (const id of [...lastFeedReplySeq.keys()]) if (!keep(id)) lastFeedReplySeq.delete(id);
@@ -31140,6 +31140,154 @@ function startComputerBridge({
     stopped = true;
     for (const cleanup of cleanups) cleanup();
   };
+}
+var SETTINGS_PANEL_IDS = /* @__PURE__ */ new Set([
+  "overview",
+  "general",
+  "shortcuts",
+  "appearance",
+  "models",
+  "local-agents",
+  "bot-models",
+  "deepseek-services",
+  "bots",
+  "groups",
+  "schedules",
+  "connectors",
+  "im",
+  "phone",
+  "api",
+  "computer",
+  "browser",
+  "capabilities",
+  "secrets",
+  "plugins",
+  "usage",
+  "about",
+  "privacy",
+  "feedback"
+]);
+function assembleTeamActions({
+  call: call2,
+  after,
+  store,
+  foldWrites,
+  panelFolded,
+  nav,
+  updateCtrl,
+  browserCtrl,
+  clearPanelYieldOnToggle = false,
+  host = {},
+  extra = {}
+}) {
+  const { roster, ui, live, cards, heldCards, turnClock, questionDrafts, partFor } = store;
+  const baseActions = teamActions({
+    call: call2,
+    after,
+    partFor,
+    roster,
+    ui,
+    live,
+    cards,
+    heldCards,
+    turnClock,
+    panelFolded,
+    questionDrafts,
+    foldWrites
+  });
+  const storeActions = createStoreActions({ store, clearPanelYieldOnToggle });
+  const actions = {
+    ...baseActions,
+    ...storeActions,
+    ...nav.actions,
+    ...updateCtrl.actions,
+    ...browserCtrl.actions,
+    closePanel: () => {
+      baseActions.closePanel();
+      host.afterClosePanel?.();
+    },
+    closeOverlay: () => {
+      const hadDialog = Boolean(ui.getSnapshot().newChat || ui.getSnapshot().exchange);
+      baseActions.closeOverlay();
+      if (!hadDialog) host.afterCloseOverlay?.();
+    },
+    toggleDetails: (id, force) => {
+      baseActions.toggleDetails(id, force);
+      host.afterToggleDetails?.();
+    },
+    openChanges: async (changes) => {
+      if (changes === null || typeof changes !== "object" || typeof changes.sessionId !== "string" || !Number.isInteger(changes.seq) || host.requireChangesTurn === true && !Number.isInteger(changes.turn)) return;
+      let available = false;
+      try {
+        available = await call2("changes-check", { sessionId: changes.sessionId, seq: changes.seq }) === true;
+      } catch {
+        available = false;
+      }
+      if (!available) {
+        actions.notice(t("These changes are no longer available"));
+        return;
+      }
+      await host.openChanges?.(changes, actions);
+    },
+    steerQueued: async (sessionId) => {
+      if (!sessionId || typeof host.steerQueued !== "function") return;
+      const tryBotBatch = async (ids) => {
+        if (roster.getSnapshot().byId?.[sessionId] === void 0) return "fallback";
+        try {
+          const result = await actions.steerQueueBatch(sessionId, ids);
+          return result?.fallback === true ? "fallback" : "done";
+        } catch (error) {
+          return error?.code === "bot/not-found" ? "fallback" : "failed";
+        }
+      };
+      const reportSteerError = () => {
+        actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
+      };
+      await host.steerQueued(sessionId, { tryBotBatch, reportSteerError, actions });
+    },
+    isAgentSession: (id) => Boolean(host.isAgentSession?.(id)),
+    openSession: (id) => {
+      if (host.isAgentSession?.(id)) return actions.openAgentSession(id);
+      nav.bumpNavSeq();
+      const target = partFor(id);
+      const fromInbox = ui.getSnapshot().inbox === true;
+      return host.openTeamSession?.({ id, target, fromInbox, actions });
+    },
+    openAgentSession: (sessionId) => host.openAgentSession?.(sessionId, { nav, actions }),
+    setSurface: (mode) => host.setSurface?.(mode, { actions }),
+    addAgent: (...args) => host.agent?.addAgent?.(...args),
+    openAgent: (...args) => host.agent?.openAgent?.(...args),
+    newAgentSession: (...args) => host.agent?.newAgentSession?.(...args),
+    archiveAgentSession: (...args) => host.agent?.archiveAgentSession?.(...args),
+    renameAgentSession: (...args) => host.agent?.renameAgentSession?.(...args),
+    removeAgent: (...args) => host.agent?.removeAgent?.(...args),
+    selectPanel: (id) => host.selectPanel?.(id, actions),
+    toggleSidebar: () => host.toggleSidebar ? host.toggleSidebar(actions) : actions.toggleLeftHidden(),
+    setSidebarWide: (next) => host.setSidebarWide ? host.setSidebarWide(next, actions) : actions.setSidebarPref(next ? "open" : "hidden"),
+    canOpenFiles: () => Boolean(host.canOpenFiles?.()),
+    openFiles: () => host.openFiles?.(actions),
+    canOpenTerminal: () => Boolean(host.canOpenTerminal?.()),
+    newTerminal: () => host.newTerminal?.(actions),
+    watchAgentTerminals: (sessionId) => host.watchAgentTerminals?.(sessionId, actions),
+    canReferenceChat: () => Boolean(host.canReferenceChat?.()),
+    referenceChat: (sessionId, arg) => host.referenceChat?.(sessionId, arg),
+    speech: () => host.speech?.(),
+    voiceSetup: (providerId) => host.voiceSetup?.(providerId) ?? null,
+    closingReply: (sessionId, turn) => host.closingReply?.(sessionId, turn),
+    turnFacts: (sessionId) => host.turnFacts?.(sessionId),
+    watchTurns: (sessionId, listener) => host.watchTurns?.(sessionId, listener) ?? (() => {
+    }),
+    draftFiles: (ids) => host.drafts?.draftFiles?.(ids) ?? [],
+    restoreDraftFiles: (sessionId, files) => host.drafts?.restoreDraftFiles?.(sessionId, files) ?? [],
+    releaseDraftFiles: (ids) => host.drafts?.releaseDraftFiles?.(ids),
+    signInEntry: () => host.account?.signInEntry?.() ?? null,
+    canSignIn: () => Boolean(host.account?.canSignIn?.()),
+    accountT: () => host.account?.accountT?.() ?? ((key) => key),
+    holdSettingsLook: () => host.holdSettingsLook ? host.holdSettingsLook() : () => {
+    },
+    ...extra
+  };
+  return actions;
 }
 
 // src/shared/appearance.js
@@ -78608,8 +78756,7 @@ function apply(ctx) {
     surface,
     sidebarPref,
     frame: frame3,
-    questionDrafts,
-    partFor
+    questionDrafts
   } = store;
   const settingsShellHeld = createSource(false);
   let settingsShell = null;
@@ -79021,154 +79168,220 @@ function apply(ctx) {
       });
     }
   };
-  const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
-    ...createStoreActions({ store, clearPanelYieldOnToggle: true }),
-    ...nav.actions,
-    ...updateCtrl.actions,
-    ...browserCtrl.actions,
-    // The files a group row names open DSH's own review tab for that turn. The tab reads
-    // the changes of the Session the shell shows, so that Session is opened first; the same
-    // call then retries until its right column is mounted. This jump is the one place a
-    // different place for the review (in the group, or a review that carries its Session)
-    // would replace. A summary the Host no longer serves, or a window without the column,
-    // says so instead of doing nothing.
-    openChanges: async (changes) => {
-      if (changes === null || typeof changes !== "object" || typeof changes.sessionId !== "string" || !Number.isInteger(changes.seq) || !Number.isInteger(changes.turn)) return;
-      let available = false;
-      try {
-        available = await call("changes-check", { sessionId: changes.sessionId, seq: changes.seq }) === true;
-      } catch {
-        available = false;
-      }
-      if (!available) {
-        actions.notice(t("These changes are no longer available"));
-        return;
-      }
-      if (openReview === void 0) {
-        actions.notice(t("This window cannot open the change review"));
-        return;
-      }
-      openChangesReview(changes);
-    },
-    // The full-pane overlays sit above the conversation, so opening one must dismiss them
-    // or the click appears to do nothing.
-    isAgentSession: (id) => isAgentSessionId(id),
-    openSession: (id) => {
-      if (isAgentSessionId(id)) return actions.openAgentSession(id);
-      nav.bumpNavSeq();
-      const target = partFor(id);
-      const fromInbox = ui.getSnapshot().inbox === true;
-      ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null } : state);
-      setPlain(false);
-      show2(target);
-    },
-    // The conversation replacements withdraw for a plain Session; set the surface
-    // before the navigation so the Bot skin never flashes.
-    openAgentSession: (sessionId) => {
-      nav.bumpNavSeq();
-      const fromInbox = ui.getSnapshot().inbox === true;
-      ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
-      setPlain(true);
-      show2(sessionId);
-    },
-    addAgent: async () => {
-      const agent = await after(call("add-agent"));
-      if (agent?.sessions?.[0] !== void 0) actions.openAgentSession(agent.sessions[0]);
-      return agent;
-    },
-    openAgent: (agentId) => {
-      const agent = roster.getSnapshot().agentsById[agentId];
-      if (agent === void 0) return;
-      const list = ctx.sessions.list.getSnapshot();
-      const latest = latestAgentSession(agentId, list);
-      if (latest === void 0) return actions.newAgentSession(agentId);
-      actions.openAgentSession(latest);
-    },
-    newAgentSession: async (agentId) => {
-      const agent = roster.getSnapshot().agentsById[agentId];
-      if (agent === void 0) return;
-      return singleFlight(agentNewInFlight, agentId, async () => {
-        const list = ctx.sessions.list.getSnapshot();
-        const latest = latestAgentSession(agentId, list);
-        const pending = pendingAgentSession.get(agentId);
-        if (pending !== void 0 && list.byId[pending] !== void 0) pendingAgentSession.delete(agentId);
-        const reuse = agentSessionToReuse(list, latest, pending);
-        if (reuse !== void 0) {
-          actions.openAgentSession(reuse);
-          return reuse;
+  let atMenu = null;
+  let shellSheets = 0;
+  let holdSettingsLookFn = () => () => {
+  };
+  const actions = assembleTeamActions({
+    call,
+    after,
+    store,
+    foldWrites,
+    panelFolded,
+    nav,
+    updateCtrl,
+    browserCtrl,
+    clearPanelYieldOnToggle: true,
+    host: {
+      requireChangesTurn: true,
+      openChanges: (changes, a) => {
+        if (openReview === void 0) {
+          a.notice(t("This window cannot open the change review"));
+          return;
         }
-        const { sessionId } = await after(call("agent-session", { agentId, workspaceId: workspaceOf(latest) }));
-        if (ctx.sessions.list.getSnapshot().byId[sessionId] === void 0) pendingAgentSession.set(agentId, sessionId);
-        actions.openAgentSession(sessionId);
-        return sessionId;
-      });
+        openChangesReview(changes);
+      },
+      steerQueued: async (sessionId, { tryBotBatch, reportSteerError }) => {
+        const session = ctx.sessions.binding(sessionId)?.session;
+        if (session === void 0) return;
+        const steerBatch = roster.getSnapshot().byId?.[sessionId] !== void 0 ? tryBotBatch : void 0;
+        if (await steerQueued(session, steerBatch) === "failed") reportSteerError();
+      },
+      isAgentSession: (id) => isAgentSessionId(id),
+      openTeamSession: ({ target, fromInbox }) => {
+        ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null } : state);
+        setPlain(false);
+        show2(target);
+      },
+      // The conversation replacements withdraw for a plain Session; set the surface
+      // before the navigation so the Bot skin never flashes.
+      openAgentSession: (sessionId) => {
+        nav.bumpNavSeq();
+        const fromInbox = ui.getSnapshot().inbox === true;
+        ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
+        setPlain(true);
+        show2(sessionId);
+      },
+      // Agent mode hands the surface back to the shell; everything open on the Bot
+      // surface closes first so nothing stale reopens on the way back.
+      setSurface: (mode) => {
+        if (mode !== "bot" && mode !== "agent") return;
+        if (surface.getSnapshot().mode === mode) {
+          if (mode === "bot") ensureBotHome();
+          return;
+        }
+        if (mode === "agent") {
+          ui.set((state) => ({ ...state, details: null, view: "details", task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, inbox: false, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }));
+        }
+        writeMode(mode);
+        surface.set((state) => ({ ...state, mode }));
+        if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame3.getSnapshot().collapsed) ctx.layout.toggleSidebar();
+        if (mode !== "bot") return;
+        ensureBotHome();
+      },
+      agent: {
+        addAgent: async () => {
+          const agent = await after(call("add-agent"));
+          if (agent?.sessions?.[0] !== void 0) actions.openAgentSession(agent.sessions[0]);
+          return agent;
+        },
+        openAgent: (agentId) => {
+          const agent = roster.getSnapshot().agentsById[agentId];
+          if (agent === void 0) return;
+          const list = ctx.sessions.list.getSnapshot();
+          const latest = latestAgentSession(agentId, list);
+          if (latest === void 0) return actions.newAgentSession(agentId);
+          actions.openAgentSession(latest);
+        },
+        newAgentSession: async (agentId) => {
+          const agent = roster.getSnapshot().agentsById[agentId];
+          if (agent === void 0) return;
+          return singleFlight(agentNewInFlight, agentId, async () => {
+            const list = ctx.sessions.list.getSnapshot();
+            const latest = latestAgentSession(agentId, list);
+            const pending = pendingAgentSession.get(agentId);
+            if (pending !== void 0 && list.byId[pending] !== void 0) pendingAgentSession.delete(agentId);
+            const reuse = agentSessionToReuse(list, latest, pending);
+            if (reuse !== void 0) {
+              actions.openAgentSession(reuse);
+              return reuse;
+            }
+            const { sessionId } = await after(call("agent-session", { agentId, workspaceId: workspaceOf(latest) }));
+            if (ctx.sessions.list.getSnapshot().byId[sessionId] === void 0) pendingAgentSession.set(agentId, sessionId);
+            actions.openAgentSession(sessionId);
+            return sessionId;
+          });
+        },
+        archiveAgentSession: async (agentId, sessionId) => {
+          await after(call("agent-archive", { agentId, sessionId }));
+          const list = ctx.sessions.list.getSnapshot();
+          const main = Object.values(list.byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id;
+          if (main !== sessionId) return;
+          const rest = roster.getSnapshot().agentsById[agentId]?.sessions ?? [];
+          if (rest.length > 0) actions.openAgent(agentId);
+          else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
+        },
+        renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
+        removeAgent: async (agentId) => {
+          const owned = agentSessions(agentId);
+          const result = await after(call("remove-agent", { agentId }));
+          const list = ctx.sessions.list.getSnapshot();
+          const main = Object.values(list.byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id;
+          if (main !== void 0 && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
+          return result;
+        }
+      },
+      selectPanel: (id) => ctx.layout.selectPanel(id),
+      toggleSidebar: () => ctx.layout.toggleSidebar(),
+      canOpenTerminal: () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0,
+      watchAgentTerminals: (sessionId, a) => watchAgentTerminals(ctx.slots, sessionId, (error) => a.reportError(error, "right-sidebar")),
+      newTerminal: (a) => {
+        a.closePanel();
+        try {
+          callServiceMethod(ctx, "sidebarRight", "openTab", "terminal");
+        } catch (error) {
+          a.reportError(error, "right-sidebar");
+        }
+      },
+      canOpenFiles: () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("files") !== void 0,
+      openFiles: (a) => {
+        a.closePanel();
+        try {
+          callServiceMethod(ctx, "sidebarRight", "openTab", "files");
+        } catch (error) {
+          a.reportError(error, "right-sidebar");
+        }
+      },
+      canReferenceChat: () => atMenu !== null,
+      referenceChat: (sessionId, span) => {
+        const controller = atMenu?.controllerOf(sessionId);
+        if (controller === void 0 || span === void 0) return;
+        controller.toggleSource(CHATS_SOURCE, { trigger: "@", query: "", quoted: false, position: "inline", span });
+      },
+      speech: () => ctx.get("remote.speech") ?? void 0,
+      voiceSetup: (providerId) => {
+        const navigation = ctx.get("pluginNavigation");
+        if (navigation !== void 0) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) };
+        const speech = ctx.get("remote.speech");
+        return speech === void 0 || providerId === void 0 ? null : { prepare: () => requestPreparation(speech, providerId) };
+      },
+      closingReply: (sessionId, turn) => {
+        try {
+          const binding = ctx.sessions.binding(sessionId);
+          if (binding === void 0) return null;
+          return closingReplyText(ctx.uiConversation.binding(binding).target("chat").getSnapshot(), turn);
+        } catch {
+          return null;
+        }
+      },
+      turnFacts: (sessionId) => {
+        try {
+          const binding = ctx.sessions.binding(sessionId);
+          if (binding === void 0) return { turns: void 0, openTurn: void 0 };
+          const conversation = ctx.uiConversation.binding(binding);
+          const chat = conversation.target("chat").getSnapshot();
+          return { turns: chat?.timeline?.turns, openTurn: conversation.openTurn.getSnapshot() };
+        } catch {
+          return { turns: void 0, openTurn: void 0 };
+        }
+      },
+      watchTurns: (sessionId, listener) => {
+        try {
+          const binding = ctx.sessions.binding(sessionId);
+          if (binding === void 0) return () => {
+          };
+          const conversation = ctx.uiConversation.binding(binding);
+          const offChat = conversation.target("chat").subscribe(listener);
+          const offOpen = conversation.openTurn.subscribe(listener);
+          return () => {
+            offChat();
+            offOpen();
+          };
+        } catch {
+          return () => {
+          };
+        }
+      },
+      drafts: {
+        draftFiles: (ids) => {
+          const conversation = ctx.get("conversation");
+          if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== "function") return [];
+          return conversation.resolveDraftAttachments(ids).map((item) => ({ kind: item.kind, file: item.file }));
+        },
+        restoreDraftFiles: (sessionId, files) => {
+          const conversation = ctx.get("conversation");
+          if (typeof conversation?.createDrafts !== "function") return [];
+          return conversation.createDrafts(sessionId, files, true).map((item) => item.id);
+        },
+        releaseDraftFiles: (ids) => {
+          const conversation = ctx.get("conversation");
+          if (typeof conversation?.releaseDraftAttachment !== "function") return;
+          for (const id of ids) conversation.releaseDraftAttachment(id);
+        }
+      },
+      account: {
+        signInEntry: () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null,
+        canSignIn: () => Boolean(ctx.slots.entries?.("settings.models.sign-in")?.[0]),
+        accountT: () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key)
+      },
+      holdSettingsLook: () => holdSettingsLookFn()
     },
-    archiveAgentSession: async (agentId, sessionId) => {
-      await after(call("agent-archive", { agentId, sessionId }));
-      const list = ctx.sessions.list.getSnapshot();
-      const main = Object.values(list.byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id;
-      if (main !== sessionId) return;
-      const rest = roster.getSnapshot().agentsById[agentId]?.sessions ?? [];
-      if (rest.length > 0) actions.openAgent(agentId);
-      else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
-    },
-    renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
-    // Removing the Agent archives every Session it owns; one of them may fill the
-    // main view, and it must not stay there wearing the Bot surface afterwards.
-    removeAgent: async (agentId) => {
-      const owned = agentSessions(agentId);
-      const result = await after(call("remove-agent", { agentId }));
-      const list = ctx.sessions.list.getSnapshot();
-      const main = Object.values(list.byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id;
-      if (main !== void 0 && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
-      return result;
-    },
-    selectPanel: (id) => {
-      ctx.layout.selectPanel(id);
-    },
-    toggleSidebar: () => {
-      ctx.layout.toggleSidebar();
-    },
-    // Agent mode hands the surface back to the shell; everything open on the Bot
-    // surface closes first so nothing stale reopens on the way back.
-    setSurface: (mode) => {
-      if (mode !== "bot" && mode !== "agent") return;
-      if (surface.getSnapshot().mode === mode) {
-        if (mode === "bot") ensureBotHome();
-        return;
-      }
-      if (mode === "agent") {
-        ui.set((state) => ({ ...state, details: null, view: "details", task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, inbox: false, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }));
-      }
-      writeMode(mode);
-      surface.set((state) => ({ ...state, mode }));
-      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame3.getSnapshot().collapsed) ctx.layout.toggleSidebar();
-      if (mode !== "bot") return;
-      ensureBotHome();
+    extra: {
+      // DSH-only settings shell onboarding & seat coordination.
+      openHarnessOnboarding: (id) => settingsShell?.openOnboarding(id),
+      seatAccount: (on) => ui.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on })
     }
-  };
-  actions.signInEntry = () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null;
-  actions.canSignIn = () => Boolean(actions.signInEntry());
-  actions.accountT = () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key);
-  actions.speech = () => ctx.get("remote.speech") ?? void 0;
-  actions.openHarnessOnboarding = (id) => settingsShell?.openOnboarding(id);
-  actions.voiceSetup = (providerId) => {
-    const navigation = ctx.get("pluginNavigation");
-    if (navigation !== void 0) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) };
-    const speech = ctx.get("remote.speech");
-    return speech === void 0 || providerId === void 0 ? null : { prepare: () => requestPreparation(speech, providerId) };
-  };
-  actions.closingReply = (sessionId, turn) => {
-    try {
-      const binding = ctx.sessions.binding(sessionId);
-      if (binding === void 0) return null;
-      return closingReplyText(ctx.uiConversation.binding(binding).target("chat").getSnapshot(), turn);
-    } catch {
-      return null;
-    }
-  };
-  actions.seatAccount = (on) => ui.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
+  });
   ctx.effect(() => startComputerBridge({
     call,
     store,
@@ -79241,83 +79454,6 @@ function apply(ctx) {
       }
     } };
   };
-  actions.turnFacts = (sessionId) => {
-    try {
-      const binding = ctx.sessions.binding(sessionId);
-      if (binding === void 0) return { turns: void 0, openTurn: void 0 };
-      const conversation = ctx.uiConversation.binding(binding);
-      const chat = conversation.target("chat").getSnapshot();
-      return { turns: chat?.timeline?.turns, openTurn: conversation.openTurn.getSnapshot() };
-    } catch {
-      return { turns: void 0, openTurn: void 0 };
-    }
-  };
-  actions.watchTurns = (sessionId, listener) => {
-    try {
-      const binding = ctx.sessions.binding(sessionId);
-      if (binding === void 0) return () => {
-      };
-      const conversation = ctx.uiConversation.binding(binding);
-      const offChat = conversation.target("chat").subscribe(listener);
-      const offOpen = conversation.openTurn.subscribe(listener);
-      return () => {
-        offChat();
-        offOpen();
-      };
-    } catch {
-      return () => {
-      };
-    }
-  };
-  actions.steerQueued = async (sessionId) => {
-    const session = ctx.sessions.binding(sessionId)?.session;
-    if (session === void 0) return;
-    const steerBatch = roster.getSnapshot().byId?.[sessionId] !== void 0 ? async (ids) => {
-      try {
-        const result = await actions.steerQueueBatch(sessionId, ids);
-        return result?.fallback === true ? "fallback" : "done";
-      } catch (error) {
-        return error?.code === "bot/not-found" ? "fallback" : "failed";
-      }
-    } : void 0;
-    if (await steerQueued(session, steerBatch) === "failed") {
-      actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
-    }
-  };
-  actions.draftFiles = (ids) => {
-    const conversation = ctx.get("conversation");
-    if (ids.length === 0 || typeof conversation?.resolveDraftAttachments !== "function") return [];
-    return conversation.resolveDraftAttachments(ids).map((item) => ({ kind: item.kind, file: item.file }));
-  };
-  actions.restoreDraftFiles = (sessionId, files) => {
-    const conversation = ctx.get("conversation");
-    if (typeof conversation?.createDrafts !== "function") return [];
-    return conversation.createDrafts(sessionId, files, true).map((item) => item.id);
-  };
-  actions.releaseDraftFiles = (ids) => {
-    const conversation = ctx.get("conversation");
-    if (typeof conversation?.releaseDraftAttachment !== "function") return;
-    for (const id of ids) conversation.releaseDraftAttachment(id);
-  };
-  actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
-  actions.watchAgentTerminals = (sessionId) => watchAgentTerminals(ctx.slots, sessionId, (error) => actions.reportError(error, "right-sidebar"));
-  actions.newTerminal = () => {
-    actions.closePanel();
-    try {
-      callServiceMethod(ctx, "sidebarRight", "openTab", "terminal");
-    } catch (error) {
-      actions.reportError(error, "right-sidebar");
-    }
-  };
-  actions.canOpenFiles = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("files") !== void 0;
-  actions.openFiles = () => {
-    actions.closePanel();
-    try {
-      callServiceMethod(ctx, "sidebarRight", "openTab", "files");
-    } catch (error) {
-      actions.reportError(error, "right-sidebar");
-    }
-  };
   ctx.inject(["sidebarRight"], (scope) => {
     scope.effect(() => {
       let open = rightColumnOpen(document);
@@ -79381,7 +79517,6 @@ function apply(ctx) {
     ...options.priority === void 0 ? {} : { priority: freePriority(ctx.slots.entries(name), options) }
   }, component));
   const installHeader = () => ctx.slots.inject("conversation.session.header", () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY));
-  let atMenu = null;
   const installAtMenu = () => {
     const fiber = ctx.inject(["inputTriggers"], (scope) => {
       scope.effect(() => {
@@ -79403,12 +79538,6 @@ function apply(ctx) {
       }, "ds-bot: @ menu");
     });
     return () => fiber.dispose();
-  };
-  actions.canReferenceChat = () => atMenu !== null;
-  actions.referenceChat = (sessionId, span) => {
-    const controller = atMenu?.controllerOf(sessionId);
-    if (controller === void 0 || span === void 0) return;
-    controller.toggleSource(CHATS_SOURCE, { trigger: "@", query: "", quoted: false, position: "inline", span });
   };
   const installFrameSync = () => {
     let lastDetails = ui.getSnapshot().details;
@@ -79459,8 +79588,7 @@ function apply(ctx) {
     [SIDE_CSS, "side"],
     [BROWSER_CSS, "browser"]
   ];
-  let shellSheets = 0;
-  actions.holdSettingsLook = () => {
+  holdSettingsLookFn = () => {
     if (shellSheets > 0) return () => {
     };
     const syncEffects = () => {

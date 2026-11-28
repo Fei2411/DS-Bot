@@ -386,7 +386,7 @@ export function createSessionStore({
           [sessionId]: {
             ...row,
             replyCount: row.replyCount ?? 0,
-            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: nextOutline },
+            projectionValues: { ...row.projectionValues, turnOutline: nextOutline },
           },
         },
       }
@@ -540,10 +540,10 @@ export function createSessionStore({
       for (const id of keys) if (keep(id)) next[id] = state[id]
       return next
     })
-    for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id)
-    for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id)
-    for (const id of [...lastFeedMessageCursor.keys()]) if (!keep(id)) lastFeedMessageCursor.delete(id)
-    for (const id of [...confirmedUsersBySession.keys()]) if (!keep(id)) confirmedUsersBySession.delete(id)
+    for (const id of turnFactsBySession.keys()) if (!keep(id)) turnFactsBySession.delete(id)
+    for (const id of closingRepliesBySession.keys()) if (!keep(id)) closingRepliesBySession.delete(id)
+    for (const id of lastFeedMessageCursor.keys()) if (!keep(id)) lastFeedMessageCursor.delete(id)
+    for (const id of confirmedUsersBySession.keys()) if (!keep(id)) confirmedUsersBySession.delete(id)
     for (const id of [...evictedConfirmedSeqBySession.keys()]) if (!keep(id)) evictedConfirmedSeqBySession.delete(id)
     for (const id of [...maxConfirmedUserSeqBySession.keys()]) if (!keep(id)) maxConfirmedUserSeqBySession.delete(id)
     for (const id of [...lastFeedReplySeq.keys()]) if (!keep(id)) lastFeedReplySeq.delete(id)
