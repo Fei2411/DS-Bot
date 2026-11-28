@@ -100,7 +100,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, INSTALL_ANCHOR, PROFILE, RETIRED_BUNDLES, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, createMacUpdater, resolveMacAppBundle, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -356,7 +356,7 @@ async function loadModules() {
   ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome } = imports)
   ;({ ImportFlow } = flows)
   ;({ copyData, copyReason, moveProblem } = moves)
-  ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
+  ;({ BUNDLES, CHECK_PROFILE, INSTALL_ANCHOR, PROFILE, RETIRED_BUNDLES } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
   ;({ createMacUpdater, resolveMacAppBundle } = macUpdaterModule)
   ;({ readAutoUpdate, writeAutoUpdate } = updatePrefsModule)
@@ -696,11 +696,17 @@ async function startEngine(mine) {
     }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
   }
   if (!shadowedAsked) {
-    const { shadowedBundles, removeShadowed } = await import('./profile-shadow.mjs')
-    const shadowed = shadowedBundles(profileDir(), BUNDLES)
+    const { bundledOfficialPackages, formatShadowedNames, removeShadowed, shadowedBundles } = await import('./profile-shadow.mjs')
+    const runtimeVersion = (() => { try { return getDshRuntimeVersion?.() } catch { return undefined } })()
+    const shadowed = shadowedBundles(profileDir(), BUNDLES, {
+      retiredNames: RETIRED_BUNDLES,
+      bundledOfficial: bundledOfficialPackages(INSTALL_ANCHOR),
+      runtimeVersion,
+    })
     if (shadowed.length > 0 && mine === attempt) {
-      const names = shadowed.map(({ name, version }) => `${name} ${version}`).join(', ')
-      console.warn(`DS Bot: the profile carries its own ${names}, which shadows the bundled copy`)
+      const fullNames = shadowed.map(({ name, version }) => `${name} ${version}`).join(', ')
+      const names = formatShadowedNames(shadowed)
+      console.warn(`DS Bot: the profile carries its own ${fullNames}, which shadows the bundled copy`)
       if (await askCard({ kind: 'shadowed', names }) === 'remove' && mine === attempt) {
         // A failed removal stops the start with the reason, and the next try asks again.
         await removeShadowed(profileDir(), shadowed.map(entry => entry.name)).catch((error) => {

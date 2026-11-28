@@ -2216,10 +2216,17 @@ export function install(rt) {
         flushNeeded = true
         continue
       }
-      const source = message.source
-        ? { ...message.source, ...(key !== undefined && message.source.transferId === undefined ? { transferId: key } : {}) }
-        : (key !== undefined ? { transferId: key } : undefined)
-      const copy = createUserMessage({ content: message.content, ...(source ? { source } : {}) })
+      // DSH v4 rejects user/message events without a producer-owned source.kind (#2009);
+      // preserve any existing source metadata while guaranteeing a valid kind on forwarded copies.
+      const baseSource = message.source && typeof message.source === 'object'
+        ? (typeof message.source.kind === 'string' && message.source.kind.trim() !== ''
+          ? message.source
+          : { ...message.source, kind: 'user' })
+        : { kind: 'user' }
+      const source = key !== undefined && baseSource.transferId === undefined
+        ? { ...baseSource, transferId: key }
+        : baseSource
+      const copy = createUserMessage({ content: message.content, source })
       if (isSilentRelay(message)) {
         if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushNeeded = true
       } else if (isWakingSource(message.source)) {

@@ -13,7 +13,7 @@ export const CHECK_PROFILE = 'import-check'
 export const CHECK_BUNDLES = ['@deepseek-ai/dsh-base', 'dsbot-engine']
 // Bundles that earlier builds of the app put in its profile: the legacy engine and DSH Web,
 // both replaced by dsbot-engine + DS Bot's own frontend (docs/plans/2026-11-21-own-frontend.md).
-const RETIRED_BUNDLES = [LEGACY_ENGINE, '@deepseek-ai/dsh-web-app']
+export const RETIRED_BUNDLES = [LEGACY_ENGINE, '@deepseek-ai/dsh-web-app']
 // The app's own manifest is the installation: DSH imports plugins only from the installation's dependency
 // graph, resolves bundles there first, and keeps the bundles it names as direct dependencies from removal.
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))

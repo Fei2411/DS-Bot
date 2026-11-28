@@ -149,3 +149,32 @@ test('the command runs when npm links the bin with a symlink', { skip: process.p
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('catches stale official DSH tool plugins like dsh-tool-subagent and hoisted node_modules copies', () => {
+  assert.deepEqual(
+    names(stalePins(manifest({
+      '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-schedule': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-client-ui-primitives': '0.2.1-rc.4',
+      '@deepseek-ai/dsh-util-time': '0.2.1-rc.4',
+    }), RUNNING)),
+    ['@deepseek-ai/dsh-tool-subagent@0.2.1-rc.4', '@deepseek-ai/dsh-schedule@0.2.1-rc.4'],
+  )
+
+  const home = homeWith({ 'ds-bot': manifest({ 'ds-bot': '0.4.1' }) })
+  const hoistedDir = join(home, 'profiles', 'ds-bot', 'node_modules', '@deepseek-ai', 'dsh-tool-subagent')
+  mkdirSync(hoistedDir, { recursive: true })
+  writeFileSync(join(hoistedDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-tool-subagent', version: '0.2.1-rc.4' }))
+  try {
+    const plan = planRepair({ home, dshVersion: RUNNING })
+    assert.equal(plan[0].stale.length, 0)
+    assert.deepEqual(plan[0].hoisted, [{ name: '@deepseek-ai/dsh-tool-subagent', version: '0.2.1-rc.4', inBundles: false }])
+
+    const check = spawnSync(process.execPath, [DOCTOR, 'doctor', '--home', home, '--dsh-version', RUNNING], { encoding: 'utf8' })
+    assert.equal(check.status, 1)
+    assert.match(check.stdout, /@deepseek-ai\/dsh-tool-subagent@0\.2\.1-rc\.4 \(hoisted in node_modules\)/)
+    assert.match(check.stdout, /pnpm why/)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})

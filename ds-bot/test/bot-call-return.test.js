@@ -525,6 +525,36 @@ test('part-switch forward preserves zero-wake agent.inject for silent notes and 
   assert.equal(byId['ex-req'], 'followup', 'normal work request must forward via followup (waking)')
 })
 
+test('part-switch forward always supplies a valid producer-owned source.kind for DSH v4', async (t) => {
+  const { agentOf, emit, fire, stop } = await start()
+  t.after(stop)
+
+  const oldAgent = agentOf('b')
+  oldAgent.inbox.nextStep.push(
+    { id: 'm-nosrc', role: 'user', content: textBlock('legacy message without source') },
+    { id: 'm-nokind', role: 'user', content: textBlock('legacy message without kind'), source: { rpcId: 'rpc-nokind' } },
+  )
+  oldAgent.inbox.nextTurn.push(
+    { id: 'm-req-tail', role: 'user', content: textBlock('[Work #W9 from Chief]\n收尾'), source: { kind: SOURCE_KIND, role: 'request', exchangeId: 'ex-tail', senderSessionId: 'a', senderName: 'Chief' } },
+  )
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('earlier task'), source: { kind: 'user' } })
+  emit('b', 'assistant/message', assistantText('halfway'))
+  await fire('agent/request-error', { failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000), agent: oldAgent })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'CONTEXT_WINDOW_EXCEEDED' } } })
+
+  await settled(() => (agentOf('s1').calls.some(([, m]) => m.source?.exchangeId === 'ex-tail')))
+  const noSrc = agentOf('s1').calls.find(([, m]) => m.source?.transferId === 'm-nosrc')
+  const noKind = agentOf('s1').calls.find(([, m]) => m.source?.rpcId === 'rpc-nokind')
+  assert.ok(noSrc, 'sourceless message must be forwarded')
+  assert.equal(noSrc[0], 'inject', 'sourceless message keeps non-waking inject delivery')
+  assert.equal(noSrc[1].source?.kind, 'user', 'forwarded sourceless message must have a valid source.kind')
+  assert.ok(noKind, 'kindless message must be forwarded')
+  assert.equal(noKind[0], 'inject', 'kindless message keeps non-waking inject delivery')
+  assert.equal(noKind[1].source?.kind, 'user', 'forwarded kindless message must have a valid source.kind')
+  assert.equal(noKind[1].source?.rpcId, 'rpc-nokind', 'existing source fields stay preserved')
+})
+
 test('P0 #1: note_bot on a running Bot buffers silently until idle (never injects mid-turn, never enters unreadOf)', async (t) => {
   const { rt, agentOf, emit, tool, stop } = await start()
   t.after(stop)
