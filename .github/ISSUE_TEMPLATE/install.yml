@@ -10,6 +10,9 @@ body:
 
         Many warnings have a way through: see [Install](https://github.com/Fei-Craft/DS-Bot#install) in the README.
         很多提示都能点过去：先看 [README 的安装说明](https://github.com/Fei-Craft/DS-Bot/blob/main/README.zh.md#安装)。
+
+        Good reports matter as much as PRs: if a clear report directly leads to a fix, we may credit you as a git Co-author using your GitHub noreply address (let us know in the issue if you prefer not to be listed).
+        高质量的报告与 PR 同等宝贵：如果你的清晰反馈直接促成了修复，我们可能会用你的 GitHub noreply 邮箱将你列为提交的 Co-author（如不希望写入 Git 历史，请在 Issue 中说明）。
   - type: dropdown
     id: step
     attributes:

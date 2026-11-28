@@ -244,7 +244,7 @@ const sandbox = {
   navigator: { language: 'en' },
   setTimeout: (fn, ms, ...args) => { recordedTimers.push(ms); return setTimeout(fn, ms, ...args) },
   clearTimeout,
-  requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
+  requestAnimationFrame: fn => setImmediate(() => fn(0)), cancelAnimationFrame: id => clearImmediate(id), performance: { now: () => 0 },
   fetch: (...args) => fetchCtrl.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)
@@ -2176,5 +2176,217 @@ test('W3 gap-fill backfill, historyReloaded full reload, and resume snapshot rep
     sandbox.__testCall = origCall
     inst.unmount()
     fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow applies authoritative snapshot over buffered gapped assistant-stream frame and clears pending buffer on retry, read-only refresh, and end', () => {
+  const prevRaf = sandbox.requestAnimationFrame
+  const prevCancelRaf = sandbox.cancelAnimationFrame
+  let nextRafId = 1
+  const rafQueue = new Map()
+  sandbox.requestAnimationFrame = (cb) => { const id = nextRafId++; rafQueue.set(id, cb); return id }
+  sandbox.cancelAnimationFrame = (id) => { rafQueue.delete(id) }
+
+  let emitFollow = null
+  let reopens = 0
+  const openFollow = (_opts, onEvent) => {
+    emitFollow = onEvent
+    return { close() {}, reopen() { reopens += 1 } }
+  }
+  const feedListeners = new Set()
+  const feed = { on: fn => { feedListeners.add(fn); return () => feedListeners.delete(fn) } }
+  const emitFeed = (ev, data) => { for (const fn of feedListeners) fn(ev, data) }
+
+  let view
+  const Probe = ({ readOnly = false, updatedAt = 100 }) => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, openFollow, feed, readOnly, readOnlyUpdatedAt: updatedAt })
+    return null
+  }
+  const inst = mount(Probe, { readOnly: false, updatedAt: 100 })
+  try {
+    inst.render({ readOnly: false, updatedAt: 100 })
+    // 1. Initial snapshot (cursor: 1, 1 event, streamRevision: 1).
+    emitFollow('frame', {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 1,
+      hasMore: false,
+      records: [{ type: 'event', event: { type: 'user/message', seq: 1, time: 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } }],
+      assistantStream: { revision: 1 },
+    })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.cursor, 1)
+    assert.equal(view.log.events.length, 1)
+
+    // 2. Buffer a gapped assistant-stream frame (revision: 99) before rAF fires, then deliver
+    //    a fresh authoritative snapshot (cursor: 5, 2 events). Snapshot MUST win without extra reopen.
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'chunk', attemptId: 'old-att', revision: 99, index: 0, time: 150, chunk: { type: 'text-delta', index: 0, text: 'stale' } },
+    })
+    assert.equal(rafQueue.size, 1, 'gapped stream frame scheduled a flush')
+    emitFollow('frame', {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 5,
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 1, time: 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } },
+        { type: 'event', event: { type: 'assistant/message', seq: 5, time: 200, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'fresh' }] } } } },
+      ],
+      assistantStream: { revision: 5 },
+    })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.cursor, 5, 'authoritative snapshot must not be dropped behind a buffered gapped stream frame')
+    assert.equal(view.log.events.length, 2)
+    assert.equal(reopens, 0, 'authoritative snapshot must not trigger a spurious reopen')
+    assert.equal(rafQueue.size, 0, 'snapshot cancels scheduled stream flush')
+
+    // 3. retry() must cancel scheduled flush and discard stale buffered assistant-stream frames.
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-retry', revision: 6, turn: 2, step: 1, startedAfterSeq: 5 },
+    })
+    assert.equal(rafQueue.size, 1)
+    view.retry()
+    assert.equal(reopens, 1)
+    assert.equal(rafQueue.size, 0, 'retry() must cancel pending rAF')
+    // A subsequent event must not replay the discarded stale-retry stream start.
+    emitFollow('frame', { type: 'event', event: { type: 'turn/start', seq: 6, time: 210, data: { turn: 2 } } })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.writing, null, 'stale buffered stream frame before retry() must not leak after retry')
+
+    // 4. event === 'end' must cancel scheduled flush and discard stale buffered assistant-stream frames.
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-end', revision: 7, turn: 2, step: 1, startedAfterSeq: 6 },
+    })
+    assert.equal(rafQueue.size, 1)
+    emitFollow('end', {})
+    assert.equal(rafQueue.size, 0, 'event: end must cancel pending rAF')
+    emitFollow('frame', { type: 'event', event: { type: 'turn/end', seq: 7, time: 220, data: { turn: 2, reason: { kind: 'done' } } } })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.writing, null, 'stale buffered stream frame before end must not replay')
+
+    // 5. Read-only feed revision and updatedAt refreshes must cancel pending rAF and discard buffered frames.
+    inst.render({ readOnly: true, updatedAt: 100 })
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-ro-1', revision: 8, turn: 3, step: 1, startedAfterSeq: 7 },
+    })
+    assert.equal(rafQueue.size, 1)
+    emitFeed('revision', { revision: 2 })
+    assert.equal(reopens, 2)
+    assert.equal(rafQueue.size, 0, 'read-only feed revision reopen must cancel pending rAF')
+
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-ro-2', revision: 9, turn: 3, step: 1, startedAfterSeq: 7 },
+    })
+    assert.equal(rafQueue.size, 1)
+    inst.render({ readOnly: true, updatedAt: 200 })
+    assert.equal(reopens, 3)
+    assert.equal(rafQueue.size, 0, 'read-only updatedAt reopen must cancel pending rAF')
+  } finally {
+    inst.unmount()
+    sandbox.requestAnimationFrame = prevRaf
+    sandbox.cancelAnimationFrame = prevCancelRaf
+  }
+})
+
+test('useSessionFollow flushes buffered stream frames via fallback timer while hidden/occluded and flushes immediately on visibilitychange', () => {
+  const prevRaf = sandbox.requestAnimationFrame
+  const prevCancelRaf = sandbox.cancelAnimationFrame
+  const prevSetTimeout = sandbox.setTimeout
+  const prevClearTimeout = sandbox.clearTimeout
+  const prevDocHidden = sandbox.document.hidden
+  const prevDocAdd = sandbox.document.addEventListener
+  const prevDocRemove = sandbox.document.removeEventListener
+
+  let nextRafId = 1
+  const rafQueue = new Map()
+  // Suspended rAF: callbacks are queued but never fire automatically (hidden/minimized/occluded window).
+  sandbox.requestAnimationFrame = (cb) => { const id = nextRafId++; rafQueue.set(id, cb); return id }
+  sandbox.cancelAnimationFrame = (id) => { rafQueue.delete(id) }
+
+  let nextTimerId = 1
+  const timers = new Map()
+  sandbox.setTimeout = (cb, ms) => { const id = nextTimerId++; timers.set(id, { cb, ms }); return id }
+  sandbox.clearTimeout = (id) => { timers.delete(id) }
+
+  const visListeners = new Set()
+  sandbox.document.hidden = true
+  sandbox.document.addEventListener = (type, fn) => { if (type === 'visibilitychange') visListeners.add(fn) }
+  sandbox.document.removeEventListener = (type, fn) => { if (type === 'visibilitychange') visListeners.delete(fn) }
+
+  let emitFollow = null
+  let reopens = 0
+  const openFollow = (_opts, onEvent) => {
+    emitFollow = onEvent
+    return { close() {}, reopen() { reopens += 1 } }
+  }
+
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, openFollow })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    emitFollow('frame', {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 1,
+      hasMore: false,
+      records: [{ type: 'event', event: { type: 'turn/start', seq: 1, time: 100, data: { turn: 1 } } }],
+      assistantStream: { revision: 0 },
+    })
+    inst.render()
+
+    // 1. While document.hidden === true and rAF is suspended, stream frames schedule a bounded fallback timer.
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'start', attemptId: 'bg-1', revision: 1, turn: 1, step: 1, startedAfterSeq: 1 } })
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 2, index: 0, time: 110, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 3, index: 1, time: 111, chunk: { type: 'text-delta', index: 0, text: 'bg-token' } } })
+    assert.equal(timers.size, 1, 'hidden stream must schedule a single bounded fallback timer')
+    assert.equal(rafQueue.size, 0, 'hidden stream should not rely on suspended rAF')
+
+    // Firing the fallback timer commits the buffered frames without rAF ever running.
+    const [[tId, tEntry]] = [...timers.entries()]
+    timers.delete(tId)
+    tEntry.cb()
+    inst.render()
+    assert.ok(view.log.writing, 'fallback timer must commit buffered background stream frames')
+    assert.equal(view.log.streamRevision, 3)
+
+    // 2. When becoming visible, visibilitychange flushes pending frames immediately and cancels the timer.
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 4, index: 2, time: 112, chunk: { type: 'text-delta', index: 0, text: '-resumed' } } })
+    assert.equal(timers.size, 1)
+    sandbox.document.hidden = false
+    for (const fn of visListeners) fn()
+    inst.render()
+    assert.equal(view.log.streamRevision, 4, 'visibilitychange must flush pending stream frames immediately on becoming visible')
+    assert.equal(timers.size, 0, 'visibilitychange flush must cancel pending fallback timer')
+
+    // 3. While document.hidden === false but window is occluded (rAF suspended), fallback timer still
+    //    fires to detect gaps and flush frames, while normal foreground rAF cancels the timer on frame tick.
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 99, index: 99, time: 120, chunk: { type: 'text-delta', index: 0, text: 'gap' } } })
+    assert.equal(rafQueue.size, 1, 'visible window schedules rAF')
+    assert.equal(timers.size, 1, 'visible window also arms fallback timer for macOS occlusion')
+    const [[occId, occEntry]] = [...timers.entries()]
+    timers.delete(occId)
+    occEntry.cb()
+    assert.equal(reopens, 1, 'fallback timer detects stream gap and triggers reopen even when rAF is suspended')
+    assert.equal(rafQueue.size, 0, 'fallback flush cancels suspended rAF')
+  } finally {
+    inst.unmount()
+    sandbox.requestAnimationFrame = prevRaf
+    sandbox.cancelAnimationFrame = prevCancelRaf
+    sandbox.setTimeout = prevSetTimeout
+    sandbox.clearTimeout = prevClearTimeout
+    if (prevDocHidden === undefined) delete sandbox.document.hidden
+    else sandbox.document.hidden = prevDocHidden
+    sandbox.document.addEventListener = prevDocAdd
+    sandbox.document.removeEventListener = prevDocRemove
   }
 })

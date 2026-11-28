@@ -60,22 +60,92 @@ test('unsafe input falls back: empty, CRLF, BOM, link definitions, footnotes, ht
   assert.equal(splitMarkdownBlocks('para\n\n</div>\n\ntail\n'), null)
   // Inline angle brackets that are no tag do not stop it.
   assert.ok(splitMarkdownBlocks('a < b and c > d\n\nnext\n') !== null)
-  // Container directives and display math fences span blank lines.
+  // Container directives span blank lines and bail conservatively.
   assert.equal(splitMarkdownBlocks('::: note\ncontent\n:::\n\npara\n'), null)
-  assert.equal(splitMarkdownBlocks('$$\nx^2\n$$\n\npara\n'), null)
-  assert.equal(splitMarkdownBlocks('text\n\n  $$\nmath\n'), null)
   // Setext underlines: a line of dashes or equals right behind text.
   assert.equal(splitMarkdownBlocks('title\n===\n\nbody\n'), null)
   assert.equal(splitMarkdownBlocks('title\n---\n\nbody\n'), null)
+  // A streaming `- ` or `-` line right after a list item is a new list item, not a Setext underline.
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n- first\n- '), ['intro\n\n', '- first\n- '])
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n- first\n-'), ['intro\n\n', '- first\n-'])
+  // ...but an indented `-` inside a list item is a CommonMark Setext heading (`<li><h2>item</h2></li>`),
+  // so default-mode duplicate heading slug protection must still bail.
+  assert.equal(splitMarkdownBlocks('## item\n\n- item\n  -\n\nNext.\n'), null)
+  assert.equal(splitMarkdownBlocks('- item\n  -\n\nNext.\n'), null)
+  assert.equal(splitMarkdownBlocks('- item\n -\n\nNext.\n'), null)
   // ...but a thematic break after a blank line is not an underline and splits fine.
   assert.deepEqual(splitMarkdownBlocks('one\n\n---\n\ntwo\n'), ['one\n\n', '---\n\n', 'two\n'])
   assert.deepEqual(splitMarkdownBlocks('one\n\n***\n\ntwo\n'), ['one\n\n', '***\n\n', 'two\n'])
-  // Duplicate ATX heading slugs are numbered document-wide.
+  // Duplicate ATX heading slugs are numbered document-wide by default, and optionally allowed
+  // for renderers without rehype-slug.
   assert.equal(splitMarkdownBlocks('# Same\n\nbody\n\n# Same\n\nmore\n'), null)
   assert.equal(splitMarkdownBlocks('# Same\n\nbody\n\n# same\n\nmore\n'), null)
   assert.equal(splitMarkdownBlocks('# Same ##\n\nbody\n\n# Same\n\nmore\n'), null)
+  assert.deepEqual(
+    splitMarkdownBlocks('# Same\n\nbody\n\n# Same\n\nmore\n', { allowDuplicateHeadings: true }),
+    ['# Same\n\n', 'body\n\n', '# Same\n\n', 'more\n'],
+  )
   // Distinct headings keep the split.
   assert.deepEqual(splitMarkdownBlocks('# One\n\nbody\n\n# Two\n\nmore\n'), ['# One\n\n', 'body\n\n', '# Two\n\n', 'more\n'])
+})
+
+test('display math blocks ($$...$$ and \\[...\\]) stay intact across blank lines and split cleanly from neighbors', () => {
+  const dollarMath = 'intro\n\n$$\na^2 + b^2\n\n= c^2\n$$\n\nafter\n'
+  assert.deepEqual(splitMarkdownBlocks(dollarMath), ['intro\n\n', '$$\na^2 + b^2\n\n= c^2\n$$\n\n', 'after\n'])
+  assert.equal(splitMarkdownBlocks(dollarMath).join(''), dollarMath)
+
+  // Single-line display math closes on the same line.
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n$$x^2 + 1$$\n\nafter\n'), ['intro\n\n', '$$x^2 + 1$$\n\n', 'after\n'])
+
+  // Unclosed trailing `$$` keeps everything after it in the live tail block, while an
+  // indented `$$` followed by a less-indented line bails conservatively (matching code fences).
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n$$\n\\sum_{k=1}^n\n\nk^2'), ['intro\n\n', '$$\n\\sum_{k=1}^n\n\nk^2'])
+  assert.equal(splitMarkdownBlocks('text\n\n  $$\nmath\n'), null)
+
+  // LaTeX `\[...\]` display math spans blank lines and splits cleanly from surrounding blocks.
+  const latexMath = 'intro\n\n\\[\n\\int_0^1 x\\,dx\n\n= \\frac{1}{2}\n\\]\n\nafter\n'
+  assert.deepEqual(splitMarkdownBlocks(latexMath), ['intro\n\n', '\\[\n\\int_0^1 x\\,dx\n\n= \\frac{1}{2}\n\\]\n\n', 'after\n'])
+  assert.equal(splitMarkdownBlocks(latexMath).join(''), latexMath)
+  // Unclosed trailing `\[` stays in the tail block.
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n\\[\na + b\n\nc'), ['intro\n\n', '\\[\na + b\n\nc'])
+
+  // Container-prefixed display math (`> $$`, `- \[`) bails conservatively to whole-document parse.
+  assert.equal(splitMarkdownBlocks('intro\n\n> $$\n> x^2\n> $$\n\nafter\n'), null)
+  assert.equal(splitMarkdownBlocks('intro\n\n- \\[\n  x^2\n  \\]\n\nafter\n'), null)
+
+  // Single-line `$$...$$` followed by CJK punctuation or trailing text closes on the same line
+  // and must never invert a subsequent real `$$` block or swallow link definitions.
+  assert.deepEqual(
+    splitMarkdownBlocks('intro\n\n$$x^2$$。\n\nafter\n'),
+    ['intro\n\n', '$$x^2$$。\n\n', 'after\n'],
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\n$$x^2$$。\n$$\na + b\n$$\n\n[x]: https://example.com\n'),
+    null,
+  )
+
+  // Unclosed `\[` (literal, inside multi-line inline code, or before a code fence containing `\]`)
+  // must never hide document-wide link definitions or invert fences.
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nHere is a literal \\[ bracket.\n\n[x]: https://example.com\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nHere is `multi-line\ncode with \\[ inside` end.\n\n[x]: https://example.com\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nStart \\[ unclosed\n\n```js\nconst s = "\\\\]"\n```\n\n[x]: https://example.com\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nLiteral \\[ open\n\n[x]: https://example.com\n\n`\\]`\n'),
+    null,
+  )
+
+  // A bare trailing digit after an open list defers splitting until the next char clarifies
+  // whether it becomes an ordered list item (`2. Second`) or plain text (`2 apples`).
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n1. First item\n\n2'), ['intro\n\n', '1. First item\n\n2'])
 })
 
 test('never splits inside a fence: blank lines, fence lookalikes and boundaries inside it all stay whole', () => {
