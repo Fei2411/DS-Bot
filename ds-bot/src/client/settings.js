@@ -49,7 +49,7 @@ import {
   UsagePage,
 } from './settings-pages.js'
 
-const isMac = () => typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '')
+const isMac = () => typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? '')
 
 
 // Settings dialog: a nav rail beside the page, with search on top. A domain with several

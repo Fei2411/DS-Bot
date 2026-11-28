@@ -63693,7 +63693,7 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 
 // src/client/settings.js
 var import_react76 = require("react");
-var isMac2 = () => typeof navigator !== "undefined" && /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+var isMac2 = () => typeof navigator !== "undefined" && /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? "");
 var NAV_GROUPS = [
   { id: "overview", label: "Overview", icon: "overview", pages: [["overview", "Overview"]], section: "top" },
   { id: "general", label: "General", icon: "general", pages: [["general", "General"], ["shortcuts", "Shortcuts"]], section: "main" },
