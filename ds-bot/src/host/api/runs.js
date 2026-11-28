@@ -1005,18 +1005,28 @@ export function createRunCoordinator(rt, auth) {
     }
   }
 
-  function resumeApiRunForComposerAnswer(session, card, source) {
+  function isComposerAnswer(source) {
     // DSH's owner composer mints a plain UUID. IM and the external API tag their request IDs.
-    if (source.kind !== 'user' || source.handoff === true || source.principal !== undefined
-      || source.imOrigin !== undefined || typeof source.rpcId !== 'string' || !COMPOSER_REQUEST_ID.test(source.rpcId)) return
-    const turn = sessionTurns.get(session)
-    if (turn === undefined || turn.hasPrompt) return
-    for (const tracker of activeSessionTrackers(session.id)) {
+    return source?.kind === 'user' && source.handoff !== true && source.principal === undefined
+      && source.imOrigin === undefined && typeof source.rpcId === 'string' && COMPOSER_REQUEST_ID.test(source.rpcId)
+  }
+
+  function stopForClosedCard(tracker) {
+    finishRun(tracker, 'stopped', { error: { code: 'api/cancelled', message: 'The pending card closed without an answer for this run' } })
+  }
+
+  function onApiCardClosed(sessionId, card, { session, source } = {}) {
+    const turn = session === undefined ? undefined : sessionTurns.get(session)
+    for (const tracker of activeSessionTrackers(sessionId)) {
       const action = tracker.run.pendingAction
-      if ((action?.kind === 'question' || action?.kind === 'view') && action.sessionId === session.id
-        && action.actionId === card.id && tracker.waitingReply?.callId === (card.callId ?? card.id)) {
-        bindChatTurn(tracker, session.id, turn)
+      if ((action?.kind !== 'question' && action?.kind !== 'view') || action.sessionId !== sessionId
+        || action.actionId !== card.id || tracker.waitingReply?.callId !== (card.callId ?? card.id)) continue
+      if (turn !== undefined && !turn.hasPrompt && isComposerAnswer(source)) {
+        bindChatTurn(tracker, sessionId, turn)
         tracker.composerAnswer = source
+      } else if (turn === undefined || source?.kind !== REPLY_KIND || source.callId !== tracker.waitingReply.callId
+        || source.rpcId?.startsWith('im:')) {
+        stopForClosedCard(tracker)
       }
     }
   }
@@ -1069,10 +1079,14 @@ export function createRunCoordinator(rt, auth) {
           const { run } = tracker
           if (run.target.kind !== 'bot' || run.mode !== 'chat' || isTerminal(run.status)) continue
           const reply = tracker.waitingReply
-          const answersCard = reply?.sessionId === sid && (
-            (source.kind === REPLY_KIND && !fromIm && reply.callId !== undefined && reply.callId === source.callId)
-            || (source.role === 'secret' && reply.secretKey !== undefined && reply.secretKey === source.idempotencyKey)
-          )
+          const cardReply = reply?.sessionId === sid && source.kind === REPLY_KIND
+            && reply.callId !== undefined && reply.callId === source.callId
+          if (cardReply && fromIm) {
+            stopForClosedCard(tracker)
+            continue
+          }
+          const answersCard = cardReply || (reply?.sessionId === sid && source.role === 'secret'
+            && reply.secretKey !== undefined && reply.secretKey === source.idempotencyKey)
           const resumesHandoff = source.handoff === true && source.resume === true && (
             tracker.resumeSession === sid || (tracker.chatTurn !== undefined && run.sessionId !== sid
               && rt.chatOf(run.target.id) === sid && rt.live.get(run.sessionId)?.switched === true)
@@ -1391,7 +1405,9 @@ export function createRunCoordinator(rt, auth) {
   const offSaved = rt.onSaved?.(() => {
     for (const tracker of active.values()) {
       if (isTerminal(tracker.run.status)) continue
-      if (tracker.run.status === 'waiting_human') {
+      const action = tracker.run.pendingAction
+      const waitsForCard = tracker.waitingReply?.callId !== undefined && (action?.kind === 'question' || action?.kind === 'view')
+      if (tracker.run.status === 'waiting_human' && !waitsForCard) {
         const current = detectPendingAction(tracker)
         if (current === null) clearWaitingHuman(tracker)
       }
@@ -1939,7 +1955,7 @@ export function createRunCoordinator(rt, auth) {
   function dispose() {
     disposed = true
     if (rt.reconcileApiRuns === reconcileInterruptedApiRunsAsync) rt.reconcileApiRuns = undefined
-    if (rt.resumeApiRunForComposerAnswer === resumeApiRunForComposerAnswer) rt.resumeApiRunForComposerAnswer = undefined
+    if (rt.onApiCardClosed === onApiCardClosed) rt.onApiCardClosed = undefined
     detachListeners()
     offApproval?.()
     offTaskEvent?.()
@@ -1957,7 +1973,7 @@ export function createRunCoordinator(rt, auth) {
   }
 
   rt.reconcileApiRuns = reconcileInterruptedApiRunsAsync
-  rt.resumeApiRunForComposerAnswer = resumeApiRunForComposerAnswer
+  rt.onApiCardClosed = onApiCardClosed
   reconcileInterruptedApiRuns()
 
   return {

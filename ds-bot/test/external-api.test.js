@@ -784,8 +784,8 @@ async function assertImTurnIsPrivate(t, { mixed = false } = {}) {
     events += decoder.decode(value, { stream: true })
   }
   assert.doesNotMatch(events, /event: (?:delta|run\.completed)|Reply for IM/)
-  if (mixed) assert.match(events, /event: run\.stopped/)
-  else assert.doesNotMatch(events, /event: run\.resumed/)
+  assert.match(events, /event: run\.stopped/)
+  if (!mixed) assert.doesNotMatch(events, /event: run\.resumed/)
 }
 
 test('an IM turn does not reach an API stream waiting on an ask_user card', async t => {

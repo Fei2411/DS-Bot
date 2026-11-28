@@ -1476,16 +1476,14 @@ export function install(rt) {
           let dropped = false
           const question = state.questions[id]
           if (question !== undefined) {
-            rt.closeCard(id, question, 'replied')
+            rt.closeCard(id, question, 'replied', { session, source })
             delete state.questions[id]
-            rt.resumeApiRunForComposerAnswer?.(session, question, source)
             dropped = true
           }
           const view = state.views?.[id]
           if (view !== undefined) {
-            rt.closeCard(id, view, 'replied')
+            rt.closeCard(id, view, 'replied', { session, source })
             delete state.views[id]
-            rt.resumeApiRunForComposerAnswer?.(session, view, source)
             dropped = true
           }
           if (dropped) void rt.save().catch(() => {})
