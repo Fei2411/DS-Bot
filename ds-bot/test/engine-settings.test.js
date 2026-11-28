@@ -248,7 +248,11 @@ test('engine-plugins, engine-presets, engine-archived, and engine-classic-sessio
       return [{ name: '@example/bundle', official: false, availability: 'profile', version: '1.0.0', enabled: true, installed: true, optional: false, removable: true, updatable: true, rows: [] }]
     },
     async listPlugins() {
-      return [{ id: 'p1', moduleName: '@example/plugin', enabled: true, status: 'active' }]
+      return [
+        { id: 'p1', moduleName: '@example/plugin', enabled: true, status: 'active' },
+        { entryId: 'loader-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: false, fiberPhase: null },
+        { entryId: 'loader-bad', moduleName: '@example/broken', enabled: true, fiberPhase: 'failed', diagnostic: 'boom' },
+      ]
     },
     async setBundleEnabled(name, enabled) { calls.push(['bundle', name, enabled]); return { changed: true, application: 'applied', stage: 'enable', target: name, enabled } },
     async setPluginEnabled(id, enabled) { calls.push(['plugin', id, enabled]); return { changed: true, application: 'restart-required', stage: 'enable', target: id, enabled } },
@@ -311,7 +315,15 @@ test('engine-plugins, engine-presets, engine-archived, and engine-classic-sessio
   const plist = await rt.channelCall('engine-plugins-list', {})
   assert.equal(plist.ok, true)
   assert.equal(plist.value.bundles.length, 1)
-  assert.equal(plist.value.plugins.length, 1)
+  assert.equal(plist.value.plugins.length, 3)
+  assert.deepEqual(
+    plist.value.plugins.map(({ id, status, enabled, error }) => ({ id, status, enabled, ...(error ? { error } : {}) })),
+    [
+      { id: 'p1', status: 'active', enabled: true },
+      { id: 'loader-sched', status: 'disabled', enabled: false },
+      { id: 'loader-bad', status: 'error', enabled: true, error: { diagnostic: 'boom' } },
+    ],
+  )
 
   const badInstall = await rt.channelCall('engine-plugins-install', { spec: 'bad\x00spec' })
   assert.equal(badInstall.ok, false)
