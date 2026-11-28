@@ -20,7 +20,9 @@ import {
 } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { BROWSER_TOOL_NAMES, BrowserToolView, ComputerToolView } from './browser-computer-tool-views.js'
+import { normalizeLanguage, renderTokenList, useHighlightedLines } from './code-highlight.js'
 import { ToolImageThumb } from './image-lightbox.js'
+import { buildDiffHunks, computeLineDiff } from './myers-diff.js'
 import { OFFICE_TOOL_NAMES, OfficeCliCard, OfficeToolView, parseOfficeCliCommand } from './office-tool-view.js'
 import { TOOL_VIEW_SLOT, slots as defaultSlots } from './slots.js'
 import {
@@ -31,7 +33,7 @@ import {
   SubagentToolView,
   parseBackgroundJobIdFromShell,
 } from './subagent-job-tool-views.js'
-import { CodeSection, argSummary, formatArgs, formatResult, formatToolDuration } from './tool-card.js'
+import { CodeSection, argSummary, formatArgs, formatResult, formatToolDuration, isInteractiveOpenFile } from './tool-card.js'
 import {
   MiniCopy,
   ToolCardShell,
@@ -44,14 +46,47 @@ import {
   shortPath,
 } from './tool-view-shared.js'
 
-export { parseExitStatus, safeWebHref, shortPath }
+export { buildDiffHunks, computeLineDiff, parseExitStatus, safeWebHref, shortPath }
 
 export const BUILTIN_TOOL_PRIORITY = 100
 
 const READ_FOLD_LINES = 16
-const DIFF_FOLD_LINES = 20
+const DIFF_CONTEXT_LINES = 3
+const DIFF_HUNK_INITIAL_LINES = 80
+const DIFF_HUNK_STEP_LINES = 120
+const DIFF_GAP_STEP_LINES = 40
+const HIGHLIGHT_FULL_MAX_CHARS = 200_000
 const SEARCH_FOLD_ITEMS = 16
-const MAX_LCS_CELLS = 40_000
+
+const BASENAME_LANGS = {
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+  gnumakefile: 'makefile',
+  gemfile: 'ruby',
+  rakefile: 'ruby',
+  podfile: 'ruby',
+  'cmakelists.txt': 'makefile',
+}
+
+export function langFromPath(filePath) {
+  if (typeof filePath !== 'string' || filePath === '') return ''
+  const norm = filePath.replaceAll('\\', '/')
+  const base = norm.slice(norm.lastIndexOf('/') + 1).toLowerCase()
+  if (Object.hasOwn(BASENAME_LANGS, base)) return BASENAME_LANGS[base]
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0 || dot === base.length - 1) return ''
+  return normalizeLanguage(base.slice(dot + 1))
+}
+
+function openFileAt(openFile, path, line, sessionId) {
+  if (!isInteractiveOpenFile(openFile) || typeof path !== 'string' || path === '') return
+  const target = {
+    path,
+    ...(Number.isInteger(line) && line > 0 ? { line } : {}),
+    ...(typeof sessionId === 'string' && sessionId !== '' ? { sessionId } : {}),
+  }
+  openFile(target)
+}
 
 // Defensive narrowing of DSH `FsReadMeta` (`@deepseek-ai/dsh-tool-fs/read-render`).
 export function readMetaFromMeta(meta) {
@@ -100,136 +135,6 @@ export function diffMetaFromMeta(meta) {
     ...(path ? { path } : {}),
     ...(stopped ? { stopped } : {}),
   }
-}
-
-// Keep line terminators attached to each token so adding/removing a trailing newline
-// produces an exact diff rather than looking identical to an unchanged file.
-function splitLineTokens(text) {
-  if (text === null || text === undefined || text === '') return []
-  const tokens = []
-  let start = 0
-  for (let i = 0; i < text.length; i += 1) {
-    if (text.charCodeAt(i) === 10) {
-      tokens.push(text.slice(start, i + 1))
-      start = i + 1
-    }
-  }
-  if (start < text.length) tokens.push(text.slice(start))
-  return tokens
-}
-
-const tokenText = token => (token.endsWith('\n') ? token.slice(0, -1) : token)
-const tokenNoNewline = token => !token.endsWith('\n')
-
-function makeDiffRow(kind, token, nums, showNoNewline = false) {
-  return {
-    kind,
-    ...nums,
-    text: tokenText(token),
-    ...(showNoNewline && kind !== 'ctx' && tokenNoNewline(token) ? { noNewline: true } : {}),
-  }
-}
-
-// Bounded line diff: exact LCS for normal hunks, linear prefix/suffix fallback for huge inputs.
-export function computeLineDiff(oldText, newText) {
-  const before = oldText === null ? [] : splitLineTokens(oldText)
-  const after = splitLineTokens(newText)
-  const showNoNewline = oldText !== null && oldText.length > 0 && newText.length > 0
-    && oldText.endsWith('\n') !== newText.endsWith('\n')
-  if (before.length === 0 && after.length === 0) return { rows: [], added: 0, removed: 0 }
-  if (before.length === 0) {
-    return {
-      rows: after.map((tok, index) => makeDiffRow('add', tok, { newNum: index + 1 })),
-      added: after.length,
-      removed: 0,
-    }
-  }
-  if (after.length === 0) {
-    return {
-      rows: before.map((tok, index) => makeDiffRow('del', tok, { oldNum: index + 1 })),
-      added: 0,
-      removed: before.length,
-    }
-  }
-
-  let prefix = 0
-  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1
-  let suffix = 0
-  while (
-    suffix < before.length - prefix
-    && suffix < after.length - prefix
-    && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
-  ) suffix += 1
-
-  const midBefore = before.slice(prefix, before.length - suffix)
-  const midAfter = after.slice(prefix, after.length - suffix)
-  const rows = []
-  let added = 0
-  let removed = 0
-
-  for (let i = 0; i < prefix; i += 1) {
-    rows.push(makeDiffRow('ctx', before[i], { oldNum: i + 1, newNum: i + 1 }))
-  }
-
-  if (midBefore.length === 0 && midAfter.length === 0) {
-    // identical
-  } else if (midBefore.length * midAfter.length <= MAX_LCS_CELLS) {
-    const m = midBefore.length
-    const n = midAfter.length
-    const cols = n + 1
-    const dp = new Int32Array((m + 1) * cols)
-    for (let i = m - 1; i >= 0; i -= 1) {
-      for (let j = n - 1; j >= 0; j -= 1) {
-        dp[i * cols + j] = midBefore[i] === midAfter[j]
-          ? dp[(i + 1) * cols + (j + 1)] + 1
-          : Math.max(dp[(i + 1) * cols + j], dp[i * cols + (j + 1)])
-      }
-    }
-    let i = 0
-    let j = 0
-    while (i < m && j < n) {
-      if (midBefore[i] === midAfter[j]) {
-        rows.push(makeDiffRow('ctx', midBefore[i], { oldNum: prefix + i + 1, newNum: prefix + j + 1 }))
-        i += 1
-        j += 1
-      } else if (dp[(i + 1) * cols + j] >= dp[i * cols + (j + 1)]) {
-        rows.push(makeDiffRow('del', midBefore[i], { oldNum: prefix + i + 1 }, showNoNewline))
-        removed += 1
-        i += 1
-      } else {
-        rows.push(makeDiffRow('add', midAfter[j], { newNum: prefix + j + 1 }, showNoNewline))
-        added += 1
-        j += 1
-      }
-    }
-    while (i < m) {
-      rows.push(makeDiffRow('del', midBefore[i], { oldNum: prefix + i + 1 }, showNoNewline))
-      removed += 1
-      i += 1
-    }
-    while (j < n) {
-      rows.push(makeDiffRow('add', midAfter[j], { newNum: prefix + j + 1 }, showNoNewline))
-      added += 1
-      j += 1
-    }
-  } else {
-    for (let i = 0; i < midBefore.length; i += 1) {
-      rows.push(makeDiffRow('del', midBefore[i], { oldNum: prefix + i + 1 }, showNoNewline))
-      removed += 1
-    }
-    for (let j = 0; j < midAfter.length; j += 1) {
-      rows.push(makeDiffRow('add', midAfter[j], { newNum: prefix + j + 1 }, showNoNewline))
-      added += 1
-    }
-  }
-
-  for (let k = 0; k < suffix; k += 1) {
-    const oldIdx = before.length - suffix + k
-    const newIdx = after.length - suffix + k
-    rows.push(makeDiffRow('ctx', before[oldIdx], { oldNum: oldIdx + 1, newNum: newIdx + 1 }))
-  }
-
-  return { rows, added, removed }
 }
 
 // Defensive narrowing of DSH `SearchMeta` (`@deepseek-ai/dsh-tool-fs-search`).
@@ -378,10 +283,10 @@ function ShellToolView({ block, cwd, phase, useDisclosure, openFile, sessionId, 
   bgJobId !== '' && sessionId
     ? h(BackgroundJobPanel, { sessionId, jobId: bgJobId, feed, readOnly, initialStatus: 'running' })
     : null,
-  bodyText !== '' ? h(CodeSection, { label: t('Output'), text: bodyText, error: isError }) : null)
+  bodyText !== '' ? h(CodeSection, { label: t('Output'), text: bodyText, error: isError, ansi: true }) : null)
 }
 
-function ReadToolView({ block, cwd, phase, useDisclosure }) {
+function ReadToolView({ block, cwd, phase, useDisclosure, openFile, sessionId }) {
   const disclosure = useDisclosure()
   const [showAll, setShowAll] = useState(false)
   const isError = phase === 'result' && block?.isError === true
@@ -392,6 +297,7 @@ function ReadToolView({ block, cwd, phase, useDisclosure }) {
   const rawResult = useMemo(() => (phase === 'result' && !hasLines ? formatResult(block) : ''), [phase, hasLines, block])
   const errLine = errorLineOf(block, isError)
   const duration = formatToolDuration(block, phase)
+  const canOpen = isInteractiveOpenFile(openFile) && rawPath !== ''
 
   const badges = []
   if (hasLines) {
@@ -406,6 +312,16 @@ function ReadToolView({ block, cwd, phase, useDisclosure }) {
   const clipped = hasLines && meta.lines.length > READ_FOLD_LINES
   const visibleLines = hasLines ? (showAll || !clipped ? meta.lines : meta.lines.slice(0, READ_FOLD_LINES)) : []
   const rawCode = useMemo(() => (hasLines ? meta.lines.map(line => line.text).join('\n') : ''), [hasLines, meta])
+  const highlightLang = useMemo(
+    () => normalizeLanguage(meta?.lang ?? '') || langFromPath(rawPath),
+    [meta?.lang, rawPath],
+  )
+  const highlightSource = useMemo(() => {
+    if (!disclosure.expanded || !hasLines || highlightLang === '') return ''
+    if (rawCode.length <= HIGHLIGHT_FULL_MAX_CHARS) return rawCode
+    return visibleLines.map(line => line.text).join('\n')
+  }, [disclosure.expanded, hasLines, highlightLang, rawCode, visibleLines])
+  const highlightedLines = useHighlightedLines(highlightSource, highlightLang)
 
   return h(ToolCardShell, {
     icon: FileIcon,
@@ -423,13 +339,33 @@ function ReadToolView({ block, cwd, phase, useDisclosure }) {
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
   hasLines ? h('div', { className: 'dsb-code-box' },
     h('div', { className: 'dsb-code-head' },
-      h('span', { className: 'dsb-code-path', title: rawPath }, displayPath),
+      canOpen
+        ? h('button', {
+          type: 'button',
+          className: 'dsb-code-path dsb-code-path-btn',
+          title: rawPath,
+          'aria-label': t('Open file {path}', { path: displayPath }),
+          onClick: () => openFileAt(openFile, rawPath, meta.lines[0]?.number, sessionId),
+        }, displayPath)
+        : h('span', { className: 'dsb-code-path', title: rawPath }, displayPath),
       meta.lang ? h('span', { className: 'dsb-tool-pill' }, meta.lang) : null,
       h(MiniCopy, { text: rawCode })),
     h('div', { className: 'dsb-code-lines', role: 'region', 'aria-label': displayPath },
-      visibleLines.map(line => h('div', { key: line.number, className: 'dsb-code-row' },
-        h('span', { className: 'dsb-code-num', 'aria-hidden': true }, line.number),
-        h('span', { className: 'dsb-code-text' }, line.text || '\u00a0')))),
+      visibleLines.map((line, index) => {
+        const tokens = highlightedLines?.[index]
+        return h('div', { key: line.number, className: 'dsb-code-row' },
+          canOpen
+            ? h('button', {
+              type: 'button',
+              className: 'dsb-code-num dsb-code-num-btn',
+              title: `${displayPath}:${line.number}`,
+              'aria-label': `${displayPath}:${line.number}`,
+              onClick: () => openFileAt(openFile, rawPath, line.number, sessionId),
+            }, line.number)
+            : h('span', { className: 'dsb-code-num', 'aria-hidden': true }, line.number),
+          h('span', { className: 'dsb-code-text' },
+            tokens && tokens.length > 0 ? renderTokenList(tokens, `r${line.number}`) : (line.text || '\u00a0')))
+      })),
     clipped ? h('button', {
       type: 'button',
       className: 'dsb-tool-fold',
@@ -539,11 +475,22 @@ function patchPathsFromArg(patchText) {
   return paths
 }
 
-function DiffFileView({ diff, computed, cwd }) {
-  const [showAll, setShowAll] = useState(false)
+function DiffFileView({ diff, computed, cwd, openFile, sessionId }) {
+  const [gapShown, setGapShown] = useState(() => ({}))
+  const [hunkLimits, setHunkLimits] = useState(() => ({}))
   const displayPath = shortPath(diff.path, cwd)
-  const clipped = computed.rows.length > DIFF_FOLD_LINES
-  const visible = showAll || !clipped ? computed.rows : computed.rows.slice(0, DIFF_FOLD_LINES)
+  const canOpen = isInteractiveOpenFile(openFile) && diff.path !== ''
+  const blocks = useMemo(() => buildDiffHunks(computed.rows, { context: DIFF_CONTEXT_LINES }), [computed.rows])
+  const firstChangedLine = useMemo(() => {
+    const first = computed.rows.find(row => row.kind !== 'ctx')
+    return first?.newNum ?? first?.oldNum ?? 1
+  }, [computed.rows])
+  const lang = useMemo(() => langFromPath(diff.path), [diff.path])
+  const oldFull = typeof diff.oldText === 'string' && diff.oldText.length <= HIGHLIGHT_FULL_MAX_CHARS ? diff.oldText : ''
+  const newFull = typeof diff.newText === 'string' && diff.newText.length <= HIGHLIGHT_FULL_MAX_CHARS ? diff.newText : ''
+  const oldHighlight = useHighlightedLines(oldFull, lang)
+  const newHighlight = useHighlightedLines(newFull, lang)
+
   const unifiedText = useMemo(
     () => computed.rows.flatMap(row => [
       `${row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '}${row.text}`,
@@ -551,32 +498,99 @@ function DiffFileView({ diff, computed, cwd }) {
     ]).join('\n'),
     [computed.rows],
   )
+
+  const renderDiffRow = (row, rowIndex) => {
+    const lineNum = row.kind === 'del' ? row.oldNum : (row.newNum ?? row.oldNum)
+    const tokens = row.kind === 'del'
+      ? (row.oldNum > 0 ? oldHighlight?.[row.oldNum - 1] : null)
+      : (row.newNum > 0 ? newHighlight?.[row.newNum - 1] : null)
+    return [
+      h('div', { key: `${rowIndex}:l`, className: 'dsb-diff-row', 'data-kind': row.kind },
+        canOpen && Number.isInteger(lineNum) && lineNum > 0
+          ? h('button', {
+            type: 'button',
+            className: 'dsb-diff-num dsb-diff-num-btn',
+            title: `${displayPath}:${lineNum}`,
+            'aria-label': `${displayPath}:${lineNum}`,
+            onClick: () => openFileAt(openFile, diff.path, lineNum, sessionId),
+          }, lineNum)
+          : h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, lineNum ?? ''),
+        h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '),
+        h('span', { className: 'dsb-diff-text' },
+          tokens && tokens.length > 0 ? renderTokenList(tokens, `d${rowIndex}`) : (row.text || '\u00a0'))),
+      ...(row.noNewline ? [h('div', { key: `${rowIndex}:nnl`, className: 'dsb-diff-row dsb-diff-note', 'data-kind': row.kind },
+        h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, ''),
+        h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, '\\'),
+        h('span', { className: 'dsb-diff-text' }, t('No newline at end of file')))] : []),
+    ]
+  }
+
   return h('div', { className: 'dsb-diff-file' },
     h('div', { className: 'dsb-diff-head' },
-      h('span', { className: 'dsb-code-path', title: diff.path }, displayPath),
+      canOpen
+        ? h('button', {
+          type: 'button',
+          className: 'dsb-code-path dsb-code-path-btn',
+          title: diff.path,
+          'aria-label': t('Open file {path}', { path: displayPath }),
+          onClick: () => openFileAt(openFile, diff.path, firstChangedLine, sessionId),
+        }, displayPath)
+        : h('span', { className: 'dsb-code-path', title: diff.path }, displayPath),
       computed.added > 0 ? h('span', { className: 'dsb-diff-plus' }, `+${computed.added}`) : null,
       computed.removed > 0 ? h('span', { className: 'dsb-diff-minus' }, `-${computed.removed}`) : null,
       unifiedText !== '' ? h(MiniCopy, { text: unifiedText }) : null),
-    visible.length > 0 ? h('div', { className: 'dsb-diff-lines' },
-      visible.flatMap((row, index) => [
-        h('div', { key: `${index}:l`, className: 'dsb-diff-row', 'data-kind': row.kind },
-          h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, row.kind === 'del' ? row.oldNum : (row.newNum ?? '')),
-          h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '),
-          h('span', { className: 'dsb-diff-text' }, row.text || '\u00a0')),
-        ...(row.noNewline ? [h('div', { key: `${index}:nnl`, className: 'dsb-diff-row dsb-diff-note', 'data-kind': row.kind },
-          h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, ''),
-          h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, '\\'),
-          h('span', { className: 'dsb-diff-text' }, t('No newline at end of file')))] : []),
-      ])) : null,
-    clipped ? h('button', {
-      type: 'button',
-      className: 'dsb-tool-fold',
-      'aria-expanded': showAll,
-      onClick: () => setShowAll(value => !value),
-    }, showAll ? t('Show less') : t('Show all ({count} lines)', { count: computed.rows.length })) : null)
+    blocks.length > 0 ? h('div', { className: 'dsb-diff-lines' },
+      blocks.flatMap((blk) => {
+        if (blk.type === 'gap') {
+          const revealed = gapShown[blk.id] ?? 0
+          const remaining = Math.max(0, blk.count - revealed)
+          const revealedRows = revealed > 0
+            ? computed.rows.slice(blk.start, blk.start + revealed).flatMap((row, offset) => renderDiffRow(row, blk.start + offset))
+            : []
+          if (remaining === 0) return revealedRows
+          const step = Math.min(remaining, DIFF_GAP_STEP_LINES)
+          return [
+            ...revealedRows,
+            h('div', { key: blk.id, className: 'dsb-diff-gap' },
+              h('button', {
+                type: 'button',
+                className: 'dsb-diff-gap-btn',
+                onClick: () => setGapShown(prev => ({ ...prev, [blk.id]: (prev[blk.id] ?? 0) + step })),
+              }, remaining <= DIFF_GAP_STEP_LINES ? t('Show all {count} lines', { count: remaining }) : `${t('Show more')} (+${step})`),
+              remaining > DIFF_GAP_STEP_LINES ? h('button', {
+                type: 'button',
+                className: 'dsb-diff-gap-btn',
+                onClick: () => setGapShown(prev => ({ ...prev, [blk.id]: blk.count })),
+              }, t('Show all {count} lines', { count: remaining })) : null),
+          ]
+        }
+        const total = blk.end - blk.start
+        const limit = hunkLimits[blk.id] ?? DIFF_HUNK_INITIAL_LINES
+        const visibleCount = Math.min(total, limit)
+        const remaining = total - visibleCount
+        const hunkRows = computed.rows
+          .slice(blk.start, blk.start + visibleCount)
+          .flatMap((row, offset) => renderDiffRow(row, blk.start + offset))
+        if (remaining <= 0) return hunkRows
+        const step = Math.min(remaining, DIFF_HUNK_STEP_LINES)
+        return [
+          ...hunkRows,
+          h('div', { key: `${blk.id}:more`, className: 'dsb-diff-hunk-more' },
+            h('button', {
+              type: 'button',
+              className: 'dsb-tool-fold',
+              onClick: () => setHunkLimits(prev => ({ ...prev, [blk.id]: (prev[blk.id] ?? DIFF_HUNK_INITIAL_LINES) + step })),
+            }, `${t('Show more')} (+${step})`),
+            h('button', {
+              type: 'button',
+              className: 'dsb-tool-fold',
+              onClick: () => setHunkLimits(prev => ({ ...prev, [blk.id]: total })),
+            }, t('Show all ({count} lines)', { count: total }))),
+        ]
+      })) : null)
 }
 
-function DiffToolView({ toolName, block, cwd, phase, useDisclosure }) {
+function DiffToolView({ toolName, block, cwd, phase, useDisclosure, openFile, sessionId }) {
   const disclosure = useDisclosure()
   const isError = phase === 'result' && block?.isError === true
   const meta = useMemo(() => (phase === 'result' && !isError ? diffMetaFromMeta(block?.meta) : undefined), [phase, isError, block?.meta])
@@ -634,12 +648,19 @@ function DiffToolView({ toolName, block, cwd, phase, useDisclosure }) {
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
   rawResult !== '' && isError ? h(CodeSection, { label: t('Error'), text: rawResult, error: true }) : null,
   computedDiffs.length > 0
-    ? computedDiffs.map(({ diff, computed }, index) => h(DiffFileView, { key: `${diff.path}:${index}`, diff, computed, cwd }))
+    ? computedDiffs.map(({ diff, computed }, index) => h(DiffFileView, {
+      key: `${diff.path}:${index}`,
+      diff,
+      computed,
+      cwd,
+      openFile,
+      sessionId,
+    }))
     : patchArg !== '' ? h(CodeSection, { label: t('Patch'), text: patchArg }) : null,
   rawResult !== '' && !isError ? h(CodeSection, { label: t('Result'), text: rawResult, error: false }) : null)
 }
 
-function SearchToolView({ toolName, block, cwd, phase, useDisclosure }) {
+function SearchToolView({ toolName, block, cwd, phase, useDisclosure, openFile, sessionId }) {
   const disclosure = useDisclosure()
   const [showAll, setShowAll] = useState(false)
   const isError = phase === 'result' && block?.isError === true
@@ -649,6 +670,7 @@ function SearchToolView({ toolName, block, cwd, phase, useDisclosure }) {
   const summary = pattern
     ? (searchPath ? `${compact(pattern, 64)} · ${shortPath(searchPath, cwd)}` : compact(pattern))
     : shortPath(searchPath, cwd)
+  const canOpen = isInteractiveOpenFile(openFile)
 
   const badges = []
   if (meta?.shape === 'matches') {
@@ -691,9 +713,22 @@ function SearchToolView({ toolName, block, cwd, phase, useDisclosure }) {
   },
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
   meta?.shape === 'matches' && flatMatches.length > 0 ? h('div', { className: 'dsb-search-list' },
-    (showAll || !clipped ? flatMatches : flatMatches.slice(0, SEARCH_FOLD_ITEMS)).map((item, index) => h('div', { key: index, className: 'dsb-search-match' },
-      h('span', { className: 'dsb-search-loc', title: item.path }, `${shortPath(item.path, cwd)}:${item.lineNumber}`),
-      h('span', { className: 'dsb-search-line' }, item.line.trim()))),
+    (showAll || !clipped ? flatMatches : flatMatches.slice(0, SEARCH_FOLD_ITEMS)).map((item, index) => {
+      const loc = `${shortPath(item.path, cwd)}:${item.lineNumber}`
+      return canOpen
+        ? h('button', {
+          key: index,
+          type: 'button',
+          className: 'dsb-search-match dsb-search-btn',
+          title: `${item.path}:${item.lineNumber}`,
+          onClick: () => openFileAt(openFile, item.path, item.lineNumber, sessionId),
+        },
+        h('span', { className: 'dsb-search-loc' }, loc),
+        h('span', { className: 'dsb-search-line' }, item.line.trim()))
+        : h('div', { key: index, className: 'dsb-search-match' },
+          h('span', { className: 'dsb-search-loc', title: item.path }, loc),
+          h('span', { className: 'dsb-search-line' }, item.line.trim()))
+    }),
     clipped ? h('button', {
       type: 'button',
       className: 'dsb-tool-fold',
@@ -701,7 +736,15 @@ function SearchToolView({ toolName, block, cwd, phase, useDisclosure }) {
       onClick: () => setShowAll(value => !value),
     }, showAll ? t('Show less') : t('Show all ({count} lines)', { count: flatMatches.length })) : null) : null,
   meta?.shape === 'paths' && meta.paths.length > 0 ? h('div', { className: 'dsb-search-list' },
-    (showAll || !clipped ? meta.paths : meta.paths.slice(0, SEARCH_FOLD_ITEMS)).map((filePath, index) => h('div', { key: index, className: 'dsb-search-path', title: filePath }, shortPath(filePath, cwd))),
+    (showAll || !clipped ? meta.paths : meta.paths.slice(0, SEARCH_FOLD_ITEMS)).map((filePath, index) => (canOpen
+      ? h('button', {
+        key: index,
+        type: 'button',
+        className: 'dsb-search-path dsb-search-btn',
+        title: filePath,
+        onClick: () => openFileAt(openFile, filePath, undefined, sessionId),
+      }, shortPath(filePath, cwd))
+      : h('div', { key: index, className: 'dsb-search-path', title: filePath }, shortPath(filePath, cwd)))),
     clipped ? h('button', {
       type: 'button',
       className: 'dsb-tool-fold',
@@ -823,7 +866,7 @@ function TodoToolView({ block, phase, useDisclosure }) {
       h('span', { className: 'dsb-todo-text' }, item.content)))) : null)
 }
 
-function PresentToolView({ block, cwd, phase, useDisclosure }) {
+function PresentToolView({ block, cwd, phase, useDisclosure, openFile, sessionId }) {
   const files = useMemo(() => parsePresentedFiles(block), [block])
   const disclosure = useDisclosure(true)
   const isError = phase === 'result' && block?.isError === true
@@ -833,6 +876,7 @@ function PresentToolView({ block, cwd, phase, useDisclosure }) {
     : []
   const summary = files.length > 0 ? shortPath(files[0].path, cwd) : ''
   const hasBody = files.length > 0 || errLine !== ''
+  const canOpen = isInteractiveOpenFile(openFile)
 
   return h(ToolCardShell, {
     icon: FileIcon,
@@ -852,12 +896,22 @@ function PresentToolView({ block, cwd, phase, useDisclosure }) {
     files.map((file, index) => {
       const display = shortPath(file.path, cwd)
       const name = display.split('/').pop() || display
-      return h('div', { key: index, className: 'dsb-present-item', title: file.path },
-        h('span', { className: 'dsb-present-icon', 'aria-hidden': true }, h(FileIcon)),
-        h('div', { className: 'dsb-present-meta' },
+      const inner = [
+        h('span', { key: 'ico', className: 'dsb-present-icon', 'aria-hidden': true }, h(FileIcon)),
+        h('div', { key: 'meta', className: 'dsb-present-meta' },
           h('span', { className: 'dsb-present-name' }, name),
           display !== name ? h('span', { className: 'dsb-present-path' }, display) : null,
-          file.description ? h('span', { className: 'dsb-present-desc' }, file.description) : null))
+          file.description ? h('span', { className: 'dsb-present-desc' }, file.description) : null),
+      ]
+      return canOpen
+        ? h('button', {
+          key: index,
+          type: 'button',
+          className: 'dsb-present-item dsb-present-btn',
+          title: file.path,
+          onClick: () => openFileAt(openFile, file.path, undefined, sessionId),
+        }, inner)
+        : h('div', { key: index, className: 'dsb-present-item', title: file.path }, inner)
     })) : null)
 }
 
@@ -884,7 +938,7 @@ function RunCodeToolView({ block, phase, useDisclosure }) {
   },
   code !== '' ? h(CodeSection, { label: t('Run code'), text: code }) : null,
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
-  rawResult !== '' ? h(CodeSection, { label: isError ? t('Error') : t('Output'), text: rawResult, error: isError }) : null)
+  rawResult !== '' ? h(CodeSection, { label: isError ? t('Error') : t('Output'), text: rawResult, error: isError, ansi: true }) : null)
 }
 
 function makeSimpleToolView({ icon, label, summaryOf }) {
