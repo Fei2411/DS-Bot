@@ -631,7 +631,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
       ? feed.on((event, data) => {
         if (!alive) return
         if (event === 'hello') {
-          if (rootPathRef.current) void refreshTreeRef.current({ silent: true, reset: false })
+          if (data?.resumed !== true && rootPathRef.current) void refreshTreeRef.current({ silent: true, reset: false })
           return
         }
         if (event !== 'workspace-changed') return

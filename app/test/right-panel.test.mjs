@@ -974,6 +974,13 @@ test('WorkspaceTerminal resumes numbered output after feed reconnects and marks 
     team.chat.emit('terminal', { id: 'term-1', chunk: 'line-3\n', start: 3, end: 3, parts: [{ seq: 3, text: 'line-3\n' }] })
     assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\n')
 
+    // Clean resumed hello does NOT trigger a redundant terminal-list sync.
+    const listsBeforeResumed = listRequests.length
+    team.chat.emit('hello', { resumed: true })
+    await tick()
+    await tick()
+    assert.equal(listRequests.length, listsBeforeResumed, 'hello { resumed: true } must not re-sync terminal-list')
+
     // A feed hello sends the held position and the answer fills exactly the missing tail.
     listAnswers.push([entry([{ seq: 4, text: 'line-4\n' }, { seq: 5, text: 'line-5\n' }], { start: 4, end: 5 })])
     team.chat.emit('hello', {})
@@ -1328,7 +1335,14 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
     tree = panel.render()
     assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses file tree context menu')
 
-    // SSE 'hello' reconnect triggers silent refresh so changes across the 6s SSE recycle gap are never missed.
+    // Clean resumed hello does NOT trigger a redundant full tree refresh.
+    const listsBeforeResumed = calls.filter(([ep]) => ep === 'workspace-list').length
+    team.chat.emit('hello', { resumed: true })
+    await tick()
+    await tick()
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-list').length, listsBeforeResumed, 'hello { resumed: true } must not refresh file tree')
+
+    // SSE 'hello' reconnect triggers silent refresh so changes across an unresumed reconnect gap are never missed.
     const listsBeforeHello = calls.filter(([ep]) => ep === 'workspace-list').length
     subDirTruncated = true
     team.chat.emit('hello', {})

@@ -1062,3 +1062,135 @@ test('composer stays editable when bot.waiting has a model, focuses on card clic
     inst.unmount()
   }
 })
+
+test('room chat and classic controls skip hello reload when resumed: true, and PendingUserRows marks unconfirmed sends', async () => {
+  // 1. Room chat skips room-chat reload on hello { resumed: true }, reloads on resumed: false.
+  let roomCalls = 0
+  const room = mountRoom(async (name) => {
+    if (name === 'room-chat') roomCalls += 1
+    return { sessionId: 'r1', items: [{ id: '1', kind: 'user', text: 'hi', time: 100 }], cursor: null }
+  })
+  try {
+    await tick()
+    await tick()
+    assert.equal(roomCalls, 1)
+    room.emit('hello', { revision: 1, resumed: true })
+    await tick()
+    assert.equal(roomCalls, 1, 'resumed hello must not reload room-chat')
+    room.emit('hello', { revision: 1, resumed: false })
+    await tick()
+    assert.equal(roomCalls, 2, 'unresumed hello must reload room-chat')
+  } finally {
+    room.unmount()
+  }
+
+  // 2. Classic controls skip reload on hello { resumed: true } and reload on resumed: false;
+  //    pending sends show Sending… when connected and Waiting to confirm… while reconnecting.
+  let controlCalls = 0
+  let connectionState = { status: 'connected', lostSince: null, fatal: false, message: null }
+  let releaseSend = null
+  const listeners = new Set()
+  const classicRoster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [],
+    rooms: [],
+    byId: {},
+    roomsById: {},
+    questions: {},
+  }
+  const classicSessions = { ids: ['s-classic'], byId: { 's-classic': { id: 's-classic', title: 'Agent' } } }
+  const classicTeam = {
+    actions: {
+      noteSent() {},
+      send: () => new Promise((resolve) => { releaseSend = resolve }),
+      sessionControls: async () => { controlCalls += 1; return {} },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(classicRoster),
+      useSessions: select => select(classicSessions),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+      useConnection: select => select(connectionState),
+    },
+    chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
+  }
+  const inst = mount({ sessionId: 's-classic', team: classicTeam })
+  try {
+    inst.render()
+    await tick()
+    assert.equal(controlCalls, 1)
+    for (const fn of listeners) fn('hello', { revision: 1, resumed: true })
+    await tick()
+    assert.equal(controlCalls, 1, 'resumed hello must not reload classic session controls')
+    for (const fn of listeners) fn('hello', { revision: 1, resumed: false })
+    await tick()
+    assert.equal(controlCalls, 2, 'unresumed hello must reload classic session controls')
+
+    // Send a message that stays in flight -> PendingUserRows marks it Sending…, then Waiting to confirm… when reconnecting.
+    textarea(inst.render()).props.onChange({ target: { value: 'pending msg' } })
+    textarea(inst.render()).props.onKeyDown(enter())
+    await tick()
+    let tree = inst.render()
+    let meta = all(tree, n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Sending/)
+
+    connectionState = { status: 'reconnecting', lostSince: 1, fatal: false, message: null }
+    tree = inst.render()
+    meta = all(tree, n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Waiting to confirm/)
+
+    releaseSend?.()
+    await tick()
+  } finally {
+    inst.unmount()
+  }
+
+  // 3. Bot mode PendingUserRows also switches between Sending… and Waiting to confirm….
+  let botConn = { status: 'connected', lostSince: null, fatal: false, message: null }
+  let releaseBotSend = null
+  const botRoster = { ready: true, prefs: { enterToSend: true }, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: {} }
+  const botTeam = {
+    actions: {
+      noteSent() {},
+      send: () => new Promise((resolve) => { releaseBotSend = resolve }),
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(botRoster),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+      useConnection: select => select(botConn),
+    },
+    chat: { on: () => () => {} },
+  }
+  const botInst = mount({ sessionId: 'b1', team: botTeam })
+  try {
+    textarea(botInst.render()).props.onChange({ target: { value: 'bot pending' } })
+    textarea(botInst.render()).props.onKeyDown(enter())
+    await tick()
+    let meta = all(botInst.render(), n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Sending/)
+
+    botConn = { status: 'reconnecting', lostSince: 1, fatal: false, message: null }
+    meta = all(botInst.render(), n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Waiting to confirm/)
+    releaseBotSend?.()
+    await tick()
+  } finally {
+    botInst.unmount()
+  }
+})

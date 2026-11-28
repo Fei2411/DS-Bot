@@ -25,7 +25,7 @@ import { pruneFailedSends } from './failed-send-bar.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
-const READ_AGAIN = new Set(['hello', 'revision', 'live'])
+const RECONNECT_NOTICE_MS = 2_000
 const NO_WORK = { bots: {}, approvals: [] }
 const EMPTY_PENDING = Object.freeze([])
 export const CLASSIC_BROWSER_OWNER = 'classic'
@@ -97,6 +97,8 @@ export function createTeam() {
   const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
+  const connection = createSource({ status: 'connected', error: null, code: null })
+  let restartFeed = () => {}
   const mergeUpdate = (value) => {
     if (!value || typeof value !== 'object') return
     update.set(previous => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }))
@@ -263,38 +265,42 @@ export function createTeam() {
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
+    const liveSame = liveKey !== undefined && value.liveKey !== undefined && value.liveKey === liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
-    if (value.activity !== undefined) setChanged(activity, value.activity)
-    if (value.work !== undefined) setChanged(work, value.work)
-    if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
-    if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
-    if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
-    if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
-    if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    if (!liveSame) {
+      if (value.activity !== undefined) setChanged(activity, value.activity)
+      if (value.work !== undefined) setChanged(work, value.work)
+      if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
+      if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
+      if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
+      if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
+      if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    }
     const current = roster.getSnapshot()
-    const changed = {}
-    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
-    if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
-    if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
-    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
-    // What waits for the user across the team (ds-bot/src/host/inbox.js).
-    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
-    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
-    if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
-    if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
-    if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
-    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
-    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
-    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
-    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
-    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
-    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
-    if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
-    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
-    if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
-    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
-    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (liveSame) return
+      const changed = {}
+      if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
+      if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
+      if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
+      if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
+      // What waits for the user across the team (ds-bot/src/host/inbox.js).
+      if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
+      if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
+      if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
+      if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
+      if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
+      if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
+      if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
+      if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
+      if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
+      if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
+      if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
+      if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
+      if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
+      if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
+      if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
+      if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
@@ -933,6 +939,7 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    reconnectFeed: () => { restartFeed() },
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
@@ -1091,7 +1098,7 @@ export function createTeam() {
   })
 
   const onFeed = (event, data) => {
-    if (event === 'hello') {
+    if (event === 'hello' && data?.resumed !== true) {
       for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
       streamingReply.clear()
     }
@@ -1140,6 +1147,10 @@ export function createTeam() {
   const start = () => {
     let stopped = false
     let timer
+    let lostTimer
+    let lostSince = 0
+    let liveDeferred = false
+    let closeFeed = () => {}
     const read = () => {
       void pull().catch((error) => {
         if (stopped) return
@@ -1159,7 +1170,64 @@ export function createTeam() {
     const onVisibility = () => {
       if (stopped) return
       if (document.hidden) stopTimer()
-      else { read(); startTimer() }
+      else {
+        liveDeferred = false
+        read()
+        startTimer()
+      }
+    }
+    const clearLost = () => {
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = 0
+      if (connection.getSnapshot().status !== 'connected') {
+        connection.set({ status: 'connected', error: null, code: null })
+      }
+    }
+    const noteLost = () => {
+      if (stopped || lostSince > 0 || connection.getSnapshot().status === 'error') return
+      lostSince = Date.now()
+      lostTimer = setTimeout(() => {
+        lostTimer = undefined
+        if (!stopped && lostSince > 0) {
+          connection.set({ status: 'reconnecting', error: null, code: null })
+        }
+      }, RECONNECT_NOTICE_MS)
+    }
+    const handleFeedEvent = (event, data) => {
+      if (stopped) return
+      if (event === 'lost') {
+        noteLost()
+        onFeed(event, data)
+        return
+      }
+      if (event === 'error' && data?.fatal === true) {
+        if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+        lostSince = 0
+        connection.set({ status: 'error', error: data?.message ?? null, code: data?.code ?? null })
+        onFeed(event, data)
+        return
+      }
+      clearLost()
+      if (event === 'revision') read()
+      else if (event === 'live') {
+        if (typeof document !== 'undefined' && document.hidden) liveDeferred = true
+        else read()
+      } else if (event === 'hello' && data?.resumed !== true) {
+        if (typeof document !== 'undefined' && document.hidden) liveDeferred = true
+        else read()
+      }
+      onFeed(event, data)
+    }
+    const connectFeed = () => {
+      closeFeed()
+      closeFeed = openFeed(handleFeedEvent)
+    }
+    restartFeed = () => {
+      if (stopped) return
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = Date.now()
+      connection.set({ status: 'reconnecting', error: null, code: null })
+      connectFeed()
     }
     read()
     let updateTimer
@@ -1188,10 +1256,7 @@ export function createTeam() {
       void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
       unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
     }
-    const closeFeed = openFeed((event, data) => {
-      if (READ_AGAIN.has(event)) read()
-      onFeed(event, data)
-    })
+    connectFeed()
     const stopApprovalNotices = noticeApprovals({
       work,
       roster,
@@ -1374,8 +1439,13 @@ export function createTeam() {
     return () => {
       stopped = true
       clearTimeout(updateTimer)
+      clearTimeout(lostTimer)
+      lostTimer = undefined
+      lostSince = 0
+      void liveDeferred
       wakeUpdate = () => {}
       scheduleUpdate = () => {}
+      restartFeed = () => {}
       unsubscribeOwnApp?.()
       closeFeed()
       stopApprovalNotices()
@@ -1402,6 +1472,7 @@ export function createTeam() {
     useRescuedDrafts: use(questionDrafts.rescued),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
+    useConnection: use(connection),
     useRegistry: use(registry),
     useComputer: use(computer),
     useBrowserHolds: use(browserHolds),
@@ -1439,6 +1510,7 @@ export function createTeam() {
     shown: () => shown.getSnapshot(),
     surface: () => surface.getSnapshot(),
     status: () => status.getSnapshot(),
+    connection: () => connection.getSnapshot(),
   }
   return { actions, hooks, snapshots, sessionHook, chat, start }
 }

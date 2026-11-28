@@ -715,6 +715,131 @@ test('useSessionFollow resyncs once without the stale cursor and replaces rows w
   }
 })
 
+test('useSessionFollow preserves already-loaded earlier pages on bot/stale and fills only the gap', async () => {
+  fetchCtrl.reset()
+  const pageCalls = []
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+  sandbox.__testCall = async (name, body) => {
+    pageCalls.push([name, body])
+    if (name === 'session-page' && body.beforeSeq === 6) {
+      return { records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `earlier ${seq}`) })), hasMore: false }
+    }
+    if (name === 'session-page' && body.beforeSeq === 13) {
+      return { records: [11, 12].map(seq => ({ type: 'event', event: msg(seq, `gap ${seq}`) })), hasMore: true }
+    }
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    // Initial snapshot loads 6..10 with hasMore: true.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [6, 7, 8, 9, 10].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    // User scrolls up and loads earlier page 1..5 (hasMore becomes false).
+    await view.loadEarlier(null)
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert.equal(view.log.hasMore, false)
+
+    // bot/stale arrives -> reopens without cursor -> fresh snapshot starts at 13..15 (gap 11..12).
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale cursor' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 15, hasMore: true,
+      records: [13, 14, 15].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    // A live event 16 arrives right after the snapshot while gap fill is settling.
+    fetchCtrl.latest().push('frame', { type: 'event', event: msg(16, 'live 16') })
+    await tick()
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    assert.equal(view.log.hasMore, false, 'earlier loaded page boundary (hasMore: false) is preserved')
+    assert.equal(view.historyReloaded, false, 'gap fill preserves history without marking full reload')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow in read-only mode ignores hello { resumed: true } and reopens on hello { resumed: false }', async () => {
+  fetchCtrl.reset()
+  const listeners = new Set()
+  const feed = { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } }
+  const emit = (ev, data) => { for (const fn of listeners) fn(ev, data) }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, feed, readOnly: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1)
+    emit('hello', { revision: 1, feedSeq: 1, resumed: true })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'resumed hello must not reopen read-only session follow')
+    emit('hello', { revision: 1, feedSeq: 1, resumed: false })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'unresumed hello reopens read-only session follow')
+    void view
+  } finally {
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('openSessionFollow stops reconnecting and surfaces a terminal error when a single SSE frame exceeds the buffer limit', async () => {
+  fetchCtrl.reset()
+  recordedTimers.length = 0
+  const events = []
+  let cancelled = false
+  fetchCtrl.setImpl(async () => ({
+    ok: true,
+    body: {
+      getReader: () => {
+        let sent = false
+        return {
+          async read() {
+            if (!sent) {
+              sent = true
+              return { value: new TextEncoder().encode('data: ' + 'x'.repeat(8 * 1024 * 1024 + 64)), done: false }
+            }
+            return { value: undefined, done: true }
+          },
+          async cancel() { cancelled = true },
+        }
+      },
+    },
+  }))
+  const handle = openSessionFollow({ sessionId: 'b1' }, (event, data) => events.push([event, data]))
+  try {
+    await tick()
+    await tick()
+    assert.equal(cancelled, true)
+    assert.equal(recordedTimers.length, 0, 'oversized session SSE frame must not schedule a retry')
+    assert.equal(events.some(([ev, data]) => ev === 'error' && data?.code === 'bot/stream-overflow'), true)
+  } finally {
+    handle.close()
+    fetchCtrl.reset()
+  }
+})
+
 test('Chat DM renders real recorded session, show_view via WidgetCell, legacy reactions, EarlierParts across rollover, pagination, and pending dedup', async () => {
   fetchCtrl.reset()
   const listeners = new Set()

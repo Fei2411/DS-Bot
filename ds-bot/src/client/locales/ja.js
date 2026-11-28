@@ -1,6 +1,10 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  'Reconnecting…': '再接続中…',
+  'Reconnect': '再接続',
+  'Waiting to confirm…': '確認待ち…',
+  'Live updates paused: message too large': 'ライブ更新が一時停止されました：メッセージが大きすぎます',
   'Auto review': '自動審査',
   'Session only': 'このセッションのみ',
   'Permission preset': '権限プリセット',

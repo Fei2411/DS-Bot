@@ -122,6 +122,23 @@ function ClassicTitleToggle({ hidden, onToggle }) {
   }, h(SidebarIcon)), document.body)
 }
 
+function ConnectionBanner({ useConnection, onReconnect }) {
+  const conn = useConnection ? useConnection(state => state) : null
+  if (!conn || conn.status === 'connected') return null
+  const isError = conn.status === 'error'
+  return h('div', {
+    className: 'dsb-conn-banner',
+    role: isError ? 'alert' : 'status',
+    'aria-live': isError ? 'assertive' : 'polite',
+    'data-tone': isError ? 'error' : 'warn',
+  },
+  h('span', { className: 'dsb-conn-dot', 'aria-hidden': true }),
+  h('span', { className: 'dsb-conn-text' }, isError ? t('Live updates paused: message too large') : t('Reconnecting…')),
+  isError && typeof onReconnect === 'function'
+    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm dsb-conn-btn', onClick: onReconnect }, t('Reconnect'))
+    : null)
+}
+
 export function App() {
   const team = useMemo(createTeam, [])
   useEffect(() => team.start(), [team])
@@ -607,6 +624,7 @@ export function App() {
   // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
   h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
+    h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
     isNarrow ? h('button', {
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t(drawerOpen ? 'Collapse sidebar' : 'Expand sidebar'), 'aria-expanded': drawerOpen,
       onClick: () => setDrawerOpen(open => !open),
