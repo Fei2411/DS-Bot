@@ -9,6 +9,8 @@ export const CLOCK_SOURCE_KINDS = new Set([
   'ds-bot-time-context',
 ])
 
+export const FORWARDED_UNKNOWN_SOURCE_KIND = 'ds-bot-forwarded'
+
 export const CONTEXT_ONLY_SOURCE_KINDS = new Set([
   'working-directory',
   'runtime-context',
@@ -18,6 +20,7 @@ export const CONTEXT_ONLY_SOURCE_KINDS = new Set([
   'skill-catalog',
   'compact-checkpoint',
   'snapshot',
+  FORWARDED_UNKNOWN_SOURCE_KIND,
   OWN_MEMORY_SOURCE,
   GROUP_MEMORY_SOURCE,
   MEMORY_UPDATE_SOURCE,
