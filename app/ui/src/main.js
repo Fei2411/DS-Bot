@@ -49,7 +49,24 @@ import './message-parity.css'
 
 registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
-const appLocale = createLocale(navigator.language)
+// Keep liveSystemTag empty until main-process IPC reports an OS language so browser
+// `navigator.language` updates on `languagechange` are never shadowed when IPC is absent.
+let liveSystemTag = ''
+const refreshSystemTag = typeof globalThis.dsBotApp?.systemLanguage === 'function'
+  ? () => Promise.resolve(globalThis.dsBotApp.systemLanguage()).then((tag) => {
+    if (typeof tag === 'string' && tag.trim() !== '') liveSystemTag = tag
+    return tag
+  }).catch(() => undefined)
+  : null
+const appLocale = createLocale(navigator.language, {
+  getSystemTag: () => liveSystemTag || navigator.language,
+  refreshSystemTag,
+})
+globalThis.dsBotApp?.onSystemLanguage?.((tag) => {
+  if (typeof tag !== 'string' || tag.trim() === '') return
+  liveSystemTag = tag
+  appLocale.syncSystemTag(tag)
+})
 setAppLocaleService(appLocale)
 installLocale(appLocale, {
   onError: (_lang, err) => { noteClientError('i18n-load', err) },
@@ -80,17 +97,32 @@ for (const [tag, text] of [
 paintMode(undefined)
 
 const root = createRoot(document.getElementById('root'))
-const initialLang = appLocale.getLocale().active
+const INITIAL_SYSTEM_LANG_WAIT_MS = 150
 const INITIAL_LOCALE_WAIT_MS = 800
-let initialTimer = null
-const initialLoad = ensureLocale(initialLang).catch((err) => {
-  console.error(`ds-bot: failed to load initial locale "${initialLang}"`, err)
-  noteClientError('i18n-load', err)
-})
-void Promise.race([
-  initialLoad,
-  new Promise((resolve) => { initialTimer = setTimeout(resolve, INITIAL_LOCALE_WAIT_MS) }),
-]).finally(() => {
-  if (initialTimer !== null) clearTimeout(initialTimer)
+const initialSystemLanguage = refreshSystemTag
+  ? (() => {
+    let timer = null
+    return Promise.race([
+      refreshSystemTag().then((tag) => {
+        if (typeof tag === 'string' && tag.trim() !== '') appLocale.syncSystemTag(tag)
+      }),
+      new Promise((resolve) => { timer = setTimeout(resolve, INITIAL_SYSTEM_LANG_WAIT_MS) }),
+    ]).finally(() => { if (timer !== null) clearTimeout(timer) })
+  })()
+  : Promise.resolve()
+
+void initialSystemLanguage.then(() => {
+  const initialLang = appLocale.getLocale().active
+  let localeTimer = null
+  const initialLoad = ensureLocale(initialLang).catch((err) => {
+    console.error(`ds-bot: failed to load initial locale "${initialLang}"`, err)
+    noteClientError('i18n-load', err)
+  })
+  return Promise.race([
+    initialLoad,
+    new Promise((resolve) => { localeTimer = setTimeout(resolve, INITIAL_LOCALE_WAIT_MS) }),
+  ]).finally(() => { if (localeTimer !== null) clearTimeout(localeTimer) })
+}).finally(() => {
+  document.documentElement.lang = appLocale.getLocale().active
   root.render(h(App))
 })

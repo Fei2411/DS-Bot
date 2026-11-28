@@ -209,7 +209,7 @@ test('SlotErrorBoundary retries once with busting, then switches to Reload windo
   }
 })
 
-test('createLocale holds previous display language until switched dictionary registers (no English flash) and includes revision in notifications', async () => {
+test('createLocale holds previous display language until switched dictionary registers (no English flash) and bumps getSnapshot().revision', async () => {
   const { createLocale } = await import('../ui/src/locale.js')
   const store = new Map()
   const storage = {
@@ -223,13 +223,13 @@ test('createLocale holds previous display language until switched dictionary reg
   assert.equal(translate('Settings'), '设置')
 
   const events = []
-  locale.subscribe(ev => events.push(ev))
+  locale.subscribe(ev => events.push({ ...ev, revision: locale.getSnapshot().revision }))
 
   // Switch to Japanese before ja dictionary arrives: active updates, but rendered copy stays Chinese (no English flash).
   locale.setLocale('ja')
   assert.equal(locale.getLocale().active, 'ja')
   assert.equal(translate('Settings'), '设置', 'must hold previous language while new dictionary is still loading')
-  assert.equal(typeof events.at(-1)?.revision, 'number', 'subscriber event should include revision')
+  assert.equal(typeof events.at(-1)?.revision, 'number', 'getSnapshot().revision should increment on switch')
 
   // Once Japanese dictionary registers, copy switches directly from Chinese to Japanese.
   locale.register('ds-bot', 'ja', { Settings: '設定' })
@@ -239,6 +239,7 @@ test('createLocale holds previous display language until switched dictionary reg
   // Switching to English takes effect immediately (English needs no dictionary).
   locale.setLocale('en')
   assert.equal(translate('Settings'), 'Settings')
+  locale.dispose()
 })
 
 test('createRetryableLazy + SlotErrorBoundary recovers from dynamic import failure on Retry in real React DOM', async () => {
