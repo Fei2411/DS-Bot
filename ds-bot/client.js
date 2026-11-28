@@ -721,6 +721,11 @@ var JA = {
   "Top up ↗": "チャージする ↗",
   "Retry": "再試行",
   "Retrying…": "再試行中…",
+  "Continuing…": "再開中…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} は連続して複数回の自動パート切り替えを行ったため一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "Paused to prevent a repeating loop": "反復ループを防ぐため一時停止しました",
+  "Paused after repeated automatic part switches": "連続した自動パート切り替え後に一時停止しました",
   "Technical details": "技術的な詳細",
   "Code": "コード",
   "HTTP status": "HTTP ステータス",
@@ -4350,6 +4355,11 @@ var KO = {
   "Top up ↗": "충전하기 ↗",
   Retry: "재시도",
   "Retrying…": "재시도 중…",
+  "Continuing…": "계속하는 중…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name}이(가) 여러 번 연속으로 대화 구간을 전환해 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "Paused to prevent a repeating loop": "반복 루프를 방지하기 위해 일시 중지됨",
+  "Paused after repeated automatic part switches": "반복된 자동 대화 구간 전환 후 일시 중지됨",
   "Technical details": "기술 세부 정보",
   Code: "코드",
   "HTTP status": "HTTP 상태 코드",
@@ -8018,6 +8028,11 @@ var ES = {
   "Top up ↗": "Recargar ↗",
   Retry: "Reintentar",
   "Retrying…": "Reintentando…",
+  "Continuing…": "Continuando…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} se pausó tras cambiar de segmento varias veces seguidas. Responde con indicaciones o haz clic en Continuar.",
+  "Paused to prevent a repeating loop": "Pausado para evitar un bucle repetitivo",
+  "Paused after repeated automatic part switches": "Pausado tras varios cambios automáticos de segmento",
   "Technical details": "Detalles técnicos",
   Code: "Código",
   "HTTP status": "Estado HTTP",
@@ -11680,6 +11695,11 @@ var FR = {
   "Top up ↗": "Recharger ↗",
   "Retry": "Réessayer",
   "Retrying…": "Nouvelle tentative…",
+  "Continuing…": "Reprise…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} s’est mis en pause après plusieurs changements automatiques de segment consécutifs. Répondez avec des instructions ou cliquez sur Continuer.",
+  "Paused to prevent a repeating loop": "Mis en pause pour éviter une boucle répétitive",
+  "Paused after repeated automatic part switches": "Mis en pause après plusieurs changements automatiques de segment",
   "Technical details": "Détails techniques",
   "Code": "Code",
   "HTTP status": "Statut HTTP",
@@ -15309,6 +15329,11 @@ var DE = {
   "Top up ↗": "Aufladen ↗",
   Retry: "Erneut versuchen",
   "Retrying…": "Wird erneut versucht…",
+  "Continuing…": "Wird fortgesetzt…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} wurde pausiert, weil Tool-Aufrufe wiederholt fehlschlugen oder sich wiederholten. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} wurde nach mehreren automatischen Abschnittswechseln pausiert. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "Paused to prevent a repeating loop": "Pausiert, um eine Wiederholungsschleife zu verhindern",
+  "Paused after repeated automatic part switches": "Nach wiederholten automatischen Abschnittswechseln pausiert",
   "Technical details": "Technische Details",
   Code: "Code",
   "HTTP status": "HTTP-Status",
@@ -18852,6 +18877,11 @@ var ZH = {
   "Top up ↗": "去充值 ↗",
   Retry: "重试",
   "Retrying…": "正在重试…",
+  "Continuing…": "正在继续…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} 已连续多次自动换段仍未结束，已自动暂停。回复指导或点击「继续」。",
+  "Paused to prevent a repeating loop": "已自动暂停以防重复循环",
+  "Paused after repeated automatic part switches": "连续多次自动换段后已暂停",
   "Technical details": "技术详情",
   Code: "代码",
   "HTTP status": "HTTP 状态码",
@@ -21665,6 +21695,8 @@ var FAILURES = {
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
+  TURN_PAUSED_LOOP: "Paused to prevent a repeating loop",
+  TURN_PAUSED_SWITCH_LIMIT: "Paused after repeated automatic part switches",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -68005,6 +68037,7 @@ var ACCOUNT_MODELS_WAIT_MS = 2e4;
 var SIGNED_OUT = /* @__PURE__ */ new Set(["ACCOUNT_SIGN_IN_REQUIRED", "ACCOUNT_SIGNED_OUT", "ACCOUNT_TOKEN_INVALID"]);
 var KEY_CODES = /* @__PURE__ */ new Set(["MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "AUTH"]);
 var CREDENTIAL_CODES = /* @__PURE__ */ new Set([...KEY_CODES, ...SIGNED_OUT]);
+var PAUSED_CODES = /* @__PURE__ */ new Set(["TURN_PAUSED_LOOP", "TURN_PAUSED_SWITCH_LIMIT"]);
 function failureText2(code, { name, provider, status }) {
   switch (code) {
     case "MISSING_CREDENTIAL":
@@ -68038,6 +68071,10 @@ function failureText2(code, { name, provider, status }) {
       return t("This conversation no longer fits in the context window. Start a new part to continue.");
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return t("The conversation could not be compacted for this model. Try again or choose another model.");
+    case "TURN_PAUSED_LOOP":
+      return t("{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.", { name });
+    case "TURN_PAUSED_SWITCH_LIMIT":
+      return t("{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.", { name });
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -68246,7 +68283,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     const toggles = keyHere && (fix === "key" || fix === "rekey");
     return (0, import_react85.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
-  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
+  const paused = PAUSED_CODES.has(data.code);
+  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? paused ? t("Continue") : t("Retry") : paused ? t("Continuing…") : t("Retrying…"));
   const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
   return (0, import_react85.createElement)(

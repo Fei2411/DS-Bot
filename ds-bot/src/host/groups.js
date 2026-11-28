@@ -1645,9 +1645,12 @@ export function install(rt) {
         clearTimeout(timer)
         timer = setTimeout(() => finish({ missed: true }), ROOM_REPLY_TIMEOUT_MS)
       }
+      const touchWorkGrace = (tool) => {
+        if (!INSTANT_WORK_TOOLS.has(tool)) grace ??= setTimeout(() => finish({ working: true }), ROOM_WORK_GRACE_MS)
+      }
       const work = (tool) => {
         onWork()
-        if (!INSTANT_WORK_TOOLS.has(tool)) grace ??= setTimeout(() => finish({ working: true }), ROOM_WORK_GRACE_MS)
+        touchWorkGrace(tool)
       }
       const say = (raw) => {
         const step = stripOwnName(member.name, raw)
@@ -1662,7 +1665,7 @@ export function install(rt) {
         resolve: finish,
         fail: failure => finish({ failure }),
         setTurn: (turnNumber) => { if (Number.isInteger(turnNumber)) onTurn(turnNumber) },
-        touch, work, say,
+        touch, touchWorkGrace, work, say,
         approval: () => finish({ approval: true }),
       })
       signal.addEventListener('abort', onAbort, { once: true })
@@ -1716,8 +1719,14 @@ export function install(rt) {
     return waiters.length > 0
   }
   rt.yieldRoomTurn = (sessionId) => { for (const waiter of waitersOf(sessionId)) waiter.approval() }
-  // Any substantive work tool (`isWorkTool`) records real progress and clears idle streaks;
-  // only truly instantaneous meta mutations (`INSTANT_WORK_TOOLS`) skip the 15s grace timer.
+  // Starting a slow work tool arms the 15s grace timer without clearing idle streaks;
+  // only a successful tool result (`workRoomTurn`) proves real progress.
+  rt.touchRoomWorkGrace = (sessionId, tool) => {
+    if (!isWorkTool(tool)) return
+    for (const waiter of waitersOf(sessionId)) waiter.touchWorkGrace?.(tool)
+  }
+  // Any substantive work tool (`isWorkTool`) that completed without error records real
+  // progress and clears idle streaks; instantaneous meta mutations skip the 15s grace timer.
   rt.workRoomTurn = (sessionId, tool) => {
     if (!isWorkTool(tool)) return
     const waiters = waitersOf(sessionId)
