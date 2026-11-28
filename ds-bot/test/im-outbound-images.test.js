@@ -77,6 +77,12 @@ test('extractLocalMarkdownImages preserves Windows home-relative destinations (#
   assert.deepEqual(extractLocalMarkdownImages(`![Plot](<${path}>)`).map(link => link.path), [path])
 })
 
+test('extractLocalMarkdownImages decodes escaped punctuation in Windows home-relative image names (#2405)', () => {
+  const path = win32.join('~', '1pics', 'plot(1)+.png')
+  const escaped = path.replace(/[()+]/g, char => '\\' + char)
+  assert.deepEqual(extractLocalMarkdownImages(`![Plot](${escaped})`).map(link => link.path), [path])
+})
+
 test('extractLocalMarkdownImages preserves loose/nested list images and respects fence quote depth (#1761)', () => {
   const md = [
     '- Chart:',
