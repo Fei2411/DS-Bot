@@ -1580,7 +1580,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // Runs `work` on a Session's CLI session while no turn uses it. A CLI session the
   // Session has no process for is opened for it and let go of after, so the next turn
   // opens it again with its own tools and instructions.
-  async maintain(sessionId, signal, work) {
+  async maintain(sessionId, signal, work, { retryPartialMessages = true } = {}) {
     let live = this.live.get(sessionId)
     const record = live === undefined ? this.deps.record(sessionId) : undefined
     if (live === undefined && record?.cliSessionId === undefined) throw new LlmError('this conversation has no session of its local agent yet', 'LOCAL_AGENT_ERROR')
@@ -1604,15 +1604,23 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     // What a finished turn left behind is not this request's answer.
     live.events.length = 0
+    let retry = false
     try {
       signal?.throwIfAborted()
       return await work(live)
+    } catch (error) {
+      if (retryPartialMessages && live.engineSession?.partialMessagesUnsupported === true) {
+        retry = true
+      } else {
+        throw error
+      }
     } finally {
       if (live.state !== 'idle') await this.stopTurn(live, 'the request was stopped')
       live.events.length = 0
       live.mute = true
-      if (opened) await this.closeLive(live, { idle: true })
+      if (opened || retry) await this.closeLive(live, { idle: true })
     }
+    return await this.maintain(sessionId, signal, work, { retryPartialMessages: false })
   }
 
   async openFor(live, sessionId) {
@@ -1746,7 +1754,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // team tools and read-only access, which is let go of after: the context steward's
   // call, and the memory review's. `route` and `model` name the CLI when the
   // request serves a Bot rather than one of its conversations.
-  async ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind }) {
+  async ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind, retryPartialMessages = true }) {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = named !== undefined ? { route: named, model: namedModel } : this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
@@ -1756,33 +1764,40 @@ export class LocalAgentAdapter extends LlmAdapter {
     const engine = isolated ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
     const request = { controller: new AbortController(), done: Promise.withResolvers(), engine, isolated }
     this.sideRequests.add(request)
-    signal = AbortSignal.any([request.controller.signal, ...(signal === undefined ? [] : [signal])])
+    const effectiveSignal = AbortSignal.any([request.controller.signal, ...(signal === undefined ? [] : [signal])])
     const sideId = `dsbot-side-${randomUUID()}`
     let session
     let probeDir
+    let retry = false
     try {
-      signal.throwIfAborted()
+      effectiveSignal.throwIfAborted()
       probeDir = this.deps.probeCwd()
       session = await engine.open(sideId, {
         cwd: probeDir, mcp: undefined, mode: cliMode(spec.kind, 'read-only'), preset: 'read-only', model: record.model, ephemeral: true,
         instructions: spec.kind === 'codex' ? system : undefined,
         system: spec.kind === 'claude' ? system : undefined,
       }).catch(error => { throw toLlmError(error, { spec }) })
-      signal.throwIfAborted()
+      effectiveSignal.throwIfAborted()
       const side = { state: 'running', pending: new Map(), spec }
       // A decision needs no long thinking: the least the model offers, when it lists any.
       const efforts = (this.modelCache.get(route) ?? []).find(model => model.id === record.model)?.reasoning?.efforts ?? []
       const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts[0]?.id
       // An ACP prompt resolves only when its turn ends, and its events wait in the
       // queue; a prompt the CLI refuses ends the request at once.
-      const refused = Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal, effort }))
+      const refused = Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal: effectiveSignal, effort }))
         .then(() => new Promise(() => {}), error => ({ type: 'error', error }))
-      const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), signal)
+      const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), effectiveSignal)
       return this.meter({ sessionId, route, model: record.model }, result, kind).text
+    } catch (error) {
+      if (retryPartialMessages && session?.partialMessagesUnsupported === true) {
+        retry = true
+      } else {
+        throw error
+      }
     } finally {
       try {
         if (session !== undefined) {
-          if (signal.aborted) await engine.cancel?.(session)
+          if (effectiveSignal.aborted) await engine.cancel?.(session)
           await engine.closeSession?.(session)
         }
       } finally {
@@ -1793,6 +1808,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         request.done.resolve()
       }
     }
+    if (retry) return await this.ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind, retryPartialMessages: false })
   }
 
   async dispose() {

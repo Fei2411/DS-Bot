@@ -3199,4 +3199,23 @@ process.stdin.on('data', (chunk) => {
   assert.equal(out.finish?.kind, 'stop')
   assert.equal(out.text, 'old-cli-ok')
   assert.equal(adapter.engines.get('local-claude-code').noPartialMessages, true)
+
+  // First side-chat ask() on a fresh adapter also retries without --include-partial-messages.
+  const askAdapter = makeAdapter({ claude: fixture })
+  t.after(() => askAdapter.dispose())
+  const sideReply = await askAdapter.ask('s-side', {
+    system: 'Be brief',
+    prompt: 'hello',
+    route: 'local-claude-code',
+    model: 'claude-sonnet',
+    signal: AbortSignal.timeout(5_000),
+  })
+  assert.equal(sideReply, 'old-cli-ok')
+
+  // First maintenance note() on a fresh adapter also retries without --include-partial-messages.
+  const maintRecords = { 's-maint': { route: 'local-claude-code', model: 'claude-sonnet', cliSessionId: 'claude-old-1' } }
+  const maintAdapter = makeAdapter({ records: maintRecords, claude: fixture })
+  t.after(() => maintAdapter.dispose())
+  const noteReply = await maintAdapter.note('s-maint', 'Write handoff', AbortSignal.timeout(5_000))
+  assert.equal(noteReply, 'old-cli-ok')
 })
