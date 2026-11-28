@@ -35,6 +35,7 @@ import { createDeferredPrompt } from './update-prompt.mjs'
 import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
 import { isAllowedWindowTitle, readWindowBounds, resolveRestoredBounds, watchWindowBounds, WINDOW_BOUNDS_FILE } from './window-bounds.mjs'
+import { pickPreferredLanguageTag } from '../ui/src/locale.js'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
@@ -99,10 +100,20 @@ configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 const windowBoundsFile = join(app.getPath('userData'), WINDOW_BOUNDS_FILE)
-const savedMainBounds = () => resolveRestoredBounds(
-  readWindowBounds(windowBoundsFile),
-  screen.getAllDisplays(),
-  { primary: screen.getPrimaryDisplay() },
+let cachedSavedBounds
+const savedMainBounds = ({ refresh = false } = {}) => {
+  if (refresh || cachedSavedBounds === undefined) {
+    cachedSavedBounds = resolveRestoredBounds(
+      readWindowBounds(windowBoundsFile),
+      screen.getAllDisplays(),
+      { primary: screen.getPrimaryDisplay() },
+    ) ?? null
+  }
+  return cachedSavedBounds ?? undefined
+}
+const preferredSystemLanguage = () => pickPreferredLanguageTag(
+  app.getPreferredSystemLanguages?.(),
+  app.getLocale?.() || '',
 )
 
 // Loaded once the start window is up (loadModules).
@@ -899,7 +910,7 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.systemLanguage, (event) => {
     if (!fromWindow(event)) return ''
-    return app.getPreferredSystemLanguages?.()?.[0] || app.getLocale?.() || ''
+    return preferredSystemLanguage()
   })
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // It has drawn the whale the start window hands over: the windows cross-fade.
@@ -1622,13 +1633,18 @@ async function flushDeferredUpdate() {
 
 // Hidden, on the rect the start window grows into; the start window shows it at the hand-off.
 function createWindow() {
+  const rebuilt = startWindow.revealed
+  const savedBounds = savedMainBounds({ refresh: rebuilt })
   const dark = nativeTheme.shouldUseDarkColors
   const frameless = framelessOn(process.platform)
   const sidebarFill = () => (nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb')
+  const initialBounds = savedBounds
+    ? { x: savedBounds.x, y: savedBounds.y, width: savedBounds.width, height: savedBounds.height }
+    : startWindow.mainBounds()
   const win = new BrowserWindow({
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
-    ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
+    ...initialBounds, minWidth: 508, minHeight: 480,
     title: 'DS Bot', show: false, icon: windowIcon,
     backgroundColor: material ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
     // Frameless as in DSH Desktop: the window controls overlay the page's band. On Windows the
@@ -1641,15 +1657,22 @@ function createWindow() {
     },
   })
   if (material === 'vibrancy') keepVibrancy(win, sidebarFill)
-  const savedBounds = savedMainBounds()
   mainWindow = win
-  startWindow.placeMain(win)
-  const boundsWatcher = watchWindowBounds(win, { file: windowBoundsFile, ready: () => startWindow.revealed })
+  if (!rebuilt) startWindow.placeMain(win)
+  else win.setBounds(initialBounds)
+  let rebuiltReady = !(rebuilt && savedBounds?.maximized === true)
+  const boundsWatcher = watchWindowBounds(win, {
+    file: windowBoundsFile,
+    initial: savedBounds,
+    ready: () => (rebuilt ? rebuiltReady : startWindow.boundsReady),
+    onSave: (next) => { cachedSavedBounds = next },
+  })
   const flushBounds = () => { boundsWatcher.flush() }
   app.on('before-quit', flushBounds)
-  if (startWindow.revealed && savedBounds?.maximized === true) {
+  if (rebuilt && savedBounds?.maximized === true) {
     win.once('show', () => {
       if (!win.isDestroyed() && !win.isMinimized() && !win.isFullScreen()) win.maximize()
+      rebuiltReady = true
     })
   }
   // No ready-to-show here: the first window shows at the hand-off (start-window.mjs), a window
@@ -1682,8 +1705,8 @@ function createWindow() {
     }))
   }
   const sendSystemLanguage = () => {
-    if (mainWindow === undefined || win.isDestroyed()) return
-    const tag = app.getPreferredSystemLanguages?.()?.[0] || app.getLocale?.() || ''
+    if (win !== mainWindow || win.isDestroyed() || contents.isDestroyed()) return
+    const tag = preferredSystemLanguage()
     if (tag) contents.send(IPC.systemLanguage, tag)
   }
   win.on('focus', sendSystemLanguage)

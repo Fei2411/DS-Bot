@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createLocale } from '../ui/src/locale.js'
+import { createLocale, pickPreferredLanguageTag } from '../ui/src/locale.js'
 import { conversationTitleOf, formatWindowTitle } from '../ui/src/window-title.js'
 import { isAllowedWindowTitle } from '../src/window-bounds.mjs'
 
@@ -103,6 +103,63 @@ test('createLocale follows system languagechange events in auto mode and updates
   }
 })
 
+test('createLocale tracks revision across system changes and lazy register, refreshes async IPC on languagechange/auto, and picks first supported OS language', async () => {
+  const prevDoc = globalThis.document
+  globalThis.document = { documentElement: { lang: '' } }
+  try {
+    let ipcLang = 'en-US'
+    let refreshCalls = 0
+    const target = makeTarget()
+    const storage = makeStorage()
+    const locale = createLocale('en-US', {
+      storage,
+      target,
+      getSystemTag: () => 'en-US',
+      refreshSystemTag: async () => {
+        refreshCalls += 1
+        return ipcLang
+      },
+    })
+    const seen = []
+    locale.subscribe(state => seen.push({ ...state, rev: locale.getSnapshot().revision }))
+
+    const rev0 = locale.getSnapshot().revision
+    // languagechange triggers async refreshSystemTag so Electron updates even when navigator.language stays frozen.
+    ipcLang = 'fr-FR'
+    target.dispatch('languagechange')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(refreshCalls, 1)
+    assert.equal(locale.getLocale().active, 'fr')
+    assert.ok(locale.getSnapshot().revision > rev0, 'applySystemTag increments revision')
+
+    // Registering a lazy dictionary for the active language increments revision and notifies subscribers.
+    const revBeforeReg = locale.getSnapshot().revision
+    const countBeforeReg = seen.length
+    locale.register('ds-bot', 'fr', { Settings: 'Paramètres' })
+    assert.equal(locale.getSnapshot().revision, revBeforeReg + 1)
+    assert.equal(seen.length, countBeforeReg + 1)
+    assert.equal(locale.bind('ds-bot')('Settings'), 'Paramètres')
+
+    // Switching manual -> auto actively queries refreshSystemTag even if window stayed focused.
+    locale.setLocale('ja')
+    ipcLang = 'ko-KR'
+    locale.setLocale('auto')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(refreshCalls, 2)
+    assert.equal(locale.getLocale().active, 'ko')
+
+    locale.dispose()
+  } finally {
+    globalThis.document = prevDoc
+  }
+
+  // Preferred system language matching picks the first supported entry rather than only index 0.
+  assert.equal(pickPreferredLanguageTag(['pt-BR', 'zh-Hans-CN', 'en-US'], 'en-US'), 'zh-Hans-CN')
+  assert.equal(pickPreferredLanguageTag(['ru-RU', 'ja-JP'], 'en-US'), 'ja-JP')
+  assert.equal(pickPreferredLanguageTag(['pt-BR', 'ru-RU'], 'en-US'), 'pt-BR')
+  assert.equal(pickPreferredLanguageTag([], 'fr-CA'), 'fr-CA')
+})
+
 test('window title formatting covers Bot DM, group chat, classic sessions, and empty fallback', () => {
   assert.equal(formatWindowTitle(''), 'DS Bot')
   assert.equal(formatWindowTitle('   '), 'DS Bot')
@@ -135,10 +192,16 @@ test('window title formatting covers Bot DM, group chat, classic sessions, and e
   )
 })
 
-test('isAllowedWindowTitle accepts DS Bot titles and rejects blank or arbitrary page titles', () => {
+test('isAllowedWindowTitle accepts DS Bot titles and rejects blank, whitespace-only, control-char, or arbitrary page titles', () => {
+  assert.equal(formatWindowTitle('Chief\n\tOps\r'), 'Chief Ops — DS Bot')
+  assert.equal(formatWindowTitle('\n\t\r'), 'DS Bot')
   assert.equal(isAllowedWindowTitle('DS Bot'), true)
   assert.equal(isAllowedWindowTitle('Chief — DS Bot'), true)
   assert.equal(isAllowedWindowTitle(''), false)
+  assert.equal(isAllowedWindowTitle(' — DS Bot'), false)
+  assert.equal(isAllowedWindowTitle('   — DS Bot'), false)
+  assert.equal(isAllowedWindowTitle('Chief\n — DS Bot'), false)
+  assert.equal(isAllowedWindowTitle('Chief\u0000 — DS Bot'), false)
   assert.equal(isAllowedWindowTitle('http://127.0.0.1:41234/'), false)
   assert.equal(isAllowedWindowTitle('Sign in — DeepSeek'), false)
 })

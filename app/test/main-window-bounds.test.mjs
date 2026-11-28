@@ -28,7 +28,10 @@ test('main window restores clamped bounds on primary display and applies saved m
 
   hostState.release()
   await handOff()
-  assert.equal(win.isMaximized(), true, 'saved maximized state is restored after hand-off')
+  // FakeWindow starts unfocused (behind hand-off), so maximize waits until focus instead of stealing it.
+  assert.equal(win.isMaximized(), false, 'behind hand-off defers maximize until focus')
+  win.emit('focus')
+  assert.equal(win.isMaximized(), true, 'saved maximized state is restored once focused')
 })
 
 test('page-title-updated allows DS Bot conversation titles and blocks arbitrary titles', () => {

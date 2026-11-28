@@ -25,12 +25,32 @@ export const LANGUAGE_OPTIONS = [
 const VALID_PREFERENCES = new Set(LANGUAGE_OPTIONS.map(([id]) => id))
 const SUPPORTED = new Set(['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de'])
 
-export function resolveLocale(tag) {
-  const lower = String(tag ?? '').toLowerCase()
+function matchSupportedLocale(tag) {
+  const lower = String(tag ?? '').trim().toLowerCase()
+  if (lower === '') return null
   if (lower === 'zh-tw' || lower === 'zh-hk' || lower === 'zh-mo' || lower.startsWith('zh-hant')) return 'zh-TW'
   if (lower.startsWith('zh')) return 'zh'
   const primary = lower.split('-')[0]
-  return SUPPORTED.has(primary) ? primary : 'en'
+  if (primary === 'en') return 'en'
+  return SUPPORTED.has(primary) ? primary : null
+}
+
+export function resolveLocale(tag) {
+  return matchSupportedLocale(tag) ?? 'en'
+}
+
+/** Picks the first OS preferred language tag that maps to a supported UI locale. */
+export function pickPreferredLanguageTag(tags, fallback = '') {
+  if (Array.isArray(tags)) {
+    for (const raw of tags) {
+      if (typeof raw !== 'string') continue
+      const clean = raw.trim()
+      if (clean !== '' && matchSupportedLocale(clean) !== null) return clean
+    }
+    const first = tags.find(raw => typeof raw === 'string' && raw.trim() !== '')
+    if (first !== undefined) return first.trim()
+  }
+  return typeof fallback === 'string' ? fallback.trim() : ''
 }
 
 function readStoredPreference(storage) {
@@ -59,9 +79,12 @@ export function createLocale(tag, options = {}) {
     : () => (typeof globalThis.navigator?.language === 'string' && globalThis.navigator.language !== ''
       ? globalThis.navigator.language
       : tag)
+  const refreshSystemTag = typeof options.refreshSystemTag === 'function' ? options.refreshSystemTag : null
   let systemActive = resolveLocale(tag)
   let preference = readStoredPreference(storage)
   let active = preference === 'auto' ? systemActive : resolveLocale(preference)
+  let revision = 0
+  let refreshSeq = 0
   const dictionaries = new Map()
   const listeners = new Set()
 
@@ -83,12 +106,23 @@ export function createLocale(tag, options = {}) {
     systemActive = nextSystem
     if (preference !== 'auto' || systemActive === active) return
     active = systemActive
+    revision += 1
     syncDocumentLang()
     notify()
   }
 
+  const querySystemTag = () => {
+    if (!refreshSystemTag) return
+    const seq = ++refreshSeq
+    void Promise.resolve(refreshSystemTag()).then((next) => {
+      if (seq !== refreshSeq) return
+      if (typeof next === 'string' && next.trim() !== '') applySystemTag(next)
+    }).catch(() => {})
+  }
+
   const onLanguageChange = () => {
     applySystemTag(getSystemTag())
+    querySystemTag()
   }
 
   if (typeof target?.addEventListener === 'function') {
@@ -97,6 +131,7 @@ export function createLocale(tag, options = {}) {
 
   return {
     getLocale: () => ({ active, preference }),
+    getSnapshot: () => ({ active, preference, revision }),
     syncSystemTag(nextTag) {
       applySystemTag(nextTag !== undefined ? nextTag : getSystemTag())
       return { active, preference }
@@ -105,12 +140,16 @@ export function createLocale(tag, options = {}) {
       const clean = VALID_PREFERENCES.has(nextPreference) ? nextPreference : 'auto'
       if (clean === 'auto') systemActive = resolveLocale(getSystemTag())
       const nextActive = clean === 'auto' ? systemActive : resolveLocale(clean)
-      if (clean === preference && nextActive === active) return { active, preference }
-      preference = clean
-      active = nextActive
-      writeStoredPreference(storage, preference)
-      syncDocumentLang()
-      notify()
+      const changed = clean !== preference || nextActive !== active
+      if (changed) {
+        preference = clean
+        active = nextActive
+        revision += 1
+        writeStoredPreference(storage, preference)
+        syncDocumentLang()
+        notify()
+      }
+      if (clean === 'auto') querySystemTag()
       return { active, preference }
     },
     subscribe(listener) {
@@ -120,11 +159,17 @@ export function createLocale(tag, options = {}) {
     },
     register(namespace, language, dictionary) {
       const key = `${namespace}:${language}`
+      const prev = dictionaries.get(key)
       dictionaries.set(key, dictionary)
+      if (prev !== dictionary && resolveLocale(language) === active) {
+        revision += 1
+        notify()
+      }
       return () => { dictionaries.delete(key) }
     },
     bind: namespace => (key, params) => fill(dictionaries.get(`${namespace}:${active}`)?.[key] ?? key, params),
     dispose() {
+      refreshSeq += 1
       if (typeof target?.removeEventListener === 'function') {
         target.removeEventListener('languagechange', onLanguageChange)
       }

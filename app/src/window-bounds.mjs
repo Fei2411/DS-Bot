@@ -1,6 +1,9 @@
 // Persists and restores the main window's size, position, and maximized state in Electron's
 // userData directory (never in DSH_HOME). Clamps restored bounds onto available displays so
 // unplugging or resizing a monitor never leaves the window off-screen.
+//
+// Platform note: under native Wayland on Linux, Electron/Chromium cannot read or set global
+// window (x, y) coordinates; size and maximized state still restore where the compositor allows.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -8,9 +11,14 @@ export const WINDOW_BOUNDS_FILE = 'window-bounds.json'
 export const MIN_WINDOW_SIZE = Object.freeze({ width: 508, height: 480 })
 
 const APP_TITLE = 'DS Bot'
+const TITLE_SUFFIX = ` — ${APP_TITLE}`
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/u
 
 export function isAllowedWindowTitle(title) {
-  return typeof title === 'string' && (title === APP_TITLE || title.endsWith(` — ${APP_TITLE}`))
+  if (typeof title !== 'string' || CONTROL_CHARS.test(title)) return false
+  if (title === APP_TITLE) return true
+  if (!title.endsWith(TITLE_SUFFIX)) return false
+  return title.slice(0, -TITLE_SUFFIX.length).trim() !== ''
 }
 
 function validRect(rect, { minWidth = MIN_WINDOW_SIZE.width, minHeight = MIN_WINDOW_SIZE.height } = {}) {
@@ -42,10 +50,11 @@ export function writeWindowBounds(file, bounds) {
   const rect = validRect(bounds)
   if (rect === undefined) return false
   const payload = { ...rect, maximized: bounds?.maximized === true }
+  const tmpFile = `${file}.${process.pid}.tmp`
   try {
     mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(`${file}.tmp`, `${JSON.stringify(payload)}\n`)
-    renameSync(`${file}.tmp`, file)
+    writeFileSync(tmpFile, `${JSON.stringify(payload)}\n`)
+    renameSync(tmpFile, file)
     return true
   } catch (error) {
     console.error('DS Bot: window bounds were not saved:', error)
@@ -108,41 +117,45 @@ export function resolveRestoredBounds(saved, displays, { minWidth = MIN_WINDOW_S
 }
 
 /**
- * Tracks a BrowserWindow's normal bounds and maximized state after it has been shown,
+ * Tracks a BrowserWindow's normal bounds and maximized state after it has been shown or restored,
  * debouncing move/resize writes and flushing synchronously on close/hide/quit.
  */
-export function watchWindowBounds(win, { file, debounceMs = 250, ready = () => true } = {}) {
+export function watchWindowBounds(win, { file, debounceMs = 250, ready = () => true, initial, onSave } = {}) {
+  const initialRect = validRect(initial)
   let shownOnce = Boolean(win.isVisible?.())
   let dirty = false
   let timer
-  let lastSavedJson = ''
-  let lastNormal = null
+  let lastNormal = initialRect ?? null
+  let lastMaximized = initialRect ? initial?.maximized === true : Boolean(win.isMaximized?.())
+  let lastSavedJson = initialRect ? JSON.stringify({ ...initialRect, maximized: lastMaximized }) : ''
 
   const active = () => !win.isDestroyed?.() && shownOnce && ready() === true
 
-  const snapshot = () => {
+  const capture = () => {
     if (!active()) return undefined
     if (win.isMinimized?.() || win.isFullScreen?.()) return undefined
-    const raw = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : win.getBounds?.()
-    const rect = validRect(raw)
-    if (rect === undefined) return undefined
-    lastNormal = rect
-    return { ...rect, maximized: Boolean(win.isMaximized?.()) }
+    const maximized = Boolean(win.isMaximized?.())
+    lastMaximized = maximized
+    if (!maximized || lastNormal === null) {
+      const raw = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : win.getBounds?.()
+      const rect = validRect(raw)
+      if (rect !== undefined) lastNormal = rect
+    }
+    return lastNormal ? { ...lastNormal, maximized: lastMaximized } : undefined
   }
 
   const flush = () => {
     clearTimeout(timer)
     timer = undefined
     if (!dirty) return false
-    const next = snapshot() ?? (active() && lastNormal && !win.isFullScreen?.()
-      ? { ...lastNormal, maximized: Boolean(win.isMaximized?.()) }
-      : undefined)
+    const next = capture() ?? (active() && lastNormal ? { ...lastNormal, maximized: lastMaximized } : undefined)
     if (next === undefined) return false
     const serialized = JSON.stringify(next)
     dirty = false
     if (serialized === lastSavedJson) return false
     if (writeWindowBounds(file, next)) {
       lastSavedJson = serialized
+      onSave?.(next)
       return true
     }
     return false
@@ -150,6 +163,7 @@ export function watchWindowBounds(win, { file, debounceMs = 250, ready = () => t
 
   const schedule = () => {
     if (!active() || win.isMinimized?.() || win.isFullScreen?.()) return
+    capture()
     dirty = true
     clearTimeout(timer)
     timer = setTimeout(flush, debounceMs)
@@ -164,6 +178,7 @@ export function watchWindowBounds(win, { file, debounceMs = 250, ready = () => t
     clearTimeout(timer)
     timer = undefined
     win.off?.('show', onShow)
+    win.off?.('restore', onShow)
     win.off?.('move', onChange)
     win.off?.('resize', onChange)
     win.off?.('maximize', onChange)
@@ -174,6 +189,7 @@ export function watchWindowBounds(win, { file, debounceMs = 250, ready = () => t
   }
 
   win.on('show', onShow)
+  win.on('restore', onShow)
   win.on('move', onChange)
   win.on('resize', onChange)
   win.on('maximize', onChange)

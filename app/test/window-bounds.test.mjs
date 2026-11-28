@@ -122,9 +122,11 @@ test('watchWindowBounds ignores hidden startup placement, debounces move/resize,
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.deepEqual(readWindowBounds(file), { x: 240, y: 180, width: 1160, height: 780, maximized: false })
 
-  // Leaving fullscreen and maximizing records maximized: true immediately on close/hide.
+  // Leaving fullscreen, resizing, and maximizing records new normal bounds + maximized: true immediately on hide.
   win.setFullScreen(false)
   win.setRect({ x: 300, y: 190, width: 1150, height: 760 })
+  win.emit('move')
+  win.emit('resize')
   win.setMaximized(true)
   win.emit('hide')
   assert.deepEqual(readWindowBounds(file), { x: 300, y: 190, width: 1150, height: 760, maximized: true })
@@ -132,8 +134,56 @@ test('watchWindowBounds ignores hidden startup placement, debounces move/resize,
   win.destroy()
 })
 
-test('minimized start hand-off defers saved maximized state until the main window is restored', async (t) => {
+test('watchWindowBounds caches normal/maximized state before minimize within debounce and seeds initial normal rect on maximized platforms', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-watch-race-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const file = join(dir, 'window-bounds.json')
+
+  const initial = { x: 200, y: 150, width: 1100, height: 720, maximized: true }
+  writeWindowBounds(file, initial)
+
+  const win = makeFakeWin({ x: 0, y: 0, width: 1920, height: 1040 })
+  win.setVisible(true)
+  win.setMaximized(true)
+  // Simulate Linux/X11 where getNormalBounds() returns maximized workArea while maximized.
+  let writeCount = 0
+  const watcher = watchWindowBounds(win, { file, debounceMs: 80, initial, onSave: () => { writeCount += 1 } })
+  t.after(() => watcher.dispose())
+
+  // Initial maximize/resize matching seeded initial state must not clobber normal bounds or write unnecessarily.
+  win.emit('maximize')
+  win.emit('resize')
+  watcher.flush()
+  assert.equal(writeCount, 0, 'matching initial state performs no redundant disk write')
+  assert.deepEqual(readWindowBounds(file), initial, 'normal bounds preserved when getNormalBounds reports maximized size')
+
+  // Unmaximize, move/resize to a new normal rect, maximize, then immediately minimize BEFORE debounce fires,
+  // with isMaximized() reporting false while minimized (as on Windows/macOS).
+  win.setMaximized(false)
+  win.setRect({ x: 320, y: 210, width: 1040, height: 680 })
+  win.emit('move')
+  win.emit('resize')
+  win.setMaximized(true)
+  win.setRect({ x: 0, y: 0, width: 1920, height: 1040 })
+  win.setMinimized(true)
+  win.isMaximized = () => false
+  win.emit('hide')
+  assert.deepEqual(
+    readWindowBounds(file),
+    { x: 320, y: 210, width: 1040, height: 680, maximized: true },
+    'flush after immediate minimize preserves cached normal rect and maximized: true',
+  )
+  win.destroy()
+})
+
+test('minimized start hand-off activates watchWindowBounds on restore and persists subsequent moves', async (t) => {
   const { StartWindow } = await import('../src/start-window.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-min-handoff-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const file = join(dir, 'window-bounds.json')
+  const initial = { x: 100, y: 100, width: 1100, height: 740, maximized: true }
+  writeWindowBounds(file, initial)
+
   const main = makeFakeWin({ x: 100, y: 100, width: 1100, height: 740 })
   main.maximize = () => { main.setMaximized(true) }
   main.minimize = () => { main.setMinimized(true) }
@@ -164,6 +214,7 @@ test('minimized start hand-off defers saved maximized state until the main windo
   })
 
   const display = { workArea: { x: 0, y: 0, width: 1920, height: 1040 } }
+  let savedReads = 0
   const start = new StartWindow({
     electron: {
       BrowserWindow: class { constructor() { return startWin } },
@@ -185,11 +236,14 @@ test('minimized start hand-off defers saved maximized state until the main windo
     program: [],
     log: { dir: '/tmp', tail: () => [] },
     mainWindow: () => main,
-    savedBounds: () => ({ x: 100, y: 100, width: 1100, height: 740, maximized: true }),
+    savedBounds: () => { savedReads += 1; return initial },
     onRetry: () => {},
     onReload: () => {},
     onClose: () => {},
   })
+
+  const watcher = watchWindowBounds(main, { file, debounceMs: 25, initial, ready: () => start.boundsReady })
+  t.after(() => watcher.dispose())
 
   start.open('later')
   start.done('data')
@@ -198,10 +252,134 @@ test('minimized start hand-off defers saved maximized state until the main windo
   await start.teamShown
   assert.equal(main.isMinimized(), true, 'hand-off keeps the team window minimized')
   assert.equal(main.isMaximized(), false, 'does not maximize while minimized')
+  assert.equal(savedReads, 1, 'savedBounds is snapshotted once for the startup lifecycle')
 
+  // Restoring from Dock/taskbar emits restore (without show).
   main.setMinimized(false)
   main.emit('restore')
   assert.equal(main.isMaximized(), true, 'restoring applies the deferred maximized state')
+  assert.equal(start.boundsReady, true, 'boundsReady activates once restore finishes')
+
+  // Subsequent unmaximize + move/resize + hide must persist to disk.
+  main.setMaximized(false)
+  main.setRect({ x: 260, y: 170, width: 1020, height: 690 })
+  main.emit('move')
+  main.emit('resize')
+  main.emit('hide')
+  assert.deepEqual(readWindowBounds(file), { x: 260, y: 170, width: 1020, height: 690, maximized: false })
+
   startWin.destroy()
   main.destroy()
+})
+
+test('focused maximized hand-off maximizes before reveal without intermediate clobber, behind defers until focus, and start window opens on restored display', async (t) => {
+  const { StartWindow } = await import('../src/start-window.mjs')
+  const primary = { workArea: { x: 0, y: 0, width: 1440, height: 900 } }
+  const secondary = { workArea: { x: 1440, y: 0, width: 1920, height: 1080 } }
+
+  const runHandOff = async ({ focused, effects = 'full' }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsb-handoff-mode-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const file = join(dir, 'window-bounds.json')
+    const initial = { x: 1600, y: 100, width: 1200, height: 800, maximized: true }
+    writeWindowBounds(file, initial)
+
+    const order = []
+    let startOpts
+    const main = makeFakeWin({ x: 1600, y: 100, width: 1200, height: 800 })
+    main.maximize = () => { order.push('maximize'); main.setMaximized(true) }
+    main.minimize = () => { main.setMinimized(true) }
+    main.show = () => { order.push('show'); main.setVisible(true) }
+    main.showInactive = () => { order.push('showInactive'); main.setVisible(true) }
+    main.hide = () => { main.setVisible(false) }
+    main.setBounds = (r) => { main.setRect(r) }
+    main.setOpacity = (v) => { if (v === 1) order.push('opaque') }
+    main.setSkipTaskbar = () => {}
+    main.flashFrame = () => {}
+    main.focus = () => { order.push('focus') }
+    main.moveAbove = () => { order.push('moveAbove') }
+
+    const startWin = makeFakeWin({ x: 1600, y: 100, width: 720, height: 540 })
+    startWin.isFocused = () => focused
+    startWin.setContentBounds = () => {}
+    startWin.setOpacity = () => {}
+    startWin.setSkipTaskbar = () => {}
+    startWin.moveTop = () => {}
+    startWin.getMediaSourceId = () => 'window:1:0'
+    startWin.loadURL = async () => {}
+    startWin.webContents = Object.assign(new EventEmitter(), {
+      send: () => {},
+      setWindowOpenHandler: () => {},
+      insertCSS: async () => {},
+      reload: () => {},
+      mainFrame: {},
+    })
+
+    let reads = 0
+    const start = new StartWindow({
+      electron: {
+        BrowserWindow: class { constructor(opts) { startOpts = opts; return startWin } },
+        ipcMain: { handle: () => {} },
+        screen: {
+          getCursorScreenPoint: () => ({ x: 100, y: 100 }),
+          getDisplayNearestPoint: () => primary,
+          getDisplayMatching: (r) => (r.x >= 1440 ? secondary : primary),
+          getPrimaryDisplay: () => primary,
+        },
+        shell: {},
+        clipboard: { writeText: () => {} },
+        nativeTheme: Object.assign(new EventEmitter(), { shouldUseDarkColors: false }),
+        systemPreferences: {},
+      },
+      page: '/tmp/start.html',
+      preload: '/tmp/preload.cjs',
+      icon: '/tmp/icon.png',
+      devTools: false,
+      lang: () => 'en',
+      motion: 'normal',
+      effects,
+      version: '0.4.1',
+      program: [],
+      log: { dir: '/tmp', tail: () => [] },
+      mainWindow: () => main,
+      savedBounds: () => { reads += 1; return initial },
+      onRetry: () => {},
+      onReload: () => {},
+      onClose: () => {},
+    })
+
+    const watcher = watchWindowBounds(main, { file, debounceMs: 10, initial, ready: () => start.boundsReady })
+    t.after(() => watcher.dispose())
+
+    start.open('later')
+    start.done('data')
+    start.done('engine')
+    start.ready()
+    await start.teamShown
+    // Simulate a WM resize event right after reveal starts during crossfade.
+    main.emit('resize')
+    await new Promise(resolve => setTimeout(resolve, 260))
+    return { start, main, startWin, startOpts, order, file, reads, initial }
+  }
+
+  // Focused startup: opens start window on secondary display, maximizes BEFORE fading opaque, never clobbers file.
+  const focusedRun = await runHandOff({ focused: true, effects: 'full' })
+  assert.ok(focusedRun.startOpts.x >= 1440, 'start window opens on the restored display (secondary)')
+  assert.equal(focusedRun.reads, 1, 'savedBounds read once during startup')
+  assert.equal(focusedRun.main.isMaximized(), true)
+  assert.equal(focusedRun.start.boundsReady, true)
+  assert.ok(focusedRun.order.indexOf('maximize') < focusedRun.order.indexOf('opaque'), 'maximizes before crossfade finishes so there is no post-fade jump')
+  assert.deepEqual(readWindowBounds(focusedRun.file), focusedRun.initial)
+  focusedRun.startWin.destroy()
+  focusedRun.main.destroy()
+
+  // Behind startup: does NOT call maximize while behind (no focus theft / z-order disruption); applies maximize on focus.
+  const behindRun = await runHandOff({ focused: false, effects: 'off' })
+  assert.equal(behindRun.main.isMaximized(), false, 'behind hand-off does not maximize while unfocused')
+  assert.equal(behindRun.start.boundsReady, false, 'boundsReady waits until deferred maximize completes')
+  behindRun.main.emit('focus')
+  assert.equal(behindRun.main.isMaximized(), true, 'focus applies deferred maximized state')
+  assert.equal(behindRun.start.boundsReady, true)
+  behindRun.startWin.destroy()
+  behindRun.main.destroy()
 })
