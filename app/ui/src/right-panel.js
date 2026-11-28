@@ -468,14 +468,26 @@ function parentRelDir(relPath) {
   return slash > 0 ? norm.slice(0, slash) : ''
 }
 
-function previewMatchesChange(entry, changeData, activeWatchRoot) {
+function resolvePreviewRelPath(entry, fileState, activeWatchRoot) {
+  const loaded = fileState?.path === entry?.path && typeof fileState?.data?.path === 'string'
+    ? fileState.data.path
+    : ''
+  if (loaded !== '') return loaded.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const raw = typeof entry?.path === 'string' ? entry.path : ''
+  if (raw === '') return ''
+  const norm = normalizeRevealPath(raw, entry?.root || activeWatchRoot || '')
+  return norm.status === 'ok' ? norm.path : ''
+}
+
+function previewMatchesChange(entry, changeData, activeWatchRoot, fileState = null) {
   if (!entry?.path || !changeData) return false
-  const entryRoot = entry.root || activeWatchRoot || ''
+  const entryRoot = fileState?.data?.root || entry.root || activeWatchRoot || ''
   if (changeData.root && entryRoot && changeData.root !== entryRoot) return false
   if (changeData.overflow === true) return true
   const paths = Array.isArray(changeData.paths) ? changeData.paths : []
   if (paths.length === 0) return true
-  const normTarget = String(entry.path).replace(/\\/g, '/').replace(/^\/+/, '')
+  const normTarget = resolvePreviewRelPath(entry, fileState, changeData.root || activeWatchRoot)
+  if (normTarget === '') return false
   const targetParent = parentRelDir(normTarget)
   for (const raw of paths) {
     const p = String(raw ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
@@ -1206,6 +1218,8 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
 export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSlots, readOnly = false, visible = true, terminalFocusNonce = 0, onConsumeTerminalFocus = null }) {
   const { actions, chat: feed } = team
   const [fileStates, setFileStates] = useState({})
+  const fileStatesRef = useRef(fileStates)
+  fileStatesRef.current = fileStates
   const [autoRefresh, setAutoRefresh] = useState(readSavedAutoRefresh)
   const [mountedPluginIds, setMountedPluginIds] = useState(() => new Set())
   const pluginEntries = useSlotEntries(registry, RIGHT_PANE_TAB_SLOT)
@@ -1346,14 +1360,18 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
   // or auto-refresh silently when enabled, even if the Files tab is hidden or closed.
   const activePreviewId = activePreview?.id ?? null
   const activePreviewPath = activePreview?.path ?? ''
+  const activePreviewState = activePreviewId ? fileStates[activePreviewId] : null
   const activePreviewSessionId = activePreview?.sessionId ?? sessionId
-  const activePreviewRoot = activePreview?.root ?? ''
+  const activePreviewRoot = activePreviewState?.data?.root || activePreview?.root || ''
+  const activePreviewRelPath = activePreview
+    ? resolvePreviewRelPath(activePreview, activePreviewState, activePreviewRoot)
+    : ''
+  const activePreviewWatchParent = parentRelDir(activePreviewRelPath)
   useEffect(() => {
     if (!visible || !activePreviewId || !activePreviewPath) return undefined
     let alive = true
     let watchId = null
-    const parent = parentRelDir(activePreviewPath)
-    const dirs = parent ? [parent] : []
+    const dirs = activePreviewWatchParent ? [activePreviewWatchParent] : []
     void call('workspace-watch', {
       sessionId: activePreviewSessionId,
       dirs,
@@ -1373,8 +1391,9 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       ? feed.on((event, data) => {
         if (!alive || event !== 'workspace-changed') return
         const entries = previewEntriesRef.current
+        const states = fileStatesRef.current
         for (const entry of entries) {
-          if (!previewMatchesChange(entry, data, previewWatchRootRef.current)) continue
+          if (!previewMatchesChange(entry, data, previewWatchRootRef.current, states[entry.id])) continue
           if (autoRefreshRef.current) {
             loadPreviewEntryRef.current(entry, { silent: true, retry: true })
           } else {
@@ -1393,7 +1412,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       off()
       if (watchId) void call('workspace-unwatch', { watchId }).catch(() => {})
     }
-  }, [visible, activePreviewId, activePreviewPath, activePreviewSessionId, activePreviewRoot, feed])
+  }, [visible, activePreviewId, activePreviewPath, activePreviewWatchParent, activePreviewSessionId, activePreviewRoot, feed])
 
   // Lazily mount plugin tabs only once opened/activated, keep them mounted while open,
   // and unmount them as soon as their tab is closed or unregistered.

@@ -210,31 +210,23 @@ export function computeCodeWindow({
   }
 }
 
-function CodeLines({ text, language = '', targetLine = null, wordWrap = false }) {
+function computeTargetScrollTop({ targetLine, lineCount, isVirtualized, wrapOffsets, viewportHeight }) {
+  if (!isVirtualized || !Number.isInteger(targetLine) || targetLine <= 0 || targetLine > lineCount) return 0
+  const idx = targetLine - 1
+  const lineY = wrapOffsets ? wrapOffsets[idx] : idx * CODE_LINE_HEIGHT
+  return Math.max(0, Math.round(lineY - viewportHeight / 2))
+}
+
+function CodeLines({ text, language = '', targetLine = null, wordWrap = false, fileKey = '' }) {
   const source = String(text ?? '')
+  const fileScope = fileKey || source
   const lines = useMemo(() => source.split(/\r?\n/), [source])
   const highlighted = useHighlightedLines(source, language)
   const wrapRef = useRef(null)
   const targetRef = useRef(null)
-  const [scrollTop, setScrollTop] = useState(0)
   const [viewport, setViewport] = useState({ height: DEFAULT_VIEWPORT_HEIGHT, width: DEFAULT_VIEWPORT_WIDTH })
 
   const isVirtualized = lines.length > CODE_VIRTUAL_THRESHOLD
-
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return undefined
-    const measure = () => {
-      const nextH = el.clientHeight > 0 ? el.clientHeight : DEFAULT_VIEWPORT_HEIGHT
-      const nextW = el.clientWidth > 0 ? el.clientWidth : DEFAULT_VIEWPORT_WIDTH
-      setViewport(cur => (cur.height === nextH && cur.width === nextW ? cur : { height: nextH, width: nextW }))
-    }
-    measure()
-    if (typeof ResizeObserver !== 'function') return undefined
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [source])
 
   const wrapOffsets = useMemo(() => {
     if (!isVirtualized || !wordWrap) return null
@@ -250,25 +242,87 @@ function CodeLines({ text, language = '', targetLine = null, wordWrap = false })
     return offsets
   }, [isVirtualized, wordWrap, lines, viewport.width])
 
+  const [scrollTop, setScrollTop] = useState(() => computeTargetScrollTop({
+    targetLine,
+    lineCount: lines.length,
+    isVirtualized,
+    wrapOffsets,
+    viewportHeight: viewport.height,
+  }))
+  const prevFileScopeRef = useRef(fileScope)
+  const jumpedKeyRef = useRef(null)
+  const linesLengthRef = useRef(lines.length)
+  linesLengthRef.current = lines.length
+  const wrapOffsetsRef = useRef(wrapOffsets)
+  wrapOffsetsRef.current = wrapOffsets
+  const viewportHeightRef = useRef(viewport.height)
+  viewportHeightRef.current = viewport.height
+
   useEffect(() => {
-    if (!Number.isInteger(targetLine) || targetLine <= 0 || targetLine > lines.length) return
-    if (isVirtualized) {
-      const idx = targetLine - 1
-      const lineY = wrapOffsets ? wrapOffsets[idx] : idx * CODE_LINE_HEIGHT
-      const nextScroll = Math.max(0, Math.round(lineY - viewport.height / 2))
-      if (wrapRef.current) wrapRef.current.scrollTop = nextScroll
-      setScrollTop(nextScroll)
+    const el = wrapRef.current
+    if (!el) return undefined
+    const measure = () => {
+      const nextH = el.clientHeight > 0 ? el.clientHeight : DEFAULT_VIEWPORT_HEIGHT
+      const nextW = el.clientWidth > 0 ? el.clientWidth : DEFAULT_VIEWPORT_WIDTH
+      setViewport(cur => (cur.height === nextH && cur.width === nextW ? cur : { height: nextH, width: nextW }))
     }
-    targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
-  }, [targetLine, source, isVirtualized, wrapOffsets, viewport.height, lines.length])
+    measure()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [fileScope])
+
+  // Jump at most once per unique `(fileScope, targetLine)` so subsequent user scrolling,
+  // viewport resizes, and word-wrap toggles stay at the user's current scroll position.
+  useEffect(() => {
+    const fileChanged = prevFileScopeRef.current !== fileScope
+    prevFileScopeRef.current = fileScope
+    const lineCount = linesLengthRef.current
+    const hasTarget = Number.isInteger(targetLine) && targetLine > 0 && targetLine <= lineCount
+    if (!hasTarget) {
+      jumpedKeyRef.current = null
+      if (fileChanged) {
+        if (wrapRef.current) wrapRef.current.scrollTop = 0
+        setScrollTop(0)
+      }
+      return
+    }
+    const jumpKey = `${fileScope}\0${targetLine}`
+    if (jumpedKeyRef.current === jumpKey) return
+    jumpedKeyRef.current = jumpKey
+    if (isVirtualized) {
+      const el = wrapRef.current
+      const vh = el && el.clientHeight > 0 ? el.clientHeight : viewportHeightRef.current
+      const nextScroll = computeTargetScrollTop({
+        targetLine,
+        lineCount,
+        isVirtualized: true,
+        wrapOffsets: wrapOffsetsRef.current,
+        viewportHeight: vh,
+      })
+      if (el) el.scrollTop = nextScroll
+      setScrollTop(nextScroll)
+    } else {
+      targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    }
+  }, [fileScope, targetLine, isVirtualized])
 
   const onScroll = useCallback((event) => {
     if (!isVirtualized) return
-    const next = event.currentTarget?.scrollTop ?? 0
-    setScrollTop(cur => (Math.abs(cur - next) >= CODE_LINE_HEIGHT ? next : cur))
+    const el = event.currentTarget
+    const next = Math.max(0, el?.scrollTop ?? 0)
+    setScrollTop((cur) => {
+      if (cur === next) return cur
+      if (next === 0 || Math.abs(cur - next) >= CODE_LINE_HEIGHT) return next
+      if (el && Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > 0 && next + el.clientHeight >= el.scrollHeight - 1) {
+        return next
+      }
+      return cur
+    })
   }, [isVirtualized])
 
-  const windowSlice = isVirtualized
+  const { start, end, topPad, bottomPad } = isVirtualized
     ? computeCodeWindow({
       lineCount: lines.length,
       scrollTop,
@@ -278,29 +332,6 @@ function CodeLines({ text, language = '', targetLine = null, wordWrap = false })
       offsets: wrapOffsets,
     })
     : { start: 0, end: lines.length, topPad: 0, bottomPad: 0 }
-
-  // Ensure a jumped target line stays rendered even before its scroll event fires.
-  let start = windowSlice.start
-  let end = windowSlice.end
-  let topPad = windowSlice.topPad
-  let bottomPad = windowSlice.bottomPad
-  if (isVirtualized && Number.isInteger(targetLine) && targetLine > 0 && targetLine <= lines.length) {
-    const idx = targetLine - 1
-    if (idx < start || idx >= end) {
-      const centered = computeCodeWindow({
-        lineCount: lines.length,
-        scrollTop: Math.max(0, (wrapOffsets ? wrapOffsets[idx] : idx * CODE_LINE_HEIGHT) - viewport.height / 2),
-        viewportHeight: viewport.height,
-        lineHeight: CODE_LINE_HEIGHT,
-        overscan: CODE_OVERSCAN,
-        offsets: wrapOffsets,
-      })
-      start = centered.start
-      end = centered.end
-      topPad = centered.topPad
-      bottomPad = centered.bottomPad
-    }
-  }
 
   const visibleRows = []
   if (topPad > 0) {
@@ -768,28 +799,28 @@ export function FilePreview({
     file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
-        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line, wordWrap }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
+        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line, wordWrap, fileKey: file.path || file.name }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
           text: file.text,
           labels: { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } },
         })))
         : file.kind === 'table'
-          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line, wordWrap }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
+          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line, wordWrap, fileKey: file.path || file.name }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
           : file.kind === 'spreadsheet'
             ? h(SpreadsheetPreview, { file })
             : file.kind === 'html'
             ? (mode === 'source'
-                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap })
+                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap, fileKey: file.path || file.name })
                 : htmlPreview === null
                   ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
                   : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
-              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap }) : h(ImagePreview, { file }))
+              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap, fileKey: file.path || file.name }) : h(ImagePreview, { file }))
               : file.kind === 'image'
                 ? h(ImagePreview, { file })
                 : file.kind === 'pdf'
                   ? h(PdfPreview, { file })
                   : file.kind === 'code' || file.kind === 'text'
-                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line, wordWrap })
+                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line, wordWrap, fileKey: file.path || file.name })
                     : h('div', { className: 'dsb-pv-fallback' },
                       h('span', { className: 'dsb-pv-fallback-ico', 'aria-hidden': true }, h(FileIcon)),
                       h('strong', null, file.name),

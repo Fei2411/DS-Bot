@@ -18,61 +18,198 @@ const toPosixRel = (root, target) => {
   return sep === '/' ? rel : rel.split(sep).join('/')
 }
 
-function escapeRegexChar(ch) {
-  return /[\\^$+?.()|[\]{}]/.test(ch) ? `\\${ch}` : ch
+const OP_CHAR = 1
+const OP_QMARK = 2
+const OP_CLASS = 3
+const OP_STAR = 4
+const OP_GLOBSTAR = 5
+const OP_ANY_DIRS_ENTER = 6
+const OP_ANY_DIRS_LOOP = 7
+const OP_ACCEPT = 8
+
+function parseCharClass(glob, start) {
+  let j = start + 1
+  if (j >= glob.length) return null
+  let negated = false
+  if (glob[j] === '!' || glob[j] === '^') {
+    negated = true
+    j += 1
+  }
+  const singles = new Set()
+  const ranges = []
+  let first = true
+  while (j < glob.length) {
+    if (glob[j] === ']' && !first) {
+      return { token: { negated, singles, ranges }, nextIndex: j + 1 }
+    }
+    first = false
+    let ch = glob[j]
+    if (ch === '\\' && j + 1 < glob.length) {
+      ch = glob[j + 1]
+      j += 2
+    } else {
+      j += 1
+    }
+    if (j + 1 < glob.length && glob[j] === '-' && glob[j + 1] !== ']') {
+      j += 1
+      let endCh = glob[j]
+      if (endCh === '\\' && j + 1 < glob.length) {
+        endCh = glob[j + 1]
+        j += 2
+      } else {
+        j += 1
+      }
+      const lo = ch.charCodeAt(0)
+      const hi = endCh.charCodeAt(0)
+      if (lo <= hi) ranges.push([lo, hi])
+    } else {
+      singles.add(ch)
+    }
+  }
+  return null
 }
 
-function globToRegexSource(glob) {
-  let out = ''
+function matchCharClass(cls, ch) {
+  let matched = cls.singles.has(ch)
+  if (!matched && cls.ranges.length > 0) {
+    const code = ch.charCodeAt(0)
+    for (let i = 0; i < cls.ranges.length; i += 1) {
+      const [lo, hi] = cls.ranges[i]
+      if (code >= lo && code <= hi) {
+        matched = true
+        break
+      }
+    }
+  }
+  return cls.negated ? !matched : matched
+}
+
+// Compiles a `.gitignore` glob into a linear-time Thompson NFA so adversarial patterns
+// (e.g. `a*a*a*...b`) evaluate in O(states * pathLength) with zero regex backtracking.
+function compileGlobNfa(glob) {
+  const ops = []
+  const chars = []
+  const classes = []
+  const pushState = (op, ch = '', cls = null) => {
+    ops.push(op)
+    chars.push(ch)
+    classes.push(cls)
+  }
   let i = 0
   while (i < glob.length) {
     const ch = glob[i]
     if (ch === '\\' && i + 1 < glob.length) {
-      out += escapeRegexChar(glob[i + 1])
+      pushState(OP_CHAR, glob[i + 1])
       i += 2
       continue
     }
     if (ch === '*') {
-      if (glob[i + 1] === '*') {
-        const next = glob[i + 2]
-        if (next === '/') {
-          out += '(?:.*/)?'
-          i += 3
-        } else {
-          out += '.*'
-          i += 2
+      let stars = 1
+      while (i + stars < glob.length && glob[i + stars] === '*') stars += 1
+      i += stars
+      if (stars >= 2) {
+        if (glob[i] === '/') {
+          i += 1
+          // Collapse redundant consecutive `**/` or `**/**/` segments.
+          while (glob.startsWith('**/', i)) i += 3
+          if (ops.at(-1) !== OP_GLOBSTAR && ops.at(-1) !== OP_ANY_DIRS_LOOP) {
+            pushState(OP_ANY_DIRS_ENTER)
+            pushState(OP_ANY_DIRS_LOOP)
+          }
+        } else if (ops.at(-1) !== OP_GLOBSTAR) {
+          pushState(OP_GLOBSTAR)
         }
-      } else {
-        out += '[^/]*'
-        i += 1
+      } else if (ops.at(-1) !== OP_STAR && ops.at(-1) !== OP_GLOBSTAR) {
+        pushState(OP_STAR)
       }
       continue
     }
     if (ch === '?') {
-      out += '[^/]'
+      pushState(OP_QMARK)
       i += 1
       continue
     }
     if (ch === '[') {
-      let j = i + 1
-      if (j < glob.length && (glob[j] === '!' || glob[j] === '^')) j += 1
-      if (j < glob.length && glob[j] === ']') j += 1
-      while (j < glob.length && glob[j] !== ']') {
-        if (glob[j] === '\\' && j + 1 < glob.length) j += 2
-        else j += 1
-      }
-      if (j < glob.length && glob[j] === ']') {
-        let content = glob.slice(i + 1, j)
-        if (content.startsWith('!')) content = `^${content.slice(1)}`
-        out += `[${content}]`
-        i = j + 1
+      const parsed = parseCharClass(glob, i)
+      if (parsed) {
+        pushState(OP_CLASS, '', parsed.token)
+        i = parsed.nextIndex
         continue
       }
     }
-    out += escapeRegexChar(ch)
+    pushState(OP_CHAR, ch)
     i += 1
   }
-  return out
+  pushState(OP_ACCEPT)
+  return { ops, chars, classes, acceptState: ops.length - 1 }
+}
+
+function matchGlobNfa(nfa, str, anchored, requireTrailingSlash) {
+  const { ops, chars, classes, acceptState } = nfa
+  const stateCount = acceptState + 1
+  let cur = new Uint8Array(stateCount)
+  let next = new Uint8Array(stateCount)
+  cur[0] = 1
+
+  const expandEpsilon = (arr) => {
+    for (let s = 0; s < acceptState; s += 1) {
+      if (!arr[s]) continue
+      const op = ops[s]
+      if (op === OP_STAR || op === OP_GLOBSTAR) {
+        arr[s + 1] = 1
+      } else if (op === OP_ANY_DIRS_ENTER) {
+        arr[s + 1] = 1
+        arr[s + 2] = 1
+      }
+    }
+  }
+
+  for (let i = 0; i < str.length; i += 1) {
+    expandEpsilon(cur)
+    const ch = str[i]
+    if (cur[acceptState] && ch === '/') return true
+    next.fill(0)
+    let anyNext = false
+    for (let s = 0; s < acceptState; s += 1) {
+      if (!cur[s]) continue
+      const op = ops[s]
+      if (op === OP_CHAR) {
+        if (ch === chars[s]) { next[s + 1] = 1; anyNext = true }
+      } else if (op === OP_QMARK) {
+        if (ch !== '/') { next[s + 1] = 1; anyNext = true }
+      } else if (op === OP_CLASS) {
+        if (ch !== '/' && matchCharClass(classes[s], ch)) { next[s + 1] = 1; anyNext = true }
+      } else if (op === OP_STAR) {
+        if (ch !== '/') { next[s] = 1; anyNext = true }
+      } else if (op === OP_GLOBSTAR) {
+        next[s] = 1
+        anyNext = true
+      } else if (op === OP_ANY_DIRS_LOOP) {
+        next[s] = 1
+        anyNext = true
+        if (ch === '/') next[s + 1] = 1
+      }
+    }
+    if (!anchored && ch === '/') {
+      next[0] = 1
+      anyNext = true
+    }
+    if (!anyNext) {
+      if (anchored) return false
+      const nextSlash = str.indexOf('/', i + 1)
+      if (nextSlash < 0) return false
+      i = nextSlash
+      cur.fill(0)
+      cur[0] = 1
+      continue
+    }
+    const tmp = cur
+    cur = next
+    next = tmp
+  }
+
+  expandEpsilon(cur)
+  return !requireTrailingSlash && cur[acceptState] === 1
 }
 
 function stripUnescapedTrailingSpaces(line) {
@@ -114,20 +251,13 @@ export function parseGitignore(text, baseRel = '') {
     const leadingSlash = pattern.startsWith('/')
     if (leadingSlash) pattern = pattern.slice(1)
     const anchored = leadingSlash || pattern.includes('/')
-    const globSrc = globToRegexSource(pattern)
-    const matcher = anchored
-      ? new RegExp(`^${globSrc}(?:$|/)`)
-      : new RegExp(`(?:^|/)${globSrc}(?:$|/)`)
-    const dirPrefixMatcher = dirOnly
-      ? (anchored ? new RegExp(`^${globSrc}/`) : new RegExp(`(?:^|/)${globSrc}/`))
-      : null
+    const nfa = compileGlobNfa(pattern)
     rules.push({
       prefix,
       negated,
       dirOnly,
       anchored,
-      matcher,
-      dirPrefixMatcher,
+      nfa,
     })
   }
   return rules
@@ -148,21 +278,24 @@ export function isGitignored(rules, relPath, isDir) {
     }
     if (rule.dirOnly && !isDir) {
       if (!scoped.includes('/')) continue
-      if (rule.dirPrefixMatcher?.test(scoped)) ignored = !rule.negated
+      if (matchGlobNfa(rule.nfa, scoped, rule.anchored, true)) ignored = !rule.negated
       continue
     }
-    if (rule.matcher.test(scoped)) {
+    if (matchGlobNfa(rule.nfa, scoped, rule.anchored, false)) {
       ignored = !rule.negated
     }
   }
   return ignored
 }
 
-async function readIgnoreFile(filePath) {
+async function readIgnoreFile(filePath, realRoot, withinRoot, isProtectedData) {
   try {
-    const info = await stat(filePath)
+    const realFile = await realpath(filePath)
+    if (!withinRoot(realFile, realRoot)) return ''
+    if (typeof isProtectedData === 'function' && await isProtectedData(realFile)) return ''
+    const info = await stat(realFile)
     if (!info.isFile() || info.size > MAX_GITIGNORE_BYTES) return ''
-    return await readFile(filePath, 'utf8')
+    return await readFile(realFile, 'utf8')
   } catch {
     return ''
   }
@@ -257,7 +390,7 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
       }
       const rootRules = []
       if (respectGitignore) {
-        const excludeText = await readIgnoreFile(join(realRoot, '.git', 'info', 'exclude'))
+        const excludeText = await readIgnoreFile(join(realRoot, '.git', 'info', 'exclude'), realRoot, withinRoot, isProtectedData)
         if (excludeText) rootRules.push(...parseGitignore(excludeText, ''))
       }
       const id = `search-${randomUUID().slice(0, 8)}`
@@ -311,7 +444,7 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
 
       let rules = current.rules
       if (session.respectGitignore) {
-        const localIgnore = await readIgnoreFile(join(current.dirAbs, '.gitignore'))
+        const localIgnore = await readIgnoreFile(join(current.dirAbs, '.gitignore'), realRoot, withinRoot, isProtectedData)
         if (localIgnore) {
           const parsed = parseGitignore(localIgnore, current.relDir)
           if (parsed.length > 0) rules = [...rules, ...parsed]

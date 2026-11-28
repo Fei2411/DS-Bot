@@ -2187,3 +2187,176 @@ test('Multi-preview tabs stay open side-by-side, follow workspace-changed live u
     uiProbe.unmount()
   }
 })
+
+test('CodeLines jumps once to targetLine, renders scrolled rows without blanking, and never jumps back on scroll, resize, or wrap toggle', () => {
+  sandbox.localStorage.removeItem('dsb.preview.wrap')
+  const lineCount = 2400
+  const longText = Array.from({ length: lineCount }, (_, i) => `export const row_${i + 1} = ${i + 1}`).join('\n')
+  const file = { kind: 'code', language: 'javascript', name: 'long.js', path: 'src/long.js', size: longText.length, text: longText }
+
+  const prevObsCount = resizeObservers.length
+  const view = mount(FilePreview, { file, line: 1000 })
+  try {
+    // Initial render already includes line 1000 via initial scrollTop computation (no render-time override).
+    let tree = view.render()
+    const renderedLines = (node) => all(node, n => n.type === 'tr' && n.props?.['data-line'] !== undefined).map(n => n.props['data-line'])
+    let nums = renderedLines(tree)
+    assert.ok(nums.includes(1000), `initial render must include targetLine 1000 (got ${nums[0]}..${nums.at(-1)})`)
+
+    // Second render after mount effects still centers around line 1000.
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(1000), `post-effect render must include targetLine 1000 (got ${nums[0]}..${nums.at(-1)})`)
+
+    const obs = resizeObservers.slice(prevObsCount).at(-1)
+    assert.ok(obs && obs.targets[0], 'CodeLines observes its scroll wrapper')
+    const scrollEl = obs.targets[0]
+
+    // Scroll far down to line 1800 -> renders lines around 1800 (no blank screen, no snap-back to 1000).
+    let wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    scrollEl.scrollTop = 19 * 1800
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 1800, scrollHeight: 19 * lineCount, clientHeight: 600 } })
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(1800), `scrolling to line 1800 must render around 1800 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'scrolling away from targetLine must not force targetLine back into DOM')
+
+    // Trigger panel resize (ResizeObserver) while scrolled to line 1800 -> must NOT jump back to 1000.
+    scrollEl.clientHeight = 420
+    scrollEl.clientWidth = 360
+    obs.cb()
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(scrollEl.scrollTop, 19 * 1800, 'panel resize must not overwrite DOM scrollTop')
+    assert.ok(nums.includes(1800), `panel resize must keep scroll around line 1800 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'panel resize must not jump back to targetLine 1000')
+
+    // Toggle word wrap while scrolled to line 1800 -> must NOT jump back to 1000.
+    const wrapBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0]
+    assert.ok(wrapBtn)
+    wrapBtn.props.onClick()
+    tree = view.render()
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(scrollEl.scrollTop, 19 * 1800, 'enabling word wrap must not overwrite DOM scrollTop')
+    assert.ok(nums.includes(1800), `enabling word wrap must keep scroll around line 1800 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'enabling word wrap must not jump back to targetLine 1000')
+    // Toggle word wrap back off and verify we still did not snap back to 1000.
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    tree = view.render()
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(scrollEl.scrollTop, 19 * 1800, 'disabling word wrap must not overwrite DOM scrollTop')
+    assert.ok(nums.includes(1800), `disabling word wrap must keep scroll around line 1800 (got ${nums[0]}..${nums.at(-1)})`)
+
+    // Scroll far up to line 10 -> renders lines around 10, then small scroll to 0 reaches top cleanly.
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 10, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(10), `scrolling up to line 10 must render around line 10 (got ${nums[0]}..${nums.at(-1)})`)
+    assert.equal(nums.includes(1000), false, 'scrolling up must not snap back to targetLine 1000')
+
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 8, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render()
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 0, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render()
+    nums = renderedLines(tree)
+    assert.equal(nums[0], 1, 'scrolling smoothly to scrollTop 0 must update and include line 1')
+
+    // Explicit jump to a NEW targetLine (500) jumps once, and scrolling away works again.
+    view.render({ file, line: 500 })
+    tree = view.render({ file, line: 500 })
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(500), `changing targetLine to 500 must jump to line 500 (got ${nums[0]}..${nums.at(-1)})`)
+    wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    wrapDiv.props.onScroll({ currentTarget: { scrollTop: 19 * 2100, scrollHeight: 19 * lineCount, clientHeight: 420 } })
+    tree = view.render({ file, line: 500 })
+    nums = renderedLines(tree)
+    assert.ok(nums.includes(2100), `scrolling after new jump must render line 2100 (got ${nums[0]}..${nums.at(-1)})`)
+  } finally {
+    view.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.wrap')
+  }
+})
+
+test('Absolute chat file links use canonical workspace-relative paths for workspace-watch dirs and live update matching', async () => {
+  sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  let version = 1
+  const watchCalls = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-watch') {
+      watchCalls.push(body)
+      return { watchId: `w-abs-${watchCalls.length}`, root: '/repo', recursive: false }
+    }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-read') {
+      // Mirrors real Host `workspace-read`: resolves `/repo/src/nested/chat-link.js` to canonical relative `src/nested/chat-link.js`.
+      assert.equal(body.path, '/repo/src/nested/chat-link.js')
+      return {
+        kind: 'code',
+        language: 'javascript',
+        name: 'chat-link.js',
+        path: 'src/nested/chat-link.js',
+        size: 32,
+        text: `// chat-link-v${version}`,
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  team.actions.openSession('b1')
+  // Chat link passes an absolute path with no `root`.
+  team.actions.openFile({ path: '/repo/src/nested/chat-link.js', sessionId: 'b1' })
+
+  const uiProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  try {
+    const rp = uiProbe.render().props
+    const body = mount(WorkspacePaneBody, { sessionId: 'b1', panel: rp, team, visible: true })
+    try {
+      body.render()
+      await tick()
+      let tree = body.render()
+      assert.match(textOf(tree), /\/\/ chat-link-v1/)
+      await tick()
+
+      // Watch registration must never pass the bogus stripped absolute path (`repo/src/nested`),
+      // and must register the canonical parent directory `src/nested` once workspace-read resolves.
+      assert.equal(
+        watchCalls.some(call => Array.isArray(call.dirs) && call.dirs.some(dir => dir.startsWith('repo/'))),
+        false,
+        'workspace-watch must not strip leading slash from absolute paths into invalid relative dirs',
+      )
+      assert.equal(
+        watchCalls.some(call => Array.isArray(call.dirs) && call.dirs.includes('src/nested')),
+        true,
+        'workspace-watch must register canonical parent directory returned by workspace-read',
+      )
+
+      // Host emits workspace-changed with canonical workspace-relative path -> shows Updated · Reload banner.
+      version = 2
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/nested/chat-link.js'] })
+      tree = body.render()
+      const reloadBtn = all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n)))[0]
+      assert.ok(reloadBtn, 'absolute chat link preview must show Updated · Reload on matching workspace-changed')
+
+      // Enable Auto-refresh -> next workspace-changed automatically reloads v3.
+      const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+      autoSwitch.props.onClick()
+      body.render()
+      version = 3
+      team.chat.emit('workspace-changed', { root: '/repo', paths: ['src/nested/chat-link.js'] })
+      await tick()
+      tree = body.render()
+      assert.match(textOf(tree), /\/\/ chat-link-v3/, 'absolute chat link preview auto-refreshes cleanly on workspace-changed')
+    } finally {
+      body.unmount()
+    }
+  } finally {
+    uiProbe.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  }
+})

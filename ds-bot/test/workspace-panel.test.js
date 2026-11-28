@@ -1312,3 +1312,52 @@ test('workspace-search respects root and nested .gitignore, searches unexpanded 
   assert.equal(aborted.incomplete, true)
   assert.ok(aborted.incompleteReasons.includes('cancelled'))
 })
+
+test('workspace-search refuses symlinked .gitignore outside workspace root and avoids ReDoS on pathological patterns', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-search-sec-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'dsb-wp-search-sec-out-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-search-sec-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  // 1. Pathological ReDoS glob pattern (`a*a*a*...b`) completes in linear time without backtracking blowup.
+  const evilPattern = `${'a*'.repeat(30)}b`
+  const evilRules = parseGitignore(`${evilPattern}\n[z-a]safe.txt\n[a-c]?.log\n[!0-9].tmp\n`)
+  const nonMatching = 'a'.repeat(120)
+  const matching = `${'a'.repeat(30)}b`
+  const t0 = performance.now()
+  assert.equal(isGitignored(evilRules, nonMatching, false), false)
+  assert.equal(isGitignored(evilRules, `dir/${nonMatching}`, false), false)
+  assert.equal(isGitignored(evilRules, matching, false), true)
+  assert.equal(isGitignored(evilRules, `dir/${matching}`, false), true)
+  const elapsedMs = performance.now() - t0
+  assert.ok(elapsedMs < 100, `pathological .gitignore pattern must finish in <100ms (took ${elapsedMs.toFixed(1)}ms)`)
+  assert.equal(isGitignored(evilRules, 'ax.log', false), true)
+  assert.equal(isGitignored(evilRules, 'dx.log', false), false)
+  assert.equal(isGitignored(evilRules, 'x.tmp', false), true)
+  assert.equal(isGitignored(evilRules, '5.tmp', false), false)
+
+  // 2. Symlinked .gitignore pointing outside workspace root must NOT be read.
+  mkdirSync(join(workDir, 'sub'), { recursive: true })
+  writeFileSync(join(outsideDir, 'outside.gitignore'), 'visible-target.txt\n')
+  writeFileSync(join(workDir, 'sub', 'visible-target.txt'), 'must still be found')
+  let symlinkCreated = false
+  try {
+    symlinkSync(join(outsideDir, 'outside.gitignore'), join(workDir, 'sub', '.gitignore'))
+    symlinkCreated = true
+  } catch { /* Windows without symlink privilege */ }
+
+  const { rt } = createRuntime(workDir, { dshHome })
+  t.after(() => rt.terminalDispose())
+  const res = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: 'visible-target' })
+  if (symlinkCreated) {
+    assert.deepEqual(
+      res.entries.map(e => e.path),
+      ['sub/visible-target.txt'],
+      'symlinked .gitignore pointing outside workspace root must be ignored',
+    )
+  }
+})
