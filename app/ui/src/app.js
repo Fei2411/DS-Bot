@@ -235,6 +235,10 @@ export function App() {
   const isNarrowRef = useRef(isNarrow)
   isNarrowRef.current = isNarrow
   const [terminalFocusNonce, setTerminalFocusNonce] = useState(0)
+  const terminalFocusSeqRef = useRef(0)
+  const consumeTerminalFocus = useCallback((nonce) => {
+    setTerminalFocusNonce(current => (current === nonce ? 0 : current))
+  }, [])
   const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => {
     const classic = mode === 'agent'
     return {
@@ -337,9 +341,11 @@ export function App() {
     }
     if (hit === 'terminal') {
       if (uiSnap.details && uiSnap.view === 'workspace' && uiSnap.rightPanel?.tab === 'terminal') {
+        setTerminalFocusNonce(0)
         actions.closePanel()
       } else if (actions.canOpenTerminal?.() !== false) {
-        setTerminalFocusNonce(n => n + 1)
+        terminalFocusSeqRef.current += 1
+        setTerminalFocusNonce(terminalFocusSeqRef.current)
         actions.setRightPanelTab?.('terminal')
       }
       return
@@ -521,6 +527,11 @@ export function App() {
     () => buildWorkspaceTabs(rightPanel, rightPluginEntries),
     [rightPanel, rightPluginEntries, localeVersion],
   )
+  useEffect(() => {
+    if (terminalFocusNonce > 0 && rightPanel?.tab !== 'terminal') {
+      setTerminalFocusNonce(0)
+    }
+  }, [terminalFocusNonce, rightPanel?.tab])
   const workspace = useMemo(() => ({
     tabs: workspaceTabs,
     active: rightPanel?.tab ?? null,
@@ -536,8 +547,9 @@ export function App() {
         readOnly,
         visible,
         terminalFocusNonce,
+        onConsumeTerminalFocus: consumeTerminalFocus,
       })),
-  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce])
+  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce, consumeTerminalFocus])
   const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
   // Key the conversation by stable Bot/room id so segment rollovers and initial roster
   // hydration on a rolled-over segment both preserve unsent drafts and composer focus.

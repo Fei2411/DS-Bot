@@ -915,7 +915,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
  * folders and live PTY sessions survive switching across Details, Side chat, Browser, and
  * other workspace tabs.
  */
-export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSlots, readOnly = false, visible = true, terminalFocusNonce = 0 }) {
+export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSlots, readOnly = false, visible = true, terminalFocusNonce = 0, onConsumeTerminalFocus = null }) {
   const { actions, chat: feed } = team
   const [fileState, setFileState] = useState({ path: null, data: null, loading: false, error: '' })
   const [retryState, setRetryState] = useState({ key: null, count: 0 })
@@ -1034,7 +1034,15 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       : null,
     hasTerminal
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'terminal' },
-        h(WorkspaceTerminal, { sessionId, feed, readOnly, autoOpenNonce: terminalNonce, active: visible && activeTab === 'terminal', focusNonce: terminalFocusNonce }))
+        h(WorkspaceTerminal, {
+          sessionId,
+          feed,
+          readOnly,
+          autoOpenNonce: terminalNonce,
+          active: visible && activeTab === 'terminal',
+          focusNonce: terminalFocusNonce,
+          onConsumeFocusNonce: onConsumeTerminalFocus,
+        }))
       : null,
     activePlugin
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible },

@@ -1044,6 +1044,20 @@ test('composer stays editable when bot.waiting has a model, focuses on card clic
     textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
     await tick()
     assert.deepEqual(sent, ['你好'])
+
+    // In-place chatKey flip (e.g. startup roster hydration) must not steal focus from another input/terminal.
+    const prevActive = sandbox.document.activeElement
+    let hydrationFocusCalls = 0
+    ta.props.ref.current = { focus() { hydrationFocusCalls += 1 }, style: {}, scrollHeight: 30 }
+    sandbox.document.activeElement = { closest: sel => (sel.includes('.dsb-term') ? {} : null) }
+    try {
+      roster.byId['b-with-model'] = { ...roster.bots[0], id: 'b-hydrated' }
+      inst.render()
+      assert.equal(hydrationFocusCalls, 0, 'in-place chatKey flip must not steal focus from terminal/input')
+    } finally {
+      roster.byId['b-with-model'] = roster.bots[0]
+      sandbox.document.activeElement = prevActive
+    }
   } finally {
     inst.unmount()
   }

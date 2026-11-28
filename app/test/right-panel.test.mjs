@@ -1636,4 +1636,95 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     sandbox.document.activeElement = prevActive
     visibleTerm.unmount()
   }
+
+  // 3. Clicking "New terminal" while an existing terminal is active must NOT refocus the old terminal
+  //    while `terminal-open` is pending, and MUST focus the newly created terminal once it resolves
+  //    (even when Chromium still reports the old hidden terminal's textarea as `document.activeElement`).
+  sandbox.__xterms.length = 0
+  let resolvePendingOpen
+  const singleList = [{ id: 'term-old', cwd: '/repo-a', title: 'repo-a', pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null }]
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.resolve(singleList)
+    if (endpoint === 'terminal-open') return new Promise(resolve => { resolvePendingOpen = resolve })
+    return Promise.resolve({})
+  }
+  const newTermInst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true })
+  try {
+    newTermInst.render()
+    await tick()
+    let tree = newTermInst.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    const oldXterm = sandbox.__xterms[0]
+    const initialOldFocus = oldXterm.focused
+    // Model real Chromium: old terminal's xterm textarea remains document.activeElement until next frame.
+    const prevActiveEl = sandbox.document.activeElement
+    sandbox.document.activeElement = {
+      tagName: 'TEXTAREA',
+      closest: sel => (sel.includes('textarea') ? {} : null),
+    }
+    try {
+      const plusBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'New terminal')[0]
+      assert.ok(plusBtn)
+      plusBtn.props.onClick()
+      newTermInst.render()
+      assert.equal(oldXterm.focused, initialOldFocus, 'old terminal must NOT be refocused while terminal-open is in flight')
+
+      resolvePendingOpen({ id: 'term-new', cwd: '/repo-b', title: 'repo-b', cols: 88, rows: 26, pty: true })
+      await tick()
+      newTermInst.render()
+      assert.equal(sandbox.__xterms.length, 2)
+      assert.equal(oldXterm.focused, initialOldFocus, 'old terminal must still not receive focus when new terminal mounts')
+      assert.equal(sandbox.__xterms[1].focused, 1, 'new terminal must receive explicit focus even while old xterm textarea is activeElement')
+    } finally {
+      sandbox.document.activeElement = prevActiveEl
+    }
+  } finally {
+    newTermInst.unmount()
+  }
+
+  // 4. Consuming an external shortcut focusNonce notifies parent so unmounting/remounting
+  //    a folded workspace panel never steals focus from an active composer.
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint) => (endpoint === 'terminal-list' ? singleList : {})
+  let parentFocusNonce = 1
+  const onConsumeFocusNonce = (nonce) => {
+    if (parentFocusNonce === nonce) parentFocusNonce = 0
+  }
+  const prevActive4 = sandbox.document.activeElement
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  const firstMount = mount(WorkspaceTerminal, {
+    sessionId: 'b1',
+    feed: team.chat,
+    active: true,
+    focusNonce: parentFocusNonce,
+    onConsumeFocusNonce,
+  })
+  try {
+    firstMount.render()
+    await tick()
+    firstMount.render()
+    assert.equal(sandbox.__xterms[0].focused, 1, 'initial Ctrl+` focuses active terminal')
+    assert.equal(parentFocusNonce, 0, 'parent focusNonce is cleared once handled by visible terminal')
+  } finally {
+    firstMount.unmount()
+  }
+  // Panel folds away and later remounts while user is typing in chat composer.
+  sandbox.__xterms.length = 0
+  const remounted = mount(WorkspaceTerminal, {
+    sessionId: 'b1',
+    feed: team.chat,
+    active: true,
+    focusNonce: parentFocusNonce,
+    onConsumeFocusNonce,
+  })
+  try {
+    remounted.render()
+    await tick()
+    remounted.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    assert.equal(sandbox.__xterms[0].focused, 0, 'remounted folded workspace panel must not steal composer focus')
+  } finally {
+    sandbox.document.activeElement = prevActive4
+    remounted.unmount()
+  }
 })

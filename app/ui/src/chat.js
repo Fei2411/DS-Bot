@@ -672,15 +672,12 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [text])
-  const prevFocusChatKeyRef = useRef(chatKey)
   useEffect(() => {
-    const sameChat = prevFocusChatKeyRef.current === chatKey
-    prevFocusChatKeyRef.current = chatKey
     if (disabled) return
     if (typeof document !== 'undefined') {
       if (document.querySelector?.('[aria-modal="true"]')) return
       const activeEl = document.activeElement
-      if (sameChat && activeEl && activeEl !== document.body && activeEl !== document.documentElement && activeEl !== field.current
+      if (activeEl && activeEl !== document.body && activeEl !== document.documentElement && activeEl !== field.current
         && typeof activeEl.closest === 'function'
         && activeEl.closest('.dsb-term, textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
         return
