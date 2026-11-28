@@ -17,6 +17,7 @@ import { usageChunk } from '../usage.js'
 const EVENT_BUFFER_MAX = 400
 const IDEMPOTENCY_MAX_LEN = 200
 const TERMINAL_STATUSES = new Set(['completed', 'stopped', 'failed'])
+const COMPOSER_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const isTerminal = status => TERMINAL_STATUSES.has(status)
 const newRunId = () => `run_${randomBytes(6).toString('hex')}`
@@ -988,6 +989,7 @@ export function createRunCoordinator(rt, auth) {
 
   function bindChatTurn(tracker, sid, turn) {
     tracker.chatTurn = turn
+    tracker.composerAnswer = undefined
     tracker.resumeSession = undefined
     tracker.waitingReply = undefined
     tracker.sessions.add(sid)
@@ -1004,15 +1006,17 @@ export function createRunCoordinator(rt, auth) {
   }
 
   function resumeApiRunForComposerAnswer(session, card, source) {
-    if (source.kind !== 'user' || source.handoff === true
-      || (typeof source.rpcId === 'string' && source.rpcId.startsWith('api:'))) return
+    // DSH's owner composer mints a plain UUID. IM and the external API tag their request IDs.
+    if (source.kind !== 'user' || source.handoff === true || source.principal !== undefined
+      || source.imOrigin !== undefined || typeof source.rpcId !== 'string' || !COMPOSER_REQUEST_ID.test(source.rpcId)) return
     const turn = sessionTurns.get(session)
-    if (turn === undefined) return
+    if (turn === undefined || turn.hasPrompt) return
     for (const tracker of activeSessionTrackers(session.id)) {
       const action = tracker.run.pendingAction
       if ((action?.kind === 'question' || action?.kind === 'view') && action.sessionId === session.id
         && action.actionId === card.id && tracker.waitingReply?.callId === (card.callId ?? card.id)) {
         bindChatTurn(tracker, session.id, turn)
+        tracker.composerAnswer = source
       }
     }
   }
@@ -1028,6 +1032,15 @@ export function createRunCoordinator(rt, auth) {
     if (event.type === 'user/message') {
       const source = event.data?.source
       const rpcId = source?.rpcId
+      const fromIm = typeof rpcId === 'string' && rpcId.startsWith('im:')
+      if (turn !== undefined && (source?.kind === 'user' || source?.kind === 'schedule' || fromIm)) {
+        turn.hasPrompt = true
+        for (const tracker of activeSessionTrackers(sid)) {
+          if (tracker.chatTurn === turn && tracker.composerAnswer !== undefined && tracker.composerAnswer !== source) {
+            finishRun(tracker, 'stopped', { error: { code: 'api/stopped', message: 'The answer shared a turn with another prompt' } })
+          }
+        }
+      }
       if (typeof rpcId === 'string' && rpcId.startsWith('api:')) {
         const runId = byRequestId.get(rpcId)
         const tracker = runId ? active.get(runId) : undefined
@@ -1057,7 +1070,7 @@ export function createRunCoordinator(rt, auth) {
           if (run.target.kind !== 'bot' || run.mode !== 'chat' || isTerminal(run.status)) continue
           const reply = tracker.waitingReply
           const answersCard = reply?.sessionId === sid && (
-            (source.kind === REPLY_KIND && reply.callId !== undefined && reply.callId === source.callId)
+            (source.kind === REPLY_KIND && !fromIm && reply.callId !== undefined && reply.callId === source.callId)
             || (source.role === 'secret' && reply.secretKey !== undefined && reply.secretKey === source.idempotencyKey)
           )
           const resumesHandoff = source.handoff === true && source.resume === true && (

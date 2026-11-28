@@ -712,7 +712,7 @@ test('an API run waiting for ask_user completes after a typed composer answer', 
   assert.equal(run.pendingAction.actionId, questionId)
 
   const sid = run.pendingAction.sessionId
-  await h.rt.sendUser({ sessionId: sid, requestId: 'composer-answer', content: [{ type: 'text', text: 'Yes, please' }] })
+  await h.rt.sendUser({ sessionId: sid, requestId: '00000000-0000-4000-8000-000000000001', content: [{ type: 'text', text: 'Yes, please' }] })
   assert.equal(h.rt.state.questions[sid], undefined)
   const done = await getRun(run.runId)
   assert.equal(done.status, 'completed')
@@ -726,6 +726,74 @@ test('an API run waiting for ask_user completes after a typed composer answer', 
   const oldRun = await getRun(waiting.runId)
   assert.notEqual(oldRun.status, 'completed')
   assert.equal(oldRun.output.text, '')
+})
+
+async function assertImTurnIsPrivate(t, { mixed = false } = {}) {
+  const imRequestId = 'im:weixin:separate-chat'
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, requestId, emitSessionEvent, emitStream, rt, nextSeq }) {
+      if (requestId.startsWith('api:')) {
+        rt.state.questions[sessionId] = { id: 'q-im', callId: 'call-im', question: 'Proceed?' }
+      } else {
+        if (mixed) {
+          emitSessionEvent(sessionId, {
+            type: 'user/message', seq: nextSeq(), time: Date.now(),
+            data: { content: [{ type: 'text', text: 'IM prompt' }], source: { kind: 'user', rpcId: imRequestId } },
+          })
+        }
+        emitStream(sessionId, 'Reply for IM')
+        emitSessionEvent(sessionId, {
+          type: 'assistant/message', seq: nextSeq(), time: Date.now(),
+          data: { message: { content: [{ type: 'text', text: 'Reply for IM' }] } },
+        })
+      }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Message only', scopes: ['message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const url = `${view.baseUrl}/v1/bots/b1/messages`
+  assert.equal((await fetch(url, { headers })).status, 403)
+  const response = await fetch(url, {
+    method: 'POST', headers, body: JSON.stringify({ text: 'Ask a question', stream: true }),
+    signal: AbortSignal.timeout(5000),
+  })
+  assert.equal(response.status, 200)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let events = ''
+  while (!events.includes('event: human.required')) {
+    const { value, done } = await reader.read()
+    assert.equal(done, false)
+    events += decoder.decode(value, { stream: true })
+  }
+  const sid = h.rt.chatOf('b1')
+  await h.rt.sendUser({
+    sessionId: sid,
+    requestId: mixed ? '00000000-0000-4000-8000-000000000001' : imRequestId,
+    content: [{ type: 'text', text: mixed ? 'Yes, please' : 'IM prompt' }],
+  })
+  assert.equal(h.rt.state.questions[sid], undefined)
+  await h.rt.apiEndpoint('api-set', { enabled: false })
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    events += decoder.decode(value, { stream: true })
+  }
+  assert.doesNotMatch(events, /event: (?:delta|run\.completed)|Reply for IM/)
+  if (mixed) assert.match(events, /event: run\.stopped/)
+  else assert.doesNotMatch(events, /event: run\.resumed/)
+}
+
+test('an IM turn does not reach an API stream waiting on an ask_user card', async t => {
+  await assertImTurnIsPrivate(t)
+})
+
+test('an IM prompt sharing a composer answer turn does not reach the API stream', async t => {
+  await assertImTurnIsPrivate(t, { mixed: true })
 })
 
 test('group chat multi-member batch settlement collects ordered replies', async (t) => {
