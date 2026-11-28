@@ -16,6 +16,7 @@ function harness({ root } = {}) {
     effect: () => {},
     get: () => undefined,
   }
+  const bot = { id: 'b1', sessionId: 's1', segments: [] }
   const rt = {
     ctx,
     teamTools: [],
@@ -26,6 +27,8 @@ function harness({ root } = {}) {
     taskOwners: new Map(),
     roomOf: () => undefined,
     roomHasImOrigin: () => false,
+    botOf: id => (id === 'b1' ? bot : undefined),
+    chatOf: id => (id === 'b1' ? 's1' : undefined),
     cardShown: () => {},
     warn: () => {},
     load: async () => {},
@@ -48,7 +51,7 @@ function harness({ root } = {}) {
       await listener(exec, async () => result)
     }
   }
-  return { rt, listeners, fireExecute }
+  return { rt, listeners, fireExecute, bot }
 }
 
 function fixture(t) {
@@ -120,7 +123,7 @@ test('open_reader accepts md, markdown and mdx but not txt', async (t) => {
   assert.match(await tool(rt, 'open_reader').execute({ path: 'd.txt' }, execIn('s1', root)), /Reader opens Markdown files/)
 })
 
-test('background tasks and plain group sessions cannot open a panel', async (t) => {
+test('background tasks and group sessions cannot open a panel, IM origin included', async (t) => {
   const root = fixture(t)
   write(root, 'draft.html', '<h1>hi</h1>')
   const { rt } = harness({ root })
@@ -128,6 +131,8 @@ test('background tasks and plain group sessions cannot open a panel', async (t) 
   assert.match(await tool(rt, 'open_canvas').execute({ path: 'draft.html' }, execIn('task1', root)), /Background tasks cannot open/)
   rt.groupOwners.set('g1', { botId: 'b1', roomId: 'r1' })
   rt.roomOf = id => (id === 'r1' || id === 'g1' ? { id: 'r1', members: ['b1'] } : undefined)
+  assert.match(await tool(rt, 'open_canvas').execute({ path: 'draft.html' }, execIn('g1', root)), /only opens from your own chat/)
+  rt.roomHasImOrigin = () => true
   assert.match(await tool(rt, 'open_canvas').execute({ path: 'draft.html' }, execIn('g1', root)), /only opens from your own chat/)
   assert.equal(rt.sideAppInternals.pendingOpens.size, 0)
 })
@@ -478,4 +483,149 @@ test('tools are listed for the team catalog and count as user-facing instant wor
   assert.ok(TEAM_TOOLS.includes('open_canvas') && TEAM_TOOLS.includes('open_reader'))
   assert.ok(USER_UI_TOOLS.has('open_canvas') && USER_UI_TOOLS.has('open_reader'))
   assert.ok(INSTANT_WORK_TOOLS.has('open_canvas') && INSTANT_WORK_TOOLS.has('open_reader'))
+})
+
+test('a card from an earlier own-chat part reopens through the current part', async (t) => {
+  const root = fixture(t)
+  write(root, 'draft.html', '<h1>hi</h1>')
+  const { rt, bot } = harness({ root })
+  const live = await openWithTool(rt, root, 'draft.html')
+  bot.segments.push({ sessionId: 'old-part' })
+  rt.pastOwners.set('old-part', { botId: 'b1' })
+  const resolved = []
+  const resolveLive = rt.resolveAgent
+  rt.resolveAgent = async (id) => {
+    resolved.push(id)
+    if (id === 'old-part') throw Object.assign(new Error('Session unavailable'), { code: 'session/not-found' })
+    return resolveLive(id)
+  }
+  const historical = { ...live, sessionId: 'old-part' }
+  const read = await rt.sideAppEndpoint('side-app-read', fileBody(historical))
+  assert.equal(read.kind, 'text')
+  assert.equal(read.text, '<h1>hi</h1>')
+  assert.equal(resolved.includes('old-part'), false, 'the archived part itself is never the authorization root')
+  assert.equal(resolved[0], 's1', 'the current part of the same thread authorizes the card')
+})
+
+test('an earlier own-chat part card refuses after the current folder changes', async (t) => {
+  const root = fixture(t)
+  const otherRoot = fixture(t)
+  write(root, 'draft.html', '<h1>hi</h1>')
+  const { rt, bot } = harness({ root })
+  const live = await openWithTool(rt, root, 'draft.html')
+  bot.segments.push({ sessionId: 'old-part' })
+  rt.pastOwners.set('old-part', { botId: 'b1' })
+  rt.resolveAgent = async id => ({ id, session: { id, header: { cwd: otherRoot } } })
+  rt.sessionFolder = session => session?.header?.cwd
+  const historical = { ...live, sessionId: 'old-part' }
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody(historical)),
+    error => error?.code === 'bot/workspace-changed',
+  )
+})
+
+test('a card written by a task part is refused instead of re-entering the foreground chat', async (t) => {
+  const root = fixture(t)
+  write(root, 'draft.html', '<h1>hi</h1>')
+  const { rt, bot } = harness({ root })
+  const live = await openWithTool(rt, root, 'draft.html')
+  bot.tasks = [{ id: 'task-one', sessionId: 'task-current', status: 'running', segments: [{ sessionId: 'old-task-part' }] }]
+  rt.pastOwners.set('old-task-part', { botId: 'b1' })
+  const historical = { ...live, sessionId: 'old-task-part' }
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody(historical)),
+    error => error?.code === 'bot/not-found' && /Unknown session/.test(error.message),
+  )
+})
+
+test('endpoint cards for group, room and task sessions are refused', async (t) => {
+  const root = fixture(t)
+  write(root, 'draft.html', '<h1>hi</h1>')
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'draft.html')
+  const refusesUnknown = async sessionId => assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody({ ...descriptor, sessionId })),
+    error => error?.code === 'bot/not-found' && /Unknown session/.test(error.message),
+    `${sessionId} must not authorize a Side App read`,
+  )
+  rt.groupOwners.set('group-session', { botId: 'b1', roomId: 'r1' })
+  rt.chatOwners.set('group-session', 'b1')
+  await refusesUnknown('group-session')
+  rt.roomOf = id => (id === 'room-session' ? { id: 'r1', sessionId: 'room-session' } : undefined)
+  rt.chatOwners.set('room-session', 'b1')
+  await refusesUnknown('room-session')
+  rt.taskOwners.set('task-session', { botId: 'b1', taskId: 'task-one' })
+  rt.chatOwners.set('task-session', 'b1')
+  await refusesUnknown('task-session')
+  rt.pastOwners.set('old-group-part', { botId: 'b1', roomId: 'r1' })
+  await refusesUnknown('old-group-part')
+})
+
+test('files inside a private Bot folder are refused before reading', async (t) => {
+  const root = fixture(t)
+  write(root, 'draft.html', '<h1>hi</h1>')
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'draft.html')
+  rt.privateOwnerOf = async () => ({ id: 'private-bot', name: 'Diary' })
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody(descriptor)),
+    error => error?.code === 'bot/forbidden' && /private Bot/.test(error.message),
+  )
+})
+
+test('private Bot assets are neither served nor hashed into the preview revision', async (t) => {
+  const root = fixture(t)
+  write(root, 'page/draft.html', '<h1>hi</h1>')
+  write(root, 'page/secret.js', 'window.secret = 1')
+  write(root, 'page/open.js', 'window.openValue = 1')
+  const { rt } = harness({ root })
+  const owner = { id: 'private-bot', name: 'Diary' }
+  rt.privateOwnerOf = async path => (path.endsWith('secret.js') ? owner : undefined)
+  const ticket = rt.sideAppInternals.issueTicket({ entryReal: await realpath(join(root, 'page', 'draft.html')), displayPath: 'page/draft.html', sessionId: 's1', ownerBot: 'b1' })
+  const serve = path => rt.sideAppInternals.serveAsset(ticket, `/api/bot-canvas/${ticket.id}/${path}`)
+  assert.equal((await serve('secret.js')).status, 404, 'a private asset never serves')
+  assert.equal((await serve('open.js')).status, 200, 'an open asset still serves')
+  const first = await rt.sideAppInternals.previewRevision(ticket)
+  await writeFile(join(root, 'page', 'secret.js'), 'window.secret = 2')
+  const second = await rt.sideAppInternals.previewRevision(ticket)
+  assert.equal(second.revision, first.revision, 'private file bytes stay out of the scan')
+  await writeFile(join(root, 'page', 'open.js'), 'window.openValue = 2')
+  const third = await rt.sideAppInternals.previewRevision(ticket)
+  assert.notEqual(third.revision, first.revision, 'open assets still participate in the revision')
+})
+
+test('a directory owned by a private Bot is skipped before its files are walked', async (t) => {
+  const root = fixture(t)
+  write(root, 'page/draft.html', '<h1>hi</h1>')
+  write(root, 'page/closed/inside.js', 'window.inside = 1')
+  const { rt } = harness({ root })
+  const closedReal = await realpath(join(root, 'page', 'closed'))
+  const owner = { id: 'private-bot', name: 'Diary' }
+  rt.privateOwnerOf = async path => (path === closedReal ? owner : undefined)
+  const ticket = rt.sideAppInternals.issueTicket({ entryReal: await realpath(join(root, 'page', 'draft.html')), displayPath: 'page/draft.html', sessionId: 's1', ownerBot: 'b1' })
+  const first = await rt.sideAppInternals.previewRevision(ticket)
+  await writeFile(join(root, 'page', 'closed', 'inside.js'), 'window.inside = 2')
+  const second = await rt.sideAppInternals.previewRevision(ticket)
+  assert.equal(second.revision, first.revision, 'the closed directory is pruned before its children can enter the hash')
+})
+
+test('canvas refuses hidden and credential entries up front while reader stays unaffected', async (t) => {
+  const root = fixture(t)
+  write(root, '.draft.html', '<h1>hidden</h1>')
+  write(root, '.git/entry.html', '<h1>git</h1>')
+  write(root, '.notes.md', '# hidden notes')
+  write(root, 'normal.html', '<h1>normal</h1>')
+  const { rt } = harness({ root })
+  assert.match(await tool(rt, 'open_canvas').execute({ path: '.draft.html' }, execIn('s1', root)), /hidden or credential files/)
+  assert.match(await tool(rt, 'open_canvas').execute({ path: '.git/entry.html' }, execIn('s1', root)), /hidden or credential files/)
+  const normal = await openWithTool(rt, root, 'normal.html')
+  for (const displayPath of ['.draft.html', '.git/entry.html']) {
+    await assert.rejects(
+      rt.sideAppEndpoint('side-app-open', { ...fileBody({ ...normal, displayPath }), app: 'canvas' }),
+      error => error?.code === 'bot/forbidden' && /hidden or credential files/.test(error.message),
+      `${displayPath} must be refused before a preview can open`,
+    )
+  }
+  const reader = await tool(rt, 'open_reader').execute({ path: '.notes.md' }, execIn('s1', root))
+  assert.match(reader, /^Reader opened for /m, 'Reader does not take the Canvas-only hidden-entry rule')
 })

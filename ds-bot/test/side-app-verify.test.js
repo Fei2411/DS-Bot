@@ -18,6 +18,7 @@ function harness({ root } = {}) {
     effect: () => {},
     get: () => undefined,
   }
+  const bot = { id: 'b1', sessionId: 's1', segments: [] }
   const rt = {
     ctx,
     teamTools: [],
@@ -28,6 +29,8 @@ function harness({ root } = {}) {
     taskOwners: new Map(),
     roomOf: () => undefined,
     roomHasImOrigin: () => false,
+    botOf: id => (id === 'b1' ? bot : undefined),
+    chatOf: id => (id === 'b1' ? 's1' : undefined),
     cardShown: () => {},
     warn: () => {},
     load: async () => {},
@@ -45,7 +48,7 @@ function harness({ root } = {}) {
     sessionFolder: session => (session?.id === 's1' ? root : undefined),
   }
   install(rt)
-  return { rt }
+  return { rt, bot }
 }
 
 function tempRoot(t) {
@@ -314,4 +317,24 @@ test('a fold layer that cannot prove anything fails the read closed', async (t) 
     error => error?.code === 'bot/forbidden',
     'when containment cannot be proven at read time the read must not happen',
   )
+})
+
+test('a plain-looking directory link into a hidden directory is neither served nor hashed', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'page/index.html', '<h1>in</h1>')
+  write(root, 'page/.hidden/secret.css', 'body { color: red }')
+  const link = join(root, 'page', 'visible-link')
+  if (!tryDirLink(join(root, 'page', '.hidden'), link)) {
+    t.skip('directory links are unavailable here')
+    return
+  }
+  const { rt } = harness({ root })
+  const entryReal = await realpath(join(root, 'page', 'index.html'))
+  const ticket = rt.sideAppInternals.issueTicket({ entryReal, displayPath: 'page/index.html', sessionId: 's1', ownerBot: 'b1' })
+  const served = await rt.sideAppInternals.serveAsset(ticket, `/api/bot-canvas/${ticket.id}/visible-link/secret.css`)
+  assert.equal(served.status, 404, 'the real path inside a dot directory never serves through a plain-looking link')
+  const first = await rt.sideAppInternals.previewRevision(ticket)
+  writeFileSync(join(root, 'page', '.hidden', 'secret.css'), 'body { color: blue }')
+  const second = await rt.sideAppInternals.previewRevision(ticket)
+  assert.equal(second.revision, first.revision, 'the scan judges hiddenness by the folded real path, not the link name')
 })

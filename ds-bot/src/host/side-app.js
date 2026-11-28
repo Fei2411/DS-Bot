@@ -6,10 +6,11 @@
 // its same-directory assets to the sandboxed preview iframe.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { lstat, open, readdir, readlink, stat } from 'node:fs/promises'
-import { basename, dirname, extname, resolve, sep } from 'node:path'
+import { basename, dirname, extname, relative, resolve, sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from './tools.js'
 import { within } from './folders.js'
+import { threadCurrentOfPart, threadOfPart } from './threads.js'
 
 export const CANVAS_EXTENSIONS = new Set(['.html', '.htm'])
 export const READER_EXTENSIONS = new Set(['.md', '.markdown', '.mdx'])
@@ -75,6 +76,9 @@ const ASSET_MIMES = new Map([
 // A draft's files are untrusted but local; names that commonly hold credentials or
 // machine state never leave the host, whatever their extension.
 const SENSITIVE_NAME = /(?:^|[\\/])(?:\.env(?:\.\w+)?|\.git(?:[\\/].*)?|\.ssh(?:[\\/].*)?|\.gnupg(?:[\\/].*)?|\.aws(?:[\\/].*)?|\.npmrc|\.netrc|\.pypirc|\.htpasswd|id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts|secrets?\.(?:json|ya?ml|toml|env)|credentials?(?:\.(?:json|ya?ml|toml|env))?|(?:server|private|client)[-.]key\.(?:pem|key)|[^\s\\/]+\.(?:pem|key|p12|pfx|keystore|jks|kdbx))$/i
+// Dot segments count by the real path, not by the spelling the request used: a plain-looking
+// link into a hidden directory is still hidden. Sensitive names carry their own proof.
+const hiddenOrSensitive = (root, real) => relative(root, real).split(/[\\/]+/).some(part => part.startsWith('.')) || SENSITIVE_NAME.test(real)
 
 // Scripts run because a draft is meant to be interactive; everything that would let
 // them reach the network, the host, or another frame is off. The CSP sandbox mirrors
@@ -314,6 +318,7 @@ export function install(rt) {
   const fileKind = (app, realPath) => {
     const ext = extname(realPath).toLowerCase()
     if (app === 'canvas') {
+      if (basename(realPath).startsWith('.') || SENSITIVE_NAME.test(realPath)) throw forbidden('Canvas does not open hidden or credential files')
       if (!CANVAS_EXTENSIONS.has(ext)) throw invalid(`Canvas opens HTML files (.html/.htm), not ${ext || 'this file'}`)
     } else if (!READER_EXTENSIONS.has(ext)) throw invalid(`Reader opens Markdown files (.md/.markdown/.mdx), not ${ext || 'this file'}`)
     return ext
@@ -328,7 +333,7 @@ export function install(rt) {
   // editors never produce one, which the plan accepts as the client-snapshot case.
   /** @type {Map<string, {realPath:string, before:string, after:string, baseRevision:string, afterRevision:string, turn?:number, sessionId:string, at:number}>} */
   const diffBases = new Map()
-  const diffKey = (sessionId, realPath) => `${sessionId}${foldKey(realPath)}`
+  const diffKey = (sessionId, realPath) => `${sessionId}\0${foldKey(realPath)}`
 
   const sweepDiffs = (now = Date.now()) => {
     for (const [key, entry] of diffBases) if (now - entry.at > DIFF_KEEP_MS) diffBases.delete(key)
@@ -432,14 +437,14 @@ export function install(rt) {
   })
 
   // ---- preview tickets --------------------------------------------------------
-  /** @type {Map<string, {id:string, entryReal:string, entryName:string, root:string, displayPath:string, sessionId:string, createdAt:number, expiresAt:number}>} */
+  /** @type {Map<string, {id:string, entryReal:string, entryName:string, root:string, displayPath:string, sessionId:string, ownerBot?:string, createdAt:number, expiresAt:number}>} */
   const tickets = new Map()
 
   const sweepTickets = (now = Date.now()) => {
     for (const [id, ticket] of tickets) if (ticket.expiresAt <= now) tickets.delete(id)
   }
 
-  function issueTicket({ entryReal, displayPath, sessionId }) {
+  function issueTicket({ entryReal, displayPath, sessionId, ownerBot }) {
     sweepTickets()
     const id = randomBytes(24).toString('base64url')
     const now = Date.now()
@@ -452,6 +457,7 @@ export function install(rt) {
       root: dirname(entryReal),
       displayPath,
       sessionId,
+      ...(ownerBot !== undefined ? { ownerBot } : {}),
       createdAt: now,
       expiresAt: now + TICKET_TTL_MS,
     })
@@ -500,6 +506,8 @@ export function install(rt) {
         const full = resolve(dir, entry.name)
         const real = (await rt.realBeyond?.(full).catch(() => undefined)) ?? (await rt.real?.(full).catch(() => undefined)) ?? full
         if (!within(real, ticket.root)) continue
+        if (hiddenOrSensitive(ticket.root, real)) continue
+        if ((await rt.privateOwnerOf?.(real, { self: ticket.ownerBot })) !== undefined) continue
         if (entry.isDirectory()) {
           await walk(real, depth + 1)
           continue
@@ -543,11 +551,10 @@ export function install(rt) {
     const candidate = resolve(ticket.root, rel)
     const real = (await rt.realBeyond?.(candidate).catch(() => undefined)) ?? (await rt.real?.(candidate).catch(() => undefined)) ?? candidate
     if (await rt.inData?.(real)) return errorPage(404, 'Not found')
-    if (real !== ticket.entryReal) {
-      if (!within(real, ticket.root)) return errorPage(404, 'Not found')
-      if (rel.split('/').some(part => part === '..' || part === '.' || part.startsWith('.'))) return errorPage(404, 'Not found')
-      if (SENSITIVE_NAME.test(real)) return errorPage(404, 'Not found')
-    }
+    if (!within(real, ticket.root)) return errorPage(404, 'Not found')
+    if (rel.split('/').some(part => part === '..' || part === '.' || part.startsWith('.'))) return errorPage(404, 'Not found')
+    if (hiddenOrSensitive(ticket.root, real)) return errorPage(404, 'Not found')
+    if ((await rt.privateOwnerOf?.(real, { self: ticket.ownerBot })) !== undefined) return errorPage(404, 'Not found')
     const ext = extname(real).toLowerCase()
     const mime = ASSET_MIMES.get(ext)
     if (mime === undefined) return errorPage(404, 'Not found')
@@ -635,11 +642,21 @@ export function install(rt) {
     const sessionId = String(body.sessionId ?? file.sessionId ?? '')
     const past = rt.pastOwners.get(sessionId)
     const ownerBot = rt.chatOwners.get(sessionId) ?? past?.botId
-    const roomId = rt.roomOf(sessionId)?.id ?? rt.groupOwners.get(sessionId)?.roomId ?? past?.roomId
-    if (ownerBot === undefined && roomId === undefined) throw notFound('Unknown session')
-    // The card's own conversation must still resolve: an older part or a reaped session
-    // never authorizes a read, instead of silently re-anchoring to some other root.
-    const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+    if (
+      rt.roomOf(sessionId) !== undefined || rt.groupOwners.has(sessionId) || past?.roomId !== undefined
+      || rt.taskOwners?.has(sessionId) || ownerBot === undefined
+    ) throw notFound('Unknown session')
+    // An earlier part of the Bot's own chat reopens through the part that thread has
+    // now; the archived part itself may be gone and its cwd may be stale. Task parts
+    // never widen into the foreground chat.
+    let authorizingSession = sessionId
+    if (past !== undefined) {
+      const bot = rt.botOf?.(past.botId)
+      if (threadOfPart(bot, sessionId)?.thread === 'task') throw notFound('Unknown session')
+      authorizingSession = threadCurrentOfPart(bot, sessionId) ?? rt.chatOf?.(past.botId)
+    }
+    if (authorizingSession === undefined) throw notFound('The conversation that wrote this card is no longer here; open the file again from the current chat')
+    const agent = await rt.resolveAgent(authorizingSession).catch(() => undefined)
     if (agent?.session === undefined) throw notFound('The conversation that wrote this card is no longer here; open the file again from the current chat')
     const root = await workRootOf(agent.session)
     if (root === undefined) throw invalid('This conversation has no working folder here')
@@ -649,7 +666,10 @@ export function install(rt) {
     if (app !== undefined && file.app !== app) throw invalid('That card belongs to another app')
     if (typeof file.displayPath !== 'string' || file.displayPath === '') throw invalid('No file named')
     const target = await resolveInRoot(root, file.displayPath)
-    return { sessionId, target, root, agent, app: file.app }
+    if ((await rt.privateOwnerOf?.(target.realPath, { self: ownerBot })) !== undefined) {
+      throw forbidden('That file belongs to a private Bot and cannot be opened here')
+    }
+    return { sessionId, target, root, agent, app: file.app, ownerBot }
   }
 
   // ---- endpoints ---------------------------------------------------------------
@@ -744,7 +764,7 @@ export function install(rt) {
   }
 
   async function sideAppPreview(body) {
-    const { sessionId, target } = await authorizeFile(body, { app: 'canvas' })
+    const { sessionId, target, ownerBot } = await authorizeFile(body, { app: 'canvas' })
     // The preview entry revalidates as a real, regular HTML file every time: a card
     // cannot outlive its target turning into a directory, a symlink or another type.
     fileKind('canvas', target.realPath)
@@ -757,7 +777,7 @@ export function install(rt) {
     // A ticket that lapsed while the client polled is dead: reissue rather than renew,
     // so the answer always carries a live frameUrl, never an unchanged dead address.
     const fresh = ticket === undefined
-    if (ticket === undefined) ticket = issueTicket({ entryReal: target.realPath, displayPath: target.displayPath, sessionId })
+    if (ticket === undefined) ticket = issueTicket({ entryReal: target.realPath, displayPath: target.displayPath, sessionId, ownerBot })
     const scanned = await previewRevision(ticket).catch(error => error)
     if (scanned instanceof Error) return { kind: 'preview-unavailable', reason: 'The file could not be read; open it again when it is back' }
     const { revision, truncated } = scanned
@@ -797,7 +817,7 @@ export function install(rt) {
     const label = app === 'canvas' ? 'canvas' : 'reader'
     if (rt.taskOwners?.has(id)) return `Background tasks cannot open a ${label} panel. Open it from your own chat instead.`
     const owner = rt.groupOwners.get(id)
-    if (owner !== undefined && !rt.roomHasImOrigin?.(owner.roomId)) return `A ${label} panel only opens from your own chat with the user. In a group, tell the user the path instead.`
+    if (owner !== undefined) return `A ${label} panel only opens from your own chat with the user. In a group, tell the user the path instead.`
     if (owner === undefined && !rt.chatOwners.has(id)) return `Only Bots on the team can open a ${label} panel.`
     const session = exec.agent?.session
     const root = await workRootOf(session)

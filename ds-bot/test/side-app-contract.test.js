@@ -21,6 +21,7 @@ function harness({ root, webServer, sessionCwd, teamRoot, deadSessions } = {}) {
     effect: (execute, label) => { effects.push({ execute, label }) },
     get: name => (name === 'webServer' ? webServer : undefined),
   }
+  const bot = { id: 'b1', sessionId: 's1', segments: [] }
   const rt = {
     ctx,
     teamTools: [],
@@ -31,6 +32,8 @@ function harness({ root, webServer, sessionCwd, teamRoot, deadSessions } = {}) {
     taskOwners: new Map(),
     roomOf: () => undefined,
     roomHasImOrigin: () => false,
+    botOf: id => (id === 'b1' ? bot : undefined),
+    chatOf: id => (id === 'b1' ? 's1' : undefined),
     cardShown: () => {},
     warn: () => {},
     load: async () => {},
@@ -65,7 +68,7 @@ function harness({ root, webServer, sessionCwd, teamRoot, deadSessions } = {}) {
       await listener(exec, async () => result)
     }
   }
-  return { rt, listeners, effects, fireExecute }
+  return { rt, listeners, effects, fireExecute, bot }
 }
 
 function tempRoot(t) {
@@ -502,19 +505,21 @@ test('reader image bytes require the article to exist as a real Markdown file', 
   assert.equal(real.kind, 'bytes', 'a real article still serves its own images')
 })
 
-test('a card whose conversation cannot be resolved anymore is refused, never re-anchored to the team root', async (t) => {
+test('a card whose current authorizing conversation cannot be resolved is refused, never re-anchored to the team root', async (t) => {
   const { root } = copyFixture(t, 'reader-long')
-  const { rt } = harness({ root, teamRoot: root, deadSessions: new Set(['dead-part']) })
-  rt.pastOwners.set('dead-part', { botId: 'b1' })
+  const { rt, bot } = harness({ root, teamRoot: root, deadSessions: new Set(['dead-current']) })
   const live = await openWithTool(rt, root, 'article.md', 'open_reader')
+  bot.sessionId = 'dead-current'
+  bot.segments.push({ sessionId: 'dead-part' })
+  rt.pastOwners.set('dead-part', { botId: 'b1' })
   // The card is well-formed, its workspace tag matches the team workspace exactly, and
   // the bot behind it still works in the same folder — everything the fallback would
-  // need in order to pass. It must still fail: nothing proves this session is there.
+  // need in order to pass. It must still fail: nothing proves the authorizing part is there.
   const historical = { ...live, sessionId: 'dead-part' }
   await assert.rejects(
     rt.sideAppEndpoint('side-app-read', fileBody(historical)),
-    error => error?.code === 'bot/not-found' || error?.code === 'bot/forbidden' || error?.code === 'bot/invalid',
-    'an unresolvable past session must be refused rather than re-anchored to the team root',
+    error => error?.code === 'bot/not-found' && /no longer here/.test(error.message),
+    'an unresolvable current part must be refused rather than re-anchored to the team root',
   )
   const own = await rt.sideAppEndpoint('side-app-read', fileBody(live))
   assert.equal(own.kind, 'text', 'the live conversation still reads')

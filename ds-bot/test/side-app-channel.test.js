@@ -118,3 +118,15 @@ test('preview issues a ticketed frame and diff answers unavailable without a bas
   assert.match(preview.frameUrl, /^\/api\/bot-canvas\/[A-Za-z0-9_-]+\/draft\.html$/)
   assert.equal((await call('side-app-diff', { file, revision: preview.previewRevision })).value.kind, 'unavailable')
 })
+
+test('a remote state answer carries no sideAppOpens descriptors', async (t) => {
+  const { rt, call, write, root } = start(t)
+  write('draft.html', '<h1>hi</h1>')
+  await rt.load()
+  await openCanvas(rt, 'draft.html', root)
+  const local = (await call('state')).value
+  assert.equal(local.sideAppOpens.s1.displayPath, 'draft.html', 'the local computer still receives the live open')
+  const remote = await rt.channelCall('state', {}, undefined, true)
+  assert.equal(remote.ok, true, remote.error?.message)
+  assert.equal(remote.value.sideAppOpens, undefined, 'phone and relay payloads never carry file paths of pending opens')
+})

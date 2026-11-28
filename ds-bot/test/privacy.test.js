@@ -1266,3 +1266,12 @@ test('present tool cannot expose private Bot files, host API files, or secret fi
   assert.equal(secretsJsonRes.ran, false)
   assert.match(secretsJsonRes.error, /DeepSeek Harness data/)
 })
+
+test('open_reader cannot expose private Bot files', async (t) => {
+  const { run, diary, agentOf, stop } = await start()
+  t.after(stop)
+  const writerAgent = agentOf('b')
+  const res = await run('open_reader', { path: join(diary, 'notes.txt') }, 'b', writerAgent)
+  assert.equal(res.ran, false)
+  assert.match(res.error, CLOSED)
+})

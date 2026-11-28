@@ -205,9 +205,6 @@ export function install(rt) {
     im: rt.imView?.() ?? { connections: [], platforms: [] },
     // The computer-use switch, the provider it mounts, and each Bot's level and app grants.
     computer: rt.computerView?.() ?? { enabled: false },
-    // Side App opens a window has not consumed yet, keyed by the Session they
-    // belong to. Each carries the reopenable descriptor the card in the chat shows.
-    sideAppOpens: rt.sideAppOpensView?.() ?? {},
   })
   // What changes without a new revision, sent with every state answer. `learning`:
   // each Bot's pending skill proposals; `learningSettled`: the answered ones of its
@@ -273,7 +270,8 @@ export function install(rt) {
     releaseNotes: rt.releaseNotesView?.() ?? null,
     // Side App opens no window has claimed yet. An open appears when a tool call ends,
     // with no revision bump, so it rides on the live fields.
-    sideAppOpens: rt.sideAppOpensView?.() ?? {},  })
+    sideAppOpens: rt.sideAppOpensView?.() ?? {},
+  })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
   // still names it gets only the key back, not the fields again. The key carries
@@ -483,7 +481,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, userQuestions: _uq, sessionQueues: _sq, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, userQuestions: _uq, sessionQueues: _sq, sideAppOpens: _sao, ...remoteLive } = answer.value
           const liveValue = remote
             ? {
               ...remoteLive,
