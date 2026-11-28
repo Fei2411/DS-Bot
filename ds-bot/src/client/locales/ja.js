@@ -3007,6 +3007,9 @@ export const JA = {
   "Initial delay cannot exceed max delay": "初期待機時間は最大待機時間を超えられません",
   "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
   "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
+  "Saved but currently unavailable": "保存済み（現在利用不可）",
+  "Currently unavailable": "現在利用不可",
+  "Settings changed elsewhere. Discard your changes and try again.": "別の場所で設定が変更されました。変更を破棄して再試行してください。",
 }
 
 export const HOST_ERRORS_JA = [

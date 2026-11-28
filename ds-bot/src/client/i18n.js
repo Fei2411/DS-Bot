@@ -3167,6 +3167,9 @@ const HOST_ZH = {
   'Initial delay cannot exceed max delay': '初始延迟不能大于最大延迟',
   'Jitter ratio must be between 0 and 1': '抖动比例必须在 0 到 1 之间',
   'Use lowercase letters, digits, and dashes, starting with a letter': '仅使用小写字母、数字和连字符，且以字母开头',
+  'Saved but currently unavailable': '已保存但当前不可用',
+  'Currently unavailable': '当前不可用',
+  'Settings changed elsewhere. Discard your changes and try again.': '设置已在别处更改。请放弃当前修改后重试。',
 }
 Object.assign(ZH, HOST_ZH)
 

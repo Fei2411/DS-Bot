@@ -3136,7 +3136,10 @@ var JA = {
   "Max delay must be a positive number": "最大待機時間は正の数である必要があります",
   "Initial delay cannot exceed max delay": "初期待機時間は最大待機時間を超えられません",
   "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
-  "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください"
+  "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
+  "Saved but currently unavailable": "保存済み（現在利用不可）",
+  "Currently unavailable": "現在利用不可",
+  "Settings changed elsewhere. Discard your changes and try again.": "別の場所で設定が変更されました。変更を破棄して再試行してください。"
 };
 var HOST_ERRORS_JA = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -6920,7 +6923,10 @@ var KO = {
   "Max delay must be a positive number": "최대 지연 시간은 양수여야 합니다",
   "Initial delay cannot exceed max delay": "초기 지연 시간은 최대 지연 시간을 초과할 수 없습니다",
   "Jitter ratio must be between 0 and 1": "지터 비율은 0에서 1 사이여야 합니다",
-  "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요"
+  "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요",
+  "Saved but currently unavailable": "저장되었으나 현재 사용 불가",
+  "Currently unavailable": "현재 사용 불가",
+  "Settings changed elsewhere. Discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 변경사항을 취소하고 다시 시도하세요."
 };
 var HOST_ERRORS_KO = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -10705,7 +10711,10 @@ var ES = {
   "Max delay must be a positive number": "El retraso máximo debe ser un número positivo",
   "Initial delay cannot exceed max delay": "El retraso inicial no puede superar el retraso máximo",
   "Jitter ratio must be between 0 and 1": "La proporción de jitter debe estar entre 0 y 1",
-  "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra"
+  "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra",
+  "Saved but currently unavailable": "Guardados pero no disponibles actualmente",
+  "Currently unavailable": "No disponible actualmente",
+  "Settings changed elsewhere. Discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Descarta tus cambios e inténtalo de nuevo."
 };
 var HOST_ERRORS_ES = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -14446,7 +14455,10 @@ var FR = {
   "Max delay must be a positive number": "Le délai maximal doit être un nombre positif",
   "Initial delay cannot exceed max delay": "Le délai initial ne peut pas dépasser le délai maximal",
   "Jitter ratio must be between 0 and 1": "Le ratio de gigue doit être compris entre 0 et 1",
-  "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre"
+  "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre",
+  "Saved but currently unavailable": "Enregistré mais actuellement indisponible",
+  "Currently unavailable": "Actuellement indisponible",
+  "Settings changed elsewhere. Discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez."
 };
 var HOST_ERRORS_FR = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -18230,7 +18242,10 @@ var DE = {
   "Max delay must be a positive number": "Die maximale Verzögerung muss eine positive Zahl sein",
   "Initial delay cannot exceed max delay": "Die Anfangsverzögerung darf die maximale Verzögerung nicht überschreiten",
   "Jitter ratio must be between 0 and 1": "Der Jitter-Anteil muss zwischen 0 und 1 liegen",
-  "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben"
+  "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben",
+  "Saved but currently unavailable": "Gespeichert, aber derzeit nicht verfügbar",
+  "Currently unavailable": "Derzeit nicht verfügbar",
+  "Settings changed elsewhere. Discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Verwirf deine Änderungen und versuche es erneut."
 };
 var HOST_ERRORS_DE = [
   [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -22127,7 +22142,10 @@ var HOST_ZH = {
   "Max delay must be a positive number": "最大延迟必须是正数",
   "Initial delay cannot exceed max delay": "初始延迟不能大于最大延迟",
   "Jitter ratio must be between 0 and 1": "抖动比例必须在 0 到 1 之间",
-  "Use lowercase letters, digits, and dashes, starting with a letter": "仅使用小写字母、数字和连字符，且以字母开头"
+  "Use lowercase letters, digits, and dashes, starting with a letter": "仅使用小写字母、数字和连字符，且以字母开头",
+  "Saved but currently unavailable": "已保存但当前不可用",
+  "Currently unavailable": "当前不可用",
+  "Settings changed elsewhere. Discard your changes and try again.": "设置已在别处更改。请放弃当前修改后重试。"
 };
 Object.assign(ZH, HOST_ZH);
 var ZH_TW = convertDict(ZH);

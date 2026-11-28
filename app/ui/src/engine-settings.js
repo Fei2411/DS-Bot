@@ -1552,6 +1552,9 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
 
   const [overrides, setOverrides] = useState({})
   const [resetFlags, setResetFlags] = useState({})
+  const [draftRevisions, setDraftRevisions] = useState({})
+  const [retainedUnavailable, setRetainedUnavailable] = useState(() => new Map())
+  const [conflicted, setConflicted] = useState(false)
   const [catalog, setCatalog] = useState({ status: 'idle', partial: false, groups: [], error: '' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -1559,9 +1562,16 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
 
   useEffect(() => () => clearTimeout(savedTimer.current), [])
 
+  const captureRevision = (ns) => {
+    const rev = byNs.get(ns)?.descriptor?.revision
+    if (rev === undefined) return
+    setDraftRevisions(prev => (ns in prev ? prev : { ...prev, [ns]: rev }))
+  }
+
   const hasOv = key => Object.prototype.hasOwnProperty.call(overrides, key)
   const setField = (key, value) => {
     setSaved(false)
+    captureRevision(key.split(':')[0])
     setOverrides(prev => ({ ...prev, [key]: value }))
     setResetFlags((prev) => {
       if (!prev[key]) return prev
@@ -1572,6 +1582,7 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
   }
   const stageFieldReset = (key) => {
     setSaved(false)
+    captureRevision(key.split(':')[0])
     setOverrides((prev) => {
       if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev
       const next = { ...prev }
@@ -1597,6 +1608,9 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
   const resetDraft = useCallback(() => {
     setOverrides({})
     setResetFlags({})
+    setDraftRevisions({})
+    setRetainedUnavailable(new Map())
+    setConflicted(false)
   }, [])
 
   const loadCatalog = useCallback(async () => {
@@ -1629,29 +1643,46 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
 
   const { groupsWithRows, routeByKey } = useMemo(() => {
     const map = new Map()
-    const storedMap = new Map(storedRoutes.map(r => [routeKeyOf(r), r]))
+    const unavailableMap = new Map()
+    for (const route of storedRoutes) unavailableMap.set(routeKeyOf(route), route)
+    for (const [key, route] of retainedUnavailable) {
+      if (!unavailableMap.has(key)) unavailableMap.set(key, route)
+    }
     const grouped = []
     for (const group of catalog.groups) {
+      const providerName = group.name || group.id
       const rows = []
       for (const model of group.models ?? []) {
         const route = { provider: group.id, model: model.id }
         const key = routeKeyOf(route)
         map.set(key, route)
-        storedMap.delete(key)
-        rows.push({ key, label: model.name || model.id, available: true })
+        unavailableMap.delete(key)
+        rows.push({
+          key,
+          ref: `${group.id}/${model.id}`,
+          label: model.name || model.id,
+          routeLabel: `${providerName} · ${group.id}/${model.id}`,
+          available: true,
+        })
       }
-      if (rows.length > 0) grouped.push({ id: group.id, title: group.name || group.id, rows })
+      if (rows.length > 0) grouped.push({ id: group.id, title: providerName, rows, unavailable: false })
     }
-    if (storedMap.size > 0) {
+    if (unavailableMap.size > 0) {
       const unavailable = []
-      for (const [key, route] of storedMap) {
+      for (const [key, route] of unavailableMap) {
         map.set(key, route)
-        unavailable.push({ key, label: `${route.provider} / ${route.model}`, available: false })
+        unavailable.push({
+          key,
+          ref: `${route.provider}/${route.model}`,
+          label: `${route.provider}/${route.model}`,
+          routeLabel: `${route.provider}/${route.model}`,
+          available: false,
+        })
       }
-      grouped.push({ id: '__unavailable__', title: t('Unavailable'), rows: unavailable })
+      grouped.push({ id: '__unavailable__', title: t('Saved but currently unavailable'), rows: unavailable, unavailable: true })
     }
     return { groupsWithRows: grouped, routeByKey: map }
-  }, [catalog.groups, storedRoutes])
+  }, [catalog.groups, storedRoutes, retainedUnavailable])
 
   const nextRoutes = useMemo(() => {
     const out = []
@@ -1684,20 +1715,49 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
       if (activeCheck.empty && storedMaxActive !== undefined) ops.push({ op: 'unset', path: ['maxActiveSubagents'] })
       else if (!activeCheck.empty && activeCheck.value !== storedMaxActive) ops.push({ op: 'set', path: ['maxActiveSubagents'], value: activeCheck.value })
     }
-    if (ops.length > 0) pendingByNs.push({ descriptor: limitsEntry.descriptor, ops })
+    if (ops.length > 0) {
+      pendingByNs.push({
+        descriptor: limitsEntry.descriptor,
+        expectedRevision: draftRevisions.subagent ?? limitsEntry.descriptor.revision,
+        ops,
+      })
+    }
   }
 
   if (modelEntry) {
     const ops = []
     if (selectionEnabled !== storedEnabled) ops.push({ op: 'set', path: ['enabled'], value: selectionEnabled })
     if (!sameRouteLists(nextRoutes, storedRoutes)) ops.push({ op: 'set', path: ['allowedModels'], value: nextRoutes })
-    if (ops.length > 0) pendingByNs.push({ descriptor: modelEntry.descriptor, ops })
+    if (ops.length > 0) {
+      pendingByNs.push({
+        descriptor: modelEntry.descriptor,
+        expectedRevision: draftRevisions['subagent-model-selection-settings'] ?? modelEntry.descriptor.revision,
+        ops,
+      })
+    }
   }
 
-  const dirty = pendingByNs.length > 0 || invalid
+  const limitsRev = limitsEntry?.descriptor?.revision
+  const modelRev = modelEntry?.descriptor?.revision
+  const pendingCount = pendingByNs.length
+  useEffect(() => {
+    if (saving) return
+    const drifted = Object.entries(draftRevisions).some(([ns, rev]) => {
+      const current = byNs.get(ns)?.descriptor?.revision
+      return current !== undefined && current !== rev
+    })
+    if (!drifted) return
+    if (pendingCount === 0 && !invalid) {
+      resetDraft()
+    } else {
+      setConflicted(true)
+    }
+  }, [limitsRev, modelRev, draftRevisions, saving, pendingCount, invalid, byNs, resetDraft])
+
+  const dirty = pendingByNs.length > 0 || invalid || conflicted
 
   const handleSave = async () => {
-    if (!dirty || invalid || saving || disabled || pendingByNs.length === 0) return
+    if (!dirty || invalid || conflicted || saving || disabled || pendingByNs.length === 0) return
     setSaving(true)
     setSaved(false)
     try {
@@ -1705,23 +1765,45 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
       const ok = res === true || res?.ok === true
       const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
       if (ok) {
-        setOverrides({})
-        setResetFlags({})
+        resetDraft()
         setSaved(true)
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(false), 2200)
-      } else if (savedList.length > 0) {
-        const savedNs = new Set(savedList)
-        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
-        setResetFlags(prev => dropNamespacesFromMap(prev, savedNs))
+      } else {
+        if (savedList.length > 0) {
+          const savedNs = new Set(savedList)
+          setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
+          setResetFlags(prev => dropNamespacesFromMap(prev, savedNs))
+          setDraftRevisions((prev) => {
+            const next = { ...prev }
+            for (const ns of savedNs) delete next[ns]
+            return next
+          })
+        }
+        if (res?.stale === true) setConflicted(true)
       }
     } finally {
       setSaving(false)
     }
   }
 
+  const retainUnavailableIfNeeded = (key) => {
+    const route = routeByKey.get(key)
+    if (!route) return
+    const isLive = catalog.groups.some(group => (group.models ?? []).some(m => routeKeyOf({ provider: group.id, model: m.id }) === key))
+    if (isLive) return
+    setRetainedUnavailable((prev) => {
+      if (prev.has(key)) return prev
+      const next = new Map(prev)
+      next.set(key, route)
+      return next
+    })
+  }
+
   const toggleRoute = (key) => {
     setSaved(false)
+    captureRevision('subagent-model-selection-settings')
+    retainUnavailableIfNeeded(key)
     setOverrides((prev) => {
       const current = Object.prototype.hasOwnProperty.call(prev, 'subagent-model-selection-settings:selectedKeys')
         ? prev['subagent-model-selection-settings:selectedKeys']
@@ -1729,6 +1811,28 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
       const next = new Set(current)
       if (next.has(key)) next.delete(key)
       else next.add(key)
+      return { ...prev, 'subagent-model-selection-settings:selectedKeys': next }
+    })
+  }
+
+  const toggleGroup = (group) => {
+    if (disabled || saving || !group || group.rows.length === 0) return
+    setSaved(false)
+    captureRevision('subagent-model-selection-settings')
+    const allSelected = group.rows.every(row => selectedKeys.has(row.key))
+    setOverrides((prev) => {
+      const current = Object.prototype.hasOwnProperty.call(prev, 'subagent-model-selection-settings:selectedKeys')
+        ? prev['subagent-model-selection-settings:selectedKeys']
+        : storedRouteKeys
+      const next = new Set(current)
+      for (const row of group.rows) {
+        if (allSelected) {
+          retainUnavailableIfNeeded(row.key)
+          next.delete(row.key)
+        } else {
+          next.add(row.key)
+        }
+      }
       return { ...prev, 'subagent-model-selection-settings:selectedKeys': next }
     })
   }
@@ -1801,26 +1905,44 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
               ? h('div', { className: 'dsb-engine-empty' }, t('No models available.'))
               : h(Fragment, null,
                 catalog.partial ? h('div', { className: 'dsb-engine-notice', role: 'status' }, t('Some model providers could not be loaded.')) : null,
-                groupsWithRows.map(group => h('div', { key: group.id, className: 'dsb-subagent-group' },
-                  h('div', { className: 'dsb-subagent-group-title' }, group.title),
-                  h('div', { className: 'dsb-subagent-list' },
-                    group.rows.map(row => h('label', {
-                      key: row.key,
-                      className: 'dsb-subagent-opt',
-                      'data-disabled': (disabled || saving) ? '' : undefined,
-                    },
-                    h('input', {
-                      type: 'checkbox',
-                      checked: selectedKeys.has(row.key),
-                      disabled: disabled || saving,
-                      onChange: () => toggleRoute(row.key),
-                    }),
-                    h('span', { className: 'dsb-subagent-opt-name' }, row.label),
-                    !row.available ? h('span', { className: 'dsb-subagent-opt-tag' }, t('Unavailable')) : null)))))),
+                groupsWithRows.map((group) => {
+                  const allSelected = group.rows.every(row => selectedKeys.has(row.key))
+                  return h('div', { key: group.id, className: 'dsb-subagent-group' },
+                    h('div', { className: 'dsb-subagent-group-head' },
+                      h('div', { className: 'dsb-subagent-group-title' }, group.title),
+                      !group.unavailable
+                        ? h('button', {
+                            type: 'button',
+                            className: 'bt-mini',
+                            'data-subagent-provider-toggle': group.id,
+                            disabled: disabled || saving,
+                            onClick: () => toggleGroup(group),
+                          }, allSelected ? t('Clear') : t('Select all'))
+                        : null),
+                    h('div', { className: 'dsb-subagent-list' },
+                      group.rows.map(row => h('label', {
+                        key: row.key,
+                        className: 'dsb-subagent-opt',
+                        'data-disabled': (disabled || saving) ? '' : undefined,
+                      },
+                      h('input', {
+                        type: 'checkbox',
+                        'data-route-key': row.ref,
+                        checked: selectedKeys.has(row.key),
+                        disabled: disabled || saving,
+                        onChange: () => toggleRoute(row.key),
+                      }),
+                      h('span', { className: 'dsb-subagent-opt-copy' },
+                        h('span', { className: 'dsb-subagent-opt-name' }, row.label),
+                        row.available ? h('span', { className: 'dsb-subagent-opt-route' }, row.routeLabel) : null),
+                      !row.available ? h('span', { className: 'dsb-subagent-opt-tag' }, t('Currently unavailable')) : null))))
+                })),
         missingSelection ? h('div', { className: 'dsb-engine-field-err', 'data-inline': '', role: 'alert' }, t('Select at least one model before saving.')) : null) : null) : null,
+    conflicted ? h('div', { className: 'dsb-subagent-conflict', role: 'alert' },
+      t('Settings changed elsewhere. Discard your changes and try again.')) : null,
     h(EngineFormBar, {
       dirty,
-      invalid,
+      invalid: invalid || conflicted,
       saving,
       saved,
       disabled,
@@ -2084,12 +2206,12 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
     setError('')
     const saved = []
     try {
-      for (const { descriptor, ops } of batch) {
+      for (const { descriptor, ops, expectedRevision } of batch) {
         if (!Array.isArray(ops) || ops.length === 0) continue
         const updated = await call('engine-settings-mutate', {
           ns: descriptor.ns,
           ops,
-          expectedRevision: descriptor.revision,
+          expectedRevision: expectedRevision ?? descriptor.revision,
         })
         saved.push(descriptor.ns)
         if (settingsCache) {
@@ -2109,7 +2231,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
       if (failure?.code === 'bot/stale') await load()
-      return { ok: false, saved }
+      return { ok: false, saved, stale: failure?.code === 'bot/stale' }
     } finally {
       if (mounted.current) setBusyKey('')
     }

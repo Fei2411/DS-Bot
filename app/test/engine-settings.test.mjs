@@ -1010,6 +1010,91 @@ test('Classic mode shows Subagents settings with model allowlist while Bot mode 
   ])
 })
 
+test('Subagent model selection shows provider routes, keeps unchecked unavailable routes during draft, toggles per provider, and detects revision conflicts', async () => {
+  const mutated = []
+  let modelRevision = 3
+  let rejectStale = false
+  const storedModels = [
+    { provider: 'openai', model: 'gpt-5' },
+    { provider: 'legacy', model: 'retired-1' },
+  ]
+  const { mod } = loadMod(async (endpoint, payload) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-model-catalog') {
+      return {
+        available: true,
+        partial: true,
+        groups: [
+          { id: 'openai', name: 'OpenAI', models: [{ id: 'gpt-5', name: 'GPT-5' }, { id: 'gpt-4o', name: 'GPT-4o' }] },
+          { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-4', name: 'Claude 4' }] },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [
+          { ns: 'subagent', autoGenerate: true, revision: 2, value: { maxDepth: 2, maxActiveSubagents: 8 }, base: { maxDepth: 2, maxActiveSubagents: 8 }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'subagent-model-selection-settings', autoGenerate: true, revision: modelRevision, value: { enabled: true, allowedModels: storedModels }, base: { enabled: false, allowedModels: [] }, user: { enabled: true, allowedModels: storedModels }, secrets: [], schema: { type: 'object', dict: {} } },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-mutate') {
+      mutated.push(payload)
+      if (rejectStale) {
+        const err = new Error('stale revision')
+        err.code = 'bot/stale'
+        modelRevision += 1
+        throw err
+      }
+      modelRevision += 1
+      return { ns: payload.ns, revision: modelRevision, value: { enabled: true, allowedModels: storedModels }, base: {}, user: {}, secrets: [], schema: { type: 'object', dict: {} } }
+    }
+    return {}
+  })
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, surfaceMode: 'agent', subTarget: 'subagent' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  let tree = harness.render({ readOnly: false, surfaceMode: 'agent', subTarget: 'subagent' })
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render({ readOnly: false, surfaceMode: 'agent', subTarget: 'subagent' })
+
+  // 1. Shows exact route subtitle `${providerName} · ${provider}/${model}` and Saved-but-unavailable group
+  const fullText = textOf(tree)
+  assert.ok(fullText.includes('OpenAI · openai/gpt-5'), 'shows providerName · provider/model route')
+  assert.ok(fullText.includes('Saved but currently unavailable'), 'shows Unavailable group heading')
+  assert.ok(fullText.includes('legacy/retired-1'), 'shows unavailable route id')
+
+  // 2. Per-provider Select all selects every model in Anthropic group
+  const selectAllBtns = findAll(tree, n => n.type === 'button' && n.props?.['data-subagent-provider-toggle'] === 'anthropic')
+  assert.equal(selectAllBtns.length, 1, 'per-provider toggle button exists')
+  selectAllBtns[0].props.onClick()
+  tree = harness.render({ readOnly: false, surfaceMode: 'agent', subTarget: 'subagent' })
+
+  // 3. Unchecking an unavailable route keeps it rendered (unchecked) during the draft
+  const unavailCheckbox = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox' && n.props?.['data-route-key'] === 'legacy/retired-1')[0]
+  assert.ok(unavailCheckbox, 'unavailable route checkbox exists')
+  assert.equal(unavailCheckbox.props.checked, true)
+  unavailCheckbox.props.onChange()
+  tree = harness.render({ readOnly: false, surfaceMode: 'agent', subTarget: 'subagent' })
+  const unavailAfter = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox' && n.props?.['data-route-key'] === 'legacy/retired-1')[0]
+  assert.ok(unavailAfter, 'unchecked unavailable route remains visible in draft')
+  assert.equal(unavailAfter.props.checked, false)
+
+  // 4. Stale save conflict sets conflicted banner, passes captured draftRevision, and disables Save until Discard
+  rejectStale = true
+  const saveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0]
+  assert.equal(saveBtn.props.disabled, false)
+  saveBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render({ readOnly: false, surfaceMode: 'agent', subTarget: 'subagent' })
+  assert.equal(mutated[0].expectedRevision, 3, 'sends captured draft revision')
+  assert.ok(textOf(tree).includes('Settings changed elsewhere'), 'shows revision conflict banner')
+  assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0].props.disabled, true, 'Save disabled while conflicted')
+})
+
 test('PluginsSettingsPage surfaces failed UI plugins with Retry button and resets detail view when subTarget clears', async () => {
   const { mod } = loadMod(async (endpoint) => {
     if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }

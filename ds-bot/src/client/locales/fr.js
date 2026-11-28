@@ -3007,6 +3007,9 @@ export const FR = {
   "Initial delay cannot exceed max delay": "Le délai initial ne peut pas dépasser le délai maximal",
   "Jitter ratio must be between 0 and 1": "Le ratio de gigue doit être compris entre 0 et 1",
   "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre",
+  "Saved but currently unavailable": "Enregistré mais actuellement indisponible",
+  "Currently unavailable": "Actuellement indisponible",
+  "Settings changed elsewhere. Discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez.",
 }
 
 export const HOST_ERRORS_FR = [
