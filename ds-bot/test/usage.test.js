@@ -735,6 +735,8 @@ test('usage incrementally syncs a session on turn/end into usage.sqlite without 
   installUsage(rt)
   const onEvent = ctx.listeners.get('session/event').at(-1)
   assert.equal(typeof onEvent, 'function')
+  // Subagent turn/end must be skipped without calling projections/page on a root address.
+  onEvent({ id: 's-sub', origin: 'subagent' }, { type: 'turn/end' })
   // Two rapid turn/end events coalesce into one incremental sync.
   onEvent({ id: 's-live' }, { type: 'turn/end' })
   onEvent({ id: 's-live' }, { type: 'turn/end' })
@@ -743,14 +745,38 @@ test('usage incrementally syncs a session on turn/end into usage.sqlite without 
   await new Promise(resolve => setTimeout(resolve, 30))
   assert.equal(pageCalls, 1)
 
+  // A turn/end arriving while a sync is in flight queues a follow-up sync instead of dropping.
+  let releaseSecondPage
+  let inFlightCalls = 0
+  ctx.sessionController.projections = async () => ({ asOfSeq: inFlightCalls === 0 ? 2 : 3 })
+  ctx.sessionController.page = async ({ throughSeq }) => {
+    inFlightCalls += 1
+    if (inFlightCalls === 1) {
+      await new Promise(resolve => { releaseSecondPage = resolve })
+      return { records: [{ event: { ...message(2, 0, { inputTokens: 1000, cacheReadTokens: 900, outputTokens: 20 }, HOUR), seq: 2 } }], hasMore: false }
+    }
+    assert.equal(throughSeq, 3)
+    return { records: [{ event: { ...message(3, 0, { inputTokens: 2000, cacheReadTokens: 1900, outputTokens: 30 }, HOUR), seq: 3 } }], hasMore: false }
+  }
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  while (releaseSecondPage === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  releaseSecondPage()
+  const deadline2 = Date.now() + 2000
+  while (inFlightCalls < 2 && Date.now() < deadline2) await new Promise(resolve => setTimeout(resolve, 10))
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(inFlightCalls, 2)
+
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(join(home, 'usage.sqlite'))
   try {
-    const row = db.prepare("SELECT session, provider, model, kind, input, cache_read, output FROM calls WHERE kind = 'turn'").get()
+    const rows = db.prepare("SELECT session, provider, model, kind, input, cache_read, output FROM calls WHERE kind = 'turn' ORDER BY key").all()
+    assert.equal(rows.length, 3)
     assert.deepEqual(
-      { session: row?.session, provider: row?.provider, model: row?.model, kind: row?.kind, input: row?.input, cache_read: row?.cache_read, output: row?.output },
+      { session: rows[0]?.session, provider: rows[0]?.provider, model: rows[0]?.model, kind: rows[0]?.kind, input: rows[0]?.input, cache_read: rows[0]?.cache_read, output: rows[0]?.output },
       { session: 's-live', provider: 'openai-chatgpt', model: 'gpt-6.2-sol', kind: 'turn', input: 10_000, cache_read: 9_800, output: 120 },
     )
+    assert.equal(rows[2]?.input, 2000)
     const owner = db.prepare('SELECT owner, name FROM owners WHERE session = ?').get('s-live')
     assert.deepEqual({ owner: owner?.owner, name: owner?.name }, { owner: 'b1', name: 'Chief' })
   } finally {

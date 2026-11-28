@@ -311,6 +311,7 @@ export function install(rt) {
   const turnSyncDelayMs = rt.config?.usageTurnSyncDelayMs ?? TURN_SYNC_DELAY_MS
   const turnSyncTimers = new Map()
   const turnSyncing = new Set()
+  const turnSyncPending = new Set()
   let turnSyncAbort = new AbortController()
   // Active metered streams that already observed a usage chunk before finalizing.
   const activeMeters = new Set()
@@ -369,6 +370,7 @@ export function install(rt) {
     for (const timer of turnSyncTimers.values()) clearTimeout(timer)
     turnSyncTimers.clear()
     turnSyncing.clear()
+    turnSyncPending.clear()
     turnSyncAbort.abort()
     scanAbort?.abort()
     scanAbort = undefined
@@ -460,7 +462,7 @@ export function install(rt) {
     let through = asOfSeq
     if (through === undefined) {
       const projections = await ctx.sessionController.projections({ sessionId }, signal)
-      if (disposed || book !== ledger) return
+      if (disposed || book !== ledger || signal?.aborted) return
       if (projections === null || projections === undefined) return
       through = projections.asOfSeq
     }
@@ -825,17 +827,25 @@ export function install(rt) {
     if (disposed || rt.readOnly?.() !== undefined || typeof sessionId !== 'string' || sessionId === '') return
     if (typeof ctx.sessionController?.projections !== 'function' || typeof ctx.sessionController?.page !== 'function') return
     if (unreadable.has(sessionId)) return
+    if (turnSyncing.has(sessionId)) {
+      turnSyncPending.add(sessionId)
+      return
+    }
     const existing = turnSyncTimers.get(sessionId)
     if (existing !== undefined) clearTimeout(existing)
     const run = async () => {
       turnSyncTimers.delete(sessionId)
-      if (disposed || rt.readOnly?.() !== undefined || scanning !== undefined || turnSyncing.has(sessionId) || unreadable.has(sessionId)) return
+      if (disposed || rt.readOnly?.() !== undefined || scanning !== undefined || unreadable.has(sessionId)) return
+      if (turnSyncing.has(sessionId)) {
+        turnSyncPending.add(sessionId)
+        return
+      }
       turnSyncing.add(sessionId)
       try {
         await rt.load()
         if (disposed || rt.readOnly?.() !== undefined || scanning !== undefined) return
         const book = await openLedger().catch(() => undefined)
-        if (disposed || scanning !== undefined || book === undefined || book !== ledger) return
+        if (disposed || rt.readOnly?.() !== undefined || scanning !== undefined || book === undefined || book !== ledger) return
         try { journal(book, sessionId) } catch { /* best-effort owner journaling */ }
         const signal = AbortSignal.any([AbortSignal.timeout(PAGE_TIMEOUT_MS), turnSyncAbort.signal])
         await scanSession(book, { kind: 'session', sessionId }, undefined, undefined, signal)
@@ -843,6 +853,7 @@ export function install(rt) {
         // Transient read/lock race while the session flushes; the next turn or full scan catches up.
       } finally {
         turnSyncing.delete(sessionId)
+        if (!disposed && turnSyncPending.delete(sessionId)) scheduleTurnSync(sessionId)
       }
     }
     const timer = setTimeout(() => { void run() }, turnSyncDelayMs)
@@ -850,9 +861,9 @@ export function install(rt) {
     turnSyncTimers.set(sessionId, timer)
   }
   ctx.on?.('session/event', (session, event) => {
-    if (event?.type === 'turn/end' && typeof session?.id === 'string' && session.id !== '') {
-      scheduleTurnSync(session.id)
-    }
+    if (event?.type !== 'turn/end' || typeof session?.id !== 'string' || session.id === '') return
+    if (session.origin === 'subagent' || session.header?.origin === 'subagent') return
+    scheduleTurnSync(session.id)
   })
 
   // A request DS Bot makes of a local agent CLI outside the model stream.

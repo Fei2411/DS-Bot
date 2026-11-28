@@ -1088,7 +1088,7 @@ export function install(rt) {
             chatOwners.set(taskSid, botId)
             const preservePrefix = sessionIdOf(task?.forkedPrefixSessionId) === taskSid
               || (task?.forkedPrefixSessionId === undefined
-                && (task?.origin === 'fg-handoff' || task?.origin === 'bot-handoff')
+                && task?.origin === 'fg-handoff'
                 && (task?.segments?.length ?? 0) === 0)
             taskOwners.set(taskSid, { botId, taskId: task.id, ...roomMeta, ...(preservePrefix ? { preservePrefix: true } : {}) })
             if (preservePrefix && sessionIdOf(task?.cacheAffinityId) !== undefined) {

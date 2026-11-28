@@ -4240,7 +4240,7 @@ export function install(rt) {
   // in the part's history. When nothing is left to do, that turn's reply is a fixed
   // line instead of a model call.
   ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     const messages = options.messages ?? []
     const since = messages.findLastIndex(message => message.role === 'assistant' || message.role === 'tool') + 1
     const opened = messages.slice(since).filter(message => message.role === 'user' && isWakingSource(message.source))
@@ -5171,6 +5171,8 @@ export function install(rt) {
         return { sessionId: rt.chatOf(bot.id), recovered: false }
       }
       bot.sessionId = freshId
+      delete bot.cacheAffinitySessionId
+      delete bot.cacheAffinityId
       finishPresetClear(bot, lostId, presetAtCreation !== undefined ? freshId : undefined)
       if (bot.sessionMissing === lostId) delete bot.sessionMissing
       if (bot.failures?.[lostId] !== undefined) {

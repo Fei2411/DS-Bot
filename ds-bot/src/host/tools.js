@@ -1721,7 +1721,7 @@ export function install(rt) {
   const scopeKeyOf = (id) => {
     const s = scopeOf(id)
     const hideTaskTools = s.isTask && !s.preserveTaskPrefix
-    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${s.isGroup ? 1 : 0}:${hideTaskTools ? 1 : 0}:${hideTaskTools && s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
+    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${(s.isGroup || s.hasTaskRoom) ? 1 : 0}:${hideTaskTools ? 1 : 0}:${hideTaskTools && s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
   }
 
   // Team tools that have zero valid actions in this Bot Session's current role/context.
@@ -1742,7 +1742,7 @@ export function install(rt) {
       for (const name of GROUP_ONLY_TOOLS) hidden.add(name)
       hidden.add('delete_group')
     }
-    if (s.isGroup) {
+    if (s.isGroup || s.hasTaskRoom) {
       hidden.add('prepare_ds_bot_issue')
     }
     if (s.isTask && !s.preserveTaskPrefix) {
@@ -2482,7 +2482,7 @@ export function install(rt) {
   // its documented LLM waterfall; next() cannot accept replacement options.
   const plainSchemas = new WeakMap()
   ctx.on('llm/stream', function plainConnectorSchemas(options, next) {
-    if (!Array.isArray(options.tools)) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || !Array.isArray(options.tools)) return next()
     let changed = false
     const tools = options.tools.map((tool) => {
       if (!tool.name?.startsWith('mcp__') || tool.parameters === undefined) return tool

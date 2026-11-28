@@ -197,7 +197,11 @@ export function installTidy(rt, memory) {
     let changes = []
     if (!expiredOnly && selected.length >= ENTRIES_MIN) {
       const max = Math.max(1, Math.floor((selected.length + ended.length) / SHARE_MAX))
-      const tidyCacheKey = job.scope.kind === 'group' ? `mem-tidy:group:${job.scope.roomId}` : `mem-tidy:${job.keeper.id}`
+      const tidyCacheKey = job.scope.kind === 'group'
+        ? `mem-tidy:group:${job.scope.roomId}`
+        : job.scope.kind === 'team'
+          ? 'mem-tidy:team'
+          : `mem-tidy:${job.keeper.id}`
       const reply = await botShot(job.keeper, tidySystem({ who: job.who, max }), tidyRequest({ entries: selected, pinned: selectPinnedContext(pinned), omitted, language: languageNow() }), { sessionId: job.scope.kind === 'bot' ? rt.chatOf(job.keeper.id) : job.scope.kind === 'group' ? job.scope.roomId : rt.chatOf(job.keeper.id), kind: 'memory', cacheKey: tidyCacheKey })
       const parsed = parseTidy(reply)
       if (parsed === undefined) rt.warn('ds-bot: the memory tidy of %s got no list of changes from the model', key)
