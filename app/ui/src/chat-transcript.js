@@ -21,9 +21,13 @@ const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
 const MemoChatRows = memo(ChatRows)
 
+const itemIdKey = item => (item?.id !== undefined && item?.id !== null
+  ? `${item.sessionId ?? ''}:${item.id}`
+  : null)
+
 const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
-  ? a.id === b.id && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
-  : a.kind === b.kind && a.time === b.time && a.text === b.text)
+  ? a.id === b.id && (a.sessionId ?? null) === (b.sessionId ?? null) && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
+  : a.kind === b.kind && (a.sessionId ?? null) === (b.sessionId ?? null) && a.time === b.time && a.text === b.text)
 
 // `room-chat` speaks the mobile API contract (kind: 'bot' with botId/name/color,
 // kind: 'event' with event: 'done'|'failed'|'schedule'|...). `ChatRows` expects
@@ -31,8 +35,10 @@ const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
 // with RelayEvent instead of falling into the 1:1 'Message from a Bot' row.
 export function adaptRoomItem(item) {
   if (!item || typeof item !== 'object') return item
+  const seg = item.sessionId !== undefined ? { sessionId: item.sessionId } : {}
   if (item.kind === 'bot') {
     return {
+      ...seg,
       id: item.id,
       kind: 'post',
       seq: item.id,
@@ -49,6 +55,7 @@ export function adaptRoomItem(item) {
   }
   if (item.kind === 'event') {
     return {
+      ...seg,
       id: item.id,
       kind: 'relay',
       time: item.time,
@@ -68,45 +75,131 @@ export function adaptRoomItem(item) {
 
 export const adaptRoomItems = items => (Array.isArray(items) ? items.map(adaptRoomItem) : [])
 
+// Structural equality with cycle protection (`seen` allocated lazily on nested objects).
+function valuesEqual(a, b, seen) {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const visited = seen ?? new WeakMap()
+  let pairs = visited.get(a)
+  if (pairs) {
+    if (pairs.has(b)) return true
+    pairs.add(b)
+  } else {
+    visited.set(a, new Set([b]))
+  }
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i += 1) {
+      if (!valuesEqual(a[i], b[i], visited)) return false
+    }
+    return true
+  }
+  const keysA = Object.keys(a)
+  const keysB = Object.keys(b)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!Object.hasOwn(b, key) || !valuesEqual(a[key], b[key], visited)) return false
+  }
+  return true
+}
+
+const itemsEqual = (a, b) => a === b || (sameItem(a, b) && valuesEqual(a, b))
+
+// Appends incremental room delta items while preserving exact object references of
+// unchanged existing rows so memoized `ChatRows` entries skip re-rendering.
+export function mergeIncrementalItems(currentItems, deltaItems) {
+  if (!Array.isArray(deltaItems) || deltaItems.length === 0) return currentItems
+  if (!Array.isArray(currentItems) || currentItems.length === 0) return deltaItems
+  const byId = new Map()
+  for (let i = 0; i < currentItems.length; i += 1) {
+    const key = itemIdKey(currentItems[i])
+    if (key !== null) byId.set(key, i)
+  }
+  let next = null
+  for (const incoming of deltaItems) {
+    const key = itemIdKey(incoming)
+    const existingIdx = key !== null ? byId.get(key) : undefined
+    if (existingIdx !== undefined) {
+      const cur = (next ?? currentItems)[existingIdx]
+      if (itemsEqual(cur, incoming)) continue
+      if (next === null) next = currentItems.slice()
+      next[existingIdx] = incoming
+    } else {
+      if (next === null) next = currentItems.slice()
+      if (key !== null) byId.set(key, next.length)
+      next.push(incoming)
+    }
+  }
+  return next ?? currentItems
+}
+
 // Merges a refreshed newest page onto already-loaded history without discarding
-// earlier pages or rewinding the cursor.
+// earlier pages, rewinding the cursor, or churning unchanged row object references.
 export function mergeLatestPage(currentItems, currentCursor, nextItems, nextCursor) {
   if (currentItems.length === 0) return { items: nextItems, cursor: nextCursor }
-  if (nextItems.length === 0) return { items: [], cursor: nextCursor }
+  if (nextItems.length === 0) {
+    // A freshly rolled-over empty new part (`cursor: { part: N - 1 }` with no `beforeSeq`)
+    // must keep already-displayed earlier-part history on screen until messages arrive in it.
+    if (nextCursor && nextCursor.beforeSeq === undefined && Number.isInteger(nextCursor.part)) {
+      return { items: currentItems, cursor: currentCursor }
+    }
+    return { items: [], cursor: nextCursor }
+  }
+  const existingById = new Map()
+  for (const item of currentItems) {
+    const key = itemIdKey(item)
+    if (key !== null) existingById.set(key, item)
+  }
+  const stableNext = nextItems.map((item) => {
+    const key = itemIdKey(item)
+    const prev = key !== null ? existingById.get(key) : undefined
+    return prev && itemsEqual(prev, item) ? prev : item
+  })
   let cut = -1
-  for (const next of nextItems) {
+  for (const next of stableNext) {
     for (let i = currentItems.length - 1; i >= 0; i -= 1) {
       if (sameItem(currentItems[i], next)) { cut = i; break }
     }
     if (cut !== -1) break
   }
-  if (cut > 0) return { items: [...currentItems.slice(0, cut), ...nextItems], cursor: currentCursor }
-  if (cut === 0) return { items: nextItems, cursor: nextCursor }
+  if (cut > 0) return { items: [...currentItems.slice(0, cut), ...stableNext], cursor: currentCursor }
+  if (cut === 0) return { items: stableNext, cursor: nextCursor }
   if (nextCursor && nextCursor.beforeSeq === undefined && Number.isInteger(nextCursor.part)) {
-    return { items: [...currentItems, ...nextItems], cursor: currentCursor }
+    return { items: [...currentItems, ...stableNext], cursor: currentCursor }
   }
-  return { items: nextItems, cursor: nextCursor }
+  return { items: stableNext, cursor: nextCursor }
 }
 
-const userItemKey = item => (item.id !== undefined ? `id:${item.id}` : `t:${item.time ?? ''}:${item.text}`)
+const userItemKey = item => (item.id !== undefined
+  ? `id:${item.sessionId ?? ''}:${item.id}`
+  : `t:${item.sessionId ?? ''}:${item.time ?? ''}:${item.text}`)
 
-// Group chat: pages from `room-chat`, refreshed when the live feed announces room activity.
+// Group chat: pages from `room-chat`, incrementally appended when the live feed announces room activity.
 function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   const active = roomId !== undefined
-  const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
+  const [view, setView] = useState({ sessionId: null, partSessionId: null, items: [], cursor: null, loading: active, failed: false })
   const ready = useRef(false)
   const busy = useRef(false)
   const reloadQueued = useRef(false)
+  const reloadFullQueued = useRef(false)
+  const earlierQueued = useRef(null)
+  const tipRef = useRef(null)
   const gen = useRef(0)
   const hasLoaded = useRef(false)
   const knownUserIds = useRef(new Set())
   const onUserMatchRef = useRef(onUserMatch)
   onUserMatchRef.current = onUserMatch
 
-  const load = useCallback(async (cursor, scroller, refresh = false) => {
+  const load = useCallback(async (cursor, scroller, refresh = false, { incremental = false } = {}) => {
     if (!active) return
     if (busy.current) {
-      if (cursor === undefined) reloadQueued.current = true
+      if (cursor === undefined) {
+        reloadQueued.current = true
+        if (!incremental) reloadFullQueued.current = true
+      } else {
+        earlierQueued.current = { cursor, scroller }
+      }
       return
     }
     const myGen = gen.current
@@ -114,18 +207,34 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
     if (cursor === undefined && !refresh) ready.current = false
     if (!refresh) setView(current => ({ ...current, loading: true, failed: false }))
     try {
-      const page = await call('room-chat', { roomId, ...(cursor ? { cursor } : {}) })
+      const after = cursor === undefined && incremental ? tipRef.current : null
+      const page = await call('room-chat', {
+        roomId,
+        ...(cursor ? { cursor } : {}),
+        ...(after ? { after } : {}),
+      })
       if (gen.current !== myGen) return
       const pageItems = adaptRoomItems(page.items)
-      const pageSessionId = page.sessionId ?? part
+      const pageSessionId = roomId ?? part
+      const pagePartSessionId = page.tip?.sessionId ?? null
       if (cursor === undefined) {
         ready.current = true
+        if (page.tip !== undefined) tipRef.current = page.tip
         setView((current) => {
+          if (
+            page.incremental === true
+            && current.sessionId === pageSessionId
+            && (pagePartSessionId === null || current.partSessionId === pagePartSessionId)
+          ) {
+            const nextItems = mergeIncrementalItems(current.items, pageItems)
+            if (nextItems === current.items && !current.loading && !current.failed) return current
+            return { ...current, items: nextItems, loading: false, failed: false }
+          }
           if (refresh && current.sessionId === pageSessionId && current.items.length > 0) {
             const merged = mergeLatestPage(current.items, current.cursor, pageItems, page.cursor)
-            return { ...current, items: merged.items, cursor: merged.cursor, loading: false, failed: false }
+            return { ...current, partSessionId: pagePartSessionId, items: merged.items, cursor: merged.cursor, loading: false, failed: false }
           }
-          return { sessionId: pageSessionId, items: pageItems, cursor: page.cursor, loading: false, failed: false }
+          return { sessionId: pageSessionId, partSessionId: pagePartSessionId, items: pageItems, cursor: page.cursor, loading: false, failed: false }
         })
         const initial = !hasLoaded.current
         hasLoaded.current = true
@@ -153,9 +262,15 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
     } finally {
       if (gen.current === myGen) {
         busy.current = false
-        if (reloadQueued.current) {
+        if (earlierQueued.current !== null) {
+          const pendingEarlier = earlierQueued.current
+          earlierQueued.current = null
+          void loadRef.current(pendingEarlier.cursor, pendingEarlier.scroller)
+        } else if (reloadQueued.current) {
+          const forceFull = reloadFullQueued.current
           reloadQueued.current = false
-          void loadRef.current(undefined, undefined, true)
+          reloadFullQueued.current = false
+          void loadRef.current(undefined, undefined, true, { incremental: !forceFull })
         }
       }
     }
@@ -163,27 +278,43 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   const loadRef = useRef(load)
   loadRef.current = load
 
+  const prevPartRef = useRef(part)
   useEffect(() => {
     const myGen = ++gen.current
+    prevPartRef.current = part
     busy.current = false
     reloadQueued.current = false
+    reloadFullQueued.current = false
+    earlierQueued.current = null
+    tipRef.current = null
     ready.current = false
     hasLoaded.current = false
     knownUserIds.current.clear()
-    setView({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
+    setView({ sessionId: null, partSessionId: null, items: [], cursor: null, loading: active, failed: false })
     if (active) void loadRef.current(undefined)
     return () => {
       if (gen.current === myGen) gen.current += 1
       busy.current = false
       reloadQueued.current = false
+      reloadFullQueued.current = false
+      earlierQueued.current = null
     }
+  }, [active, roomId])
+
+  // When the same room rolls over to a new part (`part` changes while `roomId` stays equal),
+  // refresh without wiping already-displayed earlier-part history on screen.
+  useEffect(() => {
+    const prevPart = prevPartRef.current
+    prevPartRef.current = part
+    if (!active || prevPart === part || !ready.current) return
+    void loadRef.current(undefined, undefined, true, { incremental: false })
   }, [active, roomId, part])
 
   useEffect(() => {
     if (!active || !feed) return undefined
     return feed.on((event, data) => {
-      if (event === 'hello') { if (data?.resumed !== true && ready.current) void loadRef.current(undefined, undefined, true); return }
-      if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true)
+      if (event === 'hello') { if (data?.resumed !== true && ready.current) void loadRef.current(undefined, undefined, true, { incremental: false }); return }
+      if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true, { incremental: true })
     })
   }, [active, feed, roomId])
 
@@ -255,6 +386,7 @@ export const Transcript = memo(function Transcript({
   const sessionRunning = hooks.useSessionStatus(map => map.get(activeSessionId)?.running === true)
   const feedDisconnected = hooks.useConnection ? hooks.useConnection(state => state.status !== 'connected') : false
 
+  const earlierTopRef = useRef(null)
   const follow = useRef(true)
   const smoothScrollRef = useRef(null)
   const [following, setFollowing] = useState(true)
@@ -358,6 +490,33 @@ export const Transcript = memo(function Transcript({
   }
 
   const busy = isRoom ? roomChat.view.loading : (dmChat.loading || dmChat.paging)
+  const canAutoLoadEarlier = isRoom
+    ? Boolean(roomChat.view.cursor && !roomChat.view.loading && !roomChat.view.failed && roomChat.view.sessionId !== null)
+    : Boolean(dmChat.hasMore && !dmChat.loading && !dmChat.paging && !dmChat.pageFailed)
+  const loadEarlierRef = useRef(null)
+  loadEarlierRef.current = () => {
+    if (isRoom) {
+      if (roomChat.view.cursor) void roomChat.load(roomChat.view.cursor, scrollerRef.current)
+    } else if (dmChat.hasMore) {
+      void dmChat.loadEarlier(scrollerRef.current)
+    }
+  }
+  // Auto-load the previous page when the user scrolls near the top, mirroring `EarlierParts`.
+  // Gated on `!following` so initial open (before scroll-to-bottom) and live tail following never trigger it.
+  useEffect(() => {
+    if (!canAutoLoadEarlier || following || typeof IntersectionObserver !== 'function') return undefined
+    const topNode = earlierTopRef.current
+    const rootNode = scrollerRef.current
+    if (!topNode || !rootNode) return undefined
+    const observer = new IntersectionObserver((entries) => {
+      if (!follow.current && entries.some(entry => entry.isIntersecting)) {
+        loadEarlierRef.current?.()
+      }
+    }, { root: rootNode, rootMargin: '600px 0px 0px 0px' })
+    observer.observe(topNode)
+    return () => observer.disconnect()
+  }, [canAutoLoadEarlier, following, isRoom, roomChat.view.cursor, dmChat.hasMore, scrollerRef])
+
   const earlier = isRoom
     ? (roomChat.view.loading && roomChat.view.sessionId !== null ? h(Shimmer, null, t('Loading earlier messages…'))
       : roomChat.view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => roomChat.load(roomChat.view.cursor ?? undefined, scrollerRef.current) }, t('Couldn’t load earlier messages · Retry'))
@@ -433,7 +592,7 @@ export const Transcript = memo(function Transcript({
     h('div', { ref: scrollerRef, className: 'dsb-scroll', 'data-bt-scroll': '', 'data-bt-following-tail': following ? 'true' : 'false', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
       !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
       h('div', { className: 'dsb-column' },
-        earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
+        earlier ? h('div', { ref: earlierTopRef, className: 'bt-earlier-top' }, earlier) : null,
         sessionNotice,
         h('div', { className: 'dsb-flow', 'data-bt-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
           !isRoom && dmChat.historyReloaded ? h('div', { key: 'history-reloaded', className: 'bt-time-sep', role: 'separator' }, t('Conversation history was reloaded')) : null,

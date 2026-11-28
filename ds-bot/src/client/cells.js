@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
@@ -16,7 +16,7 @@ import { SecretToolCell } from './secret-card.js'
 import { ConnectorToolCell, MailToolCell } from './connectors.js'
 import { HandoffCall } from './handoff-card.js'
 import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.js'
-import { mdLabels, t } from './i18n.js'
+import { localeKey, mdLabels, t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
@@ -813,10 +813,10 @@ export function EarlierParts({ sessionId, roster, actions, openFile, renderUserT
     observer.observe(node)
     return () => observer.disconnect()
   }, [view.cursor, view.loading, view.failed])
-  const removeBtw = cardId => setView(current => ({
+  const removeBtw = useCallback(cardId => setView(current => ({
     ...current,
     pages: current.pages.map(page => ({ ...page, btw: page.btw.filter(card => card?.id !== cardId) })),
-  }))
+  })), [])
   const { items, hasContent } = earlierItems(view.pages, view)
   return h('div', { className: 'bt-earlier', role: 'feed', 'aria-label': t('Earlier messages'), 'aria-busy': view.loading },
     h('div', { ref: top, className: 'bt-earlier-top' },
@@ -832,20 +832,183 @@ export function EarlierParts({ sessionId, roster, actions, openFile, renderUserT
 // `clock` adds the time separators: one above the first entry, and one after each pause.
 const NOOP_UI = () => undefined
 
+function stableChatRowBaseKey(row) {
+  const seg = row.sessionId !== undefined && row.sessionId !== null ? `${row.sessionId}:` : ''
+  if (row.id !== undefined && row.id !== null) return `${seg}${row.kind}:id:${row.id}`
+  switch (row.kind) {
+    case 'post': return `${seg}post:${row.seq ?? row.time ?? ''}:${row.botId ?? ''}`
+    case 'view': return `${seg}view:${row.callId ?? row.time ?? ''}`
+    case 'btw': return `${seg}btw:${row.card?.id ?? row.time ?? ''}`
+    case 'divider': return `${seg}divider:${row.time ?? ''}`
+    case 'bot': return `${seg}bot:${row.time ?? ''}`
+    case 'relay': return `${seg}relay:${row.reply?.botId ?? ''}:${row.reply?.kind ?? ''}:${row.time ?? row.reply?.time ?? ''}`
+    case 'event': return `${seg}event:${row.role ?? ''}:${row.botId ?? row.roomId ?? ''}:${row.time ?? ''}`
+    case 'user': return `${seg}user:${row.seq ?? row.time ?? ''}`
+    default: return `${seg}${row.kind ?? 'row'}:${row.seq ?? row.time ?? ''}`
+  }
+}
+
+const MemoEarlierUser = memo(EarlierUser, undefined, 'EarlierUser')
+const MemoGroupMessage = memo(GroupMessage, undefined, 'GroupMessage')
+const MemoPartLine = memo(PartLine, undefined, 'PartLine')
+const MemoEventLine = memo(EventLine, undefined, 'EventLine')
+const MemoGroupEvent = memo(GroupEvent, undefined, 'GroupEvent')
+const MemoBubbles = memo(Bubbles, undefined, 'Bubbles')
+const MemoRelayEvent = memo(RelayEvent, undefined, 'RelayEvent')
+
+// Stable per-row caches so fallback objects (`poster`, `whole`, `args`) keep exact
+// references across appends/prepends and allow `React.memo` to bail out on unchanged rows.
+const fallbackBotCache = new WeakMap()
+const wholeLoaderCache = new WeakMap()
+const viewArgsCache = new WeakMap()
+
+function stableFallbackBot(row, id, name, color) {
+  let cached = fallbackBotCache.get(row)
+  if (!cached || cached.id !== id || cached.name !== name || cached.color !== color) {
+    cached = { id, name, color }
+    fallbackBotCache.set(row, cached)
+  }
+  return cached
+}
+
+function stableWhole(row, actions) {
+  if (!row.file) return undefined
+  let cached = wholeLoaderCache.get(row)
+  if (!cached || cached.file !== row.file || cached.length !== row.length || cached.actions !== actions) {
+    cached = {
+      file: row.file,
+      length: row.length,
+      actions,
+      value: { length: row.length, load: () => actions.fileText(row.file) },
+    }
+    wholeLoaderCache.set(row, cached)
+  }
+  return cached.value
+}
+
+function stableViewArgs(row) {
+  let cached = viewArgsCache.get(row)
+  if (!cached || cached.title !== row.title || cached.view !== row.view) {
+    cached = {
+      title: row.title,
+      view: row.view,
+      value: { text: name => (name === 'title' ? row.title : undefined), value: name => (name === 'view' ? row.view : undefined) },
+    }
+    viewArgsCache.set(row, cached)
+  }
+  return cached.value
+}
+
+const eventBotsCache = new WeakMap()
+const stableEventBots = (row, other) => {
+  let cached = eventBotsCache.get(row)
+  if (!cached || cached.other !== other) {
+    cached = { other, value: [other] }
+    eventBotsCache.set(row, cached)
+  }
+  return cached.value
+}
+
+const eventOpenCache = new WeakMap()
+const stableEventOpen = (row, selfId, otherId, actions) => {
+  let cached = eventOpenCache.get(row)
+  if (!cached || cached.selfId !== selfId || cached.otherId !== otherId || cached.actions !== actions) {
+    cached = { selfId, otherId, actions, value: () => { if (selfId && otherId) actions.openExchange(selfId, otherId) } }
+    eventOpenCache.set(row, cached)
+  }
+  return cached.value
+}
+
+// `useUi` gives a block its reactions and its Reply tool.
+// Each row component is individually memoized with stable keys and stable props so
+// appending a new group message (or prepending an earlier page) skips unchanged rows.
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale }) {
+  switch (row.kind) {
+    case 'divider': return h(MemoPartLine, { key, time: row.time, locale })
+    case 'user': return h(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText, locale })
+    case 'answer': return h(AnsweredReply, { key, node: { data: row } })
+    // A question or view card closed without an answer on it.
+    case 'closed': return row.view === undefined
+      ? h('div', { key, className: 'bt-q-inline' }, h(SettledQuestion, { question: row.question, closed: row.closed }))
+      : h(ClosedView, { key, title: row.title, view: row.view, closed: row.closed })
+    // A display-only view replays from the blueprint the host kept on the call.
+    case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions })
+    case 'bot': {
+      const bubbles = h(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale })
+      const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[selfId] : undefined
+      return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
+    }
+    case 'btw': return h(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete })
+    case 'post': {
+      // A member's message in a group's earlier part, as the live row shows it.
+      const poster = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t('a Bot'), row.color ?? 'gray')
+      return h(MemoGroupMessage, {
+        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
+        msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
+        whole: stableWhole(row, actions), locale,
+      })
+    }
+    case 'relay': {
+      // A round notice from a group_relay result on an earlier part, the row the
+      // live chat draws for it.
+      const reply = row.reply
+      const speaker = roster.byId[reply.botId] ?? stableFallbackBot(row, reply.botId, reply.name ?? t('a Bot'), reply.color ?? 'gray')
+      return h(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions, locale })
+    }
+    case 'event': {
+      if (row.role === 'report') return h(MemoGroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions, locale })
+      const other = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t('a Bot'), 'gray')
+      const prefix = {
+        stopped: t('Stopped by'),
+        cancelled: t('Cancelled by'),
+        note: t('Note from'),
+        ask_back: t('Question from'),
+        answer: t('Answer from'),
+        reply: t('Reply from'),
+      }[row.role] ?? t('Message from')
+      return h(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true, locale })
+    }
+    default: return null
+  }
+}
+
 export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id
   const visit = useUi(state => state?.visits?.[sessionId])
-  const rows = []
-  for (const item of items) {
-    const last = rows.at(-1)
-    if (item.kind === 'divider' && last?.kind === 'divider') {
-      // Collapse consecutive dividers from empty parts into one, keeping the latest start time.
-      rows[rows.length - 1] = item
-    } else if (item.kind === 'bot' && last?.kind === 'bot') {
-      last.texts.push(item.text)
-      last.end = item.time
-    } else rows.push(item.kind === 'bot' ? { kind: 'bot', texts: [item.text], time: item.time, end: item.time } : item)
-  }
+  const locale = localeKey()
+  // Preserve merged `bot` row object identity across appends/prepends so memoized rows stay hit.
+  const botRunCacheRef = useRef(new Map())
+  const rows = useMemo(() => {
+    const prevCache = botRunCacheRef.current
+    const nextCache = new Map()
+    const out = []
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]
+      const last = out.at(-1)
+      if (item.kind === 'divider' && last?.kind === 'divider') {
+        // Collapse consecutive dividers from empty parts into one, keeping the latest start time.
+        out[out.length - 1] = item
+      } else if (item.kind === 'bot') {
+        const texts = [item.text]
+        let end = item.time
+        while (i + 1 < items.length && items[i + 1].kind === 'bot' && (items[i + 1].sessionId ?? null) === (item.sessionId ?? null)) {
+          i += 1
+          texts.push(items[i].text)
+          end = items[i].time
+        }
+        const runKey = `${item.sessionId ?? ''}:${item.id ?? ''}:${item.time ?? ''}:${end ?? ''}:${texts.length}`
+        const cached = prevCache.get(runKey)
+        const same = cached && cached.texts.length === texts.length && cached.texts.every((value, idx) => value === texts[idx])
+        const merged = same ? cached : { ...(item.sessionId !== undefined ? { sessionId: item.sessionId } : {}), ...(item.id !== undefined ? { id: item.id } : {}), kind: 'bot', texts, time: item.time, end }
+        nextCache.set(runKey, merged)
+        out.push(merged)
+      } else {
+        out.push(item)
+      }
+    }
+    botRunCacheRef.current = nextCache
+    return out
+  }, [items])
   useEffect(() => {
     if (!clock || typeof actions?.noteTurnTime !== 'function') return
     rows.forEach((row, index) => {
@@ -853,13 +1016,17 @@ export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, c
         actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, 'first', row.time)
       }
     })
-  }, [clock, sessionId, items, actions])
+  }, [clock, sessionId, rows, actions])
   let before
   let newShown = false
-  return rows.flatMap((row, index) => {
-    // Pages are prepended, so a row keeps its distance from the end.
-    const key = rows.length - index
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText })
+  const seenKeys = new Map()
+  return rows.flatMap((row) => {
+    // Keys stay stable across both prepends (earlier pages) and appends (new live messages).
+    const baseKey = stableChatRowBaseKey(row)
+    const count = seenKeys.get(baseKey) ?? 0
+    seenKeys.set(baseKey, count + 1)
+    const key = count === 0 ? baseKey : `${baseKey}#${count}`
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
@@ -875,57 +1042,6 @@ export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, c
     out.push(shown)
     return out
   })
-}
-
-// `useUi` gives a block its reactions and its Reply tool.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
-  switch (row.kind) {
-    case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText })
-    case 'answer': return h(AnsweredReply, { key, node: { data: row } })
-    // A question or view card closed without an answer on it.
-    case 'closed': return row.view === undefined
-      ? h('div', { key, className: 'bt-q-inline' }, h(SettledQuestion, { question: row.question, closed: row.closed }))
-      : h(ClosedView, { key, title: row.title, view: row.view, closed: row.closed })
-    // A display-only view replays from the blueprint the host kept on the call.
-    case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })
-    case 'bot': {
-      const bubbles = h(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true })
-      const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[selfId] : undefined
-      return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
-    }
-    case 'btw': return h(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete })
-    case 'post': {
-      // A member's message in a group's earlier part, as the live row shows it.
-      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: row.color ?? 'gray' }
-      return h(GroupMessage, {
-        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
-        msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
-        whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
-      })
-    }
-    case 'relay': {
-      // A round notice from a group_relay result on an earlier part, the row the
-      // live chat draws for it.
-      const reply = row.reply
-      const speaker = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name ?? t('a Bot'), color: reply.color ?? 'gray' }
-      return h(RelayEvent, { key, reply, bot: speaker, sessionId, actions })
-    }
-    case 'event': {
-      if (row.role === 'report') return h(GroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
-      const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
-      const prefix = {
-        stopped: t('Stopped by'),
-        cancelled: t('Cancelled by'),
-        note: t('Note from'),
-        ask_back: t('Question from'),
-        answer: t('Answer from'),
-        reply: t('Reply from'),
-      }[row.role] ?? t('Message from')
-      return h(EventLine, { key, prefix, bots: [other], onOpen: () => { if (selfId && other.id) actions.openExchange(selfId, other.id) }, whole: true })
-    }
-    default: return null
-  }
 }
 
 export function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
