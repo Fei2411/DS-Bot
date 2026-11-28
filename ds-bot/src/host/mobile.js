@@ -11,6 +11,7 @@ import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { expandHome, within } from './folders.js'
+import { extractLocalMarkdownImages } from './im/outbound-images.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { addressOf } from './session-follow.js'
 import { presentedFileName, presentedFiles, relayRange, stripRelayPrefix } from '../shared/group-replies.js'
@@ -785,7 +786,47 @@ export function install(rt) {
     ['.svg', 'image/svg+xml'],
   ])
 
-  async function markdownImage(body, { allowAgentArtifacts = false } = {}) {
+  async function roomHasImageReply(roomId, sessionId, botId, path) {
+    if (!rt.partsOf(undefined, roomId).some(part => part.sessionId === sessionId)) return false
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+    const matches = item => item.kind === 'bot' && item.botId === botId
+      && extractLocalMarkdownImages(item.text).some(image => image.path === path)
+    const rowsOf = range => rt.groupRows?.(roomId, range.from, range.to, range.anchor) ?? []
+    const matchingResults = new Set()
+    let beforeSeq
+    do {
+      const page = await ctx.sessionController.page({
+        address: { kind: 'session', sessionId },
+        ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        maxMessages: ROOM_PAGE,
+      }, signal).catch(() => undefined)
+      const records = page?.records ?? []
+      for (const { event } of [...records].reverse()) {
+        if (event.type === 'tool/call' && event.data?.name === 'group_relay') {
+          const callId = event.data.callId
+          if (matchingResults.has(callId)) return true
+          const round = rt.roomProgress.get(callId)
+          if (round?.roomId === roomId) {
+            const rows = Number.isInteger(round.from) ? rowsOf(round) : round.replies ?? []
+            if (rows.some(row => {
+              const item = replyItem(row, '')
+              return item !== undefined && matches(item)
+            })) return true
+          }
+        } else if (event.type === 'tool/result' || event.type === 'user/message') {
+          if (!roomItems([event], rowsOf).items.some(matches)) continue
+          if (event.type === 'user/message') return true
+          const callId = event.data?.message?.toolCallId
+          if (typeof callId === 'string') matchingResults.add(callId)
+        }
+      }
+      if (!page?.hasMore || records.length === 0) return false
+      beforeSeq = records[0].event.seq
+    } while (!signal.aborted)
+    return false
+  }
+
+  async function markdownImage(body, { allowAgentArtifacts = false, trustedAuthorId } = {}) {
     const sessionId = String(body.sessionId ?? '')
     const raw = typeof body.path === 'string' ? body.path.trim() : ''
     if (raw === '') throw Object.assign(new Error('No image named'), { code: 'bot/invalid' })
@@ -810,9 +851,11 @@ export function install(rt) {
     const botId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
       ?? (room === undefined ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id : undefined)
     if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
-    const authorId = room !== undefined && typeof body.botId === 'string' && rt.botOf(body.botId) !== undefined
-      && (room.members?.includes(body.botId) || rt.botOf(body.botId)?.private !== true)
-      ? body.botId
+    const requestedAuthorId = trustedAuthorId ?? body.botId
+    const authorId = room !== undefined && typeof requestedAuthorId === 'string' && rt.botOf(requestedAuthorId) !== undefined
+      && (botId === undefined || botId === requestedAuthorId)
+      && (room.members.includes(requestedAuthorId) || botId === requestedAuthorId || trustedAuthorId === requestedAuthorId)
+      ? requestedAuthorId
       : undefined
     const targetSessionId = room !== undefined
       ? (sessionId === room.id && rt.sessionOfRoom(room) !== sessionId && !(room.parts ?? []).some(part => part.sessionId === sessionId)
@@ -847,19 +890,27 @@ export function install(rt) {
     }
     if (!allowed && isAbsolute(cleanPath)) {
       const roomId = room?.id
-      const extraDirs = [
+      const workDirs = [
         rt.teamFolder?.(),
         rt.defaultTeamFolder?.(),
         rt.workDirOf?.({ botId, roomId }),
-        ...rt.extraDirsOf({ botId, roomId }),
         ...(authorId !== undefined ? [
           rt.workDirOf?.({ botId: authorId, roomId }),
           rt.workDirOf?.({ botId: authorId }),
-          ...rt.extraDirsOf({ botId: authorId, roomId }),
         ] : []),
       ].filter(Boolean)
-      for (const dir of new Set(extraDirs)) {
+      for (const dir of new Set(workDirs)) {
         if (within(realPath, await rt.real(dir))) { allowed = true; break }
+      }
+      if (!allowed) {
+        const containsImage = dir => within(realPath, resolve(dir))
+        allowed = rt.extraDirsOf({ botId, roomId }).some(containsImage)
+        // A room's shared Session does not prove which Bot supplied a link.
+        if (!allowed && roomId !== undefined && botId === undefined && typeof requestedAuthorId === 'string'
+          && rt.extraDirsOf({ botId: requestedAuthorId, roomId }).some(containsImage)) {
+          allowed = (trustedAuthorId === requestedAuthorId && authorId === requestedAuthorId)
+            || await roomHasImageReply(roomId, targetSessionId, requestedAuthorId, raw)
+        }
       }
       if (!allowed && allowAgentArtifacts && rt.engineOfBot(rt.botOf(authorId ?? botId)) === 'local-antigravity') {
         const userHome = await rt.real(homedir())

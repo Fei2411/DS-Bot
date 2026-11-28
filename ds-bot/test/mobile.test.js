@@ -1150,10 +1150,10 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
 })
 
 test('markdown-image opens images from the chat and group author’s configured extra folders (#2405)', async (t) => {
-  const { call, rt, stop } = start()
+  const { call, history, rt, stop } = start()
   t.after(stop)
   const { chief, writer, room } = await team(call)
-  const root = mkdtempSync(join(tmpdir(), 'ds-bot-md-extras-'))
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-extras-')))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const [botDir, roomDir, otherDir, groupWorkDir] = ['bot', 'room', 'other', 'workspace'].map(name => join(root, name))
   for (const dir of [botDir, roomDir, otherDir, groupWorkDir]) mkdirSync(dir)
@@ -1165,6 +1165,7 @@ test('markdown-image opens images from the chat and group author’s configured 
   rt.state.rooms[room.id].extraDirs = [roomDir]
   const chatId = rt.chatOf(chief)
   const groupId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  history[groupId] = [relayCall(1, 'round'), relayResult(2, 'round', [{ botId: chief, text: `![Plot](<${botImage}>)` }])]
 
   const read = (sessionId, path, botId) => call('markdown-image', { sessionId, path, botId })
   const results = await Promise.all([
@@ -1178,6 +1179,75 @@ test('markdown-image opens images from the chat and group author’s configured 
   rt.state.rooms[room.id].workDir = groupWorkDir
   assert.equal((await read(groupId, botImage, chief)).error?.code, 'bot/forbidden')
   assert.equal((await read(groupId, roomImage, chief)).value?.bytes, bytes.toString('base64'))
+})
+
+test('markdown-image keeps configured extra-folder roots anchored after symlink replacement (#2405)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-extra-root-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const parent = join(root, 'approved-parent')
+  const extra = join(parent, 'extra')
+  const outside = join(root, 'outside')
+  mkdirSync(extra, { recursive: true })
+  mkdirSync(join(outside, 'extra'), { recursive: true })
+  writeFileSync(join(extra, 'plot.png'), 'approved')
+  writeFileSync(join(outside, 'plot.png'), 'outside')
+  writeFileSync(join(outside, 'extra', 'plot.png'), 'outside')
+  rt.state.bots[chief].extraDirs = [extra]
+  const read = path => call('markdown-image', { sessionId: rt.chatOf(chief), path })
+  assert.equal((await read(join(extra, 'plot.png'))).ok, true)
+
+  symlinkSync(join(outside, 'plot.png'), join(extra, 'escape.png'))
+  const childLink = await read(join(extra, 'escape.png'))
+  rmSync(extra, { recursive: true })
+  symlinkSync(outside, extra, 'junction')
+  const rootLink = await read(join(extra, 'plot.png'))
+  rmSync(parent, { recursive: true })
+  symlinkSync(outside, parent, 'junction')
+  const parentLink = await read(join(extra, 'plot.png'))
+  assert.deepEqual([childLink, rootLink, parentLink].map(result => result.error?.code), Array(3).fill('bot/forbidden'))
+})
+
+test('markdown-image only grants group author extra folders for attributed replies (#2405)', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const outsider = (await call('create-bot', { name: 'Outsider' })).value
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-authors-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const [outside, member] = ['outside', 'member'].map(name => join(root, name))
+  for (const dir of [outside, member]) {
+    mkdirSync(dir)
+    for (const name of ['plot.png', 'unlinked.png']) writeFileSync(join(dir, name), name)
+  }
+  rt.state.bots[outsider.id].extraDirs = [outside]
+  rt.state.bots[writer.id].extraDirs = [member]
+  const sessionId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  const read = (botId, path) => call('markdown-image', { sessionId, path, botId })
+  const plot = join(member, 'plot.png')
+  const unlinked = `![Unlinked](<${join(member, 'unlinked.png')}>)`
+  history[sessionId] = [
+    relayCall(1, 'round'),
+    relayResult(2, 'round', [{ botId: writer.id, text: `![Plot](<${plot}>)` }, { botId: chief, text: unlinked }]),
+    { ...relayCall(3, 'other'), data: { callId: 'other', name: 'shell' } },
+    relayResult(4, 'other', [{ botId: writer.id, text: unlinked }]),
+  ]
+  assert.deepEqual((await Promise.all([
+    read(outsider.id, join(outside, 'plot.png')),
+    read(writer.id, join(member, 'unlinked.png')),
+    read(writer.id, plot),
+  ])).map(result => result.error?.code ?? result.ok), ['bot/forbidden', 'bot/forbidden', true])
+
+  rt.state.rooms[room.id].members = [chief]
+  const archivedSession = 'archived-image-room'
+  rt.state.rooms[room.id].parts = [{ sessionId: archivedSession, endedAt: 2 }]
+  rt.pastOwners.set(archivedSession, { roomId: room.id })
+  history[archivedSession] = history[sessionId]
+  delete history[sessionId]
+  assert.equal((await call('markdown-image', { sessionId: archivedSession, path: plot, botId: writer.id })).ok, true)
+  assert.equal((await read(writer.id, plot)).error?.code, 'bot/forbidden')
 })
 
 test('markdown-image expands home links but limits default artifacts to the Antigravity author (#2405)', async (t) => {
@@ -1220,7 +1290,7 @@ test('markdown-image expands home links but limits default artifacts to the Anti
   const extra = join(home, 'extra')
   mkdirSync(extra)
   writeFileSync(join(extra, 'plot.png'), bytes)
-  rt.state.bots[writer.id].extraDirs = [extra]
+  rt.state.bots[writer.id].extraDirs = [await rt.real(extra)]
   for (const path of ['~/extra/plot.png', '~\\extra/plot.png']) {
     assert.equal((await call('markdown-image', { sessionId: rt.chatOf(writer.id), path })).value?.bytes, bytes.toString('base64'))
   }

@@ -1180,9 +1180,8 @@ export function install(rt) {
         maxBytes: adapters[conn.platform]?.imageMaxBytes,
         resolveImage: (path) => rt.mobileEndpoint('markdown-image', {
           sessionId,
-          ...(botId !== undefined ? { botId } : {}),
           path,
-        }, { allowAgentArtifacts: true }),
+        }, { allowAgentArtifacts: true, trustedAuthorId: botId }),
       })
       for (const failure of prepared.failed) {
         rt.warn('ds-bot: im outbound image %s skipped: %s', failure.path, failure.reason)
