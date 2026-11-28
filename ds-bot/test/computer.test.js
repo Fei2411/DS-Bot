@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import { classify, levelAllows, isComputerTool } from '../src/host/computer/catalog.js'
 import { createLeases } from '../src/host/computer/leases.js'
@@ -1935,4 +1936,117 @@ test('prototype property names never false-match grantFor or revokeApp', async (
     assert.equal((await pending).isError, true)
     assert.equal(await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: key }), true)
   }
+})
+
+test('llm/stream normalizes cua params sent as a JSON object string (#2410)', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+
+  const listeners = ctx.listeners.get('llm/stream') ?? []
+  const runStream = async (options, chunks) => {
+    const invoke = (i) => i >= listeners.length
+      ? (async function* () { for (const chunk of chunks) yield chunk })()
+      : listeners[i](options, () => invoke(i + 1))
+    const out = []
+    const asm = new BlockAssembler()
+    for await (const chunk of invoke(0)) {
+      out.push(chunk)
+      asm.push(chunk)
+    }
+    return { chunks: out, blocks: asm.blocks() }
+  }
+  const cuaOptions = (sessionId = 'w1') => ({
+    sessionId,
+    tools: [{ name: 'cua', parameters: { type: 'object', oneOf: [] } }],
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'check capabilities' }] }],
+  })
+
+  // 1) Empty object and populated object params encoded as JSON strings are unwrapped.
+  const capRaw = JSON.stringify({ method: 'getCapabilities', params: '{}' })
+  const cap = await runStream(cuaOptions(), [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id: 'c-1', name: 'cua', argumentsDelta: capRaw },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-1', name: 'cua', arguments: capRaw } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  assert.deepEqual(JSON.parse(cap.blocks[0].arguments), { method: 'getCapabilities', params: {} })
+
+  const findRaw = JSON.stringify({ method: 'findApps', params: JSON.stringify({ query: 'Calculator' }) })
+  const find = await runStream(cuaOptions(), [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id: 'c-2', name: 'cua', argumentsDelta: findRaw.slice(0, 15) },
+    { type: 'tool-call-delta', index: 0, id: 'c-2', argumentsDelta: findRaw.slice(15) },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-2', name: 'cua', arguments: findRaw } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  assert.deepEqual(JSON.parse(find.blocks[0].arguments), { method: 'findApps', params: { query: 'Calculator' } })
+
+  // 2) Normalized arguments feed computerGate so foreground classification and protected app checks still hold.
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const moveRaw = JSON.stringify({ method: 'mouseMove', params: JSON.stringify({ useSystemPointer: true }) })
+  const move = await runStream(cuaOptions(), [
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-3', name: 'cua', arguments: moveRaw } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  const moveDecision = await gate({ name: 'cua', arguments: JSON.parse(move.blocks[0].arguments), agent: { id: 'w1' }, callId: 'c-3' }, async () => 'allowed')
+  assert.equal(moveDecision.kind, 'deny')
+  assert.match(moveDecision.reason, /foreground/)
+
+  const protRaw = JSON.stringify({ method: 'getApp', params: JSON.stringify({ selector: 'Keychain Access' }) })
+  const prot = await runStream(cuaOptions(), [
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-4', name: 'cua', arguments: protRaw } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  const protDecision = await gate({ name: 'cua', arguments: JSON.parse(prot.blocks[0].arguments), agent: { id: 'w1' }, callId: 'c-4' }, async () => 'allowed')
+  assert.equal(protDecision.kind, 'deny')
+  assert.match(protDecision.reason, /protected/)
+
+  // 3) Invalid or non-object JSON strings stay untouched so cua validation still rejects them.
+  for (const bad of ['not json', '[]', 'null', '123', '"str"', 'true']) {
+    const raw = JSON.stringify({ method: 'findApps', params: bad })
+    const res = await runStream(cuaOptions(), [
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-bad', name: 'cua', arguments: raw } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ])
+    assert.equal(res.blocks[0].arguments, raw, `non-object params ${bad} must remain untouched`)
+  }
+
+  // 4) Already-object params pass through untouched (same chunk reference).
+  const okRaw = JSON.stringify({ method: 'getCapabilities', params: {} })
+  const okEnd = { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-ok', name: 'cua', arguments: okRaw } }
+  const ok = await runStream(cuaOptions(), [okEnd, { type: 'finish', reason: { kind: 'tool-calls' } }])
+  assert.equal(ok.chunks[0], okEnd)
+
+  // 5) Delta-only streams without block-end normalize before finish; max-tokens does not synthesize block-end.
+  const deltaOnly = await runStream(cuaOptions(), [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id: 'c-5', name: 'cua', argumentsDelta: '{"method":"getCapabilities",' },
+    { type: 'tool-call-delta', index: 0, id: 'c-5', argumentsDelta: '"params":"{}"}' },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  assert.deepEqual(JSON.parse(deltaOnly.blocks[0].arguments), { method: 'getCapabilities', params: {} })
+
+  const truncated = await runStream(cuaOptions(), [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id: 'c-6', name: 'cua', argumentsDelta: capRaw },
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ])
+  assert.equal(truncated.chunks.some(c => c.type === 'block-end'), false)
+  assert.deepEqual(truncated.blocks, [])
+
+  // 6) Non-cua tools and non-Bot sessions are never rewritten.
+  const otherTool = await runStream(cuaOptions(), [
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-7', name: 'read_file', arguments: capRaw } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  assert.equal(otherTool.blocks[0].arguments, capRaw)
+
+  const plainSession = await runStream(cuaOptions('plain-session'), [
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c-8', name: 'cua', arguments: capRaw } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ])
+  assert.equal(plainSession.blocks[0].arguments, capRaw)
 })

@@ -10,8 +10,6 @@ import { installMiniDom } from './mini-dom.mjs'
 const entryCode = `
   export {
     MarkdownText,
-    registerMarkdownImageLoader,
-    isLocalMarkdownImageSrc,
     markdownUrlTransform,
     projectUserText,
     FileTypeIcon,
@@ -109,6 +107,7 @@ const sandbox = {
   Node,
   Event,
   TextEncoder,
+  AbortController,
   URL,
   Blob,
   setTimeout,
@@ -127,8 +126,6 @@ runInNewContext(outputFiles[0].text, sandbox)
 
 const {
   MarkdownText,
-  registerMarkdownImageLoader,
-  isLocalMarkdownImageSrc,
   markdownUrlTransform,
   projectUserText,
   FileTypeIcon,
@@ -516,6 +513,91 @@ test('file and folder references parse cleanly with no false positives and open 
   }
 })
 
+test('desktop Bot replies load local Markdown images through the session-scoped endpoint', async () => {
+  const paths = ['sample.png', '/repo/sample.png', 'file:///repo/sample%20image.png', '../outside.png', 'C:%5Cwork%5Cplot.png', '%5C%5Cserver%5Cshare%5Cplot.png']
+  const bytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='
+  const requests = []
+  const previousCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint !== 'markdown-image') return {}
+    requests.push(plain(body))
+    if (body.path === '../outside.png') throw new Error('Image outside workspace')
+    return { mime: 'image/png', bytes }
+  }
+  const text = [
+    ...paths.map((path, i) => `![Local ${i}](${path})`),
+    '![Remote](https://example.com/sample.png)',
+    '![Network](//example.com/sample.png)',
+    '![Data](data:image/png;base64,AAAA)',
+    '![Blocked](javascript:alert(1))',
+  ].join('\n\n')
+  const log = {
+    header: { cwd: '/repo' },
+    events: [
+      { seq: 1, time: 1000, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text }] } } },
+    ],
+    writing: null,
+  }
+  const bot = { id: 'b1', name: 'Chief' }
+  const roster = { bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 's1', bot, roster, actions: { openFile() {} },
+  }))
+  try {
+    await flush()
+    assert.deepEqual(requests, paths.map(path => ({ sessionId: 's1', path })))
+    const sources = Object.fromEntries(Array.from(view.host.querySelectorAll('img'))
+      .map(img => [img.getAttribute('alt'), img.getAttribute('src')]))
+    assert.deepEqual(sources, {
+      'Local 0': `data:image/png;base64,${bytes}`,
+      'Local 1': `data:image/png;base64,${bytes}`,
+      'Local 2': `data:image/png;base64,${bytes}`,
+      'Local 3': null,
+      'Local 4': `data:image/png;base64,${bytes}`,
+      'Local 5': `data:image/png;base64,${bytes}`,
+      Remote: 'https://example.com/sample.png',
+      Network: '//example.com/sample.png',
+      Data: null,
+      Blocked: null,
+    })
+  } finally {
+    view.unmount()
+    sandbox.__testCall = previousCall
+  }
+})
+
+test('desktop Bot replies in earlier parts resolve Markdown images in the original session', async () => {
+  const requests = []
+  const previousCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint !== 'markdown-image') return {}
+    requests.push(plain(body))
+    return { mime: 'image/png', bytes: 'AAAA' }
+  }
+  const sessionId = 'current-part'
+  const partSessionId = 'earlier-part'
+  const bot = { id: 'b1', name: 'Chief', sessionId, parts: [partSessionId] }
+  const roster = { bots: [bot], byId: { b1: bot, [sessionId]: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const log = { header: { cwd: '/repo' }, events: [], writing: null }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId, bot, roster,
+    actions: {
+      earlier: async () => ({
+        items: [{ kind: 'bot', text: '![Earlier](sample.png)', time: 1000, sessionId: partSessionId }],
+        partIndex: 0, cursor: null,
+      }),
+    },
+  }))
+  try {
+    await flush()
+    assert.deepEqual(requests, [{ sessionId: partSessionId, path: 'sample.png' }])
+    assert.equal(view.host.querySelector('img')?.getAttribute('src'), 'data:image/png;base64,AAAA')
+  } finally {
+    view.unmount()
+    sandbox.__testCall = previousCall
+  }
+})
+
 test('Classic session renders reply feedback (submit, dialog, retract) and never renders it in Bot chats', async () => {
   const rpcCalls = []
   const notices = []
@@ -678,6 +760,30 @@ test('Classic session renders reply feedback (submit, dialog, retract) and never
     assert.equal(notices.length, 0, 'Successful feedback retraction must not trigger error-styled actions.notice')
   } finally {
     classicView.unmount()
+  }
+})
+
+test('escaped currency in a reply does not close an inline math span', async () => {
+  await ensureKatex()
+  const view = mountDom(React.createElement(MarkdownText, {
+    text: String.raw`currency $5 and $10, escaped \$20
+
+Prices are $5 and \$ 20.
+
+Price range: $5-\$ 10. Difference: $20-5$.
+
+Price: $5,\$ 10. Difference: $20-5$.`,
+  }))
+  try {
+    await flush()
+    assert.equal(view.host.querySelector('p')?.textContent, 'currency $5 and $10, escaped $20')
+    assert.match(view.host.textContent, /Prices are \$5 and \$ 20\./)
+    assert.match(view.host.textContent, /Price range: \$5-\$ 10\. Difference: /)
+    assert.match(view.host.textContent, /Price: \$5,\$ 10\. Difference: /)
+    const math = Array.from(view.host.querySelectorAll('.dsb-math-inline'))
+    assert.deepEqual(math.map(el => el.getAttribute('data-tex')), ['20-5', '20-5'])
+  } finally {
+    view.unmount()
   }
 })
 
@@ -943,7 +1049,7 @@ test('every t() key in app/ui/src exists across all supported locales and previo
   }
 })
 
-test('W6 Markdown details: CJK punctuation strong, single-tilde disabled, math copy restores $...$ / $$...$$, and local/file:// images route via host markdown-image', async () => {
+test('W6 Markdown details: CJK punctuation strong, single-tilde disabled, and math copy restores $...$ / $$...$$', async () => {
   await ensureKatex()
 
   // 1. CJK flanking strong emphasis + single-tilde disabled + double-tilde kept.
@@ -1031,46 +1137,6 @@ test('W6 Markdown details: CJK punctuation strong, single-tilde disabled, math c
     assert.equal(serializeMathCopySelection(plainSel, mdRoot), null)
   } finally {
     view.unmount()
-  }
-
-  // 3. Local paths & `file://` images route through host markdown-image channel; unsafe schemes blocked.
-  assert.equal(isLocalMarkdownImageSrc('./charts/plot.png'), true)
-  assert.equal(isLocalMarkdownImageSrc('file:///repo/charts/plot.png'), true)
-  assert.equal(isLocalMarkdownImageSrc('file://evil.example/share/a.png'), false)
-  assert.equal(isLocalMarkdownImageSrc('https://example.com/a.png'), false)
-  assert.equal(isLocalMarkdownImageSrc('javascript:alert(1)'), false)
-  assert.equal(isLocalMarkdownImageSrc('data:image/png;base64,AAAA'), false)
-  assert.equal(markdownUrlTransform('file:///repo/a.png', 'src', { tagName: 'img' }), 'file:///repo/a.png')
-  assert.equal(markdownUrlTransform('javascript:alert(1)', 'src', { tagName: 'img' }), '')
-
-  const loadedPaths = []
-  const tinyPngB64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0s0AAAAASUVORK5CYII='
-  registerMarkdownImageLoader(async (params) => {
-    loadedPaths.push(params)
-    return { mime: 'image/png', bytes: tinyPngB64 }
-  })
-  const imgMd = '![Plot](./charts/plot.png)\n\n![Local](file:///repo/charts/local.png)\n\n![Remote](https://example.com/remote.png)\n\n![Bad](javascript:alert(1))'
-  const imgView = mountDom(React.createElement(MarkdownText, {
-    text: imgMd,
-    sessionId: 'b1',
-    botId: 'b1',
-    labels: { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } },
-  }))
-  try {
-    await flush(40)
-    assert.deepEqual(plain(loadedPaths), [
-      { sessionId: 'b1', path: './charts/plot.png', botId: 'b1' },
-      { sessionId: 'b1', path: 'file:///repo/charts/local.png', botId: 'b1' },
-    ])
-    const imgs = Array.from(imgView.host.querySelectorAll('img'))
-    assert.equal(imgs.length, 3, 'two resolved local images + one remote https image')
-    assert.ok(imgs[0].getAttribute('src').startsWith('data:image/png;base64,'))
-    assert.ok(imgs[1].getAttribute('src').startsWith('data:image/png;base64,'))
-    assert.equal(imgs[2].getAttribute('src'), 'https://example.com/remote.png')
-    assert.equal(imgs.some(img => String(img.getAttribute('src')).startsWith('file://')), false, 'never passes raw file:// to <img>')
-  } finally {
-    registerMarkdownImageLoader(null)
-    imgView.unmount()
   }
 })
 

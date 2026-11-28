@@ -1,6 +1,5 @@
 import { Fragment, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { call } from '../../../ds-bot/src/client/api.js'
 import { AGENT_CARDS_CSS } from '../../../ds-bot/src/client/agent-cards.js'
 import { AVATAR_LIBRARY_CSS } from '../../../ds-bot/src/client/avatar-library.js'
 import { BOT_SETTINGS_CSS } from '../../../ds-bot/src/client/bot-settings.js'
@@ -41,7 +40,6 @@ import { registerBuiltinToolViews } from './builtin-tool-views.js'
 import { registerClassicPlanView } from './classic-plan-view.js'
 import { registerEngineSettingsPlugin } from './engine-settings-bridge.js'
 import { registerMathStyleLoader } from './math-render.js'
-import { registerMarkdownImageLoader } from './primitives.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
@@ -51,7 +49,6 @@ import './composer-classic.css'
 import './message-parity.css'
 
 registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
-registerMarkdownImageLoader(params => call('markdown-image', params))
 
 // Keep liveSystemTag empty until main-process IPC reports an OS language so browser
 // `navigator.language` updates on `languagechange` are never shadowed when IPC is absent.

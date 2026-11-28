@@ -16,6 +16,7 @@ import { refreshTokens, invalidGrant, discover, rediscover, beginBrowser, exchan
 const GOOGLE_ISSUER = 'https://accounts.google.com'
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify'
+const GMAIL_VERIFY_TIMEOUT_MS = 20_000
 const MAX_REQUESTS = 20
 
 function parseAddresses(raw) {
@@ -77,12 +78,16 @@ export function install(rt, host) {
   })
   const googleReady = () => Boolean(googleClient().id && googleClient().secret)
 
-  async function openImap(account, password, expectedGen) {
+  async function openImap(account, password, expectedGen, signal) {
     const factory = rt.config.mail?.connect ?? connectImap
     let session
-    session = await factory(account, { password, onGone: () => {
+    session = await factory(account, { password, signal, onGone: () => {
       if (sessions.get(account.id) === session) sessions.delete(account.id)
     } })
+    if (signal?.aborted) {
+      await session.close?.().catch(() => {})
+      signal.throwIfAborted()
+    }
     if (session.usable === false) throw new Error('The mail connection closed during verification')
     if (expectedGen !== undefined && (sessionGen.get(account.id) ?? 0) !== expectedGen) {
       await session.close?.().catch(() => {})
@@ -90,6 +95,23 @@ export function install(rt, host) {
     }
     sessions.set(account.id, session)
     return session
+  }
+
+  async function verifyGmail(account, password) {
+    const controller = new AbortController()
+    let timer
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new DOMException('Gmail verification timed out', 'TimeoutError')
+        reject(error)
+        controller.abort(error)
+      }, GMAIL_VERIFY_TIMEOUT_MS)
+    })
+    try {
+      return await Promise.race([openImap(account, password, undefined, controller.signal), deadline])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async function connect(account) {
@@ -544,9 +566,12 @@ export function install(rt, host) {
         const old = sessions.get(id)
         let session
         try {
-          session = await openImap(account, password)
+          session = await (provider === 'gmail' ? verifyGmail(account, password) : openImap(account, password))
         } catch (error) {
-          throw new Error(mailError(error))
+          if (provider !== 'gmail') throw new Error(mailError(error))
+          const diagnostic = gmailVerifyError(error)
+          rt.warn('ds-bot: Gmail Add verification failed (%s)', diagnostic.code)
+          throw diagnostic
         }
         await old?.close?.().catch(() => {})
         try {
@@ -841,6 +866,37 @@ export function install(rt, host) {
     },
     _internals: { sessions, refreshGoogle, mailSecretName },
   }
+}
+
+const GMAIL_TIMEOUT_CODES = new Set(['ETIMEOUT', 'ETIMEDOUT', 'CONNECT_TIMEOUT', 'GREETING_TIMEOUT', 'UPGRADE_TIMEOUT'])
+const GMAIL_NETWORK_CODES = new Set([
+  'EAI_AGAIN', 'EDNS', 'ENOTFOUND', 'ENETDOWN', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED',
+  'ECONNRESET', 'ECONNECTION', 'ESOCKET', 'NoConnection', 'EConnectionClosed',
+])
+const GMAIL_TLS_CODES = new Set([
+  'ETLS', 'ERR_TLS_CERT_ALTNAME_INVALID', 'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'CERT_UNTRUSTED',
+  'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+])
+
+function gmailVerifyError(error) {
+  const diagnostic = (kind, message) => Object.assign(new Error(message), { code: `bot/mail-gmail-${kind}` })
+  if (error?.name === 'TimeoutError' || GMAIL_TIMEOUT_CODES.has(error?.code) || GMAIL_TIMEOUT_CODES.has(error?.originalCode)) {
+    return diagnostic('timeout', 'Gmail verification timed out. Check your network or proxy can reach Gmail and try again.')
+  }
+  if (error?.responseCode === 534 && typeof error.response === 'string' && /^534[ -]5\.7\.14\b/.test(error.response)) {
+    return diagnostic('signin', 'Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.')
+  }
+  if (error?.authenticationFailed === true || error?.code === 'EAUTH' || error?.responseCode === 534 || error?.responseCode === 535) {
+    return diagnostic('auth', 'Gmail refused the sign-in. Check your Gmail app password and try again.')
+  }
+  if (GMAIL_TLS_CODES.has(error?.code) || GMAIL_TLS_CODES.has(error?.originalCode)) {
+    return diagnostic('tls', 'Could not establish a secure connection to Gmail. Check your network or proxy settings and try again.')
+  }
+  if (GMAIL_NETWORK_CODES.has(error?.code)) {
+    return diagnostic('network', 'Could not reach Gmail. Check your network, firewall, or proxy and try again.')
+  }
+  return diagnostic('verification', 'Could not verify Gmail. Try again or share the diagnostic code with support.')
 }
 
 function mailError(error) {
