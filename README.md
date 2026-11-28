@@ -126,6 +126,8 @@ The embedded browser panel is available in the desktop app and DSH Desktop (not 
 
 Enable **Settings → Tools → Computer use** to let bots operate desktop apps within your limits. Set a per-bot access level (view only, background, or foreground) and allowed apps, with an on-screen indicator to pause or take over at any time; sensitive apps such as system settings and password managers are never granted.
 
+When a bot needs a higher level for a selected app, approve it from the conversation for this turn or always. The bot resumes the waiting action. You can revoke saved app grants from the bot's **Control** settings.
+
 All bots share your desktop, so only one bot can hold an app or the foreground pointer at a time. On Windows, Chrome/Electron apps often need **foreground** and elevated apps cannot be controlled; macOS requires macOS 14+ with Accessibility and Screen Recording permissions; Linux supports X11 (Wayland is limited).
 
 ### Connectors, capabilities and feature packs

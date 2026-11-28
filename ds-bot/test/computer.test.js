@@ -769,6 +769,102 @@ test('leases release at turn end, stop and takeover; user-busy gates foreground'
   assert.equal(await call('w1', { method: 'activate', params: { appHandle: 'h-w1' } }), 'allowed')
 })
 
+test('operation approvals resume the waiting call and scope access by Bot, app, level and turn', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'view' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const answerer = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+  const turnEnded = ctx.listeners.get('session/event').find(fn => fn.name === 'computerTurnEnded')
+  const endTurn = id => turnEnded({ id }, { type: 'turn/end' })
+  const waitForAsk = async () => {
+    for (let i = 0; i < 50 && Object.keys(rt.computerLive().asks).length === 0; i++) await new Promise(resolve => setImmediate(resolve))
+    const asks = Object.values(rt.computerLive().asks)
+    assert.equal(asks.length, 1)
+    return asks[0]
+  }
+  const answer = (ask, choice) => rt.computerEndpoint('app-answer', { id: ask.id, operation: ask.operation, answer: choice })
+  const seed = async (botId, appName) => {
+    const id = `com.apple.${appName}`
+    const bot = rt.botOf(botId)
+    bot.computer ??= {}
+    bot.computer.apps ??= {}
+    bot.computer.apps[id] = { id, name: appName, grantedAt: 0 }
+    await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: appName } }, agent: { id: botId }, callId: `get-${botId}-${appName}` },
+      async () => ({ isError: false, value: { appHandle: appName, authorization: { id, name: appName } } }))
+  }
+  let calls = 0
+  const operate = (botId, appHandle, method = 'activate') => {
+    const exec = { name: 'cua', arguments: { method, params: { appHandle, useSystemPointer: true } }, agent: { id: botId }, callId: `operation-${calls}` }
+    return gate(exec, () => track(exec, async () => {
+      calls++
+      if (method === 'mouseMove') {
+        const reply = await answerer({ agent: exec.agent, questions: [{ id: 'cua-mouse-control' }] }, async () => 'next')
+        assert.deepEqual(reply, { answers: [{ id: 'cua-mouse-control', selected: ['Allow for this session'] }] })
+      }
+      return 'allowed'
+    }))
+  }
+
+  await seed('w1', 'Notes')
+  await seed('w1', 'Mail')
+  await seed('m1', 'Notes')
+  const background = operate('w1', 'Notes', 'click')
+  const ask = await waitForAsk()
+  assert.equal(calls, 0)
+  assert.equal(ask.operation, 'background')
+  assert.equal(ask.appName, 'Notes')
+  assert.equal(ask.canAlways, true)
+  assert.equal(rt.computerLive().bots.w1.state, 'waiting')
+  await assert.rejects(rt.computerEndpoint('app-answer', { id: ask.id, answer: 'always' }), /Update this client/)
+  await answer(ask, 'once')
+  assert.equal(await background, 'allowed')
+  assert.equal(await operate('w1', 'Notes', 'click'), 'allowed')
+  assert.equal(rt.botOf('w1').computer.apps['com.apple.Notes'].level, undefined)
+  await endTurn('w1')
+  const nextTurn = operate('w1', 'Notes', 'click')
+  const nextAsk = await waitForAsk()
+  assert.equal(nextAsk.operation, 'background')
+  await answer(nextAsk, 'deny')
+  assert.equal((await nextTurn).kind, 'deny')
+  assert.equal((await operate('w1', 'Notes', 'click')).kind, 'deny')
+  assert.equal((await operate('w1', 'Notes')).kind, 'deny')
+  assert.deepEqual(rt.computerLive().asks, {})
+  await endTurn('w1')
+
+  await rt.computerEndpoint('user-active', { idleSeconds: 0 })
+  const foreground = operate('w1', 'Notes', 'mouseMove')
+  const foregroundAsk = await waitForAsk()
+  assert.equal(foregroundAsk.operation, 'foreground')
+  await answer(foregroundAsk, 'always')
+  assert.equal(await foreground, 'allowed')
+  assert.equal(rt.botOf('w1').computer.level, 'view')
+  assert.equal(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots.w1.computer.apps['com.apple.Notes'].level, 'foreground')
+  await endTurn('w1')
+  await rt.computerEndpoint('user-active', { idleSeconds: 10 })
+  rt.botOf('w1').model = 'another/model'
+  assert.equal(await operate('w1', 'Notes'), 'allowed')
+  await endTurn('w1')
+
+  const anotherApp = operate('w1', 'Mail')
+  const mailAsk = await waitForAsk()
+  assert.equal(mailAsk.appName, 'Mail')
+  await answer(mailAsk, 'deny')
+  assert.equal((await anotherApp).kind, 'deny')
+  const anotherBot = operate('m1', 'Notes')
+  assert.equal((await waitForAsk()).botId, 'm1')
+  await rt.computerEndpoint('takeover', { botId: 'm1' })
+  assert.equal((await anotherBot).kind, 'deny')
+  assert.deepEqual(rt.computerLive().asks, {})
+
+  await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: 'com.apple.Notes' })
+  assert.equal(rt.botOf('w1').computer.apps['com.apple.Notes'], undefined)
+  assert.match((await operate('w1', 'Notes')).reason, /was revoked/)
+})
+
 test('takeover refuses the Bot and handback delivers a message with nothing the user did', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
@@ -913,10 +1009,17 @@ test('computer_handoff: the hold answers done, skip and takeover', async (t) => 
   // done: the Bot gets the handback message and clears the hold
   await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'done' })
   assert.equal(rt.computerLive().holds?.w1, undefined)
+  assert.equal(rt.computerLive().bots.w1.state, 'idle')
   const reply = JSON.parse(followups.at(-1).content[0].text)
   assert.equal(reply.kind, 'answer_to_pending_handoff')
   assert.equal(reply.outcome, 'done')
   assert.match(reply.message, /gave the computer back|handed/)
+  await handoff.execute({ reason: 'login' }, { agent: { id: 'w1' }, callId: 'call-10' })
+  await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'takeover' })
+  assert.equal(await rt.computerEndpoint('hold-answer', { botId: 'w1', callId: 'call-9', outcome: 'returned' }), false)
+  await rt.computerEndpoint('hold-answer', { botId: 'w1', callId: 'call-10', outcome: 'returned' })
+  assert.equal(rt.computerLive().bots.w1.state, 'idle')
+  assert.equal(JSON.parse(followups.at(-1).content[0].text).outcome, 'returned')
   // a plain user takeover with no prior Bot handoff is not marked fromBot
   await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'takeover' })
   assert.equal(rt.computerLive().holds?.w1?.by, 'user')

@@ -354,7 +354,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerTakeover: botId => after(call('computer-takeover', { botId })),
     computerHandback: botId => after(call('computer-handback', { botId })),
     computerAllowForeground: botId => call('computer-allow-foreground', { botId }),
-    computerAppAnswer: (id, answer) => after(call('computer-app-answer', { id, answer })),
+    computerAppAnswer: (id, answer, operation) => after(call('computer-app-answer', { id, answer, ...(operation !== undefined ? { operation } : {}) })),
     computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call('computer-hold-answer', { botId, ...(callId !== undefined ? { callId } : {}), outcome })),
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),

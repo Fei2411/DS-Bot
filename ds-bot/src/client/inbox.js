@@ -157,7 +157,7 @@ function ItemBody({ item, bot, summary, roster, actions, hooks }) {
   const guardedActions = {
     ...actions,
     answerApproval: (id, choice) => run(() => actions.answerApproval(id, choice)),
-    computerAppAnswer: (id, choice) => run(() => actions.computerAppAnswer(id, choice)),
+    computerAppAnswer: (id, choice, operation) => run(() => actions.computerAppAnswer(id, choice, operation)),
     ...(bot ? {
       openBrowser: (id) => {
         actions.openSession?.(bot.id)

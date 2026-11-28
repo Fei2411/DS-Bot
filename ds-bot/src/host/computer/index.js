@@ -8,7 +8,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
+import { classify, isComputerTool, levelAllows, supportsAppOperation, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { prepareComputerHelper } from './mac-helper.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
@@ -111,6 +111,7 @@ export function install(rt) {
   const sessionApps = new Map()
   /** @type {Map<string, Map<string, 'once'|'deny'>>} `${botId}:${sessionId}` -> appKey -> this-session decision */
   const sessionDecisions = new Map()
+  const turnOperations = new Map()
   const shotMimes = new Map()
   const SHOT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
   const SHOT_MIMES_MAX = 200
@@ -142,7 +143,7 @@ export function install(rt) {
     if (notice !== undefined) pendingNotices.delete(callId)
     return notice
   }
-  const getAppScope = new AsyncLocalStorage()
+  const callScope = new AsyncLocalStorage()
   /** @type {Map<string, {agent:any, mode:string, lifts:Array<()=>void>, handoffLift?:()=>void, triedDeny:Set<string>}>} */
   const applied = new Map()
   const disposedAgents = new WeakSet()
@@ -267,6 +268,7 @@ export function install(rt) {
     return ensuring
   }
   async function unmountProvider() {
+    clearOperationApprovals(() => true)
     const fiber = providerFiber
     providerFiber = undefined
     mountedByUs = false
@@ -863,32 +865,47 @@ export function install(rt) {
     if (Object.hasOwn(grants, stableKey) && isStableMatch(grants[stableKey])) return grants[stableKey]
     return Object.values(grants).find(isStableMatch)
   }
-  const recordGrant = async (bot, app, path) => {
+  const recordGrant = async (bot, app, path, level) => {
     const id = nonEmpty(app?.id)
     const grantPath = nonEmpty(path) ?? nonEmpty(app?.path) ?? nonEmpty(app?.executablePath)
     const key = id ?? grantPath
     if (key === undefined) return false
+    const previousLevel = grantFor(bot, { id, path: grantPath })?.level
+    const grantLevel = LEVELS.indexOf(level) > LEVELS.indexOf(previousLevel) ? level : previousLevel
     bot.computer ??= {}
-    bot.computer.apps ??= {}
-    bot.computer.apps[key] = {
+    const apps = bot.computer.apps ?? {}
+    const previous = Object.hasOwn(apps, key) ? apps[key] : undefined
+    const grant = {
       name: nonEmpty(app?.name) ?? key,
       ...(id !== undefined ? { id } : {}),
       ...(grantPath !== undefined ? { path: grantPath } : {}),
+      ...(grantLevel === 'background' || grantLevel === 'foreground' ? { level: grantLevel } : {}),
       grantedAt: Date.now(),
     }
-    await rt.save()
+    bot.computer.apps = { ...apps, [key]: grant }
+    try {
+      await rt.save()
+    } catch (error) {
+      const current = bot.computer.apps
+      if (current?.[key] === grant) {
+        if (previous === undefined) delete current[key]
+        else current[key] = previous
+      }
+      throw error
+    }
     return true
   }
   // App-access prompt card. Group-session asks carry `roomId` so the group header
   // island and details panel can answer them in place instead of sending the user to
   // the Bot's own chat (#1623). Resolves 'always' | 'once' | 'deny'.
-  const askAppAccess = ({ botId, sessionId, callId, app, signal }) => new Promise((resolve) => {
+  const askAppAccess = ({ botId, sessionId, callId, app, signal, operation }) => new Promise((resolve) => {
     if (signal?.aborted) { resolve('deny'); return }
     const id = randomUUID()
     const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
     const onAbort = () => { entry.resolve('deny') }
     const entry = {
-      id, botId, sessionId, appName: app.name, at: Date.now(),
+      id, botId, sessionId, appKey: app.key, appName: app.name, at: Date.now(),
+      ...(operation !== undefined ? { operation, canAlways: hasStableIdentity(app) } : {}),
       ...(roomId !== undefined ? { roomId } : {}),
       ...(app.icon !== undefined ? { icon: app.icon } : {}),
       ...(callId !== undefined ? { callId } : {}),
@@ -913,11 +930,52 @@ export function install(rt) {
     if (roomId !== undefined) rt.yieldRoomTurn?.(sessionId)
     signal?.addEventListener?.('abort', onAbort, { once: true })
   })
-  const answerAppAccess = (id, answer) => {
+  const answerAppAccess = (id, answer, operation) => {
     const entry = pendingAsks.get(String(id ?? ''))
     if (entry === undefined) return false
-    entry.resolve(['always', 'once', 'deny'].includes(answer) ? answer : 'deny')
+    if (entry.operation !== undefined && entry.operation !== operation) {
+      throw new Error('Update this client to approve the requested computer access level.')
+    }
+    entry.resolve(answer === 'always' && entry.canAlways === false ? 'once' : ['always', 'once', 'deny'].includes(answer) ? answer : 'deny')
     return true
+  }
+  const turnOperationKey = (sessionId, app) => JSON.stringify([sessionId, app.key])
+  const temporaryLevel = (sessionId, app) => turnOperations.get(turnOperationKey(sessionId, app))?.level
+  const appLevelAllows = (bot, sessionId, app, kind) => levelAllows(temporaryLevel(sessionId, app), kind)
+    || levelAllows(grantFor(bot, app)?.level, kind)
+  const clearOperationApprovals = (matches) => {
+    for (const [key, entry] of turnOperations) if (matches(entry)) turnOperations.delete(key)
+    for (const ask of pendingAsks.values()) {
+      if (ask.operation !== undefined && matches(ask)) ask.resolve('deny')
+    }
+  }
+  const requestOperation = async (exec, bot, app, kind) => {
+    const sessionId = exec.agent.id
+    if (decisionsOf(bot.id, sessionId).get(app.key) === 'deny') return false
+    const key = turnOperationKey(sessionId, app)
+    let entry = turnOperations.get(key)
+    if (entry === undefined) {
+      entry = { botId: bot.id, sessionId, appKey: app.key, denied: new Set(), pending: new Map() }
+      turnOperations.set(key, entry)
+    }
+    if (entry.denied.has(kind) || entry.denied.has('background')) return false
+    const pending = entry.pending.get(kind)
+    if (pending !== undefined) return pending
+    const request = (async () => {
+      const active = () => turnOperations.get(key) === entry && exec.signal?.aborted !== true && enabled() && levelOf(bot) !== 'off'
+      const answer = await askAppAccess({ botId: bot.id, sessionId, callId: exec.callId, app, signal: exec.signal, operation: kind })
+      if (!active()) return false
+      if (answer === 'deny') {
+        entry.denied.add(kind)
+        return false
+      }
+      if (answer === 'always') await recordGrant(bot, app, undefined, kind)
+      if (!active()) return false
+      if (!levelAllows(entry.level, kind)) entry.level = kind
+      return true
+    })()
+    entry.pending.set(kind, request)
+    try { return await request } finally { entry.pending.delete(kind) }
   }
   // macOS: the provider's own getApp and system-pointer consent questions reach us as
   // user-questions requests. For Bot Sessions DS Bot answers them itself, by the Bot's
@@ -933,8 +991,12 @@ export function install(rt) {
     await rt.load()
     const bot = rt.botOf(rt.selfOf(sessionId))
     if (bot === undefined || !rt.isBotSession(sessionId)) return next()
+    const currentCall = callScope.getStore()
     if (pointerQuestion !== undefined) {
-      const allowed = enabled() && levelAllows(levelOf(bot), 'foreground')
+      const scoped = currentCall?.sessionId === sessionId && currentCall.kind === 'foreground' && currentCall.app !== undefined
+        && supportsAppOperation(currentCall.call) && appLevelAllows(bot, sessionId, currentCall.app, 'foreground')
+      const allowed = enabled() && levelOf(bot) !== 'off' && controlOf(bot.id).state !== 'user'
+        && request.signal?.aborted !== true && (levelAllows(levelOf(bot), 'foreground') || scoped)
       const choice = allowed ? (pointerQuestion.intent?.approve ?? ALLOW_LABEL) : (pointerQuestion.intent?.reject ?? DENY_LABEL)
       return { answers: [{ id: 'cua-mouse-control', selected: [choice] }] }
     }
@@ -942,7 +1004,7 @@ export function install(rt) {
     const deny = () => ({ answers: [{ id: 'cua-app-access', selected: [DENY_LABEL] }] })
     const legacy = question.intent === undefined && question.options?.some(option => option.label === LEGACY_ALLOW_LABEL)
     const allow = () => ({ answers: [{ id: 'cua-app-access', selected: [legacy ? LEGACY_ALLOW_LABEL : ALLOW_LABEL] }] })
-    const flight = getAppScope.getStore()
+    const flight = currentCall?.call?.method === 'getApp' ? currentCall : undefined
     const subject = question.intent?.subject
     const app = legacy
       ? {
@@ -990,7 +1052,7 @@ export function install(rt) {
   // Windows/Linux (and fallback macOS consent): no consent inside the provider, so
   // the first call that targets an app asks through the same card.
   const driverConsent = async (exec, bot, sessionId, app, persist = hasStableIdentity(app)) => {
-    if (grantFor(bot, app) !== undefined) return { allowed: true }
+    if (grantFor(bot, app) !== undefined || temporaryLevel(sessionId, app) !== undefined) return { allowed: true }
     const decisions = decisionsOf(bot.id, sessionId)
     const before = decisions.get(app.key)
     if (before === 'once') return { allowed: true }
@@ -1024,9 +1086,8 @@ export function install(rt) {
     }
     if (providerStatus.state === 'occupied') return { kind: 'deny', reason: 'Another Computer Use plugin is in use, so Bots cannot use the computer. The user can see this in Settings → Computer use.' }
     const level = levelOf(bot)
-    if (!levelAllows(level, call.kind)) {
-      return { kind: 'deny', reason: `${bot.name} is set to "${LEVEL_LABEL[level]}" for computer use, so it cannot run ${call.method} (${call.kind}). The user can change this in the Bot's Control card or in Settings → Computer use.` }
-    }
+    const levelRefusal = () => ({ kind: 'deny', reason: `${bot.name} is set to "${LEVEL_LABEL[level] ?? 'off'}" for computer use, so it cannot run ${call.method} (${call.kind}). The user can change this in the Bot's Control card or in Settings → Computer use.` })
+    if (level === 'off') return levelRefusal()
     const ctl = controlOf(bot.id)
     if (ctl.state === 'user') {
       return { kind: 'deny', reason: `The user is operating the computer for ${bot.name}. Wait until they hand it back.` }
@@ -1037,11 +1098,24 @@ export function install(rt) {
     if (app !== undefined && isProtectedApp({ name: app.name, id: app.id ?? (app.tentative === true ? app.name : undefined), path: app.path ?? (app.tentative === true ? app.name : undefined) })) {
       return { kind: 'deny', reason: `${bot.name} cannot use ${app.name}: that application is protected.` }
     }
+    if (call.provider === 'cua' && app?.unknown === true) {
+      return { kind: 'deny', reason: `Access to ${app.name} was revoked. Select it again with getApp.` }
+    }
+    if (call.provider === 'cua-driver' && DRIVER_REFUSED.has(call.method)) {
+      return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
+    }
+    const appScoped = app !== undefined && app.unknown !== true && app.tentative !== true && supportsAppOperation(call)
+    const hasOperation = () => levelAllows(levelOf(bot), call.kind) || (appScoped && appLevelAllows(bot, sessionId, app, call.kind))
+    let justApproved = false
+    if (!hasOperation()) {
+      if (!appScoped) return levelRefusal()
+      justApproved = await requestOperation(exec, bot, app, call.kind)
+      if (!justApproved) {
+        return { kind: 'deny', reason: `The user did not approve ${LEVEL_LABEL[call.kind]} of ${app.name} for this turn. Use the access you already have and report any step you could not complete.` }
+      }
+    }
     // Every refusal is decided before a lease is taken.
     if (call.provider === 'cua' && app !== undefined && app.tentative !== true) {
-      if (app.unknown === true) {
-        return { kind: 'deny', reason: `Access to ${app.name} was revoked. Select it again with getApp.` }
-      }
       // macOS: DS Bot requires its own Always grant or a "This time" for this
       // Session, so a revoke bites at once. A saved DSH decision can let getApp
       // through without asking here; then the first real call asks by card.
@@ -1057,9 +1131,6 @@ export function install(rt) {
       }
     }
     if (call.provider === 'cua-driver') {
-      if (DRIVER_REFUSED.has(call.method)) {
-        return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
-      }
       if (app === undefined) {
         if (call.method === 'get_desktop_state') {
           return { kind: 'deny', reason: 'Bots cannot capture the whole desktop. Call get_window_state for a window from list_windows.' }
@@ -1080,6 +1151,9 @@ export function install(rt) {
       await ensureDriverSession(exec, call)
       await ensureDriverCursorOff(exec, bot.id)
     }
+    if (exec.signal?.aborted || !enabled() || levelOf(bot) === 'off' || !isBotAt(sessionId) || ctl.state === 'user' || !hasOperation()) {
+      return { kind: 'deny', reason: 'Computer access changed while the call was waiting. Check the current state before trying again.' }
+    }
     if (call.kind !== 'observe' && app !== undefined) {
       const held = leases.holderOfApp(app.key)
       if (held !== undefined && held.botId !== bot.id) {
@@ -1091,7 +1165,7 @@ export function install(rt) {
       if (held !== undefined && held.botId !== bot.id) {
         return { kind: 'deny', reason: `${rt.botOf(held.botId)?.name ?? 'Another Bot'} is using the foreground. Wait until it is done.` }
       }
-      if (Date.now() >= ctl.allowForegroundUntil && userBusy()) {
+      if (!justApproved && Date.now() >= ctl.allowForegroundUntil && userBusy()) {
         ctl.state = 'waiting'
         ctl.waitingFor = 'user-idle'
         return { kind: 'deny', reason: 'The user is using the computer right now, so foreground actions wait. Try again later, or wait until they let you continue.' }
@@ -1125,14 +1199,14 @@ export function install(rt) {
     if (botId === undefined || !rt.isBotSession(sessionId)) return next()
     const app = targetAppOf(exec, call)
     const abort = new AbortController()
-    const flight = { botId, sessionId, callId: exec.callId, appKey: app?.key, abort }
+    const flight = { botId, sessionId, callId: exec.callId, appKey: app?.key, app, kind: call.kind, call, abort }
     if (typeof exec.callId === 'string') inFlight.set(exec.callId, flight)
     const previous = exec.signal
     exec.signal = previous !== undefined ? AbortSignal.any([previous, abort.signal]) : abort.signal
     const started = Date.now()
     const getApp = call.provider === 'cua' && call.method === 'getApp'
     try {
-      let result = await (getApp ? getAppScope.run(flight, next) : next())
+      let result = await (call.provider === 'cua' ? callScope.run(flight, next) : next())
       // DSH hands a failed tool body back as an error envelope, not an exception.
       if (call.provider === 'cua-driver' && isSessionEnded(result)) {
         await startDriverSession(exec, driverSessionKey(exec))
@@ -1189,10 +1263,11 @@ export function install(rt) {
     }
   })
 
-  // Leases follow the holder's turn, and a Session's app records go with it.
-  ctx.on('session/event', (session, event) => {
+  // App selection survives turns, but leases and temporary operation grants do not.
+  ctx.on('session/event', function computerTurnEnded(session, event) {
     if (event?.type !== 'turn/end') return
     const sessionId = session?.id
+    clearOperationApprovals(entry => entry.sessionId === sessionId)
     leases.endSession(sessionId)
     const botId = rt.selfOf(sessionId)
     if (botId !== undefined) settleControl(botId)
@@ -1208,17 +1283,20 @@ export function install(rt) {
     outcome,
     message: outcome === 'skipped'
       ? 'The user skipped this step and took the computer back. Do not retry it. Do what you can without it, or tell the user you cannot.'
-      : 'The user finished this step and gave the computer back. Look at the app again before you go on.',
+      : outcome === 'returned' ? HANDBACK_TEXT
+        : 'The user finished this step and gave the computer back. Look at the app again before you go on.',
   })
   const answerHold = async (botId, outcome) => {
     const hold = holds.get(botId)
     if (hold === undefined) return false
     holds.delete(botId)
-    controlOf(botId).waitingFor = undefined
+    const ctl = controlOf(botId)
+    const { state: previousState, waitingFor } = ctl
+    if (ctl.state === 'user') ctl.state = 'idle'
+    ctl.waitingFor = undefined
     settleControl(botId)
     rt.inboxChanged?.()
-    if (outcome === 'takeover') return true
-    const settled = outcome === 'done' ? 'done' : 'skipped'
+    const settled = outcome === 'skip' ? 'skipped' : outcome
     try {
       const sessionId = rt.chatOf(botId)
       await rt.ensureCapabilities?.(sessionId)
@@ -1229,14 +1307,19 @@ export function install(rt) {
       }))
       await ctx.sessions.flush(agent.session)
     } catch (error) {
-      holds.set(botId, hold)
-      rt.inboxChanged?.()
+      if (!holds.has(botId)) {
+        holds.set(botId, hold)
+        ctl.state = previousState
+        ctl.waitingFor = waitingFor
+        rt.inboxChanged?.()
+      }
       throw error
     }
     return true
   }
   const takeOver = async (botId) => {
     abortCalls(botId)
+    clearOperationApprovals(entry => entry.botId === botId)
     leases.releaseBot(botId)
     const ctl = controlOf(botId)
     ctl.state = 'user'
@@ -1257,6 +1340,7 @@ export function install(rt) {
     return true
   }
   const handBack = async (botId) => {
+    if (holds.get(botId)?.fromBot === true) return answerHold(botId, 'returned')
     holds.delete(botId)
     const ctl = controlOf(botId)
     ctl.state = 'idle'
@@ -1323,7 +1407,8 @@ export function install(rt) {
       const level = levelOf(bot)
       return [
         '## Using the computer',
-        `- Your level: ${LEVEL_LABEL[level]}.${level === 'view' ? ' You may only look: list apps and windows, read their state, take screenshots.' : level === 'background' ? ' You may read apps and operate them in the background without bringing them to the front.' : ' You may read apps, operate them in the background, and bring them to the front.'}`,
+        `- Your default access: ${LEVEL_LABEL[level]}. The user can authorize a higher level for a specific app.`,
+        '- Use background operations when available. If a necessary action on a selected app needs more access, call the tool: DS Bot will ask the user and resume the call when they approve. If they deny it, continue within the access you have. Use computer_handoff only for a step that needs the user to act.',
         '- One Bot per app at a time. If a call is refused because another Bot uses that app or the foreground, wait and try later.',
         '- After every action, look at the app again before the next one: a dispatched click or keystroke is not proof it landed. Never repeat an action without re-observing first.',
         ...(process.platform === 'win32' && level !== 'view' ? WINDOWS_INPUT_NOTES : []),
@@ -1365,6 +1450,7 @@ export function install(rt) {
     bot.computer ??= {}
     if (level === 'background') delete bot.computer.level
     else bot.computer.level = level
+    clearOperationApprovals(entry => entry.botId === botId)
     await rt.save()
     if (level === 'off') {
       abortCalls(bot.id)
@@ -1382,6 +1468,7 @@ export function install(rt) {
     if (bot === undefined) throw new Error('Unknown Bot')
     const rawApps = bot.computer?.apps
     const grant = rawApps !== null && typeof rawApps === 'object' && Object.hasOwn(rawApps, appKey) ? rawApps[appKey] : undefined
+    clearOperationApprovals(entry => entry.botId === botId && entry.appKey === appKey)
     if (grant !== undefined) {
       delete bot.computer.apps[appKey]
       if (Object.keys(bot.computer.apps).length === 0) delete bot.computer.apps
@@ -1417,6 +1504,7 @@ export function install(rt) {
         }
       }
     }
+    clearOperationApprovals(entry => entry.botId === botId && aliases.has(entry.appKey))
     // A "This time" must not outlive the revoke, in any of this Bot's Sessions.
     for (const [key, decisions] of sessionDecisions) {
       if (!key.startsWith(`${botId}:`)) continue
@@ -1459,6 +1547,7 @@ export function install(rt) {
   }
   const stopBot = async (botId) => {
     abortCalls(botId)
+    clearOperationApprovals(entry => entry.botId === botId)
     leases.releaseBot(botId)
     const ctl = controlOf(botId)
     if (ctl.state !== 'user') ctl.state = 'idle'
@@ -1573,10 +1662,12 @@ export function install(rt) {
         return { dataUrl: `data:${mime};base64,${Buffer.concat(chunks).toString('base64')}` }
       }
       case 'app-answer':
-        return answerAppAccess(body.id, body.answer)
+        return answerAppAccess(body.id, body.answer, body.operation)
       case 'hold-answer': {
-        const outcome = ['done', 'skip', 'takeover'].includes(body.outcome) ? body.outcome : 'done'
+        const outcome = ['done', 'returned', 'skip', 'takeover'].includes(body.outcome) ? body.outcome : 'done'
         const botId = String(body.botId ?? '')
+        const hold = holds.get(botId)
+        if (typeof body.callId === 'string' && body.callId !== (hold?.callId ?? hold?.id)) return false
         if (outcome === 'takeover') {
           if (!rt.botOf(botId)) throw new Error('Unknown Bot')
           return takeOver(botId)
@@ -1608,6 +1699,7 @@ export function install(rt) {
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
       id: ask.id,
       botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName, at: ask.at,
+      ...(ask.operation !== undefined ? { operation: ask.operation, canAlways: ask.canAlways } : {}),
       ...(ask.roomId !== undefined ? { roomId: ask.roomId } : {}),
       ...(ask.icon !== undefined ? { icon: ask.icon } : {}),
       ...(ask.callId !== undefined ? { callId: ask.callId } : {}),
@@ -1624,6 +1716,7 @@ export function install(rt) {
   const baseCancel = rt.cancelApprovals
   rt.cancelApprovals = (sessionId) => {
     baseCancel?.(sessionId)
+    clearOperationApprovals(entry => entry.sessionId === sessionId)
     for (const ask of [...pendingAsks.values()]) {
       if (ask.sessionId === sessionId) ask.resolve('deny')
     }
@@ -1632,6 +1725,7 @@ export function install(rt) {
   const offBotDelete = typeof rt.onBotDelete === 'function'
     ? rt.onBotDelete((botId) => {
       abortCalls(botId)
+      clearOperationApprovals(entry => entry.botId === botId)
       leases.releaseBot(botId)
       for (const ask of pendingAsks.values()) if (ask.botId === botId) ask.resolve('deny')
       control.delete(botId)
