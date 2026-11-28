@@ -848,7 +848,7 @@ export function App() {
               onClick: () => { closeDrawer(); actions.openSettings() },
             }, h(YouAvatar)),
             h(BotReturn, { ...views, wide: true }),
-            h(SidebarFooterActions, { wide: true }))))
+            h(SidebarFooterActions, { wide: true, className: 'dsb-sidebar-footer-actions' }))))
     : h(TeamSidebar, {
       ...views,
       useUi: useTeamUi,

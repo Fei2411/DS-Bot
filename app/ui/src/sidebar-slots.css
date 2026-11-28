@@ -1,3 +1,7 @@
 .dsb-conversation-seat:not([hidden]){display:contents}
 .dsb-sidebar-plugin-panel{flex:1 1 auto;min-height:0;min-width:0;overflow:auto;margin-top:var(--dsb-band);padding:12px}
 .dsb-sidebar-plugin-panel-head{display:flex;justify-content:flex-end;margin-bottom:8px}
+.dsb-side-foot:has(> .dsb-sidebar-footer-actions:not(:empty)){display:grid;grid-template-columns:auto minmax(0,1fr)}
+.dsb-sidebar-footer-actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:inherit;min-width:0;overflow-wrap:anywhere}
+.dsb-sidebar-footer-actions:empty{display:none}
+.dsb-sidebar-footer-actions>*{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}

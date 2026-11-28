@@ -58,10 +58,10 @@ export function SidebarSlotRows({ registry = slots, wide, activePanel, onSelectP
     })))
 }
 
-export function SidebarFooterActions({ registry = slots, wide }) {
+export function SidebarFooterActions({ registry = slots, wide, className }) {
   const entries = useSlotEntries(registry, SIDEBAR_FOOTER_ACTION_SLOT)
   if (entries.length === 0) return null
-  return h(Fragment, null, distinctRows(entries).map(entry => h(SlotEntryView, {
+  return h(className ? 'div' : Fragment, className ? { className } : null, distinctRows(entries).map(entry => h(SlotEntryView, {
     key: entry.id ?? entry.order, name: SIDEBAR_FOOTER_ACTION_SLOT, entry, owner: { wide },
   })))
 }
