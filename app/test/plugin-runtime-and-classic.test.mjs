@@ -521,6 +521,23 @@ test('extractSchemaFields decodes Schemastery toJSON graphs including enums, nes
   assert.equal(fields.find(f => f.path.join('.') === 'nested.timeout').value, 45)
 })
 
+test('Settings section labels resolve callbacks and fall back to IDs if there is no label', () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const View = () => null
+  let label = 'Callback label'
+  slots.register({ name: 'settings.section', id: 'callback', label: () => label }, View)
+  slots.register({ name: 'settings.section', id: 'unlabeled' }, View)
+  slots.register({ name: 'settings.section', id: 'broken-label', label: () => { throw new Error('bad label') } }, View)
+  const Probe = () => {
+    const bridge = mod.useDshSettingsBridge(slots)
+    return { type: 'probe', props: { children: bridge.sections.map(section => section.label) } }
+  }
+  assert.deepEqual(Array.from(renderTree(Probe).props.children), ['Callback label', 'unlabeled', 'broken-label'])
+  label = 'Updated label'
+  assert.equal(renderTree(Probe).props.children[0], 'Updated label')
+})
+
 test('Engine settings plugin registers all sections + language item, and AppearancePage disables Window material when a background is set', () => {
   const { mod } = loadMod()
   const slots = mod.createSlotRegistry()

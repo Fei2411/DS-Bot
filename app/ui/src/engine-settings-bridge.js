@@ -75,6 +75,16 @@ function renderSlotComponent(entry, props, slotName, isLazy = true) {
   }, isLazy ? h(Suspense, { fallback: h(LazyFallback) }, child) : child)
 }
 
+function sectionLabel(entry) {
+  if (entry.meta?.labelKey) return t(entry.meta.labelKey)
+  const label = entry.meta?.label ?? entry.options?.label
+  try {
+    return String((typeof label === 'function' ? label() : label) ?? entry.id)
+  } catch {
+    return entry.id
+  }
+}
+
 /**
  * Synchronous Language switcher rendered inside `Settings → General → Basics`.
  */
@@ -148,7 +158,7 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
     const failedEnginePlugin = plugins.find(p => p.id === 'ds-bot.engine-settings' && p.status === 'error')
     const sections = visibleSectionEntries.map(entry => ({
       id: entry.id,
-      label: entry.meta?.labelKey ? t(entry.meta.labelKey) : String(entry.meta?.label ?? entry.options?.label ?? entry.id),
+      label: sectionLabel(entry),
     }))
     if (failedEnginePlugin && !sections.some(s => s.id === 'plugins')) {
       sections.push({ id: 'plugins', label: t('Plugins') })
