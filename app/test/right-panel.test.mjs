@@ -63,7 +63,7 @@ const stubs = {
 
 const entryCode = `
   export { parseDelimitedTable, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
-  export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
+  export { createLocalLineEditor, createTerminalKeyHandler, estimateTerminalDimensions, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
   export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
   export { createPluginRuntime } from './ui/src/plugin-runtime.js'
@@ -223,6 +223,7 @@ const {
   HtmlPreviewNotice,
   createLocalLineEditor,
   createTerminalKeyHandler,
+  estimateTerminalDimensions,
   parseAnsiSpans,
   readXtermTheme,
   WorkspaceTerminal,
@@ -1816,5 +1817,135 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     sandbox.document.activeElement = prevActive5
     remountAuto.unmount()
     uiProbe5.unmount()
+  }
+})
+
+test('WorkspaceTerminal prunes stale tabs on host restart, computes initial size from container, clears server scrollback, follows appearance fontSize, renames tabs, and picks shells', async () => {
+  // 1. Container-based initial size calculation (no hardcoded 96x28).
+  const small = estimateTerminalDimensions({ clientWidth: 480, clientHeight: 320 }, 13)
+  assert.notEqual(small.cols, 96)
+  assert.notEqual(small.rows, 28)
+  assert.ok(small.cols >= 50 && small.cols <= 70, `expected cols from 480px container, got ${small.cols}`)
+  assert.ok(small.rows >= 12 && small.rows <= 20, `expected rows from 320px container, got ${small.rows}`)
+  const wide = estimateTerminalDimensions({ clientWidth: 1000, clientHeight: 600 }, 13)
+  assert.ok(wide.cols > small.cols && wide.rows > small.rows)
+
+  // 2. Font size follows appearance CSS variables instead of hardcoded 12.5.
+  const prevCreateEl = sandbox.document.createElement
+  const prevGetComputedStyle = sandbox.getComputedStyle
+  const cssVars = new Map([
+    ['--bt-mono', '"JetBrains Mono", monospace'],
+    ['--dsh-content-font-size', '18px'],
+  ])
+  sandbox.document.body.appendChild = () => {}
+  sandbox.document.createElement = () => ({ style: {}, remove() {} })
+  sandbox.getComputedStyle = (el) => {
+    if (el === sandbox.document.body) {
+      return { getPropertyValue: prop => cssVars.get(prop) ?? '' }
+    }
+    return { color: '#ffffff' }
+  }
+  try {
+    const themed = readXtermTheme()
+    assert.equal(themed.fontSize, 16.5, 'content fontSize 18px scales terminal fontSize proportionally')
+    cssVars.set('--dsh-code-font-size', '15px')
+    assert.equal(readXtermTheme().fontSize, 15, 'explicit code fontSize overrides scaled content fontSize')
+    cssVars.set('--dsh-terminal-font-size', '16px')
+    assert.equal(readXtermTheme().fontSize, 16, 'explicit terminal fontSize takes top priority')
+  } finally {
+    sandbox.document.createElement = prevCreateEl
+    sandbox.getComputedStyle = prevGetComputedStyle
+  }
+
+  // 3. Full component flow: initial computed cols/rows, shell picker, inline rename, server clear, and restart pruning.
+  const calls = []
+  let listAnswer = [
+    { id: 't-old-1', cwd: '/repo', title: 'repo', customTitle: false, pty: true, start: 1, end: 1, parts: [{ seq: 1, text: 'before-clear\n' }], truncated: false, exited: false, exitCode: null },
+    { id: 't-old-2', cwd: '/repo', title: 'repo', customTitle: false, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null },
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'terminal-list') return listAnswer
+    if (endpoint === 'terminal-shells') {
+      return {
+        defaultId: '/bin/zsh',
+        shells: [
+          { id: '/bin/zsh', name: 'zsh', path: '/bin/zsh', isDefault: true },
+          { id: '/bin/bash', name: 'bash', path: '/bin/bash', isDefault: false },
+        ],
+      }
+    }
+    if (endpoint === 'terminal-clear') return { ok: true, id: body.id, start: 2, end: 1 }
+    if (endpoint === 'terminal-rename') return { ok: true, id: body.id, title: body.title, customTitle: true }
+    if (endpoint === 'terminal-open') {
+      return { id: 't-bash', cwd: '/repo', title: 'repo', customTitle: false, shell: 'bash', cols: body.cols, rows: body.rows, pty: true }
+    }
+    return true
+  }
+
+  const team = createTeam()
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    let tree = inst.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 2)
+    assert.equal(sandbox.__xterms[0].options.fontSize, 13, 'terminal initializes with dynamic default fontSize (not hardcoded 12.5)')
+
+    // Clear calls terminal-clear on host so scrollback does not return on reconnect.
+    const clearBtn = all(tree, n => n.type === 'button' && /Clear/.test(textOf(n)))[0]
+    clearBtn.props.onClick()
+    await tick()
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-clear' && b.id === 't-old-1'), true)
+
+    // Double-click tab label -> inline edit input -> Enter commits terminal-rename and shows custom title without #idx.
+    const tabBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-term-tab-btn')[0]
+    tabBtn.props.onDoubleClick()
+    tree = inst.render()
+    const editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+    assert.ok(editInput, 'double-clicking terminal tab opens inline rename input')
+    editInput.props.onChange({ target: { value: 'Build Watch' } })
+    editInput.props.onKeyDown({ key: 'Enter', preventDefault() {}, currentTarget: { value: 'Build Watch' } })
+    await tick()
+    tree = inst.render()
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-rename' && b.id === 't-old-1' && b.title === 'Build Watch'), true)
+    assert.match(textOf(tree), /Build Watch/)
+    assert.doesNotMatch(textOf(tree), /Build Watch #1/)
+
+    // Shell picker opens dropdown with available shells and launches chosen shell with container-computed dimensions.
+    const shellBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-term-shell-btn'))[0]
+    assert.ok(shellBtn, 'shell dropdown button renders when shells are discovered')
+    shellBtn.props.onClick()
+    tree = inst.render()
+    const bashItem = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem' && /bash/.test(textOf(n)))[0]
+    assert.ok(bashItem, 'shell dropdown lists discovered shells')
+    bashItem.props.onClick()
+    await tick()
+    tree = inst.render()
+    const openCall = calls.find(([ep]) => ep === 'terminal-open')
+    assert.ok(openCall, 'clicking shell menu item calls terminal-open')
+    assert.equal(openCall[1].shell, '/bin/bash')
+    assert.notEqual(openCall[1].cols, 96, 'terminal-open uses container-computed cols instead of hardcoded 96')
+    assert.notEqual(openCall[1].rows, 28, 'terminal-open uses container-computed rows instead of hardcoded 28')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 3)
+
+    // Engine restart: host emits `hello` and `terminal-list` now returns only `t-restarted` -> all 3 old tabs are pruned and disposed!
+    listAnswer = [
+      { id: 't-restarted', cwd: '/repo', title: 'fresh', customTitle: false, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null },
+    ]
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    tree = inst.render()
+    const tabsAfterRestart = all(tree, n => n.props?.className === 'dsb-term-tab')
+    assert.equal(tabsAfterRestart.length, 1, 'tabs missing from host after restart must be pruned')
+    assert.match(textOf(tabsAfterRestart[0]), /fresh #1/)
+    assert.equal(sandbox.__xterms[0].disposed, true, 'pruned xterm instance is disposed')
+    assert.equal(sandbox.__xterms[1].disposed, true, 'pruned xterm instance is disposed')
+    assert.equal(sandbox.__xterms[2].disposed, true, 'pruned xterm instance is disposed')
+  } finally {
+    inst.unmount()
   }
 })

@@ -7,7 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
-import { CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { ChevronDownIcon, CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { matchShortcutEvent } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { writeClipboard } from './primitives.js'
 import { getLiveShortcutContext } from './shortcuts.js'
@@ -208,14 +208,50 @@ const trimmedOutputMarker = () => `\r\n\x1b[2m[${t('Earlier output was trimmed')
 const isMacPlatform = () => (typeof navigator !== 'undefined'
   && /mac|iphone|ipad|ipod/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? ''))
 
+const DEFAULT_TERMINAL_FONT_SIZE = 13
+const MIN_TERMINAL_FONT_SIZE = 10
+const MAX_TERMINAL_FONT_SIZE = 28
+
+function clampTerminalFontSize(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_TERMINAL_FONT_SIZE
+  return Math.max(MIN_TERMINAL_FONT_SIZE, Math.min(MAX_TERMINAL_FONT_SIZE, Math.round(n * 2) / 2))
+}
+
+function parsePxVar(raw) {
+  if (typeof raw !== 'string') return NaN
+  const match = /^([0-9]+(?:\.[0-9]+)?)\s*px$/i.exec(raw.trim())
+  return match ? Number(match[1]) : NaN
+}
+
 /**
- * Resolves concrete RGB/hex colors from DS Bot's CSS custom properties for xterm.js.
+ * Estimates initial PTY cols and rows from the terminal container's pixel dimensions
+ * so new shells launch near the real pane geometry instead of a hardcoded 96×28.
+ */
+export function estimateTerminalDimensions(containerEl, fontSize = DEFAULT_TERMINAL_FONT_SIZE) {
+  const size = clampTerminalFontSize(fontSize)
+  const rawW = Number(containerEl?.clientWidth || containerEl?.offsetWidth || 0)
+  const rawH = Number(containerEl?.clientHeight || containerEl?.offsetHeight || 0)
+  if (!(rawW > 40) || !(rawH > 40)) return { cols: 80, rows: 24 }
+  const innerW = Math.max(40, rawW - 24)
+  const innerH = Math.max(40, rawH - 44)
+  const charWidth = Math.max(6, size * 0.6)
+  const lineHeight = Math.max(12, Math.ceil(size * 1.4))
+  const cols = Math.max(20, Math.min(400, Math.floor(innerW / charWidth)))
+  const rows = Math.max(6, Math.min(120, Math.floor(innerH / lineHeight)))
+  return { cols, rows }
+}
+
+/**
+ * Resolves concrete RGB/hex colors, monospace font family, and code/terminal font size
+ * from DS Bot's CSS custom properties for xterm.js.
  * Uses a single temporary hidden probe element so `var(...)` and `color-mix(...)` tokens
  * evaluate accurately in Light, Dark, and custom Accent themes.
  */
 export function readXtermTheme() {
   const dark = Boolean(typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme'))
   let fontFamily = DEFAULT_MONO_FONT
+  let fontSize = DEFAULT_TERMINAL_FONT_SIZE
   let resolve = (_expr, fallback) => fallback
   let probe = null
   try {
@@ -223,6 +259,22 @@ export function readXtermTheme() {
       const bodyStyle = getComputedStyle(document.body)
       const mono = bodyStyle.getPropertyValue('--bt-mono').trim()
       if (mono) fontFamily = mono
+      const explicitPx = parsePxVar(bodyStyle.getPropertyValue('--dsh-terminal-font-size'))
+        || parsePxVar(bodyStyle.getPropertyValue('--bt-code-font-size'))
+        || parsePxVar(bodyStyle.getPropertyValue('--dsh-code-font-size'))
+      if (Number.isFinite(explicitPx)) {
+        fontSize = clampTerminalFontSize(explicitPx)
+      } else {
+        const contentPx = parsePxVar(bodyStyle.getPropertyValue('--dsh-content-font-size'))
+        if (Number.isFinite(contentPx)) {
+          fontSize = clampTerminalFontSize(contentPx * (DEFAULT_TERMINAL_FONT_SIZE / 14))
+        } else {
+          const scale = Number.parseFloat(bodyStyle.getPropertyValue('--bt-fs').trim())
+          if (Number.isFinite(scale) && scale > 0) {
+            fontSize = clampTerminalFontSize(DEFAULT_TERMINAL_FONT_SIZE * scale)
+          }
+        }
+      }
       probe = document.createElement('span')
       probe.style.display = 'none'
       document.body.appendChild(probe)
@@ -248,6 +300,7 @@ export function readXtermTheme() {
     const selectionInactiveBackground = resolve('var(--bt-hover)', 'rgba(128, 128, 128, 0.16)')
     return {
       fontFamily,
+      fontSize,
       theme: {
         background,
         foreground,
@@ -465,11 +518,11 @@ function TerminalPane({
     let disposed = false
     let fitRaf = 0
     const lastSize = { cols: 0, rows: 0 }
-    const { theme, fontFamily } = readXtermTheme()
+    const { theme, fontFamily, fontSize } = readXtermTheme()
     const xterm = new Terminal({
       cursorBlink: true,
       cursorStyle: 'bar',
-      fontSize: 12.5,
+      fontSize,
       lineHeight: 1.4,
       fontFamily,
       scrollback: 5000,
@@ -544,13 +597,17 @@ function TerminalPane({
       clear: () => { if (!disposed) xterm.clear() },
       focus: () => { if (!disposed) xterm.focus() },
       fit: scheduleFit,
-      applyTheme: (nextTheme, nextFont) => {
+      applyTheme: (nextTheme, nextFont, nextFontSize) => {
         if (disposed) return
         if (xterm.options) {
           const prevFont = xterm.options.fontFamily
+          const prevSize = xterm.options.fontSize
           xterm.options.theme = nextTheme
           if (nextFont) xterm.options.fontFamily = nextFont
-          if (nextFont && prevFont !== nextFont) scheduleFit()
+          if (Number.isFinite(nextFontSize) && nextFontSize > 0) xterm.options.fontSize = nextFontSize
+          if ((nextFont && prevFont !== nextFont) || (Number.isFinite(nextFontSize) && nextFontSize > 0 && prevSize !== nextFontSize)) {
+            scheduleFit()
+          }
         }
       },
       dispose: disposeInstance,
@@ -645,6 +702,10 @@ export function WorkspaceTerminal({
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState('')
   const [focusRequest, setFocusRequest] = useState({ nonce: 0, targetId: null })
+  const [editingId, setEditingId] = useState(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [shells, setShells] = useState([])
+  const [shellMenuOpen, setShellMenuOpen] = useState(false)
   const consumedFocusNonceRef = useRef(0)
   const lastExternalFocusRef = useRef(0)
   const pendingExternalFocusRef = useRef(0)
@@ -654,7 +715,10 @@ export function WorkspaceTerminal({
   onConsumeFocusNonceRef.current = onConsumeFocusNonce
   const onConsumeAutoOpenNonceRef = useRef(onConsumeAutoOpenNonce)
   onConsumeAutoOpenNonceRef.current = onConsumeAutoOpenNonce
+  const rootRef = useRef(null)
+  const stageRef = useRef(null)
   const tabsRef = useRef(null)
+  const shellMenuRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
   const openedOnceRef = useRef(false)
@@ -668,6 +732,8 @@ export function WorkspaceTerminal({
   const knownIdsRef = useRef(new Set())
   const closedIdsRef = useRef(new Set())
   const positionsRef = useRef(new Map())
+  const openEpochRef = useRef(0)
+  const openedAtEpochRef = useRef(new Map())
   const syncRunningRef = useRef(false)
   const syncAgainRef = useRef(false)
   const syncPromiseRef = useRef(null)
@@ -679,16 +745,45 @@ export function WorkspaceTerminal({
     return () => { mountedRef.current = false }
   }, [])
 
-  // Keep every live xterm instance synced with DS Bot's theme, dark mode, accent, and code font.
+  // Discover locally installed shells once for the optional shell picker next to `+`.
+  useEffect(() => {
+    if (readOnly) { setShells([]); return undefined }
+    let alive = true
+    void call('terminal-shells').then((res) => {
+      if (!alive || !mountedRef.current) return
+      if (Array.isArray(res?.shells)) setShells(res.shells)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [readOnly])
+
+  // Close shell picker menu on outside click or Escape.
+  useEffect(() => {
+    if (!shellMenuOpen || typeof document === 'undefined') return undefined
+    const onPointerDown = (event) => {
+      if (shellMenuRef.current && typeof shellMenuRef.current.contains === 'function' && shellMenuRef.current.contains(event.target)) return
+      setShellMenuOpen(false)
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setShellMenuOpen(false)
+    }
+    document.addEventListener?.('mousedown', onPointerDown, true)
+    document.addEventListener?.('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener?.('mousedown', onPointerDown, true)
+      document.removeEventListener?.('keydown', onKeyDown, true)
+    }
+  }, [shellMenuOpen])
+
+  // Keep every live xterm instance synced with DS Bot's theme, dark mode, accent, code font, and font size.
   useEffect(() => {
     if (typeof MutationObserver !== 'function' || typeof document === 'undefined') return undefined
     let raf = 0
     const sync = () => {
       raf = 0
       if (writersRef.current.size === 0) return
-      const { theme, fontFamily } = readXtermTheme()
+      const { theme, fontFamily, fontSize } = readXtermTheme()
       for (const api of writersRef.current.values()) {
-        api.applyTheme(theme, fontFamily)
+        api.applyTheme(theme, fontFamily, fontSize)
       }
     }
     const schedule = () => {
@@ -772,16 +867,24 @@ export function WorkspaceTerminal({
     }
   }, [requestSync, writeOutput])
 
-  const applySyncList = useCallback((list) => {
+  const applySyncList = useCallback((list, { syncStartEpoch = openEpochRef.current } = {}) => {
     const items = Array.isArray(list) ? list.filter(item => item && item.id && !closedIdsRef.current.has(item.id)) : []
+    const serverIds = new Set(items.map(item => item.id))
     const exitStates = new Map()
     for (const item of items) {
-      if (Array.isArray(item.parts)) noteParts(item.id, item.parts, item.truncated === true)
-      else if (typeof item.snapshot === 'string' && (positionsRef.current.get(item.id) ?? 0) === 0) {
-        if ((item.start ?? 1) > 1) writeOutput(item.id, trimmedOutputMarker())
+      if (Array.isArray(item.parts)) {
+        noteParts(item.id, item.parts, item.truncated === true)
+        if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end
+          && (item.parts.length === 0 || item.parts[item.parts.length - 1]?.seq === item.end)) {
+          positionsRef.current.set(item.id, item.end)
+        }
+      } else if (typeof item.snapshot === 'string' && (positionsRef.current.get(item.id) ?? 0) === 0) {
+        if ((item.start ?? 1) > (item.clearedAt ?? 0) + 1) writeOutput(item.id, trimmedOutputMarker())
         writeOutput(item.id, trimTail(item.snapshot))
-      }
-      if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end && !Array.isArray(item.parts)) {
+        if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end) {
+          positionsRef.current.set(item.id, item.end)
+        }
+      } else if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end) {
         positionsRef.current.set(item.id, item.end)
       }
       const pendingExit = pendingExitRef.current.get(item.id)
@@ -792,29 +895,51 @@ export function WorkspaceTerminal({
         exitCode: item.exitCode ?? pendingExit?.exitCode ?? null,
       })
     }
+    const prunedIds = []
     setState((current) => {
       const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
-      const byId = new Map(liveCurrent.map(item => [item.id, item]))
+      const byId = new Map()
+      for (const item of liveCurrent) {
+        const openedEpoch = openedAtEpochRef.current.get(item.id) ?? 0
+        if (serverIds.has(item.id) || openedEpoch > syncStartEpoch) {
+          byId.set(item.id, item)
+        } else {
+          prunedIds.push(item.id)
+        }
+      }
       const fresh = []
       for (const item of items) {
         const exitState = exitStates.get(item.id) ?? { exited: false, exitCode: null }
+        const existing = byId.get(item.id)
         const next = {
           id: item.id,
           cwd: item.cwd,
           title: item.title,
+          customTitle: item.customTitle === true || (item.customTitle === undefined && existing?.customTitle === true),
+          ...(item.shell ? { shell: item.shell } : {}),
           pty: item.pty !== false,
           exited: exitState.exited,
           exitCode: exitState.exitCode,
           initialSnapshot: '',
         }
-        if (byId.has(item.id)) byId.set(item.id, { ...byId.get(item.id), ...next, initialSnapshot: byId.get(item.id).initialSnapshot ?? '' })
+        if (existing) byId.set(item.id, { ...existing, ...next, initialSnapshot: existing.initialSnapshot ?? '' })
         else fresh.push(next)
       }
-      const kept = liveCurrent.map(item => byId.get(item.id) ?? item)
+      const kept = liveCurrent.filter(item => byId.has(item.id)).map(item => byId.get(item.id))
       const nextTerms = [...kept, ...fresh]
       const keepActive = current.activeId && !closedIdsRef.current.has(current.activeId) && nextTerms.some(item => item.id === current.activeId)
       return { terms: nextTerms, activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null) }
     })
+    for (const staleId of prunedIds) {
+      knownIdsRef.current.delete(staleId)
+      pendingOutputRef.current.delete(staleId)
+      pendingExitRef.current.delete(staleId)
+      positionsRef.current.delete(staleId)
+      openedAtEpochRef.current.delete(staleId)
+      const writer = writersRef.current.get(staleId)
+      writersRef.current.delete(staleId)
+      writer?.dispose?.()
+    }
     return items.length
   }, [noteParts, writeOutput])
 
@@ -831,10 +956,11 @@ export function WorkspaceTerminal({
       try {
         do {
           syncAgainRef.current = false
+          const syncStartEpoch = openEpochRef.current
           const positions = Object.fromEntries(positionsRef.current)
           const list = await call('terminal-list', { positions })
           if (!mountedRef.current) return count
-          count = Math.max(count, applySyncList(list))
+          count = Math.max(count, applySyncList(list, { syncStartEpoch }))
           ok = true
         } while (syncAgainRef.current)
       } catch {
@@ -860,17 +986,22 @@ export function WorkspaceTerminal({
     onConsumeFocusNonceRef.current?.(pending)
   }, [])
 
-  const openNew = useCallback(async ({ focus = false } = {}) => {
+  const openNew = useCallback(async ({ focus = false, shell } = {}) => {
     if (readOnly) return
     openedOnceRef.current = true
     setOpening(true)
     setError('')
+    setShellMenuOpen(false)
     try {
-      const created = await call('terminal-open', { sessionId, cols: 96, rows: 28 })
+      const { cols, rows } = estimateTerminalDimensions(stageRef.current ?? rootRef.current, readXtermTheme().fontSize)
+      const payload = { sessionId, cols, rows, ...(typeof shell === 'string' && shell ? { shell } : {}) }
+      const created = await call('terminal-open', payload)
       if (!mountedRef.current || closedIdsRef.current.has(created.id)) {
         if (closedIdsRef.current.has(created.id)) void call('terminal-close', { id: created.id }).catch(() => {})
         return
       }
+      openEpochRef.current += 1
+      openedAtEpochRef.current.set(created.id, openEpochRef.current)
       const pendingExit = pendingExitRef.current.get(created.id)
       pendingExitRef.current.delete(created.id)
       knownIdsRef.current.add(created.id)
@@ -887,6 +1018,8 @@ export function WorkspaceTerminal({
             id: created.id,
             cwd: created.cwd,
             title: created.title,
+            customTitle: created.customTitle === true,
+            ...(created.shell ? { shell: created.shell } : {}),
             pty: created.pty !== false,
             exited: pendingExit?.exited === true,
             exitCode: pendingExit?.exitCode ?? null,
@@ -1004,9 +1137,11 @@ export function WorkspaceTerminal({
     pendingOutputRef.current.delete(id)
     pendingExitRef.current.delete(id)
     positionsRef.current.delete(id)
+    openedAtEpochRef.current.delete(id)
     const writer = writersRef.current.get(id)
     writersRef.current.delete(id)
     writer?.dispose?.()
+    setEditingId(prev => (prev === id ? null : prev))
     setState((current) => {
       const idx = current.terms.findIndex(item => item.id === id)
       if (idx === -1) return current
@@ -1026,42 +1161,110 @@ export function WorkspaceTerminal({
     setState(current => (current.activeId === id ? current : { ...current, activeId: id }))
   }, [])
 
+  const startRename = useCallback((term) => {
+    if (readOnly || !term) return
+    setEditingId(term.id)
+    setEditingTitle(term.title ?? '')
+  }, [readOnly])
+
+  const commitRename = useCallback(async (id, rawTitle) => {
+    setEditingId(prev => (prev === id ? null : prev))
+    if (readOnly) return
+    const nextTitle = String(rawTitle ?? '').trim().slice(0, 64)
+    if (!nextTitle) return
+    setState(current => ({
+      ...current,
+      terms: current.terms.map(item => (item.id === id ? { ...item, title: nextTitle, customTitle: true } : item)),
+    }))
+    try {
+      const res = await call('terminal-rename', { id, title: nextTitle })
+      if (mountedRef.current && res?.title) {
+        setState(current => ({
+          ...current,
+          terms: current.terms.map(item => (item.id === id ? { ...item, title: res.title, customTitle: true } : item)),
+        }))
+      }
+    } catch (failure) {
+      if (mountedRef.current) setError(hostText(failure?.message ?? String(failure)))
+    }
+  }, [readOnly])
+
   const active = terms.find(item => item.id === activeId) ?? terms[0] ?? null
 
   const clearOutput = () => {
     if (!active) return
-    pendingOutputRef.current.delete(active.id)
-    const api = writersRef.current.get(active.id)
+    const id = active.id
+    pendingOutputRef.current.delete(id)
+    const api = writersRef.current.get(id)
     api?.clear()
     api?.focus()
+    if (!readOnly) {
+      void call('terminal-clear', { id }).then((res) => {
+        if (Number.isSafeInteger(res?.end) && (positionsRef.current.get(id) ?? 0) < res.end) {
+          positionsRef.current.set(id, res.end)
+        }
+      }).catch(() => {})
+    }
   }
 
-  return h('div', { className: 'dsb-term', 'data-session-id': sessionId || undefined },
+  return h('div', { ref: rootRef, className: 'dsb-term', 'data-session-id': sessionId || undefined },
     h('div', { className: 'dsb-term-bar' },
       h('div', { ref: tabsRef, className: 'dsb-term-tabs', role: 'tablist' },
-        terms.map((term, idx) => h('div', {
-          key: term.id,
-          className: 'dsb-term-tab',
-          'data-active': term.id === active?.id || undefined,
-        },
-        h('button', {
-          type: 'button',
-          role: 'tab',
-          className: 'dsb-term-tab-btn',
-          'aria-selected': term.id === active?.id,
-          onClick: () => selectTerm(term.id),
-        },
-        h(TerminalIcon),
-        h('span', null, `${term.title} #${idx + 1}`),
-        term.exited ? h('span', { className: 'dsb-term-exit' }, `${term.exitCode ?? 0}`) : null),
-        h('button', {
-          type: 'button',
-          className: 'dsb-term-tab-x',
-          'aria-label': t('Close'),
-          title: t('Close'),
-          onMouseDown: (event) => { event.preventDefault(); event.stopPropagation() },
-          onClick: (event) => { event.stopPropagation(); void closeTerm(term.id) },
-        }, h(CloseIcon))))),
+        terms.map((term, idx) => {
+          const isEditing = editingId === term.id
+          const labelText = term.customTitle ? term.title : `${term.title} #${idx + 1}`
+          return h('div', {
+            key: term.id,
+            className: 'dsb-term-tab',
+            'data-active': term.id === active?.id || undefined,
+          },
+          isEditing
+            ? h('input', {
+                type: 'text',
+                className: 'dsb-term-tab-edit',
+                'aria-label': t('Rename terminal'),
+                value: editingTitle,
+                autoFocus: true,
+                maxLength: 64,
+                onChange: (event) => setEditingTitle(event.target.value),
+                onBlur: (event) => { void commitRename(term.id, event.target.value) },
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void commitRename(term.id, event.currentTarget.value)
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setEditingId(null)
+                  }
+                },
+              })
+            : h('button', {
+                type: 'button',
+                role: 'tab',
+                className: 'dsb-term-tab-btn',
+                'aria-selected': term.id === active?.id,
+                title: readOnly ? labelText : `${labelText} — ${t('Double-click to rename')}`,
+                onClick: () => selectTerm(term.id),
+                onDoubleClick: () => startRename(term),
+                onKeyDown: (event) => {
+                  if (event.key === 'F2' && !readOnly) {
+                    event.preventDefault()
+                    startRename(term)
+                  }
+                },
+              },
+              h(TerminalIcon),
+              h('span', null, labelText),
+              term.exited ? h('span', { className: 'dsb-term-exit' }, `${term.exitCode ?? 0}`) : null),
+          h('button', {
+            type: 'button',
+            className: 'dsb-term-tab-x',
+            'aria-label': t('Close'),
+            title: t('Close'),
+            onMouseDown: (event) => { event.preventDefault(); event.stopPropagation() },
+            onClick: (event) => { event.stopPropagation(); void closeTerm(term.id) },
+          }, h(CloseIcon)))
+        })),
       h('div', { className: 'dsb-term-actions' },
         active ? h('button', {
           type: 'button',
@@ -1075,16 +1278,38 @@ export function WorkspaceTerminal({
           'aria-label': t('New terminal'),
           title: t('New terminal'),
           onClick: () => { void openNew({ focus: true }) },
-        }, h(PlusIcon)))),
+        }, h(PlusIcon)),
+        !readOnly && shells.length > 0 ? h('div', { ref: shellMenuRef, className: 'dsb-term-shell-wrap' },
+          h('button', {
+            type: 'button',
+            className: 'dsb-term-act-ico dsb-term-shell-btn',
+            disabled: opening,
+            'aria-label': t('Select shell'),
+            'aria-haspopup': 'menu',
+            'aria-expanded': shellMenuOpen,
+            title: t('Select shell'),
+            onClick: () => setShellMenuOpen(prev => !prev),
+          }, h(ChevronDownIcon)),
+          shellMenuOpen ? h('div', { className: 'bt-menu dsb-term-shell-menu', role: 'menu' },
+            shells.map(shell => h('button', {
+              key: shell.id,
+              type: 'button',
+              role: 'menuitem',
+              className: 'bt-menu-item',
+              title: shell.path,
+              onClick: () => { void openNew({ focus: true, shell: shell.id }) },
+            },
+            h('span', { className: 'dsb-term-shell-name' }, shell.name),
+            shell.isDefault ? h('span', { className: 'dsb-term-shell-badge' }, t('Default')) : null))) : null) : null)),
     error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error)) : null,
     readOnly
       ? h('div', { className: 'dsb-rp-empty' }, t('Terminals are disabled in a read-only window'))
       : terms.length === 0
-        ? h('div', { className: 'dsb-rp-empty' },
+        ? h('div', { ref: stageRef, className: 'dsb-rp-empty' },
           h('p', null, t('No open terminals')),
           h('button', { type: 'button', className: 'bt-soft', disabled: opening, onClick: () => { void openNew({ focus: true }) } },
             h(TerminalIcon), t('New terminal')))
-        : h('div', { className: 'dsb-term-stage' },
+        : h('div', { ref: stageRef, className: 'dsb-term-stage' },
           active ? h('div', { className: 'dsb-term-cwd-bar' },
             h('span', { className: 'dsb-term-cwd', title: active.cwd }, shortCwd(active.cwd, active.title)),
             active.exited ? h('span', { className: 'dsb-term-exited-note' }, t('Process exited ({code})', { code: active.exitCode ?? 0 })) : null) : null,

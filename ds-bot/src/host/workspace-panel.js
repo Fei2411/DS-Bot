@@ -7,8 +7,8 @@
 // (phone.js, remote.js), and terminal output rides local SSE only (`publishLocalFeed`).
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { watch as fsWatch } from 'node:fs'
-import { copyFile, mkdtemp, open, readdir, realpath, rm, stat } from 'node:fs/promises'
+import { watch as fsWatch, constants as fsConstants } from 'node:fs'
+import { access, copyFile, mkdtemp, open, readdir, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
@@ -111,14 +111,155 @@ function hasNullByte(bytes) {
   return probe.includes(0)
 }
 
-function defaultShell() {
-  if (process.platform === 'win32') {
-    const comspec = process.env.ComSpec?.trim()
+const POSIX_LOGIN_SHELLS = new Set(['zsh', 'bash', 'fish', 'ksh', 'tcsh', 'csh'])
+const TERMINAL_TITLE_MAX_CHARS = 64
+
+function defaultShell(platform = process.platform, env = process.env) {
+  if (platform === 'win32') {
+    const comspec = env.ComSpec?.trim()
     return [comspec || 'powershell.exe']
   }
-  const sh = process.env.SHELL?.trim()
+  const sh = env.SHELL?.trim()
   if (sh && isAbsolute(sh)) return [sh, '-l']
   return ['/bin/sh']
+}
+
+function posixShellName(shellPath) {
+  const base = basename(shellPath).toLowerCase()
+  if (base === 'pwsh') return 'PowerShell'
+  return basename(shellPath) || shellPath
+}
+
+function posixShellArgv(shellPath) {
+  const base = basename(shellPath).toLowerCase()
+  return POSIX_LOGIN_SHELLS.has(base) ? [shellPath, '-l'] : [shellPath]
+}
+
+/**
+ * Lists locally available shells on macOS, Linux, and Windows without spawning subprocesses.
+ * Always marks the system default shell (`isDefault: true`) and orders it first.
+ */
+export async function detectAvailableShells({
+  platform = process.platform,
+  env = process.env,
+  accessFn = access,
+  readFileFn = readFile,
+} = {}) {
+  const defArgv = defaultShell(platform, env)
+  const defPath = defArgv[0]
+
+  if (platform === 'win32') {
+    const sysRoot = env.SystemRoot?.trim() || env.windir?.trim() || 'C:\\Windows'
+    const pf = env.ProgramFiles?.trim() || 'C:\\Program Files'
+    const pf86 = env['ProgramFiles(x86)']?.trim() || 'C:\\Program Files (x86)'
+    const localApp = env.LOCALAPPDATA?.trim() || ''
+    const comspec = env.ComSpec?.trim() || `${sysRoot}\\System32\\cmd.exe`
+    const candidates = [
+      { id: 'pwsh', name: 'PowerShell 7', paths: [`${pf}\\PowerShell\\7\\pwsh.exe`, `${pf86}\\PowerShell\\7\\pwsh.exe`], argv: p => [p] },
+      { id: 'powershell', name: 'Windows PowerShell', paths: [`${sysRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`], argv: p => [p] },
+      { id: 'cmd', name: 'Command Prompt', paths: [comspec, `${sysRoot}\\System32\\cmd.exe`], argv: p => [p] },
+      {
+        id: 'git-bash',
+        name: 'Git Bash',
+        paths: [
+          `${pf}\\Git\\bin\\bash.exe`,
+          `${pf86}\\Git\\bin\\bash.exe`,
+          ...(localApp ? [`${localApp}\\Programs\\Git\\bin\\bash.exe`] : []),
+        ],
+        argv: p => [p, '--login', '-i'],
+      },
+      { id: 'wsl', name: 'WSL', paths: [`${sysRoot}\\System32\\wsl.exe`], argv: p => [p] },
+    ]
+    const seenPaths = new Set()
+    const shells = []
+    for (const group of candidates) {
+      for (const candidate of group.paths) {
+        if (!candidate) continue
+        const key = candidate.toLowerCase()
+        if (seenPaths.has(key)) continue
+        try {
+          await accessFn(candidate, fsConstants.F_OK)
+          seenPaths.add(key)
+          shells.push({
+            id: group.id,
+            name: group.name,
+            path: candidate,
+            argv: group.argv(candidate),
+            isDefault: key === defPath.toLowerCase() || (defPath.toLowerCase() === 'powershell.exe' && group.id === 'powershell'),
+          })
+          break
+        } catch { /* not installed */ }
+      }
+    }
+    if (shells.length === 0) {
+      shells.push({ id: 'default', name: basename(defPath) || 'Shell', path: defPath, argv: defArgv, isDefault: true })
+    } else if (!shells.some(s => s.isDefault)) {
+      shells[0].isDefault = true
+    }
+    shells.sort((a, b) => (a.isDefault === b.isDefault ? 0 : a.isDefault ? -1 : 1))
+    return { defaultId: shells.find(s => s.isDefault)?.id ?? shells[0].id, shells }
+  }
+
+  const candidatePaths = []
+  const seen = new Set()
+  const addPath = (raw) => {
+    const p = typeof raw === 'string' ? raw.trim() : ''
+    if (!p || !p.startsWith('/') || seen.has(p)) return
+    seen.add(p)
+    candidatePaths.push(p)
+  }
+
+  if (env.SHELL) addPath(env.SHELL)
+  try {
+    const etcShells = await readFileFn('/etc/shells', 'utf8')
+    for (const line of String(etcShells).split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      addPath(trimmed)
+    }
+  } catch { /* /etc/shells may be unreadable in minimal containers */ }
+  for (const fallback of [
+    '/bin/zsh', '/usr/bin/zsh', '/opt/homebrew/bin/zsh', '/usr/local/bin/zsh',
+    '/bin/bash', '/usr/bin/bash', '/opt/homebrew/bin/bash', '/usr/local/bin/bash',
+    '/opt/homebrew/bin/fish', '/usr/local/bin/fish', '/usr/bin/fish',
+    '/opt/homebrew/bin/pwsh', '/usr/local/bin/pwsh', '/usr/bin/pwsh',
+    '/bin/sh',
+  ]) {
+    addPath(fallback)
+  }
+
+  const checks = await Promise.all(candidatePaths.map(async (p) => {
+    try {
+      await accessFn(p, fsConstants.X_OK)
+      return p
+    } catch {
+      return null
+    }
+  }))
+  const found = checks.filter(Boolean)
+  const nameCounts = new Map()
+  for (const p of found) {
+    const base = posixShellName(p)
+    nameCounts.set(base, (nameCounts.get(base) ?? 0) + 1)
+  }
+  const shells = found.map((p) => {
+    const base = posixShellName(p)
+    const isDefault = p === defPath
+    return {
+      id: p,
+      name: (nameCounts.get(base) ?? 0) > 1 ? `${base} (${dirname(p)})` : base,
+      path: p,
+      argv: isDefault ? defArgv : posixShellArgv(p),
+      isDefault,
+    }
+  })
+  if (shells.length === 0) {
+    shells.push({ id: defPath, name: posixShellName(defPath), path: defPath, argv: defArgv, isDefault: true })
+  } else if (!shells.some(s => s.isDefault)) {
+    shells[0].isDefault = true
+  }
+  shells.sort((a, b) => (a.isDefault === b.isDefault ? 0 : a.isDefault ? -1 : 1))
+  return { defaultId: shells.find(s => s.isDefault)?.id ?? shells[0].id, shells }
 }
 
 // Explicit env layer for `ctx.subprocess.spawnTerminal`: lets DSH's `scrubbedParentEnv()`
@@ -1171,13 +1312,15 @@ export function install(rt) {
 
   const readScrollback = (term, after = 0) => {
     if (!Number.isSafeInteger(after) || after < 0) throw invalid('after must be a non-negative whole number')
-    const truncated = after + 1 < term.startSeq
-    const from = Math.max(after, term.startSeq - 1)
+    const effectiveAfter = Math.max(after, term.clearedAt ?? 0)
+    const truncated = effectiveAfter + 1 < term.startSeq
+    const from = Math.max(effectiveAfter, term.startSeq - 1)
     const parts = term.parts.filter(part => part.seq > from).map(part => ({ seq: part.seq, text: part.text }))
     return {
       id: term.id,
       start: term.startSeq,
       end: term.endSeq,
+      clearedAt: term.clearedAt ?? 0,
       truncated,
       parts,
       chunk: parts.map(part => part.text).join(''),
@@ -1191,16 +1334,19 @@ export function install(rt) {
       id: term.id,
       cwd: term.cwd,
       title: term.title,
+      customTitle: term.customTitle === true,
+      ...(term.shell ? { shell: term.shell } : {}),
       pty: term.pty,
       exited: term.exited,
       exitCode: term.exitCode,
       start: term.startSeq,
       end: term.endSeq,
+      clearedAt: term.clearedAt ?? 0,
     }
     if (positions === undefined) return { ...base, snapshot: term.buffer }
     const after = Object.hasOwn(positions, term.id) ? positions[term.id] : undefined
     const { chunk, ...catchup } = readScrollback(term, after ?? 0)
-    return { ...base, ...catchup, cwd: term.cwd, title: term.title, pty: term.pty }
+    return { ...base, ...catchup, cwd: term.cwd, title: term.title, customTitle: term.customTitle === true, ...(term.shell ? { shell: term.shell } : {}), pty: term.pty }
   }
 
   async function openTerminal(body = {}, signal) {
@@ -1219,7 +1365,18 @@ export function install(rt) {
       if (signal?.aborted) throw Object.assign(new Error('Terminal launch cancelled'), { code: 'bot/aborted' })
       const cols = clampDim(body.cols, 80, 20, 400)
       const rows = clampDim(body.rows, 24, 6, 120)
-      const argv = defaultShell()
+      let argv = defaultShell()
+      let shellName
+      if (typeof body.shell === 'string' && body.shell.trim() !== '') {
+        const wanted = body.shell.trim()
+        const detected = await detectAvailableShells(rt.shellDetectOptions)
+        if (disposed) throw refused('Host is shutting down')
+        if (signal?.aborted) throw Object.assign(new Error('Terminal launch cancelled'), { code: 'bot/aborted' })
+        const matched = detected.shells.find(s => s.id === wanted || s.path === wanted)
+        if (!matched) throw invalid(`Unknown or unavailable shell: ${wanted}`)
+        argv = matched.argv
+        shellName = matched.name
+      }
       const id = `term-${randomUUID().slice(0, 8)}`
       const title = basename(cwd) || cwd
 
@@ -1294,6 +1451,8 @@ export function install(rt) {
           id,
           cwd,
           title,
+          customTitle: false,
+          shell: shellName,
           pty: true,
           exited: false,
           closed: false,
@@ -1302,6 +1461,14 @@ export function install(rt) {
           parts: [],
           startSeq: 1,
           endSeq: 0,
+          clearedAt: 0,
+          clearScrollback: () => {
+            clearBatch()
+            record.buffer = ''
+            record.parts = []
+            record.startSeq = record.endSeq + 1
+            record.clearedAt = record.endSeq
+          },
           write: data => handle.write(data),
           resize: (c, r) => handle.resize(c, r),
           terminate: async () => {
@@ -1344,6 +1511,8 @@ export function install(rt) {
           id,
           cwd,
           title,
+          customTitle: false,
+          shell: shellName,
           pty: false,
           exited: false,
           closed: false,
@@ -1352,6 +1521,14 @@ export function install(rt) {
           parts: [],
           startSeq: 1,
           endSeq: 0,
+          clearedAt: 0,
+          clearScrollback: () => {
+            clearBatch()
+            record.buffer = ''
+            record.parts = []
+            record.startSeq = record.endSeq + 1
+            record.clearedAt = record.endSeq
+          },
           write: async (data) => {
             if (record.exited || record.closed) return
             // Non-PTY fallback has no foreground job group, so Ctrl+C cannot interrupt a
@@ -1403,7 +1580,7 @@ export function install(rt) {
         })
       }
 
-      return { id, cwd, title, cols, rows, pty: record.pty }
+      return { id, cwd, title, customTitle: false, ...(shellName ? { shell: shellName } : {}), cols, rows, pty: record.pty }
     } finally {
       reservedSlots = Math.max(0, reservedSlots - 1)
       inFlightSpawns.delete(spawnDone)
@@ -1412,6 +1589,9 @@ export function install(rt) {
   }
 
   async function terminalEndpoint(name, body = {}, signal) {
+    if (name === 'shells') {
+      return detectAvailableShells(rt.shellDetectOptions)
+    }
     if (name === 'list') {
       const positions = body.positions !== null && typeof body.positions === 'object' && !Array.isArray(body.positions) ? body.positions : undefined
       if (positions !== undefined) {
@@ -1427,6 +1607,19 @@ export function install(rt) {
     if (term === undefined) throw notFound('Unknown terminal')
     if (name === 'read') {
       return readScrollback(term, body.after ?? 0)
+    }
+    if (name === 'clear') {
+      term.clearScrollback()
+      return { ok: true, id: term.id, start: term.startSeq, end: term.endSeq }
+    }
+    if (name === 'rename') {
+      if (typeof body.title !== 'string') throw invalid('Terminal title must be a string')
+      // eslint-disable-next-line no-control-regex
+      const clean = body.title.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, TERMINAL_TITLE_MAX_CHARS)
+      if (clean === '') throw invalid('Terminal title cannot be empty')
+      term.title = clean
+      term.customTitle = true
+      return { ok: true, id: term.id, title: term.title, customTitle: true }
     }
     if (name === 'input') {
       if (typeof body.data !== 'string') throw invalid('Input data must be a string')

@@ -10,7 +10,7 @@ import { test } from 'node:test'
 import { deflateRawSync } from 'node:zlib'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
-import { buildOpenOsCommand, install as installWorkspacePanel, openOsPath } from '../src/host/workspace-panel.js'
+import { buildOpenOsCommand, detectAvailableShells, install as installWorkspacePanel, openOsPath } from '../src/host/workspace-panel.js'
 import { parseXlsxBuffer } from '../src/host/xlsx-preview.js'
 
 function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners, extraRt } = {}) {
@@ -1214,4 +1214,127 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
   assert.equal(altParsed.sheets[0].rows[0][0].v, 'Alt Prefix OK')
   assert.equal(altParsed.sheets[1].name, 'Strict')
   assert.equal(altParsed.sheets[1].rows[0][0].v, 'Strict NS OK')
+})
+
+test('terminal-clear, terminal-rename, terminal-shells, and shell selection validation', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-term-ext-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-term-ext-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  // 1. detectAvailableShells on POSIX (darwin/linux) reads /etc/shells, marks $SHELL default, and sorts default first.
+  const posixExisting = new Set(['/bin/zsh', '/bin/bash', '/opt/homebrew/bin/fish', '/bin/sh'])
+  const posix = await detectAvailableShells({
+    platform: 'darwin',
+    env: { SHELL: '/bin/zsh' },
+    readFileFn: async () => '# comment\n/bin/sh\n/bin/bash\n/bin/zsh\n/opt/homebrew/bin/fish\n',
+    accessFn: async (p) => { if (!posixExisting.has(p)) throw new Error('ENOENT') },
+  })
+  assert.equal(posix.defaultId, '/bin/zsh')
+  assert.equal(posix.shells[0].path, '/bin/zsh')
+  assert.equal(posix.shells[0].isDefault, true)
+  assert.deepEqual(posix.shells[0].argv, ['/bin/zsh', '-l'])
+  assert.ok(posix.shells.some(s => s.path === '/opt/homebrew/bin/fish' && s.name === 'fish'))
+  assert.ok(posix.shells.some(s => s.path === '/bin/sh' && s.argv.length === 1))
+
+  // 2. detectAvailableShells on Windows detects pwsh, powershell, cmd, git-bash, wsl and honors ComSpec default.
+  const winExisting = new Set([
+    'c:\\program files\\powershell\\7\\pwsh.exe',
+    'c:\\windows\\system32\\windowspowershell\\v1.0\\powershell.exe',
+    'c:\\windows\\system32\\cmd.exe',
+    'c:\\program files\\git\\bin\\bash.exe',
+  ])
+  const win = await detectAvailableShells({
+    platform: 'win32',
+    env: {
+      SystemRoot: 'C:\\Windows',
+      ProgramFiles: 'C:\\Program Files',
+      ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+    },
+    accessFn: async (p) => { if (!winExisting.has(p.toLowerCase())) throw new Error('ENOENT') },
+  })
+  assert.equal(win.defaultId, 'cmd')
+  assert.equal(win.shells[0].id, 'cmd')
+  assert.equal(win.shells[0].isDefault, true)
+  assert.ok(win.shells.some(s => s.id === 'pwsh' && s.name === 'PowerShell 7'))
+  assert.ok(win.shells.some(s => s.id === 'git-bash' && s.argv.includes('--login')))
+
+  // 3. terminal-open shell selection, terminal-clear scrollback reset, and terminal-rename.
+  const spawnedSpecs = []
+  const output = new PassThrough()
+  const subprocess = {
+    spawnTerminal: async (spec) => {
+      spawnedSpecs.push(spec)
+      return {
+        pid: 4242,
+        output,
+        done: new Promise(() => {}),
+        write: async () => {},
+        resize: async () => {},
+        terminate: async () => {},
+      }
+    },
+  }
+  const { rt } = createRuntime(workDir, {
+    dshHome,
+    subprocess,
+    extraRt: {
+      shellDetectOptions: {
+        platform: 'darwin',
+        env: { SHELL: '/bin/zsh' },
+        readFileFn: async () => '/bin/zsh\n/bin/bash\n',
+        accessFn: async (p) => { if (p !== '/bin/zsh' && p !== '/bin/bash') throw new Error('ENOENT') },
+      },
+    },
+  })
+
+  const listedShells = await rt.terminalEndpoint('shells')
+  assert.equal(listedShells.defaultId, '/bin/zsh')
+  assert.equal(listedShells.shells.length, 2)
+
+  // Unknown shell must be rejected (no arbitrary binary launch).
+  await assert.rejects(() => rt.terminalEndpoint('open', { sessionId: 'b1', shell: '/usr/bin/evil' }), { code: 'bot/invalid' })
+
+  const opened = await rt.terminalEndpoint('open', { sessionId: 'b1', cols: 110, rows: 34, shell: '/bin/bash' })
+  assert.deepEqual(spawnedSpecs[0].argv, ['/bin/bash', '-l'])
+  assert.equal(opened.shell, 'bash')
+  assert.equal(opened.customTitle, false)
+
+  // Emit output, then clear server scrollback -> fresh reconnect must NOT get old output or false truncation.
+  output.write('secret-before-clear\r\n')
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const beforeClear = await rt.terminalEndpoint('read', { id: opened.id, after: 0 })
+  assert.match(beforeClear.chunk, /secret-before-clear/)
+
+  const cleared = await rt.terminalEndpoint('clear', { id: opened.id })
+  assert.equal(cleared.ok, true)
+  assert.equal(cleared.start, cleared.end + 1)
+
+  const afterClearFresh = await rt.terminalEndpoint('read', { id: opened.id, after: 0 })
+  assert.equal(afterClearFresh.chunk, '')
+  assert.equal(afterClearFresh.parts.length, 0)
+  assert.equal(afterClearFresh.truncated, false, 'intentional clear must not report truncated scrollback')
+
+  const listAfterClear = await rt.terminalEndpoint('list')
+  assert.equal(listAfterClear[0].snapshot, '')
+
+  // Output arriving after clear still streams cleanly with zero old output.
+  output.write('fresh-after-clear\r\n')
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const postClearRead = await rt.terminalEndpoint('read', { id: opened.id, after: 0 })
+  assert.equal(postClearRead.truncated, false)
+  assert.equal(postClearRead.chunk, 'fresh-after-clear\r\n')
+
+  // Rename terminal tab and verify validation + persistence in terminal-list.
+  await assert.rejects(() => rt.terminalEndpoint('rename', { id: opened.id, title: '   ' }), { code: 'bot/invalid' })
+  const renamed = await rt.terminalEndpoint('rename', { id: opened.id, title: '  API Server\x07  ' })
+  assert.equal(renamed.title, 'API Server')
+  assert.equal(renamed.customTitle, true)
+  const listedRenamed = await rt.terminalEndpoint('list', { positions: {} })
+  assert.equal(listedRenamed[0].title, 'API Server')
+  assert.equal(listedRenamed[0].customTitle, true)
+
+  await rt.terminalDispose()
 })
