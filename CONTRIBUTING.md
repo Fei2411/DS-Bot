@@ -69,7 +69,7 @@ Keep one pull request to one issue. Split a large change into several pull reque
 
 ### Issue co-author credit
 
-A clear bug report, root-cause trace, or well-reasoned idea is often as valuable as a pull request. When an external issue or accepted Discussion idea directly leads to a shipped fix or feature, the maintainer may credit its author with a `Co-authored-by` trailer on the implementing commit (or on the merge commit):
+A clear bug report, root-cause trace, or well-reasoned idea is often as valuable as a pull request. When an external issue or accepted Discussion idea directly leads to a shipped fix or feature, the maintainer may credit its author with a `Co-authored-by` trailer on the implementing commit—or on the merge commit into `dev` if the branch is already pushed (do not rebase or force-push just to add a trailer):
 
 - **Scope**: Granted at the maintainer's discretion for substantive contributions (clear reproduction, root-cause analysis, or an accepted design/feature proposal). Brief one-line wishes or duplicate/low-effort reports are not credited, and commit authors do not credit themselves.
 - **Format & privacy**: Always use the author's GitHub noreply address—never a personal email—by looking up their numeric user ID:
@@ -78,13 +78,15 @@ A clear bug report, root-cause trace, or well-reasoned idea is often as valuable
   gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
   ```
 
-  Add the trailer at the end of the commit message after a blank line, alongside `Fixes #<number>` and `Reported-by: @<login>` (or `Idea-by: @<login>`) so Git history clearly distinguishes issue/idea credit from code authorship:
+  Add the trailer at the end of the commit message after a blank line, putting the command's output inside `<...>` alongside `Fixes #<number>` and `Reported-by: @<login>` (or `Idea-by: @<login>`) so Git history clearly distinguishes issue/idea credit from code authorship:
 
   ```text
-  Fixes #123
+  Fixes #<number>
   Reported-by: @<login>
-  Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>
+  Co-authored-by: <login> <123456+login@users.noreply.github.com>
   ```
+
+  (For legacy GitHub accounts created before July 2017 whose noreply omits the numeric ID, `<login>@users.noreply.github.com` can be used if the ID form does not link.)
 
 - **Opt-out**: Mention the planned credit in the issue before merging when practical. If the author prefers not to be listed in Git history, omit `Co-authored-by` (and thank them in the release notes instead if they prefer).
 - **No AI co-authors**: This credit is for human issue and idea authors only. Never add an AI tool or bot as author, committer, or `Co-authored-by`.

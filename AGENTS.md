@@ -56,13 +56,13 @@ The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The part
   - If a target release version has been decided (for example `v0.3.9` or `v0.4.0`), attach the matching GitHub Milestone.
   - Still keep the human requester as the git commit author without an AI `Co-authored-by`.
 - When a PR fixes or implements a substantive external issue or accepted Discussion idea (clear reproduction, root-cause trace, or accepted design/feature proposal—not a one-line wish or a self-filed issue):
-  - Unless the reporter opted out, credit them at the end of the implementing commit (or merge commit) using their GitHub noreply address fetched via `gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'`:
+  - At maintainer discretion (and unless the reporter opted out), credit them at the end of the implementing commit—or, if the branch is already pushed, on the merge commit into `dev` rather than amending or force-pushing—using their GitHub noreply address fetched via `gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'`:
     ```text
     Fixes #<number>
     Reported-by: @<login>
-    Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>
+    Co-authored-by: <login> <noreply-address>
     ```
-    Use `Idea-by: @<login>` for accepted feature ideas. Never put a personal email in commit history, and mention the planned credit in the issue before merging when practical so the author can opt out.
+  - Use `Idea-by: @<login>` for accepted feature ideas. Never put a personal email in commit history, and mention the planned credit in the issue before merging when practical so the author can opt out.
 - When completing an independent review on a pull request:
   - Post a structured comment (or review) on the PR starting with:
     ```

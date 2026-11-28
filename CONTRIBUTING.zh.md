@@ -69,22 +69,24 @@
 
 ### 为高质量 Issue 署名 Co-author
 
-清晰的问题报告、根因排查或经过思考的功能建议，往往与 Pull Request 同等宝贵。当外部用户的 Issue 或被采纳的 Discussion 想法直接促成了修复或功能落地时，维护者可以酌情在对应实现的提交（或合并提交）中为其添加 `Co-authored-by`：
+清晰的问题报告、根因排查或经过思考的功能建议，往往与 Pull Request 同等宝贵。当外部用户的 Issue 或被采纳的 Discussion 想法直接促成了修复或功能落地时，维护者可以酌情在对应实现的提交中添加 `Co-authored-by`——若分支已推送，直接写在合入 `dev` 的合并提交里（不要为了补署名而 rebase 或强推）：
 
-- **适用范围**：由维护者酌情授予，面向有实质贡献的反馈（清晰复现、定位根因，或直接促成落地的方案/功能建议）。一句话许愿、重复或缺少信息的报告不予署名；提交作者本人开的 Issue 也不重复署名。
+- **适用范围**：由维护者酌情授予，面向有实质贡献的反馈（清晰复现、定位根因，或直接促成落地的方案/功能建议）。一句话许愿、重复或低信息量的报告不予署名；提交作者本人开的 Issue 也不重复署名。
 - **格式与隐私**：一律使用对方的 GitHub noreply 邮箱，绝不填写私人邮箱。通过 GitHub API 查询数字 ID：
 
   ```sh
   gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
   ```
 
-  在提交说明末尾空一行后添加 trailer，配合 `Fixes #<号>` 与 `Reported-by: @<login>`（或 `Idea-by: @<login>`），让 Git 历史清楚区分「提出问题/想法」与「编写代码」：
+  在提交说明末尾空一行后添加 trailer，将上面命令的输出填入 `<...>`，并配合 `Fixes #<号>` 与 `Reported-by: @<login>`（或 `Idea-by: @<login>`），让 Git 历史清楚区分「提出问题/想法」与「编写代码」：
 
   ```text
-  Fixes #123
+  Fixes #<号>
   Reported-by: @<login>
-  Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>
+  Co-authored-by: <login> <123456+login@users.noreply.github.com>
   ```
+
+  （2017 年 7 月前注册的旧版 GitHub 账号若数字 ID 形式未关联到主页，可改用 `<login>@users.noreply.github.com`。）
 
 - **尊重意愿**：合并前尽量在 Issue 回复中说明计划署名。若对方不希望被写入 Git 历史，不加 `Co-authored-by`（可改为仅在 Release Notes 致谢）。
 - **仍禁止为 AI 署名**：该机制仅面向提出 Issue 或想法的人类贡献者，绝不把 AI 工具或 Bot 写成作者、提交者或 `Co-authored-by`。
