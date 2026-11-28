@@ -152,6 +152,28 @@ function seedCoord(home, fn) {
   }
 }
 
+test('restart does not turn empty legacy Bot exchanges into work or wake their sender', async (t) => {
+  const host = startHost(t, {
+    team: seedTeam({
+      works: {
+        'ex-empty': { id: 'ex-empty', from: 'a', to: 'b', at: 1000, open: [], results: [] },
+        'ex-gone': { id: 'ex-gone', from: 'a', to: 'deleted-bot', at: 1001 },
+        'w-real': { ref: 'W1', state: 'open', from: 'c', to: 'b', at: 1002, goal: 'Review a change', open: [], results: [] },
+      },
+    }),
+  })
+  await host.rt.adoptLiveWork()
+
+  const db = host.rt.coordDb
+  assert.equal(db.getWork('handoff:ex-empty'), undefined, 'plain exchanges are not work')
+  assert.equal(db.getWork('handoff:ex-gone'), undefined, 'a missing recipient does not turn an exchange into work')
+  assert.equal(db.listWaits({ workId: 'fg:a', status: 'open' }).length, 0)
+  assert.equal(db.listInbox('fg:a').length, 0)
+  assert.deepEqual(host.agentOf('dm-a').calls, [])
+  assert.equal(db.getWork('handoff:w-real')?.title, 'Review a change')
+  assert.equal(db.getCall('call:w-real')?.status, 'open')
+})
+
 test('empty inflight: orphan leaf work settles visibly, wakes parent without killing parent, frees result files and upstreamOf', async (t) => {
   const home = tempHome('ds-bot-orphan-leaf-')
   const resultsDir = join(home, 'handoff-results')

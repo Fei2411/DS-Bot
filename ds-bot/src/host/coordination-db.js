@@ -2843,11 +2843,17 @@ export function openCoordinationDb({
 
       const legacyWorks = legacyState?.works && typeof legacyState.works === 'object' ? legacyState.works : {}
       const legacyWorkEntries = Object.entries(legacyWorks).filter(([, w]) => w && typeof w === 'object')
+      const exchangeShellFields = new Set(['id', 'from', 'to', 'at', 'state', 'open', 'results', 'worked', 'rounds'])
 
       const hasLegacyInflightTurns = legacyInflight?.turns && typeof legacyInflight.turns === 'object'
         && Object.keys(legacyInflight.turns).length > 0
 
       for (const [id, lw] of legacyWorkEntries) {
+        // Only the legacy exchange bookkeeping fields are present; there is no delegation to migrate.
+        if (lw.from && lw.to && (lw.state ?? 'open') === 'open'
+          && (lw.open ?? []).length === 0 && (lw.results ?? []).length === 0
+          && (lw.worked ?? false) === false && (lw.rounds ?? 0) === 0
+          && Object.keys(lw).every(key => exchangeShellFields.has(key))) continue
         const ownerBot = lw.to ?? lw.from
         if (!ownerBot) continue
         if (lw.toTaskId && taskToWorkId.has(lw.toTaskId)) {
