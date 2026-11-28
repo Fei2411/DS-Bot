@@ -760,7 +760,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           }
         } else {
           if (session.promptFileUnsupported === true) live.promptFileRetry = true
-          if (session.partialMessagesUnsupported === true) live.partialMessagesRetry = true
+          if (session.cliFlagUnsupported === true) live.cliFlagRetry = true
           live.handed = live.handedBefore
           if (Object.hasOwn(live, 'promptHashBefore')) live.promptHash = live.promptHashBefore
         }
@@ -1172,8 +1172,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         yield* this.stream(options)
         return
       }
-      if (live.closeFailure === undefined && live.partialMessagesRetry === true) {
-        live.partialMessagesRetry = false
+      if (live.closeFailure === undefined && live.cliFlagRetry === true) {
+        live.cliFlagRetry = false
         yield* this.stream(options)
         return
       }
@@ -1580,7 +1580,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // Runs `work` on a Session's CLI session while no turn uses it. A CLI session the
   // Session has no process for is opened for it and let go of after, so the next turn
   // opens it again with its own tools and instructions.
-  async maintain(sessionId, signal, work, { retryPartialMessages = true } = {}) {
+  async maintain(sessionId, signal, work, { retryCliFlags = 2 } = {}) {
     let live = this.live.get(sessionId)
     const record = live === undefined ? this.deps.record(sessionId) : undefined
     if (live === undefined && record?.cliSessionId === undefined) throw new LlmError('this conversation has no session of its local agent yet', 'LOCAL_AGENT_ERROR')
@@ -1609,7 +1609,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       signal?.throwIfAborted()
       return await work(live)
     } catch (error) {
-      if (retryPartialMessages && live.engineSession?.partialMessagesUnsupported === true) {
+      if (retryCliFlags > 0 && live.engineSession?.cliFlagUnsupported === true) {
         retry = true
       } else {
         throw error
@@ -1620,7 +1620,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.mute = true
       if (opened || retry) await this.closeLive(live, { idle: true })
     }
-    return await this.maintain(sessionId, signal, work, { retryPartialMessages: false })
+    return await this.maintain(sessionId, signal, work, { retryCliFlags: retryCliFlags - 1 })
   }
 
   async openFor(live, sessionId) {
@@ -1754,7 +1754,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // team tools and read-only access, which is let go of after: the context steward's
   // call, and the memory review's. `route` and `model` name the CLI when the
   // request serves a Bot rather than one of its conversations.
-  async ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind, retryPartialMessages = true }) {
+  async ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind, retryCliFlags = 2 }) {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = named !== undefined ? { route: named, model: namedModel } : this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
@@ -1789,7 +1789,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), effectiveSignal)
       return this.meter({ sessionId, route, model: record.model }, result, kind).text
     } catch (error) {
-      if (retryPartialMessages && session?.partialMessagesUnsupported === true) {
+      if (retryCliFlags > 0 && session?.cliFlagUnsupported === true) {
         retry = true
       } else {
         throw error
@@ -1808,7 +1808,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         request.done.resolve()
       }
     }
-    if (retry) return await this.ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind, retryPartialMessages: false })
+    if (retry) return await this.ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind, retryCliFlags: retryCliFlags - 1 })
   }
 
   async dispose() {

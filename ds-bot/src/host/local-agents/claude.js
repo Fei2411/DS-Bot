@@ -9,13 +9,16 @@ import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
-// Stop reasons that end an assistant message without expecting a tool result.
-const TERMINAL_STOP_REASONS = new Set(['end_turn', 'max_tokens', 'stop_sequence', 'refusal', 'model_context_window_exceeded'])
+// Stop reasons that end an assistant message without expecting a tool result
+// or automatic continuation (note: `max_tokens` triggers Claude Code's
+// `max_output_tokens_recovery` continuation in the same turn).
+const TERMINAL_STOP_REASONS = new Set(['end_turn', 'stop_sequence', 'refusal', 'model_context_window_exceeded'])
 // Grace window after a definitive end-of-message signal (`message_stop` or terminal `stop_reason`)
 // before completing a turn when stream-json never emits `result` (#2382).
-const DEFAULT_RESULT_GRACE_MS = 5_000
+// Kept long enough that late `result` events (including errors) are not cut off.
+const DEFAULT_RESULT_GRACE_MS = 30_000
 // Fallback quiet window when neither `stream_event` nor `stop_reason` is available.
-const DEFAULT_RESULT_FALLBACK_MS = 15_000
+const DEFAULT_RESULT_FALLBACK_MS = 60_000
 // On Windows, CreateProcessW caps total command-line length at 32K chars (and .cmd shims at 8K);
 // pass long appended system prompts via `--append-system-prompt-file` to stay well below OS limits.
 const DEFAULT_SYSTEM_FILE_THRESHOLD = process.platform === 'win32' ? 4_000 : 64_000
@@ -35,6 +38,7 @@ export class ClaudeEngine {
     this.resultFallbackMs = resultFallbackMs
     this.noPromptFile = false
     this.noPartialMessages = false
+    this.noHookEvents = false
     this.forkSupported = undefined
     this.sessions = new Map()
   }
@@ -95,6 +99,7 @@ class ClaudeSession {
     this.waiters = []
     this.dead = false
     this.retired = false
+    this.turnFinished = false
     this.idWaiters = []
     this.turnCalls = new Set()
     this.pendingToolUses = new Set()
@@ -138,6 +143,10 @@ class ClaudeSession {
     if (!this.engine.noPartialMessages) {
       args.push('--include-partial-messages')
       this.usedPartialMessages = true
+    }
+    if (!this.engine.noHookEvents) {
+      args.push('--include-hook-events')
+      this.usedHookEvents = true
     }
     if (resumeId !== undefined) {
       if (forkSession === true && this.engine.forkSupported === false) {
@@ -237,11 +246,17 @@ class ClaudeSession {
       this.rejectStart = undefined
       this.emit({ type: 'error', error: failure })
     })
-    child.on('exit', (code, signal) => {
+    child.on('exit', () => {
+      this.cancelResultTimer()
+      this.dead = true
+    })
+    // Wait for `close` (after stdout/stderr drain) before deciding whether to
+    // synthesize completion or fail, so a buffered `result` line is never raced.
+    child.on('close', (code, signal) => {
       this.cancelResultTimer()
       this.dead = true
       this.cleanupSystemFile()
-      if (this.retired) {
+      if (this.retired || (this.turnFinished && code === 0 && signal === null)) {
         for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         return
       }
@@ -252,7 +267,11 @@ class ClaudeSession {
       }
       if (this.usedPartialMessages === true && this.cliSessionId === undefined && /unknown option.*include-partial-messages|unrecognized option.*include-partial-messages/i.test(stderr)) {
         this.engine.noPartialMessages = true
-        this.partialMessagesUnsupported = true
+        this.cliFlagUnsupported = true
+      }
+      if (this.usedHookEvents === true && this.cliSessionId === undefined && /unknown option.*include-hook-events|unrecognized option.*include-hook-events/i.test(stderr)) {
+        this.engine.noHookEvents = true
+        this.cliFlagUnsupported = true
       }
       if (this.usedForkSession === true && this.cliSessionId === undefined && /unknown option.*fork-session|unrecognized option.*fork-session/i.test(stderr)) {
         this.engine.forkSupported = false
@@ -261,13 +280,17 @@ class ClaudeSession {
       // Claude Code deletes old conversations; resuming one that is gone exits
       // before init with this line on stderr.
       if (this.resumeId !== undefined && this.cliSessionId === undefined && /no conversation found/i.test(stderr)) this.resumeMissing = true
-      if (code === 0 && signal === null && this.canFinishWithoutResult()) {
+      if (code === 0 && signal === null && !this.turnFinished && this.canFinishWithoutResult()) {
         for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         this.finishWithoutResult({ retireChild: false })
         return
       }
       for (const resolve of this.idWaiters.splice(0)) resolve(undefined)
-      this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
+      if (!this.turnFinished) {
+        this.turnFinished = true
+        this.running = false
+        this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
+      }
     })
     // The CLI sends `system/init` only once the first message arrives on stdin,
     // and this engine writes that message after start resolves: waiting for init
@@ -286,6 +309,9 @@ class ClaudeSession {
     try { event = JSON.parse(line) } catch { return }
     switch (event?.type) {
       case 'system':
+        // Any system event (e.g. api_retry, hook_started, hook_progress, status)
+        // means the CLI is still active; disarm fallback until a terminal point.
+        this.cancelResultTimer()
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
           if (typeof event.cwd === 'string' && isAbsolute(event.cwd)) this.cwd = event.cwd
@@ -297,14 +323,12 @@ class ClaudeSession {
           this.maybeScheduleResultFallback()
         } else if (event.subtype === 'status' && event.status === 'compacting') {
           this.compacting = true
-          this.cancelResultTimer()
           this.emit({ type: 'compaction', status: 'started' })
         } else if (event.subtype === 'status' && this.compacting) {
           this.compacting = false
           this.maybeScheduleResultFallback()
         } else if (event.subtype === 'hook_started') {
           this.pendingHooks.add(event.hook_id ?? event.uuid ?? 'hook')
-          this.cancelResultTimer()
         } else if (event.subtype === 'hook_response') {
           if (event.hook_id !== undefined || event.uuid !== undefined) this.pendingHooks.delete(event.hook_id ?? event.uuid)
           else this.pendingHooks.clear()
@@ -441,10 +465,13 @@ class ClaudeSession {
       }
       case 'result':
         this.cancelResultTimer()
+        if (this.turnFinished) break
         // A resume of a conversation the CLI no longer has ends at once, before
         // init and with no turn.
         if (this.resumeId !== undefined && this.cliSessionId === undefined && event.is_error === true && (event.num_turns ?? 0) === 0) {
           this.resumeMissing = true
+          this.turnFinished = true
+          this.running = false
           // It exits next and reads no more input.
           this.dead = true
           this.emit({ type: 'error', error: Object.assign(new Error(`${this.engine.engine.name} no longer has this conversation`), { code: 'LOCAL_AGENT_EXIT' }) })
@@ -460,6 +487,7 @@ class ClaudeSession {
         this.resetTurnState()
         this.pendingPermissions.clear()
         const calls = positiveInt(event.num_turns) ?? (observedCalls > 0 ? observedCalls : undefined)
+        this.turnFinished = true
         this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage, calls) }
@@ -499,7 +527,7 @@ class ClaudeSession {
   }
 
   canFinishWithoutResult() {
-    if (this.running !== true || this.retired) return false
+    if (this.running !== true || this.retired || this.turnFinished) return false
     if (!this.turnHasAssistantOutput) return false
     if ((this.inMessage && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) || this.messageHasToolUse) return false
     if (this.messageStopReason !== null && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) return false
@@ -536,6 +564,8 @@ class ClaudeSession {
   // closing `result` line (#2382). Complete the turn with the output already
   // streamed and retire the wedged child so the next turn resumes cleanly.
   finishWithoutResult({ retireChild }) {
+    if (this.turnFinished) return
+    this.turnFinished = true
     const observedCalls = this.turnCalls.size
     const calls = observedCalls > 0 ? observedCalls : undefined
     const usage = usageOf(this.turnUsage, calls)
@@ -573,6 +603,7 @@ class ClaudeSession {
       this.messageStopped = false
       this.turnHasAssistantOutput = false
     }
+    this.turnFinished = false
     this.running = true
     this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
