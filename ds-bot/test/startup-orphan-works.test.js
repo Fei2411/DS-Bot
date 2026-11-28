@@ -157,10 +157,6 @@ test('restart skips answered legacy exchange shells but preserves unanswered del
   const ledger = join(home, 'ledger')
   mkdirSync(ledger)
   const writeBook = (name, entries) => writeFileSync(join(ledger, `${name}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n')
-  writeBook('pair-a-deleted-bot', [
-    { id: 'reply-gone', from: 'deleted-bot', to: 'a', role: 'reply', replyTo: 'ex-gone' },
-    { event: 'delivered', id: 'reply-gone' },
-  ])
   writeBook('pair-b-c', [
     { id: 'reply-pending', from: 'b', to: 'c', role: 'reply', replyTo: 'ex-pending' },
   ])
@@ -182,8 +178,8 @@ test('restart skips answered legacy exchange shells but preserves unanswered del
   await host.rt.adoptLiveWork()
 
   const db = host.rt.coordDb
+  assert.equal(db.getWork('handoff:ex-gone'), undefined, 'a deleted recipient cannot reply even when its ledger is gone')
   assert.equal(db.getWork('handoff:ex-empty'), undefined, 'a recorded reply makes the shell stale')
-  assert.equal(db.getWork('handoff:ex-gone'), undefined, 'a delivered ledger reply counts even after a Bot is gone')
   assert.equal(db.listWaits({ workId: 'fg:a', status: 'open' }).length, 0)
   assert.equal(db.listInbox('fg:a').length, 0)
   assert.deepEqual(host.agentOf('dm-a').calls, [])

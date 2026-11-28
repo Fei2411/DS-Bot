@@ -2855,7 +2855,7 @@ export function openCoordinationDb({
           && (lw.open ?? []).length === 0 && (lw.results ?? []).length === 0
           && (lw.worked ?? false) === false && (lw.rounds ?? 0) === 0
           && Object.keys(lw).every(key => exchangeShellFields.has(key))
-          && hasDeliveredReply?.(lw.to, lw.from, id) === true) continue
+          && (!Object.hasOwn(bots, lw.to) || hasDeliveredReply?.(lw.to, lw.from, id) === true)) continue
         const ownerBot = lw.to ?? lw.from
         if (!ownerBot) continue
         if (lw.toTaskId && taskToWorkId.has(lw.toTaskId)) {
