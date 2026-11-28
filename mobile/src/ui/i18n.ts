@@ -1,8 +1,8 @@
-import { DICTIONARY } from '../../../ds-bot/src/client/i18n.js'
+import { ZH as DESKTOP_ZH } from '../../../ds-bot/src/client/locales/zh.js'
 
 // Phone copy shares the desktop dictionary. Mobile-only strings have their own
 // Chinese entries here; the English source stays the key, as on the desktop.
-const ZH = DICTIONARY.zh as Record<string, string>
+const ZH = DESKTOP_ZH as Record<string, string>
 // Words the desktop uses in another sense (its "New" badge, "Light" motion, the
 // browser's "Back", the "Not parsed" meaning of "Unknown", OAuth "Verified");
 // the phone's own meaning wins for these.
@@ -18,6 +18,9 @@ const MOBILE_ZH: Record<string, string> = {
   'On the computer, open DS Bot, go to Settings → Phone and copy the pairing link. Paste it here.': '在电脑上打开 DS Bot，进入设置 → 手机，复制配对链接并粘贴到这里。',
   'Pick a folder from Folders.': '请从“文件夹”中选择一个文件夹。',
   'Asks for the secret {name}': '请求密钥 {name}',
+  'Wants to send an email': '想发送一封邮件',
+  'Computer handoff': '电脑交接',
+  'Send email': '发送邮件',
   '{bot} asks for the secret {name}': '{bot} 请求密钥 {name}',
   'Pair with your computer': '与电脑配对',
   'On the computer, open DS Bot, go to Settings → Phone and show a QR code. Then scan it here.': '在电脑上打开 DS Bot，进入设置 → 手机，出示二维码，然后在这里扫描。',
@@ -28,6 +31,8 @@ const MOBILE_ZH: Record<string, string> = {
   'Tools': '工具调用',
   'Steps': '步数', 'Context used': '上下文占用',
   'Retry': '重试',
+  'Poke': '戳一戳',
+  'Pet': '摸一摸',
   'Add photos': '添加照片', 'Not sent. Tap to retry': '未发出，点按重试', 'Latest messages': '最新消息', 'Forget {name}?': '忘记 {name}？', 'Clear diagnostics?': '清空诊断记录？',
   'Pick at least two Bots. The admin leads the group.': '至少选两个 Bot，管理员带领这个群。', 'Reconnecting…': '正在重新连接…',
   'A photo did not arrive. Send it again.': '有张照片没传到，请重新发送。', 'This is not a photo DS Bot can send': '这不是 DS Bot 能发送的照片',
@@ -180,6 +185,8 @@ const MOBILE_ZH: Record<string, string> = {
   'Needs approval: {text}': '等待批准：{text}', 'Needs your approval': '等待你的批准',
   'Question: {text}': '提问：{text}', 'Waiting for your answer': '等待你的回答',
   'Card: {text}': '卡片：{text}', 'Waiting for your response': '等待你处理卡片',
+  '{bot} is waiting for your reply: {title}': '{bot} 等你回复：{title}',
+  '{bot} is waiting for your reply': '{bot} 等你回复',
   'Waiting for a secret': '等待填写密钥', 'Needs connector: {name}': '需要连接：{name}',
   'Needs connector sign-in': '需要登录连接器', 'Browser handoff: {text}': '请接手浏览器：{text}',
   'Learning proposal: {text}': '学习提议：{text}', 'New learning proposal': '有新的学习提议',

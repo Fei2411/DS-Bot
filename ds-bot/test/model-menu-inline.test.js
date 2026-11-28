@@ -60,6 +60,7 @@ function mount(Component, firstProps) {
   return {
     get tree() { return self.tree },
     rerender(props) { self.props = props; self.update() },
+    unmount() { for (const entry of self.slots) entry?.cleanup?.() },
   }
 }
 
@@ -94,7 +95,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
 })
-const { ModelMenu, EffortBar, MODEL_CSS } = module.exports
+const { ModelMenu, EffortBar, MODEL_CSS, effortCache } = module.exports
 
 const nodes = (tree, match) => (!tree || typeof tree !== 'object' ? [] : [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))])
 const settle = () => new Promise(done => setImmediate(done))
@@ -310,27 +311,31 @@ function inline({ model = 'official/flash', effort, actions = {}, withEfforts } 
 }
 
 test('the slider sits under the model trigger and under the list once it opens', () => {
-  const { view, calls, attach } = inline()
-  let { root, trigger, list, slider } = view()
-  assert.equal(root.props.className, 'bt-model-inline')
-  assert.equal(trigger.props.className, 'bt-model-trigger')
-  assert.equal(trigger.props['aria-expanded'], false)
-  assert.equal(list.props.open, false)
-  assert.equal(slider.props.open, true)
-  assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
-  // Trigger first, list next, slider last: the order they stack in.
-  assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
+  const { menu, view, calls, attach } = inline()
+  try {
+    let { root, trigger, list, slider } = view()
+    assert.equal(root.props.className, 'bt-model-inline')
+    assert.equal(trigger.props.className, 'bt-model-trigger')
+    assert.equal(trigger.props['aria-expanded'], false)
+    assert.equal(list.props.open, false)
+    assert.equal(slider.props.open, true)
+    assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
+    // Trigger first, list next, slider last: the order they stack in.
+    assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
 
-  trigger.props.onClick()
-  attach()
-  ;({ root, trigger, list, slider } = view())
-  assert.equal(trigger.props['aria-expanded'], true)
-  assert.equal(list.props.open, true)
-  assert.equal(nodes(list, node => node.props.role === 'menu').length, 1)
-  assert.equal(slider.props.open, true)
-  assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
-  assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
-  assert.equal(calls.refreshed, 1)
+    trigger.props.onClick()
+    attach()
+    ;({ root, trigger, list, slider } = view())
+    assert.equal(trigger.props['aria-expanded'], true)
+    assert.equal(list.props.open, true)
+    assert.equal(nodes(list, node => node.props.role === 'menu').length, 1)
+    assert.equal(slider.props.open, true)
+    assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
+    assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
+    assert.equal(calls.refreshed, 1)
+  } finally {
+    menu.unmount()
+  }
 })
 
 test('a model without thinking levels shows no slider, and neither does a pick that takes none', () => {
@@ -431,4 +436,45 @@ test('the popup can open before models load, then focus a model row from search'
 test('wide select triggers fill stacked drawer and form fields while keeping settings controls capped', () => {
   assert.match(MODEL_CSS, /\.bt-model-trigger\[data-wide\]\{[^}]*max-width:min\(340px,100%\)/)
   assert.match(MODEL_CSS, /:is\(\.bt-drawer-model,\.bt-field\)\s+\.bt-model-trigger\[data-wide\]\{width:100%;max-width:100%\}/)
+})
+
+test('reopening the model picker clears stale effortCache entries (empty and non-empty) and requeries efforts', async () => {
+  effortCache.clear()
+  let served = { efforts: [] }
+  let queries = 0
+  const model = { ref: 'openai-chatgpt/gpt-5.5', provider: 'openai-chatgpt', providerName: 'ChatGPT (plan)', name: 'GPT-5.5' }
+  const { type, props } = ModelMenu({
+    bot: { id: 'b1', name: 'B1', model: model.ref },
+    roster: { models: [model] },
+    actions: {
+      efforts: async () => { queries += 1; return served },
+      refreshModels: () => {},
+    },
+    run: () => {},
+  })
+  const popup = mount(type, props)
+  await settle()
+  assert.equal(queries, 1)
+  assert.equal(nodes(popup.tree, node => node.type === EffortBar).length, 0)
+
+  // Server refreshes to expose efforts; reopening the picker clears cache and re-fetches.
+  served = { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] }
+  const clickTrigger = () => {
+    const trigger = popup.tree.children[0]
+    trigger.props.ref.current = { getBoundingClientRect: () => ({ top: 60, bottom: 92, right: 300, width: 160 }) }
+    trigger.props.onClick()
+  }
+  clickTrigger()
+  await settle()
+  assert.equal(queries, 2)
+  assert.deepEqual(Array.from(nodes(popup.tree, node => node.type === EffortBar)[0].props.reasoning.efforts, e => e.id), ['low', 'high'])
+
+  // Close and update server again (non-empty -> empty); reopening must also evict stale positive cache.
+  clickTrigger()
+  served = { efforts: [] }
+  clickTrigger()
+  await settle()
+  assert.equal(queries, 3)
+  assert.equal(nodes(popup.tree, node => node.type === EffortBar).length, 0)
+  popup.unmount()
 })

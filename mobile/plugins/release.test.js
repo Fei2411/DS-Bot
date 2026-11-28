@@ -38,19 +38,22 @@ test('versionCode grows with the version, and a pre-release stays below its rele
   assert.throws(() => versionCode('0.3'), /cannot make/)
 })
 
-test('applyArchs preserves debug architectures while enabling uncompressed 16KB packaging', () => {
+test('applyArchs preserves debug architectures while enabling uncompressed 16KB packaging and Gradle tuning', () => {
   const existing = [
     { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'true' },
+    { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx2048m -XX:MaxMetaspaceSize=512m' },
   ]
   assert.deepEqual(applyArchs(existing), [
     { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+    { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m' },
     { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
   ])
   assert.deepEqual(applyArchs([]), [
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
     { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
+    { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m' },
   ])
 })
 

@@ -4,10 +4,24 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
 import { REFERENCE_KIND, REPLY_KIND } from './constants.js'
 import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { ESCALATION } from './extra-folders.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
+const TERMINAL_WORK_STATUSES = new Set(['done', 'failed', 'stopped'])
+const FILE_ESCALATION_TOOLS = new Set(['write', 'edit', 'apply_patch'])
 const sessionOf = agent => agent?.session?.id ?? agent?.id
 const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
+
+function cleanDisplayReason(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out = {}
+  for (const [lang, text] of Object.entries(raw)) {
+    if (typeof lang === 'string' && lang.length <= 16 && typeof text === 'string' && text.trim() !== '') {
+      out[lang] = text.slice(0, 500)
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
 
 async function nativeEvidence(ctx, exec) {
   const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
@@ -38,12 +52,15 @@ export function install(rt) {
   const actionScope = new AsyncLocalStorage()
   const approvalListeners = new Set()
   const clean = text => cleanText(text, { redact: rt.redactSecrets }).slice(0, 1000)
+  const writableCoordDb = () => (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const readableCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
+
   const emit = (kind, data) => {
     for (const listener of approvalListeners) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, toManual, isAborted, ownerSessionId, lineageSessionIds, prepareAlways, answering, coordWait: _coordWait, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -51,12 +68,115 @@ export function install(rt) {
     const liveRoomId = entry.roomId === undefined ? (liveTask?.roomId ?? liveEntry?.roomId) : undefined
     return {
       ...entry,
+      ...(ownerSessionId !== undefined && ownerSessionId !== entry.sessionId ? { ownerSessionId } : {}),
       ...(liveRoomId !== undefined ? { roomId: liveRoomId } : {}),
       ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
       answerable: answer !== undefined,
     }
   }
   const changed = entry => emit('updated', view(entry))
+
+  // Resolve the active coordination-db work that owns this approval request.
+  const coordWorkOf = (owner) => {
+    const db = writableCoordDb()
+    if (!db) return undefined
+    try {
+      if (owner.taskId !== undefined) {
+        const byTask = db.getWork(`task:${owner.taskId}`) ?? db.getWork(owner.taskId)
+        if (byTask && !TERMINAL_WORK_STATUSES.has(byTask.status)) return byTask
+      }
+      for (const sid of [owner.sessionId, owner.ownerSessionId, ...(owner.lineageSessionIds ?? [])]) {
+        if (!sid) continue
+        const bySid = db.getWorkBySessionId(sid)
+        if (bySid && !TERMINAL_WORK_STATUSES.has(bySid.status)) return bySid
+      }
+      if (owner.roomId !== undefined && owner.botId !== undefined) {
+        const byAddr = db.getWorkByLogicalAddress(`room:${owner.roomId}:${owner.botId}`)
+        if (byAddr && !TERMINAL_WORK_STATUSES.has(byAddr.status)) return byAddr
+      }
+      if (owner.botId !== undefined && owner.roomId === undefined && owner.taskId === undefined) {
+        const fg = db.getForegroundWork(owner.botId)
+          ?? db.ensureForegroundWork({ botId: owner.botId, sessionId: owner.ownerSessionId ?? owner.sessionId }).work
+        if (fg && !TERMINAL_WORK_STATUSES.has(fg.status)) return fg
+      }
+    } catch { /* best-effort */ }
+    return undefined
+  }
+
+  const openCoordWait = (entry, owner) => {
+    const db = writableCoordDb()
+    if (!db) return undefined
+    const work = coordWorkOf(owner)
+    if (!work) return undefined
+    const waitId = `wt_appr_${entry.id}`
+    try {
+      db.addWait({
+        waitId,
+        workId: work.workId,
+        kind: 'approval',
+        targetId: `approval:${entry.id}`,
+        required: true,
+        meta: {
+          approvalId: entry.id,
+          tool: entry.tool,
+          reason: entry.reason,
+          sessionId: entry.sessionId,
+          ownerSessionId: entry.ownerSessionId,
+          ...(entry.botId !== undefined ? { botId: entry.botId } : {}),
+          ...(entry.roomId !== undefined ? { roomId: entry.roomId } : {}),
+          ...(entry.taskId !== undefined ? { taskId: entry.taskId, ...(entry.taskTitle ? { taskTitle: entry.taskTitle } : {}) } : {}),
+          ...(entry.privacy === true ? { privacy: true } : {}),
+          at: entry.at,
+        },
+      })
+      return { waitId, workId: work.workId, botId: work.botId }
+    } catch (error) {
+      rt.warn?.('ds-bot: failed to record approval wait %s: %s', entry.id, error?.message ?? error)
+      return undefined
+    }
+  }
+
+  const settleCoordWait = (coordWait, entry, outcome, reviewed) => {
+    const db = writableCoordDb()
+    if (!db || !coordWait) return
+    try {
+      db.transaction(() => {
+        const summary = `[Approval ${outcome}] ${entry.tool || 'tool'}${entry.reason ? `: ${entry.reason}` : ''}`
+        const inboxMessage = outcome === 'cancelled'
+          ? undefined
+          : {
+              kind: 'answer',
+              senderAddress: reviewed ? 'approval-review' : 'user',
+              dedupKey: `approval:${entry.id}`,
+              bodyPreview: summary,
+              payload: {
+                approvalId: entry.id,
+                tool: entry.tool,
+                outcome,
+                reviewed,
+                role: 'approval',
+                text: summary,
+              },
+            }
+        // A live in-process approval (`pending.has(id)`) resumes the executing DSH tool
+        // directly when its Promise resolves. Pass `wake: false` and mark ONLY this
+        // single audit inbox row read (`ackInboxSeq`) so it never fires a duplicate
+        // `kickScheduler` followup into the live session or touches concurrent unread rows.
+        const res = db.resolveWait({
+          waitId: coordWait.waitId,
+          status: outcome === 'cancelled' ? 'cancelled' : 'resolved',
+          resolution: { approvalId: entry.id, outcome, reviewed },
+          inboxMessage,
+          wake: false,
+        })
+        if (res?.message?.seq !== undefined) {
+          db.ackInboxSeq(coordWait.workId, res.message.seq)
+        }
+      })
+    } catch (error) {
+      rt.warn?.('ds-bot: failed to settle approval wait %s: %s', entry.id, error?.message ?? error)
+    }
+  }
 
   // Queued user input is not a user/message until the pending tool yields.
   ctx.on('session/event', (session, event) => {
@@ -71,12 +191,21 @@ export function install(rt) {
   // events release both successful and rejected calls, including PTC sub-calls.
   ctx.on('tools/pre-execute', async (exec, next) => {
     const owner = await ownerOf(exec.agent)
-    if (!owner || !enabled(owner)) return next()
-    if (exec.callId !== undefined) {
+    if (!owner) return next()
+    if (enabled(owner)) {
+      if (exec.callId !== undefined) {
+        const key = keyOf(exec.agent, exec.callId)
+        const readEvidence = () => nativeEvidence(ctx, exec)
+        const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
+        executions.set(key, { evidence, readEvidence })
+        if (executions.size > 1000) executions.delete(executions.keys().next().value)
+      }
+    } else if (FILE_ESCALATION_TOOLS.has(exec.name) && exec.arguments?.sandbox_permissions !== undefined && exec.callId !== undefined) {
+      // Capture only the file-tool arguments needed to evaluate "Always allow" extra-folder eligibility,
+      // never touching workingDirectory.ensure when automatic review is off.
       const key = keyOf(exec.agent, exec.callId)
-      const readEvidence = () => nativeEvidence(ctx, exec)
-      const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
-      executions.set(key, { evidence, readEvidence })
+      const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
+      executions.set(key, { evidence })
       if (executions.size > 1000) executions.delete(executions.keys().next().value)
     }
     return next()
@@ -177,12 +306,14 @@ export function install(rt) {
     const original = request.signal
     const linked = new AbortController()
     const reviewer = new AbortController()
+    const displayReason = cleanDisplayReason(request.displayReason)
     const entry = {
       id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds,
       ...(owner.botId !== undefined ? { botId: owner.botId } : {}),
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       ...(owner.taskId ? { taskId: owner.taskId, ...(owner.taskTitle ? { taskTitle: owner.taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
+      ...(displayReason ? { displayReason } : {}),
       ...(request.privacy === true ? { privacy: true } : {}),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
@@ -207,11 +338,16 @@ export function install(rt) {
         linked.abort()
         if (request.signal === linked.signal) request.signal = original
         rt.noteApproval?.(owner.ownerSessionId, undefined)
+        settleCoordWait(entry.coordWait, entry, outcome, reviewed)
         const settledTaskId = entry.taskId ?? rt.taskOwners?.get(owner.sessionId)?.taskId ?? rt.taskOwners?.get(owner.ownerSessionId)?.taskId
         emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
         return true
       }
-      const complete = (outcome, reviewed = false) => { if (settle(outcome, reviewed)) resolve(outcome) }
+      const complete = (outcome, reviewed = false) => {
+        const didSettle = settle(outcome, reviewed)
+        if (didSettle) resolve(outcome)
+        return didSettle
+      }
       const manual = reason => {
         if (!pending.has(id) || manualStarted) return
         manualStarted = true
@@ -234,11 +370,52 @@ export function install(rt) {
       }
       entry.answer = complete
       entry.cancelReview = () => reviewer.abort()
+      entry.coordWait = openCoordWait(entry, owner)
+      entry.toManual = () => {
+        if (automatic && pending.has(id) && entry.review?.status === 'reviewing') {
+          manual('Automatic review stopped; review this action manually.')
+        }
+      }
+      entry.isAborted = () => original?.aborted === true
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
-      if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
+      // "Always allow" is offered only for direct (non-subagent) Bot/group file-tool sandbox
+      // escalations (`extraDirs`), where DS Bot has a visible, revocable folder-grant store and
+      // matching auto-allow escalation handler. Browser write prompts stay one-time (preauthorization
+      // lives in Browser settings); shell commands, privacy gates, private Bots, local agents,
+      // classic sessions, and subagent child sessions stay strictly one-time.
+      if (owner.botId !== undefined
+        && owner.sessionId === owner.ownerSessionId
+        && request.privacy !== true
+        && !explicit
+        && !entry.alwaysAllow
+        && FILE_ESCALATION_TOOLS.has(entry.tool)
+        && entry.reason.startsWith(ESCALATION)
+        && execution?.arguments
+        && typeof rt.resolvableExtraDirs === 'function') {
+        void rt.resolvableExtraDirs({
+          session: request.agent?.session,
+          botId: owner.botId,
+          roomId: owner.roomId,
+          name: entry.tool,
+          args: execution.arguments,
+        }).then((dirs) => {
+          if (!pending.has(id) || entry.answering || !Array.isArray(dirs) || dirs.length === 0) return
+          const scopeRoom = owner.roomId ? rt.roomOf(owner.roomId) : undefined
+          const groupScoped = scopeRoom?.workDir !== undefined
+          const scope = groupScoped ? 'group' : 'bot'
+          entry.alwaysAllow = {
+            kind: 'extra-dir',
+            dirs,
+            scope,
+            ...(groupScoped && scopeRoom?.name ? { scopeName: scopeRoom.name } : {}),
+          }
+          entry.prepareAlways = () => rt.prepareGrantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs, scope })
+          changed(entry)
+        }).catch(() => {})
+      }
       if (original?.aborted) return complete('cancelled')
       if (!automatic) return manual()
       const timeout = new Promise((_, fail) => {
@@ -255,7 +432,7 @@ export function install(rt) {
         request, owner, evidence, validateEvidence, signal: reviewer.signal,
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         if (decision.decision === 'manual') {
           manual(decision.reason)
@@ -267,11 +444,11 @@ export function install(rt) {
           throw new Error('The conversation changed while saving the review')
         }
         await validateEvidence?.()
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         complete(OUTCOMES[decision.decision], true)
       }).catch(async () => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         const reason = 'Automatic review could not decide. Review this action manually.'
         manual(reason)
         try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
@@ -279,15 +456,144 @@ export function install(rt) {
     })
   }
 
-  const approvalsView = () => [...pending.values()].map(view)
+  const readOnlyCoordApprovals = () => {
+    if (rt.readOnly?.() === undefined) return []
+    const db = readableCoordDb()
+    if (!db) return []
+    try {
+      return db.listWaits({ kind: 'approval', status: 'open', limit: 200 }).map((wait) => {
+        const meta = wait.meta ?? {}
+        const id = meta.approvalId ?? (wait.targetId.startsWith('approval:') ? wait.targetId.slice(9) : wait.waitId)
+        return {
+          id,
+          sessionId: meta.sessionId ?? '',
+          ...(meta.botId !== undefined ? { botId: meta.botId } : {}),
+          ...(meta.roomId !== undefined ? { roomId: meta.roomId } : {}),
+          ...(meta.taskId !== undefined ? { taskId: meta.taskId, ...(meta.taskTitle ? { taskTitle: meta.taskTitle } : {}) } : {}),
+          tool: String(meta.tool ?? ''),
+          reason: String(meta.reason ?? ''),
+          detail: {},
+          at: meta.at ?? wait.createdAt,
+          answerable: false,
+        }
+      })
+    } catch {
+      return []
+    }
+  }
+
+  const approvalsView = () => {
+    const live = [...pending.values()].map(view)
+    if (rt.readOnly?.() === undefined) return live
+    const seen = new Set(live.map(item => item.id))
+    for (const item of readOnlyCoordApprovals()) {
+      if (!seen.has(item.id)) live.push(item)
+    }
+    return live
+  }
   const approvalById = id => pending.get(String(id ?? ''))
   const approvalReviewsView = () => rt.state.approvalReviews ?? []
-  const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
+  const waitsForApproval = (sessionId) => {
+    if ([...pending.values()].some(entry => entry.sessionId === sessionId)) return true
+    if (rt.readOnly?.() !== undefined) {
+      return readOnlyCoordApprovals().some(entry => entry.sessionId === sessionId)
+    }
+    return false
+  }
   function answerApproval(id, choice) {
-    const entry = pending.get(String(id ?? ''))
-    if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
-    if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
-    entry.answer(OUTCOMES[choice])
+    const key = String(id ?? '')
+    const entry = pending.get(key)
+    if (entry?.answer) {
+      if (choice === 'always') {
+        if (!entry.alwaysAllow || typeof entry.prepareAlways !== 'function') {
+          throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+        }
+        if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        // Two-phase validate -> settle -> commit: reserve the approval and cancel automatic
+        // review synchronously while keeping the tool blocked until Phase 1 validation succeeds.
+        // If validation fails, release the reservation so the approval stays open and answerable.
+        // Only once validation passes and the entry is still live and unaborted do we settle
+        // `allowed-once` synchronously and commit the pre-validated grant.
+        entry.cancelReview()
+        if (entry.isAborted?.()) {
+          entry.answer('cancelled')
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        entry.answering = true
+        return (async () => {
+          let prepared
+          try {
+            prepared = await entry.prepareAlways()
+          } catch (error) {
+            if (pending.has(key)) {
+              entry.answering = false
+              if (entry.isAborted?.()) entry.answer('cancelled')
+              else entry.toManual?.()
+            }
+            throw error
+          }
+          if (!pending.has(key) || entry.isAborted?.()) {
+            if (pending.has(key)) entry.answer('cancelled')
+            throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+          }
+          if (typeof prepared?.verifySync === 'function' && !prepared.verifySync()) {
+            entry.answering = false
+            entry.toManual?.()
+            throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+          }
+          const settled = entry.answer('allowed-once')
+          if (!settled) {
+            throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+          }
+          return await prepared.commit()
+        })()
+      }
+      if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
+      if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      entry.answer(OUTCOMES[choice])
+      return
+    }
+    if (!Object.hasOwn(OUTCOMES, choice)) {
+      throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+    }
+    // Recovery path: settle a persisted open approval wait in coordination.sqlite if present.
+    const existingDb = readableCoordDb()
+    const db = existingDb && !existingDb.readonly ? existingDb : null
+    if (db) {
+      try {
+        const wait = db.listWaits({ kind: 'approval', status: 'open', targetId: `approval:${key}`, limit: 1 })[0]
+        if (wait !== undefined) {
+          const meta = wait.meta ?? {}
+          const outcome = OUTCOMES[choice]
+          const summary = `[Approval ${outcome}] ${meta.tool || 'tool'}${meta.reason ? `: ${meta.reason}` : ''}`
+          const res = db.resolveWait({
+            waitId: wait.waitId,
+            status: 'resolved',
+            resolution: { approvalId: key, outcome, reviewed: false },
+            inboxMessage: {
+              kind: 'answer',
+              senderAddress: 'user',
+              dedupKey: `approval:${key}`,
+              bodyPreview: summary,
+              payload: {
+                approvalId: key,
+                tool: meta.tool ?? '',
+                outcome,
+                reviewed: false,
+                role: 'approval',
+                text: summary,
+              },
+            },
+          })
+          if (res?.workWoken === true) {
+            void Promise.resolve(rt.kickScheduler?.({ botId: meta.botId, workId: wait.workId })).catch(() => {})
+          }
+          emit('settled', { id: key, outcome, ...(meta.taskId ? { taskId: meta.taskId } : {}) })
+          return
+        }
+      } catch { /* fall through to stale */ }
+    }
+    throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
   }
   const cancelApprovals = sessionId => {
     for (const entry of pending.values()) {
@@ -307,6 +613,17 @@ export function install(rt) {
     actionScope.disable()
   }, 'ds-bot: approval review')
   const onApproval = listener => { approvalListeners.add(listener); return () => approvalListeners.delete(listener) }
-  const isPrivacyApproval = id => pending.get(id)?.privacy === true
+  const isPrivacyApproval = (id) => {
+    const key = String(id ?? '')
+    if (pending.get(key)?.privacy === true) return true
+    const db = readableCoordDb()
+    if (!db) return false
+    try {
+      const wait = db.listWaits({ kind: 'approval', status: 'open', targetId: `approval:${key}`, limit: 1 })[0]
+      return wait?.meta?.privacy === true
+    } catch {
+      return false
+    }
+  }
   Object.assign(rt, { approvalsView, approvalById, approvalReviewsView, waitsForApproval, answerApproval, cancelApprovals, cancelApprovalReviews, onApproval, requestActionApproval, isPrivacyApproval })
 }

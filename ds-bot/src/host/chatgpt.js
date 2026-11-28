@@ -57,7 +57,11 @@ export function install(rt, { env = process.env, request = appChatGPTRequest, ip
       }
       if (previous) await write(models)
       if (refreshModels || status.state === 'connected') models = await call('chatgpt:models')
-      if (!previous && models.length) await write(models)
+      // Seed the route with bare ids/names so saveProviderModels writes the normalized
+      // pi-ai fields (input, contextWindow, reasoningEfforts) without leaving extra keys.
+      if (!previous && models.length) {
+        await write(models.map(({ id, name }) => ({ id, ...(typeof name === 'string' && name.trim() !== '' ? { name: name.trim() } : {}) })))
+      }
       if (models.length) await rt.saveProviderModels({ provider: CHATGPT_PROVIDER, models })
       return models
     }
@@ -75,7 +79,27 @@ export function install(rt, { env = process.env, request = appChatGPTRequest, ip
     if (!enabled) return unsupported()
     return synchronize(await chatgpt(), true)
   }
-  Object.assign(rt, { chatgpt, chatgptSignIn, chatgptModels,
+  // Route forked sessions onto their parent cache affinity root so providers that
+  // partition prompt KV caches by session/cache key (such as OpenAI Responses /
+  // ChatGPT plan) hit the parent's warm cache on step 1 instead of cold-starting.
+  // Installed right before `usage` so all earlier hooks (tool scoping, images,
+  // secrets) observe the real child sessionId first, while `usage` stays the last
+  // `llm/stream` listener and still journals the real child via `originalSessionId`.
+  const affinityOriginal = new WeakMap()
+  const isCacheAffinityRewritten = options => options !== null && typeof options === 'object' && affinityOriginal.has(options)
+  const originalSessionId = options => (options !== null && typeof options === 'object' ? affinityOriginal.get(options) : undefined)
+  rt.ctx.on?.('llm/stream', function cacheAffinitySession(options, next) {
+    if (affinityOriginal.has(options)) return next()
+    if (typeof options.sessionId !== 'string' || options.sessionId === '') return next()
+    if (options.purpose !== undefined || rt.ownRequest?.(options)) return next()
+    if (rt.isLocalAgentRoute?.(options.provider) === true) return next()
+    const affinity = rt.cacheAffinityOf?.(options.sessionId)
+    if (affinity === undefined || affinity === options.sessionId) return next()
+    const nextOptions = { ...options, sessionId: affinity }
+    affinityOriginal.set(nextOptions, options.sessionId)
+    return rt.ctx.llm.stream(nextOptions)
+  })
+  Object.assign(rt, { chatgpt, chatgptSignIn, chatgptModels, isCacheAffinityRewritten, originalSessionId,
     chatgptCancel: () => call('chatgpt:cancel'),
     chatgptSignOut: async () => {
       const status = await call('chatgpt:sign-out')

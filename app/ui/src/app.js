@@ -1,13 +1,22 @@
-import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { maskOf } from '../../../ds-bot/src/client/characters.js'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
+import { inkText, paintCss } from '../../../ds-bot/src/client/inks.js'
+import { PendingLearning } from '../../../ds-bot/src/client/learning-card.js'
+import { lookOf } from '../../../ds-bot/src/client/mark.js'
+import { DeepSeekSignIn } from '../../../ds-bot/src/client/model-menu.js'
+import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ReloadConfirmHost } from '../../../ds-bot/src/client/reload-recovery.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
+import { installStyles } from '../../../ds-bot/src/client/styles.js'
+import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { allThemes, effectsOf, flatWidthOf, layoutOf, themeCss, themesOf, widthOf } from '../../../ds-bot/src/client/themes.js'
 import { appearanceCss, onSafeAppearance, pictureUrl, safeAppearance, watchSafeAppearance } from '../../../ds-bot/src/client/appearance.js'
 import { call } from '../../../ds-bot/src/client/api.js'
@@ -17,11 +26,16 @@ import { Chat } from './chat.js'
 import { AgentEmptyHero, ClassicHeader, ClassicSidebar } from './classic-sidebar.js'
 import { useDshSettingsBridge } from './engine-settings-bridge.js'
 import { getAppLocale } from './locale.js'
+import { pluginRuntime, usePluginPage } from './plugin-runtime.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
-import { ShortcutsDialog, matchGlobalShortcut, setLiveShortcutContext } from './shortcuts.js'
+import { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal, setLiveShortcutContext } from './shortcuts.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
-import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
+import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
+export { ShellOverlayHost }
 import { createTeam } from './team.js'
+import { conversationTitleOf, useWindowTitle } from './window-title.js'
+
+const CLASSIC_BROWSER_OWNER = 'classic'
 
 // The team's theme, accent and appearance. The window owns fonts, sizes, window material
 // and light or dark here; in DSH those are DSH's settings (docs/plans/2026-11-21-appearance.md).
@@ -68,6 +82,51 @@ function useTheme(prefs, chat, actions, registryVersion) {
   useEffect(() => paintMode(mode), [mode])
 }
 
+// Bot mentions in rendered replies (`.bt-bubble a[href="https://bot.mention.invalid/<id>"]`)
+// wear each Bot's accent color and silhouette/avatar mark, matching plugin mode without DSH selectors.
+// Reuses one `<style>` element and skips DOM writes when no Bot look changed.
+function useMentions(bots, registryVersion) {
+  const styleRef = useRef(null)
+  const lastSigRef = useRef(null)
+  const lastCssRef = useRef('')
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.head) return undefined
+    const style = installStyles('', 'mentions')
+    styleRef.current = style
+    lastSigRef.current = null
+    lastCssRef.current = ''
+    return () => {
+      style.remove()
+      if (styleRef.current === style) styleRef.current = null
+      lastSigRef.current = null
+      lastCssRef.current = ''
+    }
+  }, [])
+
+  useEffect(() => {
+    const style = styleRef.current
+    if (!style) return
+    const list = Array.isArray(bots) ? bots : []
+    const sig = `${registryVersion}|${list.map(b => `${b?.id ?? ''}:${b?.color ?? ''}:${b?.avatar?.shape ?? ''}:${b?.avatar?.color ?? ''}:${b?.avatar?.image ?? ''}`).join(';')}`
+    if (sig === lastSigRef.current) return
+    lastSigRef.current = sig
+    const css = list.map((bot) => {
+      if (!bot?.id) return ''
+      const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
+      const look = lookOf(bot)
+      const mark = look.image
+        ? `${anchor}::before{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}`
+        : `${anchor}::before{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`
+      return `${anchor}{color:${inkText(look.color)}}${mark}`
+    }).filter(Boolean).join('\n')
+    if (css !== lastCssRef.current) {
+      style.textContent = css
+      lastCssRef.current = css
+    }
+  }, [bots, registryVersion])
+}
+
 // A dialog or panel that fails closes, and the failure shows as a toast; the window stays.
 // One that fails again at once stays closed.
 class Contain extends Component {
@@ -86,16 +145,6 @@ class Contain extends Component {
   }
 
   render() { return this.state.failed ? null : this.props.children }
-}
-
-function ShellOverlayHost({ registry = slots, views }) {
-  const entries = useSlotEntries(registry, SHELL_OVERLAY_SLOT)
-  if (entries.length === 0) return null
-  return h(Fragment, null, entries.map((entry, idx) => h(SlotErrorBoundary, {
-    key: entry.id ?? entry.key ?? idx,
-    slotName: `${SHELL_OVERLAY_SLOT}:${entry.id ?? idx}`,
-    resetKey: entry.id ?? entry.key ?? idx,
-  }, h(entry.component, views))))
 }
 
 function makeTeamUiHook(useUi, isNarrow, drawerOpen) {
@@ -128,6 +177,26 @@ function ClassicTitleToggle({ hidden, onToggle }) {
   }, h(SidebarIcon)), document.body)
 }
 
+function ConnectionBanner({ useConnection, onReconnect }) {
+  const conn = useConnection ? useConnection(state => state) : null
+  const active = conn && conn.status !== 'connected' ? conn : null
+  const [shown, leaving] = useLinger(active, 180)
+  if (!shown) return null
+  const isError = shown.status === 'error'
+  return h('div', {
+    className: 'dsb-conn-banner',
+    role: isError ? 'alert' : 'status',
+    'aria-live': isError ? 'assertive' : 'polite',
+    'data-tone': isError ? 'error' : 'warn',
+    'data-leaving': leaving ? '' : undefined,
+  },
+  h('span', { className: 'dsb-conn-dot', 'aria-hidden': true }),
+  h('span', { className: 'dsb-conn-text' }, isError ? t('Live updates paused: message too large') : t('Reconnecting…')),
+  isError && typeof onReconnect === 'function'
+    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm dsb-conn-btn', onClick: onReconnect }, t('Reconnect'))
+    : null)
+}
+
 export function App() {
   const team = useMemo(createTeam, [])
   useEffect(() => team.start(), [team])
@@ -140,10 +209,15 @@ export function App() {
   const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
   const settingsOpen = hooks.useUi(state => Boolean(state.settings))
   const paletteOpen = hooks.useUi(state => Boolean(state.palette))
+  const panelOpen = hooks.useUi(state => Boolean(state.details))
   const rightPanel = hooks.useUi(state => state.rightPanel)
   const readOnly = hooks.useRoster(value => Boolean(value.readOnly))
   const rosterReady = hooks.useRoster(value => Boolean(value.ready))
   const registryVersion = hooks.useRegistry(value => value)
+  // Activate page-scoped UI plugins lazily as their pages open.
+  usePluginPage('chat', Boolean(shown), pluginRuntime)
+  usePluginPage('settings', settingsOpen, pluginRuntime)
+  usePluginPage('right-panel', panelOpen || Boolean(rightPanel), pluginRuntime)
   // TeamSidebar calls dsBotApp.ready(place) in Bot mode; if the window boots directly into
   // Classic Agent mode (where TeamSidebar is unmounted), signal ready once the team arrives.
   useEffect(() => {
@@ -167,6 +241,24 @@ export function App() {
   })
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerOpenRef = useRef(drawerOpen)
+  drawerOpenRef.current = drawerOpen
+  const mobileMenuRef = useRef(null)
+  const restoreMobileMenuFocusRef = useRef(false)
+  const openDrawer = useCallback(() => {
+    drawerOpenRef.current = true
+    restoreMobileMenuFocusRef.current = false
+    setDrawerOpen(true)
+  }, [])
+  const closeDrawer = useCallback(({ restoreFocus = false } = {}) => {
+    if (!drawerOpenRef.current) {
+      if (!restoreFocus) restoreMobileMenuFocusRef.current = false
+      return
+    }
+    drawerOpenRef.current = false
+    restoreMobileMenuFocusRef.current = restoreFocus
+    setDrawerOpen(false)
+  }, [])
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
     const onResize = () => setViewportWidth(window.innerWidth)
@@ -179,39 +271,59 @@ export function App() {
   const effectiveSideW = isNarrow
     ? Math.min(sidebarWidth, Math.max(264, Math.round(viewportWidth * 0.84)))
     : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
-  useEffect(() => { setDrawerOpen(false) }, [shown, surfaceMode])
-  useEffect(() => { if (!isNarrow) setDrawerOpen(false) }, [isNarrow])
-  useEscape(() => setDrawerOpen(false), drawerOpen)
+  useEffect(() => { closeDrawer() }, [shown, surfaceMode, closeDrawer])
+  useEffect(() => { if (!isNarrow) closeDrawer() }, [isNarrow, closeDrawer])
+  useLayoutEffect(() => {
+    if (!isNarrow || drawerOpen || !restoreMobileMenuFocusRef.current) return
+    restoreMobileMenuFocusRef.current = false
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (!active || active === document.body || active === document.documentElement || active.closest?.('.dsb-side,.bt-leftcol')) {
+      mobileMenuRef.current?.focus?.()
+    }
+  }, [isNarrow, drawerOpen])
+  useEscape(() => closeDrawer({ restoreFocus: true }), drawerOpen, { priority: ESCAPE_PRIORITY.DRAWER })
   const teamSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: undefined,
     setSidebarPref: (pref) => {
-      if (isNarrow) setDrawerOpen(pref === 'open')
-      else actions.setSidebarPref(pref)
+      if (isNarrow) {
+        if (pref === 'open') openDrawer()
+        else closeDrawer({ restoreFocus: true })
+      } else actions.setSidebarPref(pref)
     },
     setSidebarWidth: (width) => actions.setSidebarWidth(width),
     setLeftDrawer: (next) => {
-      if (isNarrow) setDrawerOpen(Boolean(next))
-      else actions.setLeftDrawer(Boolean(next))
+      if (isNarrow) {
+        if (next) openDrawer()
+        else closeDrawer({ restoreFocus: true })
+      } else actions.setLeftDrawer(Boolean(next))
     },
     toggleLeftHidden: () => {
-      if (isNarrow) setDrawerOpen(open => !open)
-      else actions.toggleLeftHidden()
+      if (isNarrow) {
+        if (drawerOpenRef.current) closeDrawer({ restoreFocus: true })
+        else openDrawer()
+      } else actions.toggleLeftHidden()
     },
-    openSettings: (...args) => { setDrawerOpen(false); return actions.openSettings(...args) },
-    openNewChat: (...args) => { setDrawerOpen(false); return actions.openNewChat(...args) },
-    openPalette: (...args) => { setDrawerOpen(false); return actions.openPalette(...args) },
-  }), [actions, isNarrow])
+    openSession: (...args) => { closeDrawer(); return actions.openSession?.(...args) },
+    openAgent: (...args) => { closeDrawer(); return actions.openAgent?.(...args) },
+    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession?.(...args) },
+    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession?.(...args) },
+    openInbox: (...args) => { closeDrawer(); return actions.openInbox?.(...args) },
+    openSettings: (...args) => { closeDrawer(); return actions.openSettings(...args) },
+    selectPanel: (...args) => { closeDrawer(); return actions.selectPanel(...args) },
+    openNewChat: (...args) => { closeDrawer(); return actions.openNewChat(...args) },
+    openPalette: (...args) => { closeDrawer(); return actions.openPalette(...args) },
+  }), [actions, isNarrow, openDrawer, closeDrawer])
   const classicSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: () => {
-      if (isNarrow) setDrawerOpen(false)
+      if (isNarrow) closeDrawer({ restoreFocus: true })
       else actions.toggleLeftHidden()
     },
-    openAgentSession: (...args) => { setDrawerOpen(false); return actions.openAgentSession(...args) },
-    newAgentSession: (...args) => { setDrawerOpen(false); return actions.newAgentSession(...args) },
-    addAgent: (...args) => { setDrawerOpen(false); return actions.addAgent(...args) },
-  }), [actions, isNarrow])
+    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession(...args) },
+    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession(...args) },
+    addAgent: (...args) => { closeDrawer(); return actions.addAgent(...args) },
+  }), [actions, isNarrow, closeDrawer])
   const useTeamUi = useMemo(
     () => makeTeamUiHook(hooks.useUi, isNarrow, drawerOpen),
     [hooks.useUi, isNarrow, drawerOpen],
@@ -235,11 +347,22 @@ export function App() {
   const browserEnabled = hooks.useRoster(value => value.browser !== false)
   const isNarrowRef = useRef(isNarrow)
   isNarrowRef.current = isNarrow
-  const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => ({
-    hasSurface: typeof actions.setSurface === 'function',
-    hasBrowser: mode !== 'agent' && (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function') && rosterSnap?.browser !== false,
-    hasInbox: mode !== 'agent' && typeof actions.openInbox === 'function',
-  }), [actions])
+  const [terminalFocusNonce, setTerminalFocusNonce] = useState(0)
+  const terminalFocusSeqRef = useRef(0)
+  const consumeTerminalFocus = useCallback((nonce) => {
+    setTerminalFocusNonce(current => (current === nonce ? 0 : current))
+  }, [])
+  const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => {
+    const classic = mode === 'agent'
+    return {
+      hasSurface: typeof actions.setSurface === 'function',
+      hasBrowser: (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function') && rosterSnap?.browser !== false,
+      hasInbox: !classic && typeof actions.openInbox === 'function',
+      hasDetails: !classic,
+      hasMemory: !classic,
+      hasGroupSearch: !classic,
+    }
+  }, [actions])
 
   const runShortcut = useCallback((hit) => {
     if (!hit) return
@@ -256,7 +379,7 @@ export function App() {
       const focus = () => {
         if (typeof document === 'undefined') return
         if (document.querySelector('[aria-modal="true"]')) return
-        document.querySelector('[data-composer-input]')?.focus?.()
+        document.querySelector('[data-bt-composer-input]')?.focus?.()
       }
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus)
       else focus()
@@ -288,8 +411,10 @@ export function App() {
       return
     }
     if (hit === 'sidebar') {
-      if (isNarrowRef.current) setDrawerOpen(open => !open)
-      else actions.toggleSidebar()
+      if (isNarrowRef.current) {
+        if (drawerOpenRef.current) closeDrawer({ restoreFocus: true })
+        else openDrawer()
+      } else actions.toggleSidebar()
       return
     }
     if (hit === 'switch-surface') {
@@ -307,20 +432,21 @@ export function App() {
       return
     }
     if (hit === 'browser') {
-      if (mode !== 'bot' || rosterSnap.browser === false) return
-      const currentBot = shownId ? rosterSnap.byId?.[shownId] : null
-      const botId = currentBot?.id ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id
+      if (rosterSnap.browser === false) return
+      const targetId = mode === 'agent'
+        ? CLASSIC_BROWSER_OWNER
+        : ((shownId ? rosterSnap.byId?.[shownId]?.id : null) ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id)
       if (typeof actions.toggleBrowser === 'function') {
-        if (botId) actions.toggleBrowser(botId)
+        if (targetId) actions.toggleBrowser(targetId)
         return
       }
       if (typeof actions.openBrowser !== 'function') return
       const detailsBotId = uiSnap.details ? (rosterSnap.byId?.[uiSnap.details]?.id ?? uiSnap.details) : null
-      if (uiSnap.details && uiSnap.view === 'browser' && (!botId || detailsBotId === botId)) {
+      if (uiSnap.details && uiSnap.view === 'browser' && (mode === 'agent' || !targetId || detailsBotId === targetId)) {
         actions.closePanel()
         return
       }
-      if (botId) actions.openBrowser(botId)
+      if (targetId) actions.openBrowser(targetId)
       return
     }
     if (hit === 'right-panel') {
@@ -330,8 +456,11 @@ export function App() {
     }
     if (hit === 'terminal') {
       if (uiSnap.details && uiSnap.view === 'workspace' && uiSnap.rightPanel?.tab === 'terminal') {
+        setTerminalFocusNonce(0)
         actions.closePanel()
       } else if (actions.canOpenTerminal?.() !== false) {
+        terminalFocusSeqRef.current += 1
+        setTerminalFocusNonce(terminalFocusSeqRef.current)
         actions.setRightPanelTab?.('terminal')
       }
       return
@@ -400,7 +529,7 @@ export function App() {
         }
         return
       }
-      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId)
+      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId, uiSnap.sectionFolds)
       if (targets.length === 0) return
       let target = null
       if (slot >= 0) {
@@ -421,18 +550,8 @@ export function App() {
     }
   }, [team, actions])
 
-  // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 61 memory > 60 settings > dialogs > inbox).
-  const activeModalOf = useCallback((uiSnap) => {
-    if (uiSnap.shortcuts) return 'shortcuts'
-    if (uiSnap.palette) return 'palette'
-    if (uiSnap.groupSearch) return 'groupSearch'
-    if (uiSnap.memory) return 'memory'
-    if (uiSnap.settings) return 'settings'
-    if (uiSnap.newChat || uiSnap.exchange || uiSnap.voice || uiSnap.signIn) return 'dialog'
-    if (uiSnap.inbox) return 'inbox'
-    if (typeof document !== 'undefined' && document.querySelector('[aria-modal="true"]')) return 'dialog'
-    return null
-  }, [])
+  // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 66 releaseNotes > 61 memory > 60 settings > dialogs > inbox).
+  const activeModalOf = useCallback(resolveActiveModal, [])
 
   const runShortcutRef = useRef(runShortcut)
   runShortcutRef.current = runShortcut
@@ -493,6 +612,7 @@ export function App() {
     }
   }, [team, activeModalOf, capabilitiesOf, browserEnabled, hasSurfaceCap, hasInboxCap, inClassicMode])
   const prefs = hooks.useRoster(value => value.prefs)
+  const bots = hooks.useRoster(value => value.bots)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
   const shownAgent = hooks.useRoster((value) => {
@@ -500,15 +620,26 @@ export function App() {
     const agentId = value.agentOf?.[shown]
     return agentId ? value.agentsById?.[agentId] : undefined
   })
+  const shownSessionTitle = hooks.useSessions((list) => {
+    if (!shown) return ''
+    const row = list.byId?.[shown]
+    if (!row || row.blank === true) return ''
+    return row.displayTitle || row.title || ''
+  })
+  useWindowTitle(conversationTitleOf({ shown, chat, shownAgent, sessionTitle: shownSessionTitle }))
   useTheme(prefs, chat, actions, registryVersion)
+  useMentions(bots, registryVersion)
   const closeOverlays = (error) => {
     actions.closeSettings()
+    actions.closeReleaseNotes?.()
     actions.closeMemory()
     actions.closeMenu()
     actions.closePanel()
     actions.closePalette()
     actions.closeVoice()
     actions.closeShortcuts()
+    actions.closeSignIn?.()
+    actions.closeInbox?.()
     actions.closeOverlay()
     actions.reportError(error, 'overlay')
   }
@@ -521,9 +652,15 @@ export function App() {
     () => buildWorkspaceTabs(rightPanel, rightPluginEntries),
     [rightPanel, rightPluginEntries, localeVersion],
   )
+  useEffect(() => {
+    if (terminalFocusNonce > 0 && rightPanel?.tab !== 'terminal') {
+      setTerminalFocusNonce(0)
+    }
+  }, [terminalFocusNonce, rightPanel?.tab])
   const workspace = useMemo(() => ({
     tabs: workspaceTabs,
     active: rightPanel?.tab ?? null,
+    browserId: inClassicMode && browserEnabled && typeof actions.browserShow === 'function' ? CLASSIC_BROWSER_OWNER : null,
     onSelect: tabId => actions.setRightPanelTab(tabId),
     onCloseTab: tabId => actions.closeWorkspaceTab(tabId),
     render: (_activeTabId, visible) => h(Contain, { onError: closeWorkspace },
@@ -534,10 +671,29 @@ export function App() {
         registry: slots,
         readOnly,
         visible,
+        terminalFocusNonce,
+        onConsumeTerminalFocus: consumeTerminalFocus,
       })),
-  }), [workspaceTabs, rightPanel, actions, closeWorkspace, shown, team, readOnly])
-  // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
-  const chatKey = chat?.id ?? shown
+  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce, consumeTerminalFocus])
+  const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
+  // Key the conversation by stable Bot/room id so segment rollovers and initial roster
+  // hydration on a rolled-over segment both preserve unsent drafts and composer focus.
+  const chatKeyRef = useRef({ shown: null, chatId: null, key: null })
+  const chatId = chat?.id ?? null
+  let chatKey = chatId ?? shown
+  let nextChatKeyState = { shown: null, chatId: null, key: null }
+  if (shown) {
+    const prev = chatKeyRef.current
+    const same = prev.key !== null && (
+      prev.shown === shown
+      || (chatId !== null && prev.chatId === chatId)
+    )
+    if (same) chatKey = prev.key
+    nextChatKeyState = { shown, chatId: same ? (chatId ?? prev.chatId) : chatId, key: chatKey }
+  }
+  useLayoutEffect(() => {
+    chatKeyRef.current = nextChatKeyState
+  }, [nextChatKeyState.shown, nextChatKeyState.chatId, nextChatKeyState.key])
   return h('div', {
     className: 'dsb-frame',
     style: { '--dsb-side-w': `${effectiveSideW}px` },
@@ -545,7 +701,7 @@ export function App() {
     'data-drawer-open': drawerOpen ? '' : undefined,
     'data-surface': surfaceMode,
   },
-  drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
+  drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => closeDrawer({ restoreFocus: true }) }) : null,
   inClassicMode
     ? h(Fragment, null,
       isNarrow ? null : h(ClassicTitleToggle, { hidden: classicHidden, onToggle: () => actions.toggleLeftHidden() }),
@@ -561,7 +717,7 @@ export function App() {
               className: 'dsb-settings',
               'aria-label': t('Settings'),
               title: t('Settings'),
-              onClick: () => { setDrawerOpen(false); actions.openSettings() },
+              onClick: () => { closeDrawer(); actions.openSettings() },
             }, h(YouAvatar)),
             h(BotReturn, { ...views, wide: true }))))
     : h(TeamSidebar, {
@@ -571,14 +727,17 @@ export function App() {
       useFrame: useOwnFrame,
       useSidebarPref: useOwnSidebarPref,
       wide: effectivePref === 'open',
+      hideTitleToggle: isNarrow,
     }),
-  // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
-  h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
+  // The unified right panel makes room by giving `[data-bt-center]` a right margin.
+  h('main', { className: 'dsb-main', 'data-bt-center': '', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
-    h('button', {
-      type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': drawerOpen,
-      onClick: () => setDrawerOpen(open => !open),
-    }, h(SidebarIcon)),
+    h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
+    isNarrow && !drawerOpen ? h('button', {
+      ref: mobileMenuRef,
+      type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': false,
+      onClick: openDrawer,
+    }, h(SidebarIcon)) : null,
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },
         shownAgent
@@ -592,20 +751,23 @@ export function App() {
             readOnly,
             sidebarWide: isNarrow ? drawerOpen : !classicHidden,
           })
-          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
+          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), PendingLearning })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
-      : (inClassicMode ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true })) : null)),
+      : (inClassicMode
+        ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))
+        : (rosterReady ? h('div', { className: 'bt-empty' }, t('Setting up your Main Bot…')) : null))),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
+    h(DeepSeekSignIn, views),
     h(ShortcutsDialog, {
       open: shortcutsOpen,
       enterToSend: sendsOnEnter(prefs),
-      hasSurface: typeof actions.setSurface === 'function',
-      hasBrowser: typeof actions.openBrowser === 'function' && browserEnabled,
-      hasInbox: typeof actions.openInbox === 'function',
+      classic: inClassicMode,
+      ...dialogCaps,
       onCustomize: () => actions.openSettings('shortcuts'),
       onClose: actions.closeShortcuts,
     }),
     h(ShellOverlayHost, { registry: slots, views })),
+  h(ReloadConfirmHost),
   h(ErrorToast, views))
 }

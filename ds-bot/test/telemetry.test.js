@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere, normalizeErrorName, normalizeErrorCode } from '../src/host/telemetry.js'
+import { install as installTelemetry, sanitizeStack, envDisabledReason, automatedEnvReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere, normalizeErrorName, normalizeErrorCode } from '../src/host/telemetry.js'
 import { validatePayload } from '../../telemetry/src/validate.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -340,7 +340,15 @@ test('envDisabledReason and bucketing helpers behave predictably', () => {
   assert.equal(normalizeErrorCode('ENOENT'), 'ENOENT')
   assert.equal(normalizeErrorCode('HTTP_502'), 'HTTP_502')
   assert.equal(normalizeErrorCode('bot/refused'), 'bot/refused')
+  assert.equal(normalizeErrorCode('SERVER'), 'SERVER')
+  assert.equal(normalizeErrorCode('gateway/internal'), 'gateway/internal')
+  assert.equal(normalizeErrorCode('CONTEXT_WINDOW_EXCEEDED'), 'CONTEXT_WINDOW_EXCEEDED')
   assert.equal(normalizeErrorCode('USER_SECRET_TOKEN'), undefined)
+  assert.equal(automatedEnvReason({}), null)
+  assert.equal(automatedEnvReason({ CI: 'true' }), 'CI')
+  assert.equal(automatedEnvReason({ GITHUB_ACTIONS: 'true' }), 'GITHUB_ACTIONS')
+  assert.equal(automatedEnvReason({ NODE_TEST_CONTEXT: 'child-v8' }), 'NODE_TEST_CONTEXT')
+  assert.equal(automatedEnvReason({ PLAYWRIGHT_TEST: '1' }), 'PLAYWRIGHT_TEST')
 })
 
 test('enabling only error reports before notice acceptance never enables usage statistics', async () => {
@@ -505,4 +513,55 @@ test('maybeSendDaily aborts send if user opts out while awaiting schedule lookup
     await env.dispose()
     rmSync(home, { recursive: true, force: true })
   }
+})
+
+test('diagnostics warn forwards Error.name to telemetry while preserving schema-valid error codes', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-tel-errname-'))
+  const dsh = join(root, 'dsh')
+  const home = join(dsh, 'bot')
+  mkdirSync(home, { recursive: true })
+  const prevHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dsh
+  const ctx = fakeContext()
+  const sent = []
+  const now = Date.parse('2026-11-28T05:00:00Z')
+  const rt = createRuntime(ctx, {
+    home,
+    github: false,
+    diagnosticsFile: false,
+    telemetryUrl: 'http://127.0.0.1:8787/v1/collect',
+    telemetryNow: () => now,
+    telemetryFetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body))
+      return { ok: true, status: 204 }
+    },
+  })
+  t.after(async () => {
+    await ctx.dispose()
+    if (prevHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevHome
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  await rt.telemetry.update({ noticeAccepted: true, usage: false, errors: true })
+  const err = new TypeError("Cannot read properties of null (reading 'startsWith')")
+  err.code = 'gateway/internal'
+  rt.warn('ds-bot: state check failed: %s', err)
+  await new Promise(resolve => setTimeout(resolve, 30))
+
+  const report = sent.find(item => item.type === 'error')
+  assert.ok(report, 'expected error telemetry report')
+  assert.equal(report.error_name, 'TypeError')
+  assert.equal(report.error_code, 'gateway/internal')
+  const validated = validatePayload(report, now)
+  assert.equal(validated.ok, true, validated.error)
+
+  // API-source internal failures also preserve Error.name even when error.code is omitted.
+  const apiErr = new RangeError('out of bounds')
+  rt.noteFailure({ source: 'api', text: `state: ${apiErr.message}`, errorName: apiErr.name, code: apiErr.name, stack: apiErr.stack })
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const apiReport = sent.find(item => item.type === 'error' && item.error_name === 'RangeError')
+  assert.ok(apiReport, 'expected RangeError telemetry report from api noteFailure')
+  assert.equal(apiReport.error_code, undefined)
+  assert.equal(validatePayload(apiReport, now).ok, true)
 })

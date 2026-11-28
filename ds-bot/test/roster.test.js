@@ -32,12 +32,19 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
+function start(team, { home: existingHome, keepHome = false, inflight, models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules, flush } = {}) {
+  const home = existingHome ?? mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  if (inflight !== undefined) writeFileSync(join(home, 'inflight.json'), JSON.stringify(inflight))
   // A lock another dsh holds, written before this host loads the team.
   if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
   const services = {}
+  if (listed !== undefined) {
+    services.sessionQuery = {
+      listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+    }
+  }
+  if (schedules !== undefined) services.schedule = schedules
   const ctx = fakeContext({ services })
   const records = new Set()
   if (keys !== undefined) Object.assign(services, keyed(ctx, new Set(keys), records))
@@ -47,7 +54,19 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   }
   const workspaces = new Map()
   const sent = []
+  const injected = []
+  const inboxes = new Map()
+  const inboxOf = (sessionId) => {
+    let inbox = inboxes.get(sessionId)
+    if (inbox === undefined) {
+      inbox = { nextStep: [], nextTurn: [] }
+      inboxes.set(sessionId, inbox)
+    }
+    return inbox
+  }
   const selected = []
+  // Every selection asked for, including the ones a lost Session refused.
+  const attempts = []
   const archived = []
   const warnings = []
   let sessions = 0
@@ -74,11 +93,29 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
     },
     sessionController: {
       create: async () => ({ sessionId: `s${++sessions}` }),
-      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
-      selectModel: async (request) => { selected.push(request) },
+      // A Session the `lost` set names is gone from the library: resolving its agent and
+      // selecting its model answer the same `session/not-found` the real controller does.
+      resolveAgent: async sessionId => (lost.has(sessionId)
+        ? { error: { code: 'session/not-found', message: `session "${sessionId}" not found` } }
+        : {
+            agent: {
+              session: { id: sessionId },
+              inbox: inboxOf(sessionId),
+              followup: message => sent.push({ sessionId, message }),
+              inject: (message) => {
+                inboxOf(sessionId).nextStep.push(message)
+                injected.push({ sessionId, message })
+              },
+            },
+          }),
+      selectModel: async (request) => {
+        attempts.push(request)
+        if (lost.has(request.sessionId)) throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+        selected.push(request)
+      },
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: flush ?? (async () => {}) },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -93,9 +130,9 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   }
   const stop = async () => {
     await ctx.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    if (!keepHome) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, selected, ctx, archived, warnings, records }
+  return { call, stop, home, rt, sent, injected, selected, attempts, ctx, archived, warnings, records }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -1352,7 +1389,7 @@ test('a photo in the team\'s data is refused, and one in the team workspace ther
   const exec = { agent: { id: chief } }
   const tool = avatar => rt.teamTools.find(d => d.name === 'update_bot').execute({ avatar }, exec)
   writeFileSync(join(home, 'photo.png'), PNG_BYTES)
-  assert.match(await tool(join(home, 'photo.png')), /is in DeepSeek Harness data, so it cannot be a Bot's photo/)
+  assert.match(await tool(join(home, 'photo.png')), /is in DeepSeek Harness data, so it cannot be used as a photo/)
   assert.equal((await call('state', {})).value.bots.find(bot => bot.id === chief).avatar?.image, undefined)
   // The default team workspace lies in the team's data, and the Bots' own files are there.
   const workspace = ctx.workspaceRegistry.get((await call('state', {})).value.workspaceId)?.path ?? join(home, 'workspace')
@@ -1550,4 +1587,523 @@ test('a window learns that the other dsh closed and takes the team over without 
   assert.equal(live.readOnly, null)
   assert.notEqual(live.liveKey, first.liveKey, 'a changed read-only notice moves the live key')
   assert.equal((await call('create-bot', { name: 'Took over' })).ok, true)
+})
+
+// #1929: a Bot's own Session can vanish from the Session library while its id stays
+// pinned in the team state. Model syncing must not ask that id again on every sync, and
+// missing-session recovery must work when there is no agent to move on from.
+test('a Session gone from the library is marked once, and recover-session replaces it', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        segments: [{ sessionId: 'earlier-ok', endedAt: 1 }],
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 0,
+  }
+  const movedSchedules = []
+  const schedules = {
+    catalog: async () => [{ id: 'sch-1', status: 'active', target: { kind: 'session', sessionId: 'gone-session' } }],
+    edit: async (req) => { movedSchedules.push(req) },
+  }
+  const { call, stop, selected, attempts } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+    schedules,
+  })
+  t.after(stop)
+
+  // A model change is the sync that meets the lost Session first.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.deepEqual(attempts.filter(entry => entry.sessionId === 'gone-session').map(entry => entry.model), ['deepseek-v4-pro'])
+  let chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'gone-session')
+
+  // The next sync skips the marked id instead of asking again.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-flash' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
+
+  // `recover-session` retires the missing Session cleanly without adding it to `segments`,
+  // clears sessionMissing, preserves readable earlier segments, and retargets schedules.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  assert.equal(recovered.value.recovered, true)
+  chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionId, recovered.value.sessionId)
+  assert.notEqual(chief.sessionId, 'gone-session')
+  assert.equal(chief.sessionMissing, undefined)
+  assert.deepEqual(chief.parts, ['earlier-ok'])
+  assert.equal(rt.chatOwners.has('gone-session'), false)
+  assert.equal(rt.pastOwners.has('gone-session'), false)
+  assert.deepEqual(movedSchedules, [{ id: 'sch-1', action: 'update', patch: { target: { kind: 'session', sessionId: chief.sessionId } } }])
+  const fresh = selected.filter(entry => entry.sessionId === chief.sessionId)
+  assert.equal(fresh.length, 1)
+  assert.equal(fresh[0].model, 'deepseek-v4-flash')
+
+  // Calling recover-session on a healthy Session keeps it intact instead of replacing it.
+  const healthy = await call('recover-session', { botId: 'chief' })
+  assert.equal(healthy.ok, true)
+  assert.equal(healthy.value.recovered, false)
+  assert.equal(healthy.value.sessionId, chief.sessionId)
+
+  // The replaced part is retired, so later syncs do not ask it either.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
+})
+
+test('recover-session refuses read-only windows and missing task Sessions skip retries without marking sessionMissing', async (t) => {
+  // Missing active task Session is skipped after one not-found without setting bot.sessionMissing.
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'live-session',
+        tasks: [{ id: 'task-1', sessionId: 'gone-task', status: 'running', title: 'Bg', startedAt: 1, updatedAt: 1 }],
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, attempts } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-task']),
+  })
+  t.after(stop)
+
+  await call('state', {})
+  // Attach a live active task after boot (startup reconciles persisted running tasks as orphans).
+  rt.botOf('chief').tasks = [{ id: 'task-1', sessionId: 'gone-task', status: 'running', title: 'Bg', startedAt: 1, updatedAt: 1 }]
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-task').length, 1)
+  const chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, undefined)
+
+  // Subsequent sync skips the gone task session; forgetSessionModel clears the remembered skip.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-flash' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-task').length, 1)
+  rt.forgetSessionModel('gone-task')
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-task').length, 2)
+
+  // Read-only window refuses recover-session before mutating anything.
+  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
+  t.after(() => holder.kill())
+  const roTeam = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const ro = start(roTeam, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+    lock: { pid: holder.pid, host: hostname(), token: 'other', since: Date.now() },
+  })
+  t.after(ro.stop)
+  const denied = await ro.call('recover-session', { botId: 'chief' })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.error.code, 'bot/read-only')
+  await assert.rejects(rt.recoverMissingSession('chief'), { code: 'bot/read-only' })
+})
+
+test('concurrent model edit during missing-Session recovery is re-applied to the fresh Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, ctx, selected } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+  // Let bootstrap's model sync finish before recovery starts: a sync still in flight
+  // would write the new model to the fresh Session on its own and hide the recheck.
+  await call('state', {})
+  await settle()
+
+  // Hold the fresh Session's permission step: `picked` has already read the Bot's old
+  // model and written it to the fresh Session, so the concurrent edit lands between
+  // that read and the post-registration recheck.
+  let freshId
+  let permissionStarted
+  let releasePermission
+  const permissionReached = new Promise(resolve => { permissionStarted = resolve })
+  const released = new Promise(resolve => { releasePermission = resolve })
+  let held = false
+  const origCreate = ctx.sessionController.create
+  ctx.sessionController.create = async (...args) => {
+    const created = await origCreate(...args)
+    freshId = created.sessionId
+    return created
+  }
+  const origApplyPermission = rt.applyPermission
+  rt.applyPermission = async (...args) => {
+    if (!held && args[1] === freshId) {
+      held = true
+      permissionStarted()
+      await released
+    }
+    return origApplyPermission(...args)
+  }
+
+  const recovering = call('recover-session', { botId: 'chief' })
+  await permissionReached
+  assert.deepEqual(selected.filter(entry => entry.sessionId === freshId).map(entry => entry.model), ['deepseek-v4-flash'])
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  releasePermission()
+  assert.equal((await recovering).ok, true)
+
+  // Read the runtime directly so a `state` refresh does not trigger another sync.
+  const chief = rt.botOf('chief')
+  assert.equal(chief.sessionId, freshId)
+  const freshSelections = selected.filter(entry => entry.sessionId === freshId)
+  assert.deepEqual(freshSelections.map(entry => entry.model), ['deepseek-v4-flash', 'deepseek-v4-pro'])
+})
+
+test('restoring a missing Session heals sessionMissing and re-applies the Bot model', async (t) => {
+  const lost = new Set(['restored-session'])
+  const listed = new Set()
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'restored-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const first = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost,
+    listed,
+  })
+  t.after(first.stop)
+
+  // Model change while Session is missing marks sessionMissing without lying that the new model applied.
+  assert.equal((await first.call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  let chief = (await first.call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'restored-session')
+  const savedAfterMiss = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  assert.equal(savedAfterMiss.bots.chief.appliedModel, 'deepseek/deepseek-v4-flash')
+
+  // Simulate restart after the Session is restored into the library, even if appliedModel already matched.
+  const restoredTeam = {
+    ...savedAfterMiss,
+    bots: {
+      chief: {
+        ...savedAfterMiss.bots.chief,
+        appliedModel: 'deepseek/deepseek-v4-pro',
+      },
+    },
+  }
+  const restored = start(restoredTeam, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(),
+    listed: new Set(['restored-session']),
+  })
+  t.after(restored.stop)
+
+  await restored.call('state', {})
+  await until(() => restored.selected.some(entry => entry.sessionId === 'restored-session' && entry.model === 'deepseek-v4-pro'))
+  chief = (await restored.call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, undefined)
+})
+
+test('buffered silent notes survive missing-Session recovery onto the fresh Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop } = start(team, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+  await call('state', {})
+  await rt.adoptLiveWork()
+
+  // Silent note dispatched while Session is missing persists durably in SQLite `fg:chief` inbox.
+  await rt.dispatchNote('fg:chief', '[Note from Peer · FYI only, no reply needed]\nKeep this note across recovery.', {
+    idempotencyKey: 'ex-silent-1',
+    dedupKey: 'ex-silent-1',
+  })
+  assert.equal(rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
+
+  // Missing-Session recovery rebinds `fg:chief` to the fresh Session and keeps the unread silent note intact!
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  assert.notEqual(freshId, 'gone-session')
+  assert.equal(rt.coordDb.getForegroundWork('chief')?.sessionId, freshId)
+  const notesAfter = rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(notesAfter.length, 1)
+  assert.equal(notesAfter[0].dedupKey, 'ex-silent-1')
+  assert.equal(rt.state.switching['gone-session'], undefined)
+})
+
+test('kickoff greeting is preserved while a Bot Session is missing and sent after recovery', async (t) => {
+  const greeting = { text: 'Hello from kickoff', from: null, main: true }
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        kickoff: { ...greeting },
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, home, sent } = start(team, {
+    models: ['deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+
+  // Picking a model while the Session is gone marks `sessionMissing` and must not consume `kickoff`.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  await settle()
+  let chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'gone-session')
+  assert.equal(chief.waiting, true)
+  const savedWhileMissing = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.deepEqual(savedWhileMissing.bots.chief.kickoff, greeting)
+  assert.equal(sent.length, 0)
+
+  // Replacing the missing Session clears `sessionMissing` and delivers the held greeting to the fresh Session.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  await until(() => sent.some(entry => entry.sessionId === freshId && entry.message?.source?.role === 'kickoff'))
+  chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.waiting, undefined)
+
+  // Restoring/healing a missing Session also preserves and delivers the held greeting.
+  const healedRun = start(savedWhileMissing, {
+    models: ['deepseek-v4-pro'],
+    lost: new Set(),
+    listed: new Set(['gone-session']),
+  })
+  t.after(healedRun.stop)
+  await healedRun.call('state', {})
+  await until(() => healedRun.sent.some(entry => entry.sessionId === 'gone-session' && entry.message?.source?.role === 'kickoff'))
+})
+
+test('persisted silent notes survive missing-Session recovery when recovery runs before startup replay', async (t) => {
+  const note = {
+    id: 'silent-startup-race-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nDo not lose me before startup replay.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-startup-race-1' },
+  }
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-race-'))
+  let first
+  let second
+  t.after(async () => {
+    await second?.stop()
+    await first?.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  // Boot with legacy silent note persisted on disk under `gone-session`.
+  first = start(team, {
+    home,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+
+  await first.call('state', {})
+  await first.rt.adoptLiveWork()
+
+  // Recover missing Session -> `fg:chief` rebounds to `freshId` while preserving the migrated SQLite note once.
+  const recovered = await first.call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  assert.notEqual(freshId, 'gone-session')
+  assert.equal(first.rt.coordDb.getForegroundWork('chief')?.sessionId, freshId)
+  const notes = first.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(notes.length, 1)
+  assert.match(notes[0].bodyPreview, /Do not lose me before startup replay\./)
+  assert.equal(first.rt.state.switching['gone-session'], undefined)
+
+  // Acknowledge the note on `freshId`; a subsequent restart must not replay or duplicate it.
+  first.rt.coordDb.ackInboxSeq('fg:chief', notes[0].seq)
+  await first.stop()
+
+  second = start(undefined, {
+    home,
+    keepHome: true,
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  await second.call('state', {})
+  await second.rt.adoptLiveWork()
+  assert.equal(second.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 0)
+})
+
+test('missing-Session recovery commits replacement ownership before rebinding silent notes across crash boundaries', async (t) => {
+  const note = {
+    id: 'silent-crash-window-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nSurvive any crash boundary.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-crash-window-1' },
+  }
+  const makeTeam = () => ({
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  })
+
+  // 1) Failure/crash BEFORE `rt.save()` commits: `state.json` and `fg:chief` keep `gone-session`
+  //    and the durable silent note stays intact in SQLite (never rebound to an uncommitted Session).
+  const homeBeforeSave = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-before-'))
+  const statePathBeforeSave = join(homeBeforeSave, 'state.json')
+  const origRename = fsp.rename
+  let failStateRename = false
+  fsp.rename = async (from, to) => {
+    if (failStateRename && to === statePathBeforeSave) {
+      throw Object.assign(new Error('simulated crash before state.json commit'), { code: 'EIO' })
+    }
+    return origRename(from, to)
+  }
+  syncBuiltinESMExports()
+  let beforeCrash
+  let afterPreSaveCrash
+  t.after(async () => {
+    await afterPreSaveCrash?.stop()
+    await beforeCrash?.stop()
+    fsp.rename = origRename
+    syncBuiltinESMExports()
+    rmSync(homeBeforeSave, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  beforeCrash = start(makeTeam(), {
+    home: homeBeforeSave,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  await beforeCrash.call('state', {})
+  await beforeCrash.rt.adoptLiveWork()
+  failStateRename = true
+  const failedRecover = await beforeCrash.call('recover-session', { botId: 'chief' })
+  assert.equal(failedRecover.ok, false)
+  const stateStillOld = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+  assert.equal(stateStillOld.bots.chief.sessionId, 'gone-session')
+  assert.equal(beforeCrash.rt.coordDb.getForegroundWork('chief')?.sessionId, 'gone-session')
+  assert.equal(beforeCrash.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
+  await beforeCrash.stop()
+
+  // Restart after pre-save crash: `state.json` commits `freshId` BEFORE `rebindSession` runs.
+  failStateRename = false
+  afterPreSaveCrash = start(undefined, {
+    home: homeBeforeSave,
+    keepHome: true,
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  await afterPreSaveCrash.call('state', {})
+  await afterPreSaveCrash.rt.adoptLiveWork()
+  let diskStateAtRebind
+  const origRebind = afterPreSaveCrash.rt.coordDb.rebindSession.bind(afterPreSaveCrash.rt.coordDb)
+  afterPreSaveCrash.rt.coordDb.rebindSession = (...args) => {
+    diskStateAtRebind = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+    return origRebind(...args)
+  }
+  const recoveredAfterRestart = await afterPreSaveCrash.call('recover-session', { botId: 'chief' })
+  assert.equal(recoveredAfterRestart.ok, true)
+  const freshAfterRestart = recoveredAfterRestart.value.sessionId
+  assert.equal(diskStateAtRebind?.bots?.chief?.sessionId, freshAfterRestart, 'state.json must own freshId before coordDb.rebindSession runs')
+  assert.equal(diskStateAtRebind?.switching?.['gone-session']?.missing, true, 'state.json must persist recovery lineage before rebinding')
+  assert.equal(afterPreSaveCrash.rt.coordDb.getForegroundWork('chief')?.sessionId, freshAfterRestart)
+  assert.equal(afterPreSaveCrash.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
+
+  // 2) Crash AFTER `rt.save()` committed `fresh-committed` + `state.switching['gone-session']`,
+  //    BEFORE legacy `inflight.silent['gone-session']` was migrated: startup maps `gone-session`
+  //    via `switching` onto `fg:chief` (`fresh-committed`) without dropping or duplicating!
+  const postSaveTeam = {
+    ...makeTeam(),
+    bots: {
+      chief: {
+        ...makeTeam().bots.chief,
+        sessionId: 'fresh-committed',
+        sessionMissing: undefined,
+      },
+    },
+    switching: { 'gone-session': { botId: 'chief', missing: true } },
+  }
+  const homePostSaveReplay = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-a-'))
+  let restartA
+  t.after(async () => {
+    await restartA?.stop()
+    rmSync(homePostSaveReplay, { recursive: true, force: true, maxRetries: 5 })
+  })
+  restartA = start(postSaveTeam, {
+    home: homePostSaveReplay,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  await restartA.call('state', {})
+  await restartA.rt.adoptLiveWork()
+  assert.equal(restartA.rt.coordDb.getForegroundWork('chief')?.sessionId, 'fresh-committed')
+  const migratedNotes = restartA.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(migratedNotes.length, 1)
+  assert.match(migratedNotes[0].bodyPreview, /Survive any crash boundary\./)
 })

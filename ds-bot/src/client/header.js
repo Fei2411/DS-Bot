@@ -194,7 +194,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
-  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions, readOnly: Boolean(roster.readOnly) }) : null
   const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
   const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, taskApprovals.length)
   const taskBadge = taskHoverReveal
@@ -210,7 +210,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       h('span', { className: 'bt-island-chip-dot', 'aria-hidden': true }),
       h('span', null, activeTasks.length))
     : null
-  return h('div', { className: 'bt-head' },
+  const headRef = useRef(null)
+  return h('div', { ref: headRef, className: 'bt-head' },
     showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
@@ -220,72 +221,76 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
         onClick: () => actions.openGroupSearch(room.id),
       }, h(SearchIcon))
       : null,
-    h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
+    h(NewMessagePills, { key: sessionId, sessionId, headRef, useSessions, useUi, useTurnClock }),
+    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, away, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
 }
 
-// The shell's Back to bottom slot comes after the transcript, so a query for it walks
-// the whole transcript, every frame, while it is absent (the user is pinned). DSH marks
-// the chat root with data-chat-following-tail exactly when it leaves the slot out, and
-// that root comes before the transcript; keeping both elements answers without a walk.
+// Checks whether the scroller is currently unpinned from the bottom using DS Bot's
+// explicit `data-bt-following-tail` attribute on `[data-bt-scroll]` (set directly by
+// desktop `Chat` and mirrored from DSH by `adapter-dsh.js`), falling back to a cached
+// `[data-bt-to-bottom]` button lookup so measuring never walks the whole transcript.
 export function pinWatch() {
-  let slot = null
-  let tail = null
+  let button = null
   return (scroller) => {
-    if (slot?.isConnected && scroller.contains(slot)) return [...slot.children].some(child => child.tagName === 'BUTTON')
-    if (tail?.isConnected && scroller.contains(tail) && tail.hasAttribute('data-chat-following-tail')) return false
-    tail = scroller.querySelector('[data-chat-following-tail]')
-    if (tail) return false
-    slot = scroller.querySelector('[class*="_toBottomSlot"]')
-    return slot?.querySelector(':scope>button') != null
+    const following = scroller.getAttribute?.('data-bt-following-tail')
+    if (following === 'true') return false
+    if (following === 'false') return true
+    if (button?.isConnected && (scroller.contains(button) || scroller.parentElement?.contains(button))) return true
+    button = scroller.querySelector?.('[data-bt-to-bottom]')
+      ?? scroller.parentElement?.querySelector?.('[data-bt-to-bottom]')
+      ?? null
+    return button !== null
   }
 }
 
 // New-message pills. "N new messages ↓" takes Back to bottom's place when
 // replies land while the user is scrolled up; "N new messages ↑" points at an unread
-// divider above the viewport until it has been seen. The shell shows Back to bottom
-// only while unpinned, so its presence is the pinned signal.
-export function useTranscriptView() {
+// divider above the viewport until it has been seen.
+export function useTranscriptView(headRef) {
   const [view, setView] = useState(null)
   useEffect(() => {
     let frame = 0
     let watched = null
-    let headerEl = null
     const unpinned = pinWatch()
     const inComposer = (record) => {
       const target = record.target
       const el = target?.nodeType === 1 ? target : target?.parentElement
-      return typeof el?.closest === 'function' && el.closest('[data-composer-card]') !== null
+      return typeof el?.closest === 'function' && el.closest('[data-bt-composer]') !== null
     }
     const observer = new MutationObserver((records) => {
       if (records.length > 0 && records.every(inComposer)) return
       schedule()
     })
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
     const measure = () => {
       frame = 0
-      const scroller = watched?.isConnected ? watched : document.querySelector('[data-conversation-scroll]')
+      const scroller = watched?.isConnected ? watched : document.querySelector('[data-bt-scroll]')
       if (scroller !== watched) {
         observer.disconnect()
+        ro?.disconnect()
         watched = scroller
-        if (scroller) observer.observe(scroller, { childList: true, subtree: true })
+        if (scroller) {
+          observer.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-bt-following-tail'] })
+          ro?.observe(scroller)
+        }
       }
       if (!scroller) { setView(null); return }
       const box = scroller.getBoundingClientRect()
-      const header = headerEl?.isConnected ? headerEl : (headerEl = document.querySelector('header[class*="_header"]'))
-      const headerBottom = header?.getBoundingClientRect().bottom ?? box.top + 50
+      const headNode = headRef?.current?.isConnected ? headRef.current : null
+      const headerBottom = headNode?.getBoundingClientRect?.().bottom ?? box.top + 50
       const sep = newDividerIn(scroller)
       let divider = null
       if (sep) {
         const at = sep.getBoundingClientRect()
         divider = at.bottom <= headerBottom ? 'above' : at.top >= box.bottom ? 'below' : 'in-view'
       }
-      const composer = parseFloat(getComputedStyle(scroller).getPropertyValue('--dsh-composer-height')) || 152
+      const composerInset = parseFloat(getComputedStyle(scroller).getPropertyValue('--bt-composer-inset')) || 0
       const next = {
         unpinned: unpinned(scroller),
         divider,
         center: Math.round(box.left + box.width / 2),
         top: Math.round(headerBottom + 8),
-        bottom: Math.round(viewBottom() - box.bottom + composer + 8),
+        bottom: Math.round(viewBottom() - box.bottom + composerInset + 8),
       }
       setView(prev => (prev && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
     }
@@ -302,6 +307,7 @@ export function useTranscriptView() {
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      ro?.disconnect()
       document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('resize', schedule)
@@ -311,9 +317,11 @@ export function useTranscriptView() {
   return view
 }
 
-function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
+function NewMessagePills({ sessionId, headRef, useSessions, useUi, useTurnClock }) {
   const replies = useSessions((list) => {
-    const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline
+    const row = list.byId?.[sessionId]
+    if (typeof row?.replyCount === 'number') return row.replyCount
+    const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? row?.projectionValues?.turnOutline
     return Array.isArray(outline) ? outline.reduce((count, entry) => count + (entry.response ? 1 : 0), 0) : 0
   })
   const visit = useUi(state => state.visits?.[sessionId])
@@ -325,7 +333,7 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     }
     return count
   })
-  const view = useTranscriptView()
+  const view = useTranscriptView(headRef)
   const unpinned = view?.unpinned === true
   const [release, setRelease] = useState({ base: null, dismissed: false })
   const [above, setAbove] = useState({ seen: false, dismissed: false })
@@ -335,7 +343,7 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   const showDown = unpinned && fresh > 0 && !release.dismissed
   const showUp = view?.divider === 'above' && !above.seen && !above.dismissed
   useEffect(() => {
-    const scroller = document.querySelector('[data-conversation-scroll]')
+    const scroller = document.querySelector('[data-bt-scroll]')
     if (!scroller) return undefined
     scroller.toggleAttribute('data-bt-news', showDown)
     return () => scroller.removeAttribute('data-bt-news')
@@ -350,13 +358,14 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
       onClick: (event) => { event.stopPropagation(); onDismiss() },
     }, h(CloseIcon)))
   const toLatest = () => {
-    const scroller = document.querySelector('[data-conversation-scroll]')
-    const back = scroller?.querySelector('[class*="_toBottomSlot"]>button')
+    const scroller = document.querySelector('[data-bt-scroll]')
+    const scope = scroller?.closest?.('[data-bt-center]') ?? scroller?.parentElement ?? document
+    const back = scope?.querySelector?.('[data-bt-to-bottom]')
     if (back) back.click()
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
   }
   const toDivider = () => {
-    const scroller = document.querySelector('[data-conversation-scroll]')
+    const scroller = document.querySelector('[data-bt-scroll]')
     if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }
   return createPortal(h(Fragment, null,

@@ -5,6 +5,8 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { fileSizeText, MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CopyIcon, DownloadIcon, FileIcon } from '../../../ds-bot/src/client/icons.js'
+import { renderTokenList, useHighlightedLines } from './code-highlight.js'
+import { prepareHtmlPreview } from './html-preview.js'
 
 const MAX_TABLE_ROWS = 500
 const MAX_TABLE_COLS = 64
@@ -113,13 +115,33 @@ function useBlobUrl(base64, mime) {
   return url
 }
 
-function CodeLines({ text }) {
-  const lines = useMemo(() => String(text ?? '').split(/\r?\n/), [text])
+function CodeLines({ text, language = '', targetLine = null }) {
+  const source = String(text ?? '')
+  const lines = useMemo(() => source.split(/\r?\n/), [source])
+  const highlighted = useHighlightedLines(source, language)
+  const targetRef = useRef(null)
+
+  useEffect(() => {
+    if (Number.isInteger(targetLine) && targetLine > 0) {
+      targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    }
+  }, [targetLine, source])
+
   return h('div', { className: 'dsb-pv-code-wrap' },
-    h('table', { className: 'dsb-pv-code' },
-      h('tbody', null, lines.map((line, idx) => h('tr', { key: idx },
-        h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, idx + 1),
-        h('td', { className: 'dsb-pv-line' }, line || '\u00a0'))))))
+    h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
+      h('tbody', null, lines.map((line, idx) => {
+        const lineNum = idx + 1
+        const isTarget = targetLine === lineNum
+        const tokens = highlighted?.[idx]
+        const content = tokens && tokens.length > 0 ? renderTokenList(tokens, `l${idx}`) : (line || '\u00a0')
+        return h('tr', {
+          key: idx,
+          ref: isTarget ? targetRef : undefined,
+          'data-target-line': isTarget ? '' : undefined,
+        },
+        h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, lineNum),
+        h('td', { className: 'dsb-pv-line' }, content))
+      }))))
 }
 
 function TablePreview({ text, delimiter }) {
@@ -132,11 +154,184 @@ function TablePreview({ text, delimiter }) {
     h('table', { className: 'dsb-pv-table' },
       h('thead', null, h('tr', null,
         h('th', { className: 'dsb-pv-rn', 'aria-hidden': true }, '#'),
-        headers.map((col, idx) => h('th', { key: idx }, col || `Col ${idx + 1}`)))),
+        headers.map((col, idx) => h('th', { key: idx }, col || t('Column {n}', { n: idx + 1 }))))),
       h('tbody', null, rows.map((cells, rIdx) => h('tr', { key: rIdx },
         h('td', { className: 'dsb-pv-rn' }, rIdx + 1),
         headers.map((_, cIdx) => h('td', { key: cIdx }, cells[cIdx] ?? '')))))),
     truncatedRows ? h('p', { className: 'dsb-pv-note' }, t('Showing first {count} rows', { count: MAX_TABLE_ROWS })) : null)
+}
+
+export function colIndexToLetters(index) {
+  let n = index + 1
+  let out = ''
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    out = String.fromCharCode(65 + rem) + out
+    n = Math.floor((n - 1) / 26)
+  }
+  return out
+}
+
+function SpreadsheetPreview({ file }) {
+  const sheets = useMemo(() => (Array.isArray(file.sheets) ? file.sheets : []), [file.sheets])
+  const initialIndex = useMemo(() => {
+    const visible = sheets.findIndex(sheet => sheet.state !== 'hidden' && sheet.state !== 'veryHidden')
+    return visible >= 0 ? visible : 0
+  }, [file.path, sheets])
+  const [sheetIdx, setSheetIdx] = useState(initialIndex)
+  const [selected, setSelected] = useState(null)
+  const [copiedCell, setCopiedCell] = useState(false)
+  const tabRefs = useRef([])
+  const copyTimer = useRef(0)
+
+  useEffect(() => {
+    setSheetIdx(initialIndex)
+    setSelected(null)
+    setCopiedCell(false)
+  }, [file.path, initialIndex])
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
+
+  const safeIdx = sheetIdx >= 0 && sheetIdx < sheets.length ? sheetIdx : 0
+  const sheet = sheets[safeIdx] ?? null
+  const rows = Array.isArray(sheet?.rows) ? sheet.rows : []
+  const colCount = Math.max(0, sheet?.colCount ?? (rows[0]?.length ?? 0))
+  const colHeaders = useMemo(() => Array.from({ length: colCount }, (_, idx) => colIndexToLetters(idx)), [colCount])
+
+  const mergeLayout = useMemo(() => {
+    const spans = new Map()
+    const covered = new Set()
+    for (const m of sheet?.merges ?? []) {
+      const rowSpan = Math.max(1, (m.r2 - m.r1) + 1)
+      const colSpan = Math.max(1, (m.c2 - m.c1) + 1)
+      if (rowSpan === 1 && colSpan === 1) continue
+      spans.set(`${m.r1}:${m.c1}`, { rowSpan, colSpan })
+      for (let r = m.r1; r <= m.r2; r += 1) {
+        for (let c = m.c1; c <= m.c2; c += 1) {
+          if (r !== m.r1 || c !== m.c1) covered.add(`${r}:${c}`)
+        }
+      }
+    }
+    return { spans, covered }
+  }, [sheet])
+
+  if (!sheet) return h('div', { className: 'dsb-rp-empty' }, t('Empty file'))
+
+  const rowCount = sheet.rowCount ?? rows.length
+  const totalRowsLabel = Number.isFinite(sheet.totalRows) ? sheet.totalRows : `${rowCount}+`
+  const truncationParts = [
+    sheet.truncatedRows
+      ? (Number.isFinite(sheet.totalRows)
+        ? t('Showing first {shown} of {total} rows', { shown: rowCount, total: sheet.totalRows })
+        : t('Showing first {count} rows', { count: rowCount }))
+      : null,
+    sheet.truncatedCols ? t('Showing first {shown} of {total} columns', { shown: colCount, total: sheet.totalCols }) : null,
+    file.truncatedSheets ? t('Showing first {shown} of {total} sheets', { shown: sheets.length, total: file.totalSheets }) : null,
+    (sheet.truncatedText || sheet.truncatedBySize || file.truncatedText) ? t('Preview truncated for size') : null,
+  ].filter(Boolean)
+
+  const activeCell = selected && rows[selected.r] ? rows[selected.r][selected.c] ?? null : null
+  const activeRef = selected ? `${colIndexToLetters(selected.c)}${selected.r + 1}` : ''
+  const activeText = activeCell ? (activeCell.f ? `${activeCell.f}  →  ${activeCell.v}` : activeCell.v) : ''
+
+  const copySelected = () => {
+    if (!activeCell) return
+    const text = activeCell.v ?? ''
+    void writeClipboard(text).then((ok) => {
+      if (!ok) return
+      setCopiedCell(true)
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => { copyTimer.current = 0; setCopiedCell(false) }, 1200)
+    })
+  }
+
+  const onTabKeyDown = (event) => {
+    if (sheets.length <= 1) return
+    let next = -1
+    if (event.key === 'ArrowRight') next = (safeIdx + 1) % sheets.length
+    else if (event.key === 'ArrowLeft') next = (safeIdx - 1 + sheets.length) % sheets.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = sheets.length - 1
+    if (next < 0) return
+    event.preventDefault()
+    setSheetIdx(next)
+    setSelected(null)
+    tabRefs.current[next]?.focus?.()
+  }
+
+  return h('div', { className: 'dsb-pv-xlsx' },
+    h('div', { className: 'dsb-pv-formula-bar' },
+      h('span', { className: 'dsb-pv-cell-ref' }, activeRef || `${totalRowsLabel} × ${sheet.totalCols ?? colCount}`),
+      h('span', { className: 'dsb-pv-cell-val', title: activeText },
+        selected
+          ? (activeCell?.f
+            ? h('span', null, h('code', { className: 'dsb-pv-formula-expr' }, activeCell.f), activeCell.v !== activeCell.f ? ` = ${activeCell.v}` : '')
+            : (activeCell?.v ?? ''))
+          : t('Click a cell to inspect')),
+      activeCell ? h('button', {
+        type: 'button',
+        className: 'bt-icon-btn dsb-pv-copy',
+        'aria-label': copiedCell ? t('Copied') : t('Copy'),
+        title: copiedCell ? t('Copied') : t('Copy'),
+        onClick: copySelected,
+      }, copiedCell ? h(CheckIcon) : h(CopyIcon)) : null),
+    truncationParts.length > 0
+      ? h('div', { className: 'dsb-pv-banner' }, truncationParts.join(' · '))
+      : null,
+    rows.length === 0 || colCount === 0
+      ? h('div', { className: 'dsb-rp-empty' }, t('Empty sheet'))
+      : h('div', { className: 'dsb-pv-table-wrap dsb-pv-sheet-wrap' },
+        h('table', { className: 'dsb-pv-table dsb-pv-sheet' },
+          h('thead', null, h('tr', null,
+            h('th', { className: 'dsb-pv-rn dsb-pv-sheet-corner', 'aria-hidden': true }, ''),
+            colHeaders.map((letter, cIdx) => h('th', {
+              key: letter,
+              scope: 'col',
+              'data-active': selected?.c === cIdx ? '' : undefined,
+            }, letter)))),
+          h('tbody', null, rows.map((row, rIdx) => h('tr', { key: rIdx },
+            h('td', {
+              className: 'dsb-pv-rn',
+              'data-active': selected?.r === rIdx ? '' : undefined,
+            }, rIdx + 1),
+            colHeaders.map((_, cIdx) => {
+              const key = `${rIdx}:${cIdx}`
+              if (mergeLayout.covered.has(key)) return null
+              const span = mergeLayout.spans.get(key)
+              const cell = row?.[cIdx] ?? null
+              const isSelected = selected?.r === rIdx && selected?.c === cIdx
+              const cls = [
+                'dsb-pv-sheet-cell',
+                cell?.num ? 'is-num' : '',
+                cell?.err ? 'is-err' : '',
+                cell?.f ? 'has-formula' : '',
+              ].filter(Boolean).join(' ')
+              return h('td', {
+                key: cIdx,
+                className: cls,
+                rowSpan: span?.rowSpan,
+                colSpan: span?.colSpan,
+                'data-selected': isSelected ? '' : undefined,
+                title: cell?.f ? `${cell.f}\n${cell.v}` : (cell?.v || undefined),
+                onClick: () => setSelected({ r: rIdx, c: cIdx }),
+              }, cell?.v ?? '')
+            })))))),
+    h('div', {
+      className: 'dsb-pv-sheet-tabs',
+      role: 'tablist',
+      'aria-label': t('Sheets'),
+      onKeyDown: onTabKeyDown,
+    },
+    sheets.map((entry, idx) => h('button', {
+      key: `${entry.name}:${idx}`,
+      ref: (el) => { tabRefs.current[idx] = el },
+      type: 'button',
+      role: 'tab',
+      className: 'dsb-pv-sheet-tab',
+      'aria-selected': idx === safeIdx,
+      tabIndex: idx === safeIdx ? 0 : -1,
+      'data-hidden-sheet': entry.state && entry.state !== 'visible' ? '' : undefined,
+      onClick: () => { setSheetIdx(idx); setSelected(null) },
+    }, entry.name))))
 }
 
 function PdfPreview({ file }) {
@@ -161,18 +356,29 @@ function ImagePreview({ file }) {
     h('img', { className: 'dsb-pv-image', src, alt: file.name }))
 }
 
+
+export function HtmlPreviewNotice() {
+  return h('div', { className: 'dsb-pv-banner' }, t('Scripts and external or local resources are blocked in this preview'))
+}
+
+export function HtmlPreviewFrame({ html, title }) {
+  return h('div', { className: 'dsb-pv-html-wrap' },
+    h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: html, title }))
+}
+
 /**
  * Multi-format workspace file preview component.
  */
-export function FilePreview({ file, loading, error, onRetry }) {
+export function FilePreview({ file, line = null, loading, error, onRetry }) {
   const [mode, setMode] = useState('preview')
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
+  const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
 
   useEffect(() => {
-    setMode('preview')
+    setMode(Number.isInteger(line) && line > 0 && (file?.kind === 'markdown' || file?.kind === 'html' || file?.kind === 'table' || file?.kind === 'svg') ? 'source' : 'preview')
     setCopied(false)
-  }, [file?.path, file?.kind])
+  }, [file?.path, file?.kind, line])
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
 
   if (loading) {
@@ -200,9 +406,10 @@ export function FilePreview({ file, loading, error, onRetry }) {
   }
 
   const badge = file.convertedFrom ? file.convertedFrom.slice(1).toUpperCase()
-    : file.language && file.language !== 'text' ? file.language.toUpperCase()
-      : file.kind === 'table' ? (file.delimiter === '\t' ? 'TSV' : 'CSV')
-        : file.kind.toUpperCase()
+    : file.kind === 'spreadsheet' ? (file.ext ? file.ext.slice(1).toUpperCase() : 'XLSX')
+      : file.language && file.language !== 'text' ? file.language.toUpperCase()
+        : file.kind === 'table' ? (file.delimiter === '\t' ? 'TSV' : 'CSV')
+          : file.kind.toUpperCase()
 
   return h('div', { className: 'dsb-pv' },
     h('div', { className: 'dsb-pv-bar' },
@@ -231,27 +438,31 @@ export function FilePreview({ file, loading, error, onRetry }) {
         onClick: copy,
       }, copied ? h(CheckIcon) : h(CopyIcon)) : null),
     file.truncated ? h('div', { className: 'dsb-pv-banner' }, t('File truncated for preview')) : null,
+    file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
-        ? (mode === 'source' ? h(CodeLines, { text: file.text }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
+        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
           text: file.text,
           labels: { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } },
         })))
         : file.kind === 'table'
-          ? (mode === 'source' ? h(CodeLines, { text: file.text }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
-          : file.kind === 'html'
+          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
+          : file.kind === 'spreadsheet'
+            ? h(SpreadsheetPreview, { file })
+            : file.kind === 'html'
             ? (mode === 'source'
-                ? h(CodeLines, { text: file.text })
-                : h('div', { className: 'dsb-pv-html-wrap' },
-                  h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: file.text, title: file.name })))
+                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line })
+                : htmlPreview === null
+                  ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
+                  : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
-              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text }) : h(ImagePreview, { file }))
+              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line }) : h(ImagePreview, { file }))
               : file.kind === 'image'
                 ? h(ImagePreview, { file })
                 : file.kind === 'pdf'
                   ? h(PdfPreview, { file })
                   : file.kind === 'code' || file.kind === 'text'
-                    ? h(CodeLines, { text: file.text })
+                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line })
                     : h('div', { className: 'dsb-pv-fallback' },
                       h('span', { className: 'dsb-pv-fallback-ico', 'aria-hidden': true }, h(FileIcon)),
                       h('strong', null, file.name),

@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { createServer } from 'node:http'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import * as dshLlm from '@deepseek-ai/dsh-llm'
+import * as dshPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { install as installChatGPT, appChatGPTRequest } from '../src/host/chatgpt.js'
+import { install as installModels } from '../src/host/models.js'
 import { install as installProviders } from '../src/host/providers.js'
 import { install as installChannel } from '../src/host/channel.js'
+import { createRuntime } from '../index.js'
+import { fakeContext } from './fake-ctx.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createChatGPTRelay } from '../../app/src/chatgpt-relay.mjs'
 
 async function fixture(t, { app = true, previous, status = { state: 'connected', account: { email: 'person@example.test' } }, models = [{ id: 'model-z', name: 'Z' }], modelError } = {}) {
   const effects = []
@@ -160,4 +171,387 @@ test('IPC requests correlate replies and use fixed errors rather than remote dia
   ipc.send = () => { throw new Error('synthetic-secret') }
   await assert.rejects(appChatGPTRequest('chatgpt:status', {}, ipc), /Check the connection status/)
   assert.equal(ipc.listenerCount('message'), 0)
+})
+
+test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai and relay, preserving Default semantics and prompt cache prefix', async t => {
+  const requests = []
+  let nextResponse
+  const upstream = createServer(async (req, res) => {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    requests.push({ headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) })
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    const custom = nextResponse
+    nextResponse = undefined
+    if (custom) {
+      res.end(custom.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''))
+      return
+    }
+    res.end([
+      `data: ${JSON.stringify({ type: 'response.completed', response: { id: 'resp_1', status: 'completed', output: [{ type: 'message', id: 'msg_1', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'ok', annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}`,
+      '',
+      '',
+    ].join('\n'))
+  })
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  t.after(async () => { upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)) })
+  const relay = await createChatGPTRelay({
+    signIn: {
+      status: () => ({ state: 'connected' }),
+      getAccessToken: async () => 'synthetic-access',
+      refresh: async () => {},
+      listModels: async () => [],
+    },
+    responsesUrl: `http://127.0.0.1:${upstream.address().port}/v1/responses`,
+  })
+  t.after(() => relay.close())
+  const { baseURL, secret } = relay.route()
+
+  const ctx = new Context()
+  t.after(() => ctx.fiber.dispose())
+  ctx.plugin(dshLlm.LlmRuntime)
+  const keys = { OPENAI_CHATGPT_API_KEY: secret }
+  const routes = {
+    'openai-chatgpt': {
+      displayName: 'ChatGPT (plan)', api: 'openai-responses', baseURL,
+      apiKeyEnv: 'OPENAI_CHATGPT_API_KEY', models: [{ id: 'gpt-5.5', name: 'GPT-5.5' }],
+      compat: { supportsDeveloperRole: true },
+    },
+  }
+  let revision = 0
+  const piAiFiber = ctx.plugin(dshPiAi, { providers: structuredClone(routes) })
+  ctx.provide('credentials', {
+    resolve: async ref => (ref in keys ? { value: keys[ref] } : undefined),
+    set: async (ref, value) => { keys[ref] = value },
+    unset: async ref => { delete keys[ref] },
+    describe: async ref => ({ configured: !!keys[ref], writable: true }),
+  })
+  ctx.provide('settings', {
+    configure: () => () => {},
+    describe: () => [{ ns: 'llm-pi-ai', revision, value: { providers: structuredClone(routes) }, user: { providers: structuredClone(routes) } }],
+    mutate: async (ns, ops, expected) => {
+      assert.equal(ns, 'llm-pi-ai')
+      assert.equal(expected, revision)
+      const candidate = structuredClone(routes)
+      for (const op of ops) {
+        if (op.path.length === 2) candidate[op.path[1]] = structuredClone(op.value)
+        else candidate[op.path[1]][op.path[2]] = structuredClone(op.value)
+      }
+      dshPiAi.Config({ providers: structuredClone(candidate) })
+      await piAiFiber.update({ providers: structuredClone(candidate) })
+      for (const key of Object.keys(routes)) delete routes[key]
+      Object.assign(routes, candidate)
+      revision++
+    },
+  })
+  ctx.provide('connection', { fetch: { register: () => () => {} } })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const ipc = new EventEmitter()
+  const rt = {
+    ctx, state: { bots: { b1: { id: 'b1', model: 'openai-chatgpt/gpt-5.5' } }, rooms: {}, prefs: {} },
+    refresh: async () => {}, load: async () => {}, readOnly: () => undefined, phoneServe() {}, warn() {},
+  }
+  installModels(rt)
+  installProviders(rt)
+  let servedModels = [{ id: 'gpt-5.5', name: 'GPT-5.5', reasoningEfforts: false }]
+  const request = async (method) => {
+    if (method === 'chatgpt:status') return { state: 'connected', account: { email: 'person@example.test' } }
+    if (method === 'chatgpt:route') return { baseURL, secret }
+    if (method === 'chatgpt:models') return servedModels
+    throw new Error('Unexpected request')
+  }
+  installChatGPT(rt, { env: { DS_BOT_APP: '1' }, ipc, request })
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+
+  // While reasoning is disabled, reasoningOf caches undefined.
+  assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-5.5'), undefined)
+
+  // Refresh with supported reasoning efforts from ChatGPT sign-in:
+  // - gpt-5.5 defaults to medium (so off is omitted and Default keeps upstream default)
+  // - gpt-5.4 defaults to none (so off: 'none' is offered)
+  // - gpt-6.2-sol supports low..max
+  // - gpt-4o is non-reasoning
+  servedModels = [
+    {
+      id: 'gpt-5.5', name: 'GPT-5.5', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
+    },
+    {
+      id: 'gpt-5.4', name: 'GPT-5.4', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
+    },
+    {
+      id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    },
+    { id: 'gpt-4o', name: 'GPT-4o', reasoningEfforts: false },
+  ]
+  const refreshed = await rt.chatgptModels()
+  assert.equal(refreshed.length, 4)
+  assert.equal(routes['openai-chatgpt'].models[0].inputModalities, undefined)
+  assert.deepEqual(routes['openai-chatgpt'].models[0].input, ['text', 'image'])
+
+  // dropCatalog() cleared reasoningCache, so efforts are immediately available.
+  assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-5.5')).efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
+  assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-5.4')).efforts.map(e => e.id), ['off', 'low', 'medium', 'high', 'xhigh'])
+  assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-6.2-sol')).efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh', 'max'])
+  assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-4o'), undefined)
+  assert.equal(await rt.resolveEffort('openai-chatgpt/gpt-5.4', 'xhigh'), 'xhigh')
+  assert.equal(await rt.desiredEffort({ effort: 'max' }, 'openai-chatgpt/gpt-6.2-sol'), 'max')
+  assert.equal(await rt.desiredEffort({ effort: 'off' }, 'openai-chatgpt/gpt-5.5'), undefined)
+  const catalog = await rt.catalog({ fresh: true })
+  const used = catalog.find(entry => entry.ref === 'openai-chatgpt/gpt-5.5')
+  assert.deepEqual(used.reasoning.efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
+
+  const runTurn = async (model, reasoningEffort, extra = {}) => {
+    const chunks = []
+    for await (const chunk of ctx.llm.stream({
+      provider: 'openai-chatgpt',
+      model,
+      system: 'Be brief.',
+      sessionId: 'sess-chatgpt-cache-1',
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
+      ...extra,
+    })) chunks.push(chunk)
+    const finish = chunks.find(chunk => chunk.type === 'finish')
+    assert.ok(finish)
+    return { chunks, finish }
+  }
+
+  // Default (unset effort) on gpt-5.5 omits `reasoning` instead of disabling thinking,
+  // requests encrypted reasoning for stateless multi-turn cache continuity, keeps the
+  // system prompt in `input[0]` as `developer` (no uncached top-level `instructions`),
+  // and forwards session affinity headers + prompt_cache_key.
+  await runTurn('gpt-5.5', undefined)
+  assert.equal(requests.at(-1).body.reasoning, undefined)
+  assert.deepEqual(requests.at(-1).body.include, ['reasoning.encrypted_content'])
+  assert.equal(requests.at(-1).body.instructions, undefined)
+  assert.equal(requests.at(-1).body.input[0].role, 'developer')
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'sess-chatgpt-cache-1')
+  assert.equal(requests.at(-1).headers['session-id'], 'sess-chatgpt-cache-1')
+  assert.equal(requests.at(-1).headers['x-client-request-id'], 'sess-chatgpt-cache-1')
+
+  // Explicit 'xhigh' sends reasoning.effort + reasoning.encrypted_content through the relay.
+  await runTurn('gpt-6.2-sol', 'xhigh')
+  assert.deepEqual(requests.at(-1).body.reasoning, { effort: 'xhigh', summary: 'auto' })
+  assert.deepEqual(requests.at(-1).body.include, ['reasoning.encrypted_content'])
+
+  // Model with default_reasoning_level === 'none' sends effort='none' for explicit 'off'
+  // and omits reasoning.encrypted_content.
+  await runTurn('gpt-5.4', 'off')
+  assert.deepEqual(requests.at(-1).body.reasoning, { effort: 'none' })
+  assert.equal(requests.at(-1).body.include, undefined)
+
+  // Non-reasoning model (gpt-4o) keeps system prompt in `input[0]` as `developer`
+  // (never hoisted to uncached top-level `instructions`) and never adds `include`.
+  await runTurn('gpt-4o', undefined)
+  assert.equal(requests.at(-1).body.instructions, undefined)
+  assert.equal(requests.at(-1).body.input[0].role, 'developer')
+  assert.equal(requests.at(-1).body.include, undefined)
+
+  // Multi-step tool-call replay on Default effort (gpt-6.2-sol): encrypted reasoning
+  // returned in step 1 is replayed verbatim in step 2 alongside the namespaced tool call,
+  // with byte-identical prefix, tools, prompt_cache_key, and session-id headers.
+  const toolDef = { name: 'get_weather', description: 'Look up weather', parameters: { type: 'object', properties: { city: { type: 'string' } } } }
+  const reasoningItem = { type: 'reasoning', id: 'rs_step1', summary: [{ type: 'summary_text', text: 'Checking weather.' }], encrypted_content: 'enc_blob_step1' }
+  const callItem = { type: 'function_call', id: 'fc_step1', call_id: 'call_step1', name: 'get_weather', namespace: 'ds_bot', arguments: '{"city":"Tokyo"}' }
+  nextResponse = [
+    { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_step1', summary: [] } },
+    { type: 'response.output_item.done', output_index: 0, item: reasoningItem },
+    { type: 'response.output_item.added', output_index: 1, item: { ...callItem, arguments: '' } },
+    { type: 'response.function_call_arguments.done', output_index: 1, item_id: 'fc_step1', arguments: callItem.arguments },
+    { type: 'response.output_item.done', output_index: 1, item: callItem },
+    { type: 'response.completed', response: { id: 'resp_step1', status: 'completed', output: [reasoningItem, callItem], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } } },
+  ]
+  const userMsg = dshLlm.createUserMessage({ content: [{ type: 'text', text: 'Weather in Tokyo?' }], source: { kind: 'user' } })
+  const step1 = await runTurn('gpt-6.2-sol', undefined, { tools: [toolDef], messages: [userMsg] })
+  const step1Req = requests.at(-1)
+  assert.deepEqual(step1Req.body.include, ['reasoning.encrypted_content'])
+  const blocks = step1.chunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block)
+  const toolCallBlock = blocks.find(block => block.type === 'tool-call')
+  assert.ok(toolCallBlock)
+  const assistantMsg = dshLlm.createAssistantMessage({
+    content: blocks,
+    source: { provider: 'openai-chatgpt', model: 'gpt-6.2-sol', replayState: step1.finish.replayState },
+  })
+  const toolResultMsg = dshLlm.createToolResultMessage({
+    callId: toolCallBlock.id,
+    content: [{ type: 'text', text: '22C sunny' }],
+    isError: false,
+  })
+  await runTurn('gpt-6.2-sol', undefined, { tools: [toolDef], messages: [userMsg, assistantMsg, toolResultMsg] })
+  const step2Req = requests.at(-1)
+  assert.deepEqual(step2Req.body.input.slice(0, 2), step1Req.body.input)
+  assert.deepEqual(step2Req.body.tools, step1Req.body.tools)
+  assert.equal(step2Req.body.instructions, undefined)
+  assert.equal(step2Req.body.prompt_cache_key, step1Req.body.prompt_cache_key)
+  assert.equal(step2Req.headers['session-id'], step1Req.headers['session-id'])
+  assert.equal(step2Req.headers['x-client-request-id'], step1Req.headers['x-client-request-id'])
+  assert.deepEqual(step2Req.body.input[2], reasoningItem)
+  assert.deepEqual(step2Req.body.input[3], callItem)
+  assert.deepEqual(step2Req.body.input[4], { type: 'function_call_output', call_id: 'call_step1', output: '22C sunny' })
+
+  // Forked sessions mapped to a parent cache affinity root route onto the parent's
+  // prompt_cache_key and affinity headers while auxiliary/own requests stay isolated.
+  const affinityMap = new Map([['sess-fork-child', 'sess-chatgpt-cache-1']])
+  rt.cacheAffinityOf = id => affinityMap.get(id)
+  rt.ownRequest = opts => opts?.messages?.[0]?.source?.kind === 'memory-own'
+  rt.isLocalAgentRoute = provider => provider === 'local-codex'
+
+  await runTurn('gpt-6.2-sol', undefined, { sessionId: 'sess-fork-child', tools: [toolDef], messages: [userMsg] })
+  const forkReq = requests.at(-1)
+  assert.equal(forkReq.body.prompt_cache_key, 'sess-chatgpt-cache-1')
+  assert.equal(forkReq.headers['session-id'], 'sess-chatgpt-cache-1')
+  assert.equal(forkReq.headers['x-client-request-id'], 'sess-chatgpt-cache-1')
+  assert.deepEqual(forkReq.body.tools, step1Req.body.tools)
+  assert.deepEqual(forkReq.body.input, step1Req.body.input)
+
+  // Purpose-tagged calls and DS Bot's own tagged requests (e.g. memory) must NOT be rewritten.
+  await runTurn('gpt-6.2-sol', undefined, { sessionId: 'sess-fork-child', purpose: 'title' })
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'sess-fork-child')
+  await runTurn('gpt-6.2-sol', undefined, {
+    sessionId: 'mem-review:b1',
+    messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'review' }], source: { kind: 'memory-own' } })],
+  })
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'mem-review:b1')
+  assert.equal(requests.at(-1).headers['session-id'], 'mem-review:b1')
+})
+
+test('first ChatGPT sign-in falls back for omitted reasoning levels with or without an openai route and ignores custom openai gateways', async t => {
+  // 1. Pure ChatGPT plan user with no `openai` route at all: family fallback applies to
+  // known reasoning models and skips chat-only models.
+  const pure = await fixture(t, {
+    status: { state: 'signed-out' },
+    models: [
+      { id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 272000, inputModalities: ['text', 'image'] },
+      { id: 'gpt-5.4-pro', name: 'GPT-5.4 Pro' },
+      { id: 'gpt-4o', name: 'GPT-4o' },
+      { id: 'gpt-5-chat-latest', name: 'GPT-5 Chat' },
+    ],
+  })
+  await pure.start()
+  assert.equal((await pure.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.deepEqual(pure.routes['openai-chatgpt'].models, [
+    { id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 272000, input: ['text', 'image'], reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' } },
+    { id: 'gpt-5.4-pro', name: 'GPT-5.4 Pro', reasoningEfforts: { medium: 'medium', high: 'high', xhigh: 'xhigh' } },
+    { id: 'gpt-4o', name: 'GPT-4o' },
+    { id: 'gpt-5-chat-latest', name: 'GPT-5 Chat' },
+  ])
+
+  // 2. Official `openai` route (no custom baseURL) is consulted via resolveModelInfo, omitting 'off'.
+  const withOpenAI = await fixture(t, {
+    status: { state: 'signed-out' },
+    models: [{ id: 'custom-future-model', name: 'Future' }],
+  })
+  withOpenAI.rt.ctx.llm.listProviders = () => [{ id: 'openai', name: 'OpenAI' }]
+  withOpenAI.rt.ctx.llm.resolveModelInfo = async (provider, model) => (provider === 'openai' && model === 'custom-future-model'
+    ? { reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } }
+    : undefined)
+  await withOpenAI.start()
+  assert.equal((await withOpenAI.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.deepEqual(withOpenAI.routes['openai-chatgpt'].models, [
+    { id: 'custom-future-model', name: 'Future', reasoningEfforts: { low: 'low', high: 'high' } },
+  ])
+
+  // 3. `openai` route repointed to a custom gateway baseURL is NOT consulted.
+  const repointed = await fixture(t, {
+    status: { state: 'signed-out' },
+    models: [{ id: 'custom-future-model', name: 'Future' }],
+  })
+  repointed.routes.openai.baseURL = 'https://third-party-gateway.example/v1'
+  repointed.rt.ctx.llm.listProviders = () => [{ id: 'openai', name: 'OpenAI' }]
+  let called = false
+  repointed.rt.ctx.llm.resolveModelInfo = async () => { called = true; return { reasoning: { efforts: [{ id: 'high', name: 'High' }] } } }
+  await repointed.start()
+  assert.equal((await repointed.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.equal(called, false)
+  assert.deepEqual(repointed.routes['openai-chatgpt'].models, [{ id: 'custom-future-model', name: 'Future' }])
+})
+
+test('full llm/stream middleware chain skips pre-chatgpt hooks on cache affinity rewrite, redacts secrets once, and journals real child session', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-affinity-chain-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b1'],
+    revision: 1,
+    bots: {
+      b1: { id: 'b1', name: 'Chief', sessionId: 'parent-1', createdAt: 1, tasks: [] },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+  const delivered = []
+  const llmService = {
+    stream: options => {
+      const chain = ctx.listeners.get('llm/stream') ?? []
+      const run = (index) => {
+        if (index >= chain.length) {
+          delivered.push(options)
+          return (async function* () { yield { type: 'finish', reason: { kind: 'stop' } } })()
+        }
+        return chain[index](options, () => run(index + 1))
+      }
+      return run(0)
+    },
+  }
+  const ctx = fakeContext({ services: { llm: llmService } })
+  ctx.llm = { ...ctx.llm, stream: llmService.stream }
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  t.after(() => ctx.dispose())
+  await rt.load()
+  await rt.adoptLiveWork?.()
+  rt.state.bots.b1.tasks = [{
+    id: 'k1',
+    title: 'Forked task',
+    status: 'running',
+    sessionId: 'fork-child-1',
+    forkedPrefixSessionId: 'fork-child-1',
+    cacheAffinityId: 'parent-1',
+    segments: [],
+    startedAt: 2,
+    updatedAt: 2,
+  }]
+  await rt.save()
+
+  // Seed a saved secret so secrets.js rewrites messages on pass 1 before cacheAffinitySession runs.
+  const secretToken = 'tok-live-secret-9876543210'
+  await rt.secretEndpoint('secret-set', { name: 'DEMO_AFFINITY', value: secretToken, scope: 'all' })
+  // Drain the full chain for the forked child session.
+  for await (const chunk of ctx.llm.stream({
+    provider: 'openai-chatgpt',
+    model: 'gpt-6.2-sol',
+    sessionId: 'fork-child-1',
+    system: 'Keep secrets safe.',
+    messages: [{ role: 'user', content: [{ type: 'text', text: `value=${secretToken}` }] }],
+    tools: [{ name: 'ask_user' }, { name: 'group_relay' }],
+  })) void chunk
+
+  assert.equal(delivered.length, 1)
+  assert.equal(delivered[0].sessionId, 'parent-1', 'upstream must receive parent cache affinity root')
+  assert.equal(delivered[0].messages[0].content[0].text, 'value=[secret:DEMO_AFFINITY]', 'secrets must be redacted')
+  assert.deepEqual(delivered[0].tools.map(tool => tool.name), ['ask_user'], 'forked task keeps ask_user and strips group_relay')
+  assert.equal(rt.originalSessionId(delivered[0]), 'fork-child-1', 'originalSessionId must point to the real child session')
+  assert.equal(rt.isCacheAffinityRewritten(delivered[0]), true)
+
+  // Verify usage journaled the real child session (`fork-child-1`), not only parent-1.
+  const { DatabaseSync } = await import('node:sqlite')
+  const deadline = Date.now() + 2000
+  let ownerRow
+  while (Date.now() < deadline) {
+    try {
+      const db = new DatabaseSync(join(home, 'usage.sqlite'))
+      try {
+        ownerRow = db.prepare('SELECT owner, name FROM owners WHERE session = ?').get('fork-child-1')
+      } finally { db.close() }
+      if (ownerRow !== undefined) break
+    } catch { /* ledger still opening */ }
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.deepEqual({ owner: ownerRow?.owner, name: ownerRow?.name }, { owner: 'b1', name: 'Chief' })
 })

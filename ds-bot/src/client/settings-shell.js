@@ -13,6 +13,7 @@ import {
   IconDownloadOutlineRegular, IconLoadingOutlineRegular,
 } from './dsh-primitives.js'
 import { SettingsDialog } from './settings.js'
+import { ReleaseNotesDialog } from './release-notes-dialog.js'
 import { OverlayBoundary } from './overlay-boundary.js'
 import { Switch } from './bot-settings.js'
 import { NotificationsRow } from './notifications.js'
@@ -21,6 +22,7 @@ import { useLinger } from './motion.js'
 import { t } from './i18n.js'
 import { createConnectionFeedback } from './connection-feedback.js'
 import { settingsPreferences } from './settings-preferences.js'
+import { callServiceMethod, readServiceMember } from './host-service.js'
 
 // The child slots of the seat, as ui-settings declares their types.
 export const SETTINGS_CHILDREN = {
@@ -207,7 +209,9 @@ export function SettingsShell(props) {
     preferences,
   } = props
   const settings = useUi(state => state.settings)
+  const releaseNotes = useUi(state => state.releaseNotes)
   const roster = useRoster(value => value)
+  const updateNotesUrl = useUpdate(value => value?.notesUrl ?? null)
   const sections = useSections(rows => rows)
   const items = useGeneralItems(rows => rows)
   const steps = useOnboardingSteps(rows => rows)
@@ -233,7 +237,8 @@ export function SettingsShell(props) {
   const indicator = useConnectionView(connection)
   const installing = update.presentation?.phase === 'installing'
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS)
-  const showing = Boolean(kept)
+  const [rnKept, rnLeaving] = useLinger(releaseNotes, DIALOG_EXIT_MS)
+  const showing = Boolean(kept || rnKept)
   useEffect(() => (showing ? actions.holdSettingsLook?.() : undefined), [showing])
   // A layout effect, so the Settings dialog changes hands before the next paint.
   useLayoutEffect(() => holdSeat?.(), [])
@@ -268,6 +273,17 @@ export function SettingsShell(props) {
     }, createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
       dsh: { sections, items, renderSlot, preferences },
+    }), document.body)) : null,
+    rnKept ? h(OverlayBoundary, {
+      name: 'release-notes', active: !rnLeaving, notify: !rnLeaving,
+      reset: `${rnKept.mode ?? 'manual'}:${rnKept.current ?? roster.releaseNotes?.current ?? ''}`,
+      onDismiss: () => actions.closeReleaseNotes?.(), actions,
+    }, createPortal(h(ReleaseNotesDialog, {
+      mode: rnKept.mode ?? 'manual',
+      current: rnKept.current ?? roster.releaseNotes?.current ?? null,
+      notesUrl: rnKept.notesUrl ?? updateNotesUrl,
+      leaving: rnLeaving,
+      onClose: () => actions.closeReleaseNotes?.(),
     }), document.body)) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
@@ -411,12 +427,12 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   const update = desktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : undefined)
   // Connection and shortcuts are read lazily: the shell outlets mount after both exist.
   const connectionState = {
-    getSnapshot: () => ctx.get('connection')?.state.getSnapshot(),
-    subscribe: listener => ctx.get('connection')?.state.subscribe(listener) ?? (() => {}),
+    getSnapshot: () => readServiceMember(ctx, 'connection', 'state')?.getSnapshot(),
+    subscribe: listener => readServiceMember(ctx, 'connection', 'state')?.subscribe(listener) ?? (() => {}),
   }
   const settingsShortcut = {
-    getSnapshot: () => ctx.get('shortcuts')?.catalog.getSnapshot().find(row => row.id === 'settings.open'),
-    subscribe: listener => ctx.get('shortcuts')?.catalog.subscribe(listener) ?? (() => {}),
+    getSnapshot: () => readServiceMember(ctx, 'shortcuts', 'catalog')?.getSnapshot().find(row => row.id === 'settings.open'),
+    subscribe: listener => readServiceMember(ctx, 'shortcuts', 'catalog')?.subscribe(listener) ?? (() => {}),
   }
   const sections = ledgerSource(slots, locale, 'settings.section', sectionRows)
   const items = ledgerSource(slots, locale, 'settings.general.item', itemRows)
@@ -427,7 +443,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     return {
       ...base,
       preferences: settingsPreferences(ctx),
-      reconnect: () => ctx.get('connection')?.reconnect(),
+      reconnect: () => callServiceMethod(ctx, 'connection', 'reconnect'),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
@@ -477,6 +493,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         regions: ['page', 'editable', 'terminal'],
         modals: ['settings'],
         resolve: ({ modal }) => {
+          if (ui.getSnapshot().releaseNotes) return { status: 'blocked', reason: 'modal' }
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
           return { status: 'handled', run: () => actions.openSettings('overview') }
@@ -508,7 +525,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
             const timestamp = Date.now()
             await scope.configForms.developerTools.setEnabled(enabled)
             if (previous !== undefined && previous !== enabled && form.getSnapshot().value?.enabled === enabled) {
-              ctx.get('productAnalytics')?.track('code_work_view_toggle', { is_enabled: enabled }, timestamp)
+              callServiceMethod(ctx, 'productAnalytics', 'track', 'code_work_view_toggle', { is_enabled: enabled }, timestamp)
             }
           },
         }),
@@ -529,7 +546,10 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose()
+      for (const handle of fibers) {
+        if (typeof handle === 'function') handle()
+        else handle?.dispose?.()
+      }
       for (const off of disposers) off()
     },
   }

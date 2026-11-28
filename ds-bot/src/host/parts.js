@@ -17,19 +17,20 @@
 import { randomUUID } from 'node:crypto'
 import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
-import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { AUTO_SWITCH_RESUME_LIMIT, HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, LOCAL_AGENT_SESSION_LOST_LIMIT, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { BLOCKING_CODES, PAUSED_CODES } from './turns.js'
 import { DEFAULT_BYTES_PER_TOKEN, computeHandoffBudget, countMessageAttachments, fitHandoffHistory, measureMessagesBytes, utf8Bytes } from './handoff-budget.js'
 import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
 import { buildCheckpointPack, extractToolTrail, toolArgSummary as summarizeToolArg } from './context-pack.js'
 import { install as ensureContextRuntime } from './context-runtime.js'
 import { assembleLlmStream } from './models.js'
-import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
+import { compressedRelayPreview, parseReplies, presentedFileName, presentedFiles, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { isMissingSessionError, ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -170,17 +171,197 @@ export function historyEntry(event, group) {
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
 
+// Iterates Markdown lines outside CommonMark fenced code blocks (` ``` ` / `~~~`).
+// Backtick openers reject info strings containing backticks so inline code spans like
+// ```foo``` are never misread as opening fences.
+function forEachOutsideFence(lines, fn) {
+  let fenceChar = ''
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (fenceChar === '') {
+      const open = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(line)
+      if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
+        fenceChar = open[1][0]
+        fenceLen = open[1].length
+        continue
+      }
+      fn(line, i)
+    } else {
+      const close = new RegExp(`^ {0,3}${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
+      if (close.test(line)) {
+        fenceChar = ''
+        fenceLen = 0
+      }
+    }
+  }
+}
+
 // A note with every heading in order but some translated (e.g. "## 目标" for "## Goals")
 // gets the headings as written, so the note is not thrown away over its headings alone.
 // A known heading in another place (repeated or out of order) keeps the note as it is.
 export function canonicalHeadings(note, names) {
   const lines = note.split('\n')
-  const at = lines.flatMap((line, index) => /^##\s+\S/.test(line) ? [index] : [])
+  const at = []
+  forEachOutsideFence(lines, (line, index) => {
+    if (/^##\s+\S/.test(line)) at.push(index)
+  })
   const heading = index => lines[index].replace(/^##\s+/, '').trim()
   if (at.length !== names.length || at.every((index, n) => heading(index) === names[n])) return note
   if (at.some((index, n) => names.includes(heading(index)) && heading(index) !== names[n])) return note
   at.forEach((index, n) => { lines[index] = `## ${names[n]}` })
   return lines.join('\n')
+}
+
+const NOTE_HEADING_ALIASES = new Map([
+  ['goals', 'Goals'],
+  ['goal', 'Goals'],
+  ['目标', 'Goals'],
+  ['用户目标', 'Goals'],
+  ['当前目标', 'Goals'],
+  ['核心目标', 'Goals'],
+  ['constraints and preferences', 'Constraints and preferences'],
+  ['constraints & preferences', 'Constraints and preferences'],
+  ['约束与偏好', 'Constraints and preferences'],
+  ['约束和偏好', 'Constraints and preferences'],
+  ['约束及偏好', 'Constraints and preferences'],
+  ['偏好与约束', 'Constraints and preferences'],
+  ['约束与要求', 'Constraints and preferences'],
+  ['规则与偏好', 'Constraints and preferences'],
+  ['限制与偏好', 'Constraints and preferences'],
+  ['progress', 'Progress'],
+  ['进展', 'Progress'],
+  ['进度', 'Progress'],
+  ['当前进展', 'Progress'],
+  ['工作进展', 'Progress'],
+  ['完成进度', 'Progress'],
+  ['decisions', 'Decisions'],
+  ['decision', 'Decisions'],
+  ['决策', 'Decisions'],
+  ['决定', 'Decisions'],
+  ['已做决策', 'Decisions'],
+  ['关键决策', 'Decisions'],
+  ['决策记录', 'Decisions'],
+  ['facts to keep', 'Facts to keep'],
+  ['key facts', 'Facts to keep'],
+  ['需要保留的事实', 'Facts to keep'],
+  ['保留的事实', 'Facts to keep'],
+  ['关键事实', 'Facts to keep'],
+  ['重要事实', 'Facts to keep'],
+  ['保留事实', 'Facts to keep'],
+  ['事实', 'Facts to keep'],
+  ['事实记录', 'Facts to keep'],
+  ['open threads', 'Open threads'],
+  ['未完事项', 'Open threads'],
+  ['待办事项', 'Open threads'],
+  ['开放事项', 'Open threads'],
+  ['未决事项', 'Open threads'],
+  ['进行中事项', 'Open threads'],
+  ['待跟进事项', 'Open threads'],
+  ['未完成事项', 'Open threads'],
+  ['next step', 'Next step'],
+  ['next steps', 'Next step'],
+  ['下一步', 'Next step'],
+  ['下一步行动', 'Next step'],
+  ['下步行动', 'Next step'],
+  ['下步计划', 'Next step'],
+  ['下一步计划', 'Next step'],
+  ['接下来', 'Next step'],
+  ['where to look', 'Where to look'],
+  ['查找线索', 'Where to look'],
+  ['检索线索', 'Where to look'],
+  ['查阅位置', 'Where to look'],
+  ['参考位置', 'Where to look'],
+  ['去哪找', 'Where to look'],
+  ['查找位置', 'Where to look'],
+  ['定位线索', 'Where to look'],
+])
+
+// Unwrap only when the opening fence on line 1 stays open until the very last line,
+// never when a note starts and ends with two separate code blocks.
+function stripOuterFence(text) {
+  const trimmed = text.trim()
+  const lines = trimmed.split(/\r?\n/)
+  if (lines.length < 3) return trimmed
+  const open = /^(`{3,}|~{3,})(?:markdown|md|text)?[ \t]*$/i.exec(lines[0])
+  if (!open) return trimmed
+  const fenceChar = open[1][0]
+  const fenceLen = open[1].length
+  const closeRe = new RegExp(`^ {0,3}${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
+  if (!closeRe.test(lines[lines.length - 1])) return trimmed
+  for (let i = 1; i < lines.length - 1; i += 1) {
+    if (closeRe.test(lines[i])) return trimmed
+  }
+  return lines.slice(1, -1).join('\n').trim()
+}
+
+const PURE_CJK_GLOSS = /^[\u4e00-\u9fff\s、与和及的]+$/
+
+function matchNoteHeading(rawHeading, allowed) {
+  const cleanPiece = value => value.trim()
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
+    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
+    .replace(/[:：]\s*$/, '')
+    .trim()
+  const cleaned = cleanPiece(
+    cleanPiece(rawHeading)
+      .replace(/^(?:(?:\(?\d{1,2}\)?|[一二三四五六七八])[.、)）]\s*|（\d{1,2}）\s*)/, ''),
+  )
+  if (cleaned === '') return undefined
+  const direct = NOTE_HEADING_ALIASES.get(cleaned.toLowerCase())
+  if (direct !== undefined && allowed.has(direct)) return direct
+  // Parenthetical gloss, e.g. "Goals (目标)" or "**Goals**（目标）".
+  const stripped = cleanPiece(cleaned.replace(/\s*[（(][^()（）]{1,40}[)）]\s*$/, ''))
+  const fromGloss = NOTE_HEADING_ALIASES.get(stripped.toLowerCase())
+  if (fromGloss !== undefined && allowed.has(fromGloss)) return fromGloss
+  // Two-part bilingual heading only, e.g. "决策 / Decisions" or "Goals — 目标与范围".
+  // Reject arbitrary subheadings like "PR #123 — Decisions".
+  const parts = stripped.split(/\s*(?:\/|—|–|--|\|)\s*/).map(cleanPiece).filter(Boolean)
+  if (parts.length === 2) {
+    const first = NOTE_HEADING_ALIASES.get(parts[0].toLowerCase())
+    const second = NOTE_HEADING_ALIASES.get(parts[1].toLowerCase())
+    if (first !== undefined && first === second && allowed.has(first)) return first
+    if (first !== undefined && allowed.has(first) && PURE_CJK_GLOSS.test(parts[1])) return first
+    if (second !== undefined && allowed.has(second) && PURE_CJK_GLOSS.test(parts[0])) return second
+  }
+  return undefined
+}
+
+// Normalizes real-world model heading drift (outer code fence, numbered/bold/bilingual/Chinese
+// headings) to the canonical English `## <Name>` form before falling back to positional mapping.
+export function normalizeNoteHeadings(raw, names) {
+  const unwrapped = stripOuterFence(String(raw ?? ''))
+  if (unwrapped === '') return ''
+  const allowed = new Set(names)
+  const lowerToCanonical = new Map(names.map(name => [name.toLowerCase(), name]))
+  const lines = unwrapped.split('\n')
+  const seen = new Set()
+  // Pre-seed with column-0 canonical headings outside code fences (matching missingSections)
+  // so subheadings earlier in an already-valid note are never hijacked, while indented
+  // headings (1-3 spaces) still normalize cleanly to column 0.
+  forEachOutsideFence(lines, (line) => {
+    const match = /^#{1,4}\s*([^#\n]+?)\s*:?\s*$/.exec(line)
+    if (!match) return
+    const canonical = lowerToCanonical.get(match[1].trim().toLowerCase())
+    if (canonical !== undefined) seen.add(canonical)
+  })
+  if (seen.size === allowed.size) return unwrapped
+  let changed = false
+  forEachOutsideFence(lines, (line, i) => {
+    const headingMatch = /^ {0,3}#{1,4}\s+(.+?)\s*#*$/.exec(line)
+      ?? /^ {0,3}\*\*([^*\n]{2,80})\*\*\s*[:：]?\s*$/.exec(line)
+    if (!headingMatch) return
+    const canonical = matchNoteHeading(headingMatch[1], allowed)
+    if (canonical === undefined || seen.has(canonical)) return
+    seen.add(canonical)
+    const next = `## ${canonical}`
+    if (lines[i] !== next) {
+      lines[i] = next
+      changed = true
+    }
+  })
+  const normalized = changed ? lines.join('\n') : unwrapped
+  return canonicalHeadings(normalized, names)
 }
 
 export function install(rt) {
@@ -830,8 +1011,13 @@ export function install(rt) {
   const CHECKPOINT_RETRY_SHORTER = 'Your last checkpoint summary was cut off at the output limit. Write it again, much shorter (at most about 500 words): keep thinking minimal, skip prose, use terse bullets only, and keep exact identifiers, decisions, and remaining work.'
   const CHECKPOINT_PARTIAL_MIN = 200
   const noteRetryMissing = missing => `Your last note lacked these headings, so it was not used: ${missing.map(name => `"## ${name}"`).join(', ')}. Write the whole note again with every heading exactly as given, in English.`
-  const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
-    .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
+  const missingSections = (note) => {
+    const outside = []
+    forEachOutsideFence(String(note ?? '').split('\n'), line => outside.push(line))
+    const text = outside.join('\n')
+    return NOTE_SECTIONS.map(([name]) => name)
+      .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(text))
+  }
 
   // What a note may spend on reasoning and on output. Thinking counts against the same
   // output budget, so ask for the least the model offers — 'off' when it has one, else
@@ -862,6 +1048,25 @@ export function install(rt) {
       const status = current?.status ?? current?.failure?.status
       const message = String(current?.message ?? current?.failure?.message ?? current ?? '')
       if (code === OVERFLOW || status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+      current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
+    }
+    return false
+  }
+
+  const PREFIX_SHAPE_CODES = new Set(['INVALID_REQUEST', 'BAD_REQUEST', 'INVALID_REPLAY_STATE'])
+  const AMBIGUOUS_400_CODES = new Set(['', 'UNKNOWN', 'PI_AI_ERROR'])
+  const isPrefixShapeError = (error) => {
+    const seen = new Set()
+    let current = error
+    for (let depth = 0; current !== undefined && current !== null && depth < 8; depth += 1) {
+      if (typeof current === 'object') {
+        if (seen.has(current)) break
+        seen.add(current)
+      }
+      const code = current?.code ?? current?.failure?.code
+      const status = current?.status ?? current?.failure?.status
+      if (PREFIX_SHAPE_CODES.has(code)) return true
+      if (status === 400 && (code === undefined || AMBIGUOUS_400_CODES.has(code))) return true
       current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
     }
     return false
@@ -1128,18 +1333,29 @@ export function install(rt) {
       try {
         ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, lowerEffort, compactInput }))
       } catch (error) {
-        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && isSizeError(error)) {
+        const sizeFailure = isSizeError(error)
+        const shapeFailure = !sizeFailure && !withoutTools && isPrefixShapeError(error)
+        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && (sizeFailure || shapeFailure)) {
           compactInput = true
           withoutTools = true
           lowerEffort = true
-          problem = 'the conversation was too large for a full-prefix note'
-          retry = NOTE_RETRY_SHORTER
-          rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error)
+          problem = sizeFailure
+            ? 'the conversation was too large for a full-prefix note'
+            : 'the provider rejected the full-prefix note request'
+          retry = sizeFailure
+            ? NOTE_RETRY_SHORTER
+            : 'Output the handoff note as plain Markdown text only, without calling any tools.'
+          rt.warn(
+            sizeFailure
+              ? 'ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s'
+              : 'ds-bot: handoff note attempt %d of %d for %s on %s/%s rejected full-prefix request; retrying with compacted tool-free history: %s',
+            attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error,
+          )
           continue
         }
         throw error
       }
-      const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
+      const note = normalizeNoteHeadings(text, NOTE_SECTIONS.map(([name]) => name))
       const missing = missingSections(note)
       if (finish === 'max-tokens') {
         if (isUsablePartialNote(note, missing)) {
@@ -1156,7 +1372,9 @@ export function install(rt) {
         retry = 'Output the handoff note as plain Markdown text only, without calling any tools.'
       } else if (note === '') {
         problem = 'it was empty'
-        retry = undefined
+        withoutTools = true
+        lowerEffort = true
+        retry = 'Your last response was empty. Output the handoff note as plain Markdown text only, without calling any tools.'
       } else if (missing.length > 0) {
         if (isUsablePartialNote(note, missing)) {
           bestPartial = recordBest(bestPartial, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })
@@ -2669,6 +2887,10 @@ export function install(rt) {
           blockedIdx = i
           continue
         }
+        if (entry.owner.missing === true) {
+          entry.held = []
+          continue
+        }
         try {
           const agent = await rt.resolveAgent(entry.sessionId)
           if (switches.has(entry.sessionId)) {
@@ -2764,7 +2986,9 @@ export function install(rt) {
         // Target admission is now durable on disk: remove acknowledged originals at once
         // so a later switch of `target` before reminder/archive cleanup cannot replay
         // prompts `target` already answered.
-        for (const { agent, held } of ready) removeForMove(agent, held)
+        for (const { agent, held } of ready) {
+          if (agent !== undefined) removeForMove(agent, held)
+        }
       } catch (error) {
         retryNeeded = true
         rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
@@ -2779,6 +3003,17 @@ export function install(rt) {
           const liveTarget = threadTargetOf(sessionId, owner)
           if (liveTarget !== target || switches.has(target)) {
             retryNeeded = true
+            continue
+          }
+          if (owner.missing === true) {
+            if (target !== undefined && rt.botOf(owner.botId) !== undefined) {
+              await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
+              await rt.moveSchedules?.(sessionId, target, {
+                resolveTarget: () => threadTargetOf(sessionId, owner),
+              })
+            }
+            delete state.switching[sessionId]
+            await rt.save()
             continue
           }
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
@@ -2817,6 +3052,13 @@ export function install(rt) {
   // `engine`: because the Bot now runs on something else (see engineMoved).
   // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
   // bail out atomically if a new turn started meanwhile so running work is never killed.
+  // Consecutive automatic mid-turn / runtime-lost part switches per live session,
+  // carried across `resume: true` handoffs and cleared on user input, Continue, or a clean turn finish.
+  const autoSwitchChains = new Map()
+  const clearAutoSwitchChain = (id) => {
+    if (typeof id === 'string' && id !== '') autoSwitchChains.delete(id)
+  }
+
   function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, runtimeLost = false, failed, bare = false, folder = false, cutoff = false, engine = false, preset = false, hard = overflow || runtimeLost || folder || engine || cutoff || preset } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return false
@@ -3273,6 +3515,19 @@ export function install(rt) {
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
+    // Transfer runaway-guard and auto-switch chain state only after the move commits so
+    // a rollback on save/route failure leaves the old part's counters intact.
+    if (resume) {
+      const prevChain = autoSwitchChains.get(agent.id) ?? { resumeSwitches: 0, runtimeLostSwitches: 0 }
+      autoSwitchChains.delete(agent.id)
+      autoSwitchChains.set(freshId, {
+        resumeSwitches: job.runtimeLost ? prevChain.resumeSwitches : prevChain.resumeSwitches + 1,
+        runtimeLostSwitches: job.runtimeLost ? prevChain.runtimeLostSwitches + 1 : prevChain.runtimeLostSwitches,
+      })
+      rt.carryRunawayGuard?.(agent.id, freshId)
+    } else {
+      autoSwitchChains.delete(agent.id)
+    }
     // Then what the old part held: the stopped turn's input (already persisted in the
     // old inbox), then whatever waited. It moves first; only after that does the old
     // inbox give it up, so a failure keeps it.
@@ -3470,6 +3725,9 @@ export function install(rt) {
       freshParts.delete(agent.id)
       partBase.set(agent.id, (sizeOf(agent.session) ?? 0) + fresh)
     }
+    // Check runaway tool loops before any folder/engine/context switch so a stuck loop
+    // pauses immediately instead of spending extra handoff or switch work.
+    if (place.botId !== undefined) rt.checkRunawayBeforeStep?.(agent, payload)
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
@@ -3520,6 +3778,11 @@ export function install(rt) {
     const outcome = { overflow: false }
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome })) return next()
     const midTurn = payload.step > 1 || rt.liveOf(agent.id).carried === true
+    if (midTurn && (autoSwitchChains.get(agent.id)?.resumeSwitches ?? 0) >= AUTO_SWITCH_RESUME_LIMIT) {
+      autoSwitchChains.delete(agent.id)
+      rt.warn('ds-bot: pausing %s after %d consecutive auto-resumed part switches', agent.id, AUTO_SWITCH_RESUME_LIMIT)
+      throw new LlmError(`Paused after ${AUTO_SWITCH_RESUME_LIMIT} consecutive automatic part switches without user input. Reply with guidance or click Continue to resume.`, 'TURN_PAUSED_SWITCH_LIMIT')
+    }
     if (!await canMakeRoom(agent, payload.messages, { activeTurn: midTurn })) return next()
     return switchBeforeStep(agent, payload, { hard: true, ...(outcome.overflow ? { overflow: true } : {}) })
   }, { prepend: true })
@@ -3714,6 +3977,11 @@ export function install(rt) {
       await rt.load()
       const { agent } = payload
       if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+      if ((autoSwitchChains.get(agent.id)?.runtimeLostSwitches ?? 0) >= LOCAL_AGENT_SESSION_LOST_LIMIT) {
+        autoSwitchChains.delete(agent.id)
+        rt.warn('ds-bot: stopping LOCAL_AGENT_SESSION_LOST auto-switch for %s after %d consecutive switches', agent.id, LOCAL_AGENT_SESSION_LOST_LIMIT)
+        return next()
+      }
       const entry = rt.liveOf(agent.id)
       entry.switched = true
       startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], runtimeLost: true, hard: true })
@@ -3723,6 +3991,11 @@ export function install(rt) {
     await rt.load()
     const { agent } = payload
     if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure)) return next()
+    if ((autoSwitchChains.get(agent.id)?.resumeSwitches ?? 0) >= AUTO_SWITCH_RESUME_LIMIT) {
+      autoSwitchChains.delete(agent.id)
+      rt.warn('ds-bot: pausing %s after %d consecutive overflow auto-switches', agent.id, AUTO_SWITCH_RESUME_LIMIT)
+      throw new LlmError(`Paused after ${AUTO_SWITCH_RESUME_LIMIT} consecutive automatic part switches without user input. Reply with guidance or click Continue to resume.`, 'TURN_PAUSED_SWITCH_LIMIT')
+    }
     if (!await canMakeRoom(agent, [], { activeTurn: true })) {
       const entry = rt.liveOf(agent.id)
       entry.overflowFailure = true
@@ -3907,6 +4180,8 @@ export function install(rt) {
 
   function wakeFailedTurnInbox(agent, end) {
     if (agent.status !== 'idle' || lastTurnEnd(agent) !== end || readOnly() || ctx.fiber?.uid === null) return
+    const failCode = end?.data?.reason?.error?.code ?? end?.data?.reason?.failure?.code
+    if (failCode !== undefined && (BLOCKING_CODES.has(failCode) || PAUSED_CODES.has(failCode) || failCode === 'LOCAL_AGENT_SESSION_LOST' || failCode === 'CONTEXT_WINDOW_EXCEEDED')) return
     const id = agent.id
     if (!rt.isBotSession(id) || switches.has(id) || rt.live.get(id)?.lastSwitched || rt.isHandingOff?.(id)) return
     const nextTurn = agent.inbox?.nextTurn ?? []
@@ -3965,7 +4240,7 @@ export function install(rt) {
   // in the part's history. When nothing is left to do, that turn's reply is a fixed
   // line instead of a model call.
   ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     const messages = options.messages ?? []
     const since = messages.findLastIndex(message => message.role === 'assistant' || message.role === 'tool') + 1
     const opened = messages.slice(since).filter(message => message.role === 'user' && isWakingSource(message.source))
@@ -4059,10 +4334,36 @@ export function install(rt) {
           }
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
-          if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
+          const pendingView = callId === null ? undefined : rt.own(state.views, partId)
+          const pendingHasSeq = typeof pendingView?.callSeq === 'number' && Number.isInteger(pendingView.callSeq)
+          // Match by exact tool/call event seq + callId so providers that reuse short
+          // call IDs (e.g. "call_0") never hijack an earlier display/closed view; legacy
+          // persisted records without callSeq stay out of the transcript and use the Dock.
+          const isPendingView = pendingView !== undefined
+            && (pendingView.callSessionId ?? partId) === partId
+            && pendingView.callId === callId
+            && pendingHasSeq
+            && event.seq === pendingView.callSeq
+          const seqMap = callId === null ? undefined : rt.own(state.closedCardSeqs, partId)
+          const exactClosed = seqMap !== undefined && typeof event.seq === 'number' && Number.isInteger(event.seq)
+            ? rt.own(seqMap, `${callId}@${event.seq}`)
+            : undefined
+          const hasSeqClosedForCall = seqMap !== undefined && Object.keys(seqMap).some(key => key.startsWith(`${callId}@`))
+          const legacyPendingSameCall = pendingView !== undefined
+            && (pendingView.callSessionId ?? partId) === partId
+            && pendingView.callId === callId
+            && !pendingHasSeq
+          const closedView = exactClosed !== undefined
+            ? exactClosed
+            : (hasSeqClosedForCall || legacyPendingSameCall ? undefined : closed)
+          if (isPendingView) {
+            if (!hidden.has(event.data?.turn ?? turn)) {
+              stamp(event, { kind: 'view', id: pendingView.id, title: pendingView.title, view: pendingView.view, callId, pending: true, time: event.time })
+            }
+          } else if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
             if (!hidden.has(event.data?.turn ?? turn)) items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
-          } else if (shown.error === undefined && closed !== undefined) {
-            items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })
+          } else if (shown.error === undefined && closedView !== undefined) {
+            items.push({ kind: 'closed', closed: closedView, title: shown.title, view, callId, time: event.time })
           }
         }
         continue
@@ -4080,13 +4381,13 @@ export function install(rt) {
         const replies = range === undefined
           ? (preview === undefined ? null : rt.groupRelayReplies(partId, preview)) ?? parseReplies(text).replies
           : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
-        for (const { reply, texts, time, duration, claims, changes } of stackReplies(replies)) {
+        for (const { reply, texts, files, time, duration, claims, changes } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }), ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(files.length > 0 ? { presented: files } : {}), ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -4121,6 +4422,7 @@ export function install(rt) {
         // messages. A post past what a message holds came as a file, with its start.
         const content = Array.isArray(event.data.content) ? event.data.content : []
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        const presented = presentedFiles(source.presented)
         stamp(event, {
           kind: 'post',
           botId: source.senderSessionId ?? null,
@@ -4129,6 +4431,7 @@ export function install(rt) {
           ...(source.changes === undefined ? {} : { changes: source.changes }),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
+          ...(presented.length > 0 ? { presented } : {}),
           time: event.time,
         })
       } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'task') {
@@ -4296,7 +4599,7 @@ export function install(rt) {
       if (turn === undefined || hidden.has(turn)) continue
       if (event.type === 'tool/call') {
         const name = event.data?.name
-        if (typeof name !== 'string' || name === 'ask_user' || name === 'request_secret' || name === 'group_relay') continue
+        if (typeof name !== 'string' || name === 'ask_user' || name === 'show_view' || name === 'request_secret' || name === 'group_relay') continue
         const list = byTurn.get(turn) ?? byTurn.set(turn, []).get(turn)
         list.push({ callId: event.data?.callId ?? null, name, label: toolLabel(name) ?? null })
         continue
@@ -4330,12 +4633,51 @@ export function install(rt) {
   // preview. Read once per part, then kept by session/event.
   const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
   const tails = new Map()
-  const previewText = item => String(item.text ?? item.title ?? item.texts?.join(' ') ?? '').replace(/\s+/g, ' ').trim()
-  const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
+  const previewText = item => String(item.text || item.title || item.texts?.join(' ') || (Array.isArray(item.presented) ? item.presented.map(file => presentedFileName(file.path)).join(', ') : '')).replace(/\s+/g, ' ').trim()
+  const isBotReplyItem = item => item.kind === 'bot' || (item.kind === 'view' && item.pending !== true)
+  const positiveTurn = value => (typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined)
+  const maxTurn = (a, b) => (a !== undefined && b !== undefined ? Math.max(a, b) : (a ?? b))
+  const projectionLatestTurn = async (sessionId) => {
+    let latest
+    const liveSession = ctx.get?.('agents')?.get?.(sessionId)?.session ?? ctx.get?.('sessions')?.get?.(sessionId)
+    if (liveSession !== undefined) {
+      const projections = ctx.get?.('sessionProjections')
+      try {
+        latest = maxTurn(latest, positiveTurn(projections?.stateOf?.(liveSession, 'dsBotAnchor')?.turn))
+      } catch { /* projection unavailable */ }
+      if (latest !== undefined) return latest
+    }
+    if (typeof ctx.sessionController?.projections === 'function') {
+      try {
+        const res = await ctx.sessionController.projections({ sessionId }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        const values = res?.values ?? res
+        const outline = values?.turnOutline
+        if (Array.isArray(outline) && outline.length > 0) latest = maxTurn(latest, positiveTurn(outline.at(-1)?.turn))
+        latest = maxTurn(latest, positiveTurn(values?.dsBotAnchor?.turn))
+      } catch { /* fall back to page scan */ }
+    }
+    return latest
+  }
+  const applyTail = (sessionId, item) => {
+    const prev = tails.get(sessionId)
+    const lastBotAt = isBotReplyItem(item) ? (item.time ?? 0) : prev?.lastBotAt
+    const latestTurn = maxTurn(prev?.latestTurn, positiveTurn(item.turn))
+    tails.set(sessionId, {
+      lastAt: item.time ?? 0,
+      preview: previewText(item),
+      ...(lastBotAt !== undefined ? { lastBotAt } : {}),
+      ...(latestTurn !== undefined ? { latestTurn } : {}),
+    })
+  }
   const fillTail = async sessionId => {
-    // Newest page back until a row shows; chats almost always have it on page one.
+    // Newest page back until both a previewable row and the latest turn number are known;
+    // chats almost always find both on page one, and a long tool turn that splits across
+    // the 60-event boundary keeps walking until it recovers its turn number.
     try {
       let beforeSeq
+      let latest
+      let lastBotAt
+      let latestTurn = await projectionLatestTurn(sessionId)
       for (let pages = 0; pages < 10; pages += 1) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId },
@@ -4343,12 +4685,34 @@ export function install(rt) {
           maxMessages: EARLIER_PAGE,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         const events = page.records.map(record => record.event)
-        const last = [...displayItems(sessionId, events)].reverse().find(item => PREVIEWABLE.has(item.kind))
-        if (last !== undefined) { applyTail(sessionId, last); return }
+        for (const event of events) {
+          latestTurn = maxTurn(latestTurn, positiveTurn(event?.data?.turn))
+        }
+        if (latest === undefined) {
+          const reversed = [...displayItems(sessionId, events)].reverse()
+          const found = reversed.find(item => PREVIEWABLE.has(item.kind))
+          if (found !== undefined) {
+            latest = { lastAt: found.time ?? 0, preview: previewText(found) }
+            const botRow = reversed.find(isBotReplyItem)
+            if (botRow !== undefined) lastBotAt = botRow.time ?? 0
+          }
+        }
+        if (latest !== undefined && latestTurn !== undefined) break
         if (!page.hasMore || events.length === 0) break
         beforeSeq = events[0]?.seq
       }
-      tails.set(sessionId, { lastAt: 0, preview: '' })
+      const prev = tails.get(sessionId)
+      const mergedTurn = maxTurn(prev?.latestTurn, latestTurn)
+      const usePrev = prev !== null && prev !== undefined && (latest === undefined || prev.lastAt > latest.lastAt)
+      const base = usePrev ? { lastAt: prev.lastAt, preview: prev.preview } : (latest ?? { lastAt: 0, preview: '' })
+      const mergedBotAt = prev?.lastBotAt !== undefined && lastBotAt !== undefined
+        ? Math.max(prev.lastBotAt, lastBotAt)
+        : (prev?.lastBotAt ?? lastBotAt)
+      tails.set(sessionId, {
+        ...base,
+        ...(mergedBotAt !== undefined ? { lastBotAt: mergedBotAt } : {}),
+        ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}),
+      })
     } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
   }
   rt.chatTail = sessionId => {
@@ -4358,6 +4722,13 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (!tails.has(session.id)) return
     try {
+      const eventTurn = positiveTurn(event?.data?.turn)
+      if (eventTurn !== undefined) {
+        const prev = tails.get(session.id)
+        if (prev !== null) {
+          tails.set(session.id, { ...prev, latestTurn: maxTurn(prev?.latestTurn, eventTurn) })
+        }
+      }
       for (const item of displayItems(session.id, [event], session)) if (PREVIEWABLE.has(item.kind)) applyTail(session.id, item)
     } catch { /* a tail miss must never take out the other listeners */ }
   })
@@ -4532,8 +4903,17 @@ export function install(rt) {
     }
     // Register session ownership BEFORE any native CLI fork writes `state.localAgents.sessions[sessionId]`
     // so a concurrent `pruneLocalAgentSessions(liveRaw)` pass can never delete the new record.
+    // A DSH-forked task inherits the parent's prompt prefix and cache affinity root so
+    // step 1 hits the parent's warm KV cache instead of invalidating tools/system prompt.
+    const cacheRoot = dshForked ? (rt.cacheAffinityOf?.(fromSessionId) ?? fromSessionId) : undefined
     rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
+    rt.taskOwners.set(sessionId, {
+      botId: bot.id,
+      taskId: task.id,
+      ...(room ? { roomId: room.id } : {}),
+      ...(dshForked ? { preservePrefix: true } : {}),
+    })
+    if (dshForked && cacheRoot !== undefined) rt.setCacheAffinity?.(sessionId, cacheRoot)
     if (fork !== false && isLocal && dir === defaultDir && typeof rt.forkLocalAgentSession === 'function') {
       const parsed = splitRef(picked?.ref ?? bot.model ?? bot.appliedModel)
       const canForkCli = capabilities.canFork === true
@@ -4553,6 +4933,7 @@ export function install(rt) {
       if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
         rt.chatOwners.delete(sessionId)
         rt.taskOwners.delete(sessionId)
+        rt.forgetCacheAffinity?.(sessionId)
         rt.forgetLocalAgentSession?.(sessionId)
         await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
           .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
@@ -4586,6 +4967,7 @@ export function install(rt) {
       sessionId,
       segments: [],
       startSeq,
+      ...(dshForked ? { forkedPrefixSessionId: sessionId, ...(cacheRoot !== undefined ? { cacheAffinityId: cacheRoot } : {}) } : {}),
       ...(workDir !== undefined ? { workDir } : {}),
     }
     ;(bot.tasks ??= []).push(stored)
@@ -4641,7 +5023,8 @@ export function install(rt) {
         await selectRoute({ name: bot.name }, sessionId, now)
       }
     }
-    return { sessionId, forked, syncRoute }
+    const cacheAffinityId = forked ? (rt.cacheAffinityOf?.(fromSessionId) ?? fromSessionId) : undefined
+    return { sessionId, forked, syncRoute, ...(cacheAffinityId !== undefined ? { cacheAffinityId } : {}) }
   }
 
   // Read-only transcript paging for one background task across its own segments,
@@ -4686,6 +5069,7 @@ export function install(rt) {
   const forgetSessionParts = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
     contextRuntime.forget(sessionId)
+    rt.forgetCacheAffinity?.(sessionId)
     rt.forgetLocalAgentSession?.(sessionId)
     rt.forgetChatIndexSession?.(sessionId)
     condensedUnmeasured.delete(sessionId)
@@ -4700,6 +5084,7 @@ export function install(rt) {
     engineRetry.delete(sessionId)
     clearTimeout(engineWakes.get(sessionId))
     engineWakes.delete(sessionId)
+    autoSwitchChains.delete(sessionId)
   }
   ctx.on?.('agent/disposed', ({ agent }) => {
     const id = agent?.id
@@ -4737,5 +5122,121 @@ export function install(rt) {
     return { sessionId: nextId }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Replaces a Bot's foreground Session when it is gone from the Session library (#1929).
+  // Runs only when resolving the current Session fails with a missing-session error; if
+  // the Session is actually available again, clears any stale `sessionMissing` marker
+  // and keeps the Bot's continuous conversation intact.
+  const recoveringMissing = new Map()
+  async function recoverMissingSession(botId) {
+    await rt.load()
+    if (readOnly()) throw Object.assign(new Error('DS Bot is read-only in this window'), { code: 'bot/read-only' })
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    const existing = recoveringMissing.get(bot.id)
+    if (existing !== undefined) return existing
+    const run = (async () => {
+      const lostId = rt.chatOf(bot.id)
+      if (switches.has(lostId)) throw Object.assign(new Error('This conversation is already moving to a new part'), { code: 'bot/busy' })
+      try {
+        await rt.resolveAgent(lostId)
+        if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+          return { sessionId: rt.chatOf(bot.id), recovered: false }
+        }
+        if (bot.sessionMissing === lostId) {
+          delete bot.sessionMissing
+          if (!readOnly()) await rt.save()
+          await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+          if (bot.blocked === undefined) {
+            await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+          }
+        }
+        return { sessionId: lostId, recovered: false }
+      } catch (error) {
+        if (!isMissingSessionError(error)) throw error
+      }
+      if (readOnly()) throw Object.assign(new Error('DS Bot is read-only in this window'), { code: 'bot/read-only' })
+      if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        return { sessionId: rt.chatOf(bot.id), recovered: false }
+      }
+      const dir = rt.workDirOf({ botId: bot.id })
+      const presetAtCreation = bot.agentPreset
+      const freshId = await rt.createSession(bot.name, { dir, bot })
+      const picked = await freshRoute(bot, undefined)
+      if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
+      await rt.applyPermission(bot, freshId, undefined)
+        .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
+      if (readOnly() || rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
+        return { sessionId: rt.chatOf(bot.id), recovered: false }
+      }
+      bot.sessionId = freshId
+      delete bot.cacheAffinitySessionId
+      delete bot.cacheAffinityId
+      finishPresetClear(bot, lostId, presetAtCreation !== undefined ? freshId : undefined)
+      if (bot.sessionMissing === lostId) delete bot.sessionMissing
+      if (bot.failures?.[lostId] !== undefined) {
+        delete bot.failures[lostId]
+        if (Object.keys(bot.failures).length === 0) delete bot.failures
+      }
+      // Record durable recovery lineage before dropping `lostId` from `chatOwners` and
+      // before `rt.save()`, so an in-flight `flushSilentNotes(lostId)` cannot discard
+      // buffered notes and a crash after `rt.save()` still resolves `lostId -> freshId`.
+      state.switching[lostId] = { botId: bot.id, missing: true }
+      rt.chatOwners.set(freshId, bot.id)
+      rt.chatOwners.delete(lostId)
+      if (state.questions?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.questions[lostId], 'dismissed')
+        delete state.questions[lostId]
+      }
+      if (state.views?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.views[lostId], 'dismissed')
+        delete state.views[lostId]
+      }
+      rt.renewMemory?.(lostId)
+      await rt.closeLocalAgentSession?.(lostId)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', lostId, error))
+      forgetSessionParts(lostId)
+      rt.forgetSessionTurn?.(lostId)
+      rt.forgetSessionModel?.(lostId)
+      rt.forgetSessionChanges?.(lostId)
+      // Commit replacement ownership and `state.switching[lostId]` to disk BEFORE
+      // moving or removing silent notes from `lostId`, so a crash before `rt.save()`
+      // never strands persisted silent notes under an unowned `freshId`.
+      await rt.save({ required: true })
+      try {
+        const existingDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+        if (existingDb && !existingDb.readonly && !existingDb.isClosed?.()) {
+          const fg = existingDb.getForegroundWork(bot.id)
+          if (fg !== undefined) existingDb.rebindSession(fg.workId, freshId)
+        }
+        await rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
+        await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })
+        delete state.switching[lostId]
+        await rt.save()
+      } catch (error) {
+        rt.warn('ds-bot: recovery cleanup for %s to %s failed: %s', lostId, freshId, error)
+        scheduleHeldBackRetry()
+      }
+      // A model the user picked while this part was being made went to the parts that were
+      // registered then, and the sync recorded it as applied; this part was not one of them
+      // yet, so the route picked at the top may be the old one. Read it again now that the
+      // part is the Bot's, as the switch does.
+      const now = await freshRoute(bot, undefined)
+      if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+        await selectRoute({ name: bot.name }, freshId, now)
+      }
+      if (bot.blocked === undefined) {
+        await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+      }
+      return { sessionId: freshId, recovered: true }
+    })()
+    recoveringMissing.set(bot.id, run)
+    try {
+      return await run
+    } finally {
+      if (recoveringMissing.get(bot.id) === run) recoveringMissing.delete(bot.id)
+    }
+  }
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, recoverMissingSession, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values(), clearAutoSwitchChain })
 }

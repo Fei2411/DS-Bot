@@ -95,7 +95,7 @@ npm ci
 # The phone link's packages: the build bundles them into link.js, and a unit test builds it.
 npm ci --prefix ../link
 
-# The DSH packages that the unit tests and the linter load, from npm, into dev/harness/.
+# The DSH packages that the unit tests and the linter load, reproducibly from dev/harness/package-lock.json.
 npm run harness
 ```
 
@@ -109,6 +109,8 @@ git -C deepseek-harness checkout dsh-v0.2.2-rc.5
 ```
 
 If your DeepSeek Harness checkout is somewhere else, set `DSH_HARNESS` to its path. `DSH_HARNESS` also takes the place of `dev/harness/` for the unit tests and the linter.
+
+To test another DSH version, run `node scripts/update-harness-lock.mjs <dsh-version>` in `ds-bot/`. It updates `dev/harness/package.json` and resolves `dev/harness/package-lock.json`; shared packages use the versions in `app/package-lock.json` where the app has one unambiguous version, so the tests run against what the desktop app ships.
 
 The `@deepseek-ai/*` packages are peer dependencies: in a real install, the DSH profile supplies them. `ds-bot/.npmrc` keeps npm from installing them into the plugin folder.
 
@@ -138,7 +140,7 @@ node scripts/build-client.mjs --check  # client.js matches src/client
 npm run lint                           # oxlint
 ```
 
-CI runs `npm test` (including the generated-bundle checks) on Linux and Windows, and `npm run lint` on Linux, for pull requests that touch `ds-bot/`, `link/`, or `start.ps1` (and always on `dev`/`main`). It also scans the tracked files for keys, tokens, personal paths and e-mail addresses, and for material that must stay local. To run the scan yourself, from the repository root:
+CI runs `npm test` (sharded across Linux runners, including the generated-bundle checks) and `npm run lint` for pull requests to `dev` that touch `ds-bot/`, `link/`, or `start.ps1` (Docker changes also verify Docker on PRs to `dev`). Cross-platform Windows, Node 22, Docker, and desktop/mobile packaging suites run on the daily `dev` Nightly CI, on release/hotfix pull requests to `main`, and on demand via manual workflow dispatch (the `ci/full-package` PR label also triggers `Package & Native` on demand). CI also scans the tracked files for keys, tokens, personal paths and e-mail addresses, and for material that must stay local. To run the scan yourself, from the repository root:
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree

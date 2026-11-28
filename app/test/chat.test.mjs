@@ -11,8 +11,9 @@ import { build } from 'esbuild'
 // from the chat's hooks down to the textarea and the plugin's voice buttons.
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
-  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const NewDivider = () => ({ type: "new-divider", props: { className: "bt-new-sep", children: [] } })\nexport const unseenSince = (visit, time) => typeof visit?.seen === "number" && Number.isFinite(time) && time > visit.seen && time <= visit.entered\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
@@ -27,6 +28,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'app-chat-stub' }
@@ -199,7 +201,7 @@ const all = (node, check) => {
   if (!node || typeof node !== 'object') return []
   return [...(check(node) ? [node] : []), ...all(node.props.children, check)]
 }
-const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-composer-input'] !== undefined)[0]
+const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-bt-composer-input'] !== undefined)[0]
 const sendButton = node => all(node, child => child.type === 'button' && child.props?.className === 'dsb-send')[0]
 const answerField = node => all(node, child => child.props?.className === 'bt-q-input')[0]
 const enter = (extra = {}) => ({
@@ -943,5 +945,252 @@ test('DSH Agent blank session renders AgentEmptyHero with workspace folder and f
     assert.equal(openedTerminals.length, 1)
   } finally {
     view.unmount()
+  }
+})
+
+test('adaptRoomItem preserves presented files on group Bot messages for ChatRows', () => {
+  const { adaptRoomItem } = module.exports
+  const file = { name: 'report.pdf', path: '/work/report.pdf', description: 'Final', sessionId: 'm1', seq: 5, index: 0 }
+  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file] })
+  assert.equal(adapted.kind, 'post')
+  assert.deepEqual(adapted.presented, [file])
+})
+
+test('composer stays editable when bot.waiting has a model, focuses on card click, and respects IME composition end', async () => {
+  const sent = []
+  const roster = {
+    ready: true,
+    readOnly: null,
+    bots: [
+      { id: 'b-with-model', name: 'Chief', color: 'blue', sessionId: 'b-with-model', waiting: true, model: 'deepseek/deepseek-chat' },
+      { id: 'b-no-model', name: 'Newbie', color: 'green', sessionId: 'b-no-model', waiting: true },
+    ],
+    rooms: [],
+    byId: {},
+    roomsById: {},
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+  }
+  roster.byId['b-with-model'] = roster.bots[0]
+  roster.byId['b-no-model'] = roster.bots[1]
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      send: async (_sid, text) => { sent.push(text) },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useSessionStatus: select => select(new Map()),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  // 1. Bot waiting with no model still locks composer and asks to pick a model.
+  const noModelInst = mount({ sessionId: 'b-no-model', team })
+  try {
+    const tree = noModelInst.render()
+    assert.equal(textarea(tree).props.disabled, true)
+    assert.match(textarea(tree).props.placeholder, /Pick a model/)
+  } finally {
+    noModelInst.unmount()
+  }
+
+  // 2. Bot waiting WITH a model (e.g. kickoff held after quota/auth failure) stays editable.
+  const inst = mount({ sessionId: 'b-with-model', team })
+  try {
+    let tree = inst.render()
+    const ta = textarea(tree)
+    assert.equal(ta.props.disabled, false, 'waiting bot with an assigned model must keep composer enabled')
+    assert.match(ta.props.placeholder, /Message Chief/)
+
+    // Clicking padding on [data-composer-card] focuses the textarea; clicking a button, label,
+    // slider, or a React portal child rendered outside currentTarget does not.
+    let focused = 0
+    ta.props.ref.current = { focus() { focused += 1 }, style: {}, scrollHeight: 30 }
+    const card = all(tree, n => n.props?.['data-bt-composer'] !== undefined)[0]
+    assert.ok(card)
+    let prevented = 0
+    const insideTarget = { closest: () => null }
+    const cardDom = { contains: el => el === insideTarget }
+    card.props.onMouseDown({ button: 0, currentTarget: cardDom, target: insideTarget, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1)
+    assert.equal(prevented, 1)
+    card.props.onMouseDown({ button: 0, currentTarget: { contains: () => true }, target: { closest: sel => (sel.includes('button') ? {} : null) }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'clicking an interactive control inside composer card must not hijack focus')
+    card.props.onMouseDown({ button: 0, currentTarget: { contains: () => true }, target: { closest: sel => (sel.includes('label') ? {} : null) }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'clicking a label inside composer card must not hijack focus')
+    card.props.onMouseDown({ button: 0, currentTarget: cardDom, target: { closest: () => null }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'portal events bubbling from outside currentTarget DOM must not hijack focus')
+
+    // Real IME order: compositionStart -> compositionEnd -> onChange -> immediate Enter must NOT submit;
+    // Enter after Enter keyUp submits.
+    textarea(tree).props.onCompositionStart()
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(sent.length, 0, 'Enter during active IME composition must not submit')
+    textarea(tree).props.onCompositionEnd()
+    textarea(tree).props.onChange({ target: { value: '你好', selectionStart: 2 } })
+    tree = inst.render()
+    textarea(tree).props.onKeyUp({ key: 'a', target: { selectionStart: 2 } })
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(sent.length, 0, 'Enter fired immediately after compositionend + onChange must not submit')
+    textarea(tree).props.onKeyUp({ key: 'Enter', target: { selectionStart: 2 } })
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    await tick()
+    assert.deepEqual(sent, ['你好'])
+
+    // In-place chatKey flip (e.g. startup roster hydration) must not steal focus from another input/terminal.
+    const prevActive = sandbox.document.activeElement
+    let hydrationFocusCalls = 0
+    ta.props.ref.current = { focus() { hydrationFocusCalls += 1 }, style: {}, scrollHeight: 30 }
+    sandbox.document.activeElement = { closest: sel => (sel.includes('.dsb-term') ? {} : null) }
+    try {
+      roster.byId['b-with-model'] = { ...roster.bots[0], id: 'b-hydrated' }
+      inst.render()
+      assert.equal(hydrationFocusCalls, 0, 'in-place chatKey flip must not steal focus from terminal/input')
+    } finally {
+      roster.byId['b-with-model'] = roster.bots[0]
+      sandbox.document.activeElement = prevActive
+    }
+  } finally {
+    inst.unmount()
+  }
+})
+
+test('room chat and classic controls skip hello reload when resumed: true, and PendingUserRows marks unconfirmed sends', async () => {
+  // 1. Room chat skips room-chat reload on hello { resumed: true }, reloads on resumed: false.
+  let roomCalls = 0
+  const room = mountRoom(async (name) => {
+    if (name === 'room-chat') roomCalls += 1
+    return { sessionId: 'r1', items: [{ id: '1', kind: 'user', text: 'hi', time: 100 }], cursor: null }
+  })
+  try {
+    await tick()
+    await tick()
+    assert.equal(roomCalls, 1)
+    room.emit('hello', { revision: 1, resumed: true })
+    await tick()
+    assert.equal(roomCalls, 1, 'resumed hello must not reload room-chat')
+    room.emit('hello', { revision: 1, resumed: false })
+    await tick()
+    assert.equal(roomCalls, 2, 'unresumed hello must reload room-chat')
+  } finally {
+    room.unmount()
+  }
+
+  // 2. Classic controls skip reload on hello { resumed: true } and reload on resumed: false;
+  //    pending sends show Sending… when connected and Waiting to confirm… while reconnecting.
+  let controlCalls = 0
+  let connectionState = { status: 'connected', lostSince: null, fatal: false, message: null }
+  let releaseSend = null
+  const listeners = new Set()
+  const classicRoster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [],
+    rooms: [],
+    byId: {},
+    roomsById: {},
+    questions: {},
+  }
+  const classicSessions = { ids: ['s-classic'], byId: { 's-classic': { id: 's-classic', title: 'Agent' } } }
+  const classicTeam = {
+    actions: {
+      noteSent() {},
+      send: () => new Promise((resolve) => { releaseSend = resolve }),
+      sessionControls: async () => { controlCalls += 1; return {} },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(classicRoster),
+      useSessions: select => select(classicSessions),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+      useConnection: select => select(connectionState),
+    },
+    chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
+  }
+  const inst = mount({ sessionId: 's-classic', team: classicTeam })
+  try {
+    inst.render()
+    await tick()
+    assert.equal(controlCalls, 1)
+    for (const fn of listeners) fn('hello', { revision: 1, resumed: true })
+    await tick()
+    assert.equal(controlCalls, 1, 'resumed hello must not reload classic session controls')
+    for (const fn of listeners) fn('hello', { revision: 1, resumed: false })
+    await tick()
+    assert.equal(controlCalls, 2, 'unresumed hello must reload classic session controls')
+
+    // Send a message that stays in flight -> PendingUserRows marks it Sending…, then Waiting to confirm… when reconnecting.
+    textarea(inst.render()).props.onChange({ target: { value: 'pending msg' } })
+    textarea(inst.render()).props.onKeyDown(enter())
+    await tick()
+    let tree = inst.render()
+    let meta = all(tree, n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Sending/)
+
+    connectionState = { status: 'reconnecting', lostSince: 1, fatal: false, message: null }
+    tree = inst.render()
+    meta = all(tree, n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Waiting to confirm/)
+
+    releaseSend?.()
+    await tick()
+  } finally {
+    inst.unmount()
+  }
+
+  // 3. Bot mode PendingUserRows also switches between Sending… and Waiting to confirm….
+  let botConn = { status: 'connected', lostSince: null, fatal: false, message: null }
+  let releaseBotSend = null
+  const botRoster = { ready: true, prefs: { enterToSend: true }, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: {} }
+  const botTeam = {
+    actions: {
+      noteSent() {},
+      send: () => new Promise((resolve) => { releaseBotSend = resolve }),
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(botRoster),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+      useConnection: select => select(botConn),
+    },
+    chat: { on: () => () => {} },
+  }
+  const botInst = mount({ sessionId: 'b1', team: botTeam })
+  try {
+    textarea(botInst.render()).props.onChange({ target: { value: 'bot pending' } })
+    textarea(botInst.render()).props.onKeyDown(enter())
+    await tick()
+    let meta = all(botInst.render(), n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Sending/)
+
+    botConn = { status: 'reconnecting', lostSince: 1, fatal: false, message: null }
+    meta = all(botInst.render(), n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Waiting to confirm/)
+    releaseBotSend?.()
+    await tick()
+  } finally {
+    botInst.unmount()
   }
 })

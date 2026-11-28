@@ -1,5 +1,10 @@
 // Computer-only engine settings & Classic Agent metadata bridge (`engine-*` endpoints).
 // Keeps the desktop window talking solely to `api/bot`, never calling DSH services directly.
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { openOsPath } from './workspace-panel.js'
 
 const MAX_OPS = 64
 const MAX_PATH_DEPTH = 16
@@ -7,6 +12,9 @@ const MAX_SPEC_LENGTH = 500
 const AGENT_PRESET_SETTINGS_NS = 'agent-preset-registry'
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+const APP_BOOT_MODULE = '@deepseek-ai/dsh-app-boot'
+const CORE_DS_BOT_BUNDLES = new Set(['ds-bot', '@deepseek-ai/ds-bot', 'dsbot-engine', '@deepseek-ai/dsh-base'])
+const MAX_PKG_JSON_BYTES = 256 * 1024
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 const refused = message => Object.assign(new Error(message), { code: 'bot/refused' })
@@ -95,7 +103,79 @@ function titleFromItem(item) {
   return ''
 }
 
-function cleanBundle(bundle) {
+function readPackageJsonAt(dir) {
+  if (typeof dir !== 'string' || dir.trim() === '') return null
+  const pkgPath = join(dir, 'package.json')
+  if (!existsSync(pkgPath)) return null
+  try {
+    const info = statSync(pkgPath)
+    if (!info.isFile() || info.size > MAX_PKG_JSON_BYTES) return null
+    const parsed = JSON.parse(readFileSync(pkgPath, 'utf8'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function classifyPackageSurface(pkg) {
+  if (!pkg || typeof pkg !== 'object') return { hasDshClient: false, hasDsBotUi: false }
+  const dshClient = Boolean(pkg.dsh && typeof pkg.dsh === 'object' && pkg.dsh.client && typeof pkg.dsh.client === 'object')
+  const clientExport = Boolean(pkg.exports && typeof pkg.exports === 'object' && Object.prototype.hasOwnProperty.call(pkg.exports, './client'))
+  const depNames = [
+    ...Object.keys(pkg.dependencies ?? {}),
+    ...Object.keys(pkg.peerDependencies ?? {}),
+  ]
+  const dependsOnDshWeb = depNames.some(dep =>
+    dep === '@deepseek-ai/dsh-web-app'
+    || dep.startsWith('@deepseek-ai/dsh-client-ui-')
+    || dep === '@deepseek-ai/dsh-client-modules'
+    || dep === '@deepseek-ai/dsh-cordis-client-runner')
+  const rawUi = pkg.dsBot?.ui
+  const hasDsBotUi = (typeof rawUi === 'string' && rawUi.trim() !== '')
+    || Boolean(rawUi && typeof rawUi === 'object' && !Array.isArray(rawUi) && (rawUi.entry || rawUi.theme))
+  return { hasDshClient: dshClient || clientExport || dependsOnDshWeb, hasDsBotUi }
+}
+
+function surfaceLabelOf({ hasDshClient, hasDsBotUi }) {
+  if (hasDsBotUi && hasDshClient) return 'both'
+  if (hasDsBotUi) return 'ds-bot'
+  if (hasDshClient) return 'dsh-web-only'
+  return 'host'
+}
+
+function resolveLocalModulePath(moduleName, baseDir = '') {
+  const raw = String(moduleName ?? '').trim()
+  if (raw === '') return null
+  if (raw.startsWith('file://')) {
+    try { return fileURLToPath(raw) } catch { return null }
+  }
+  if (isAbsolute(raw)) return raw
+  if ((raw.startsWith('./') || raw.startsWith('../')) && baseDir) {
+    return resolve(baseDir, raw)
+  }
+  return null
+}
+
+function findNearestPackageDir(targetPath, stopDir = '') {
+  if (!targetPath) return null
+  let dir
+  try {
+    dir = existsSync(targetPath) && statSync(targetPath).isDirectory() ? targetPath : dirname(targetPath)
+  } catch {
+    dir = dirname(targetPath)
+  }
+  const stop = stopDir ? resolve(stopDir) : ''
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (existsSync(join(dir, 'package.json'))) return dir
+    if (stop && resolve(dir) === stop) break
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+function cleanBundle(bundle, extras = {}) {
   return {
     name: String(bundle.name ?? ''),
     official: Boolean(bundle.official),
@@ -108,9 +188,12 @@ function cleanBundle(bundle) {
     optional: Boolean(bundle.optional),
     removable: Boolean(bundle.removable),
     updatable: Boolean(bundle.updatable),
+    ...(typeof bundle.source === 'string' && bundle.source.trim() !== '' ? { source: bundle.source.trim() } : {}),
     ...(bundle.listedByDefault === undefined ? {} : { listedByDefault: Boolean(bundle.listedByDefault) }),
     ...(bundle.readOnlyReason === undefined ? {} : { readOnlyReason: bundle.readOnlyReason }),
     ...(bundle.error === undefined ? {} : { error: bundle.error }),
+    ...(extras.clientSurface ? { clientSurface: extras.clientSurface } : {}),
+    ...(extras.sourcePath ? { sourcePath: extras.sourcePath } : {}),
     rows: Array.isArray(bundle.rows)
       ? bundle.rows.map(row => ({
         rowId: String(row.rowId ?? ''),
@@ -122,17 +205,23 @@ function cleanBundle(bundle) {
   }
 }
 
-function cleanPlugin(plugin) {
+function cleanPlugin(plugin, extras = {}) {
+  const id = plugin.entryId ?? plugin.id ?? ''
+  const status = plugin.status ?? (plugin.fiberPhase === 'failed' ? 'error' : plugin.fiberPhase ?? (plugin.enabled === false ? 'disabled' : 'inactive'))
+  const error = plugin.error ?? (typeof plugin.diagnostic === 'string' && plugin.diagnostic !== '' ? { diagnostic: plugin.diagnostic } : undefined)
   return {
-    id: String(plugin.id ?? ''),
+    id: String(id),
     moduleName: String(plugin.moduleName ?? ''),
     ...(plugin.name === undefined ? {} : { name: String(plugin.name) }),
     enabled: plugin.enabled !== false,
-    status: plugin.status ?? 'active',
+    status,
     ...(plugin.patchId === undefined ? {} : { patchId: String(plugin.patchId) }),
     ...(plugin.readOnlyReason === undefined ? {} : { readOnlyReason: plugin.readOnlyReason }),
     ...(plugin.meta === undefined ? {} : { meta: plugin.meta }),
-    ...(plugin.error === undefined ? {} : { error: plugin.error }),
+    ...(error === undefined ? {} : { error }),
+    ...(extras.custom === undefined ? {} : { custom: Boolean(extras.custom) }),
+    ...(extras.clientSurface ? { clientSurface: extras.clientSurface } : {}),
+    ...(extras.sourcePath ? { sourcePath: extras.sourcePath } : {}),
   }
 }
 
@@ -221,6 +310,119 @@ export function install(rt) {
     return ctx.get?.('agentPresets') ?? ctx.agentPresets
   }
 
+  function webService() {
+    return ctx.get?.('web') ?? ctx.web
+  }
+
+  function llmService() {
+    return ctx.get?.('llm') ?? ctx.llm
+  }
+
+  function cleanWebProvider(provider) {
+    return {
+      id: String(provider?.id ?? ''),
+      ...(typeof provider?.title === 'string' && provider.title !== '' ? { title: provider.title } : {}),
+      ...(typeof provider?.description === 'string' && provider.description !== '' ? { description: provider.description } : {}),
+    }
+  }
+
+  function profileContextService() {
+    return ctx.get?.('profileContext') ?? ctx.profileContext ?? null
+  }
+
+  function resolveUiPluginsPath() {
+    const profile = profileContextService()
+    const home = typeof profile?.home === 'string' && profile.home.trim() !== ''
+      ? profile.home.trim()
+      : (typeof profile?.dir === 'string' && profile.dir.trim() !== ''
+        ? dirname(dirname(profile.dir.trim()))
+        : (typeof rt.home === 'string' && rt.home.trim() !== '' ? dirname(rt.home.trim()) : ''))
+    return home !== '' ? join(resolve(home), 'ui-plugins') : null
+  }
+
+  let appBootPromise = null
+  const loadAppBoot = () => {
+    appBootPromise ??= (async () => {
+      try {
+        const loader = ctx.get?.('loader')
+        if (typeof loader?.import === 'function') {
+          const exports = await loader.import(APP_BOOT_MODULE)
+          return loader.unwrapExports?.(exports) ?? exports?.default ?? exports
+        }
+        return await import(APP_BOOT_MODULE)
+      } catch {
+        return null
+      }
+    })()
+    return appBootPromise
+  }
+
+  async function resolveBundleDirFor(pkgName) {
+    if (!pkgName) return null
+    if (typeof rt.resolveBundleDir === 'function') {
+      try { return await rt.resolveBundleDir(pkgName) } catch { return null }
+    }
+    const profile = profileContextService()
+    if (!profile?.installAnchor || !profile?.dir) return null
+    const appBoot = await loadAppBoot()
+    if (typeof appBoot?.resolveBundleDir !== 'function') return null
+    try {
+      const dir = appBoot.resolveBundleDir('dsh', pkgName, profile.installAnchor, profile.dir)
+      return typeof dir === 'string' && dir !== '' ? dir : null
+    } catch {
+      return null
+    }
+  }
+
+  async function inspectBundleSurface(bundle) {
+    const name = String(bundle?.name ?? '')
+    if (!name || CORE_DS_BOT_BUNDLES.has(name)) return { clientSurface: 'host' }
+    let pkgDir = await resolveBundleDirFor(name)
+    if (!pkgDir && typeof bundle?.source === 'string') {
+      const localPath = resolveLocalModulePath(bundle.source)
+      if (localPath) pkgDir = findNearestPackageDir(localPath)
+    }
+    const pkg = pkgDir ? readPackageJsonAt(pkgDir) : null
+    let { hasDshClient, hasDsBotUi } = classifyPackageSurface(pkg)
+    // A bundle may delegate its client UI to row packages declared in its patch.
+    if ((!hasDshClient || !hasDsBotUi) && Array.isArray(bundle?.rows)) {
+      for (const row of bundle.rows) {
+        const mod = String(row?.moduleName ?? '').trim()
+        if (!mod) continue
+        if (mod.startsWith('@deepseek-ai/dsh-client-ui-') || mod === '@deepseek-ai/dsh-web-app') {
+          hasDshClient = true
+        }
+        const subDir = pkgDir ? join(pkgDir, 'node_modules', mod) : null
+        const subPkg = subDir && existsSync(subDir) ? readPackageJsonAt(subDir) : null
+        if (subPkg) {
+          const sub = classifyPackageSurface(subPkg)
+          if (sub.hasDshClient) hasDshClient = true
+          if (sub.hasDsBotUi) hasDsBotUi = true
+        }
+      }
+    }
+    return {
+      clientSurface: surfaceLabelOf({ hasDshClient, hasDsBotUi }),
+      ...(pkgDir ? { sourcePath: pkgDir } : {}),
+    }
+  }
+
+  function inspectCustomPlugin(plugin, profileDir) {
+    const mod = String(plugin?.moduleName ?? '').trim()
+    const localPath = resolveLocalModulePath(mod, profileDir)
+    let pkgDir = localPath ? findNearestPackageDir(localPath, profileDir) : null
+    if (!pkgDir && profileDir && mod && !mod.startsWith('.') && !isAbsolute(mod) && !mod.startsWith('file://')) {
+      const candidate = join(profileDir, 'node_modules', mod)
+      if (existsSync(candidate)) pkgDir = candidate
+    }
+    const pkg = pkgDir ? readPackageJsonAt(pkgDir) : null
+    const flags = classifyPackageSurface(pkg)
+    return {
+      clientSurface: surfaceLabelOf(flags),
+      ...(localPath ? { sourcePath: localPath } : (pkgDir ? { sourcePath: pkgDir } : {})),
+    }
+  }
+
   async function readPresetsRoster() {
     const presets = agentPresetsService()
     if (presets === undefined) return { available: false, writable: false, revision: null, presets: [] }
@@ -245,11 +447,41 @@ export function install(rt) {
         const settings = settingsService()
         if (settings === undefined) return { available: false, writable: false, namespaces: [] }
         const descriptors = settings.describe({ redactSecrets: true })
+        const documentPath = typeof settings.documentPath === 'string' && settings.documentPath.trim() !== ''
+          ? settings.documentPath.trim()
+          : null
         return {
           available: true,
           writable: Boolean(settings.writable),
+          ...(documentPath ? { documentPath } : {}),
           namespaces: Array.isArray(descriptors) ? descriptors.map(namespaceView) : [],
         }
+      }
+      case 'settings-open-file': {
+        writeCheck()
+        const settings = settingsService()
+        if (settings === undefined) throw refused('Engine settings are not available on this host')
+        if (!settings.writable) throw refused('Engine settings are read-only in this profile')
+        const rawPath = typeof settings.prepareDocument === 'function'
+          ? await settings.prepareDocument()
+          : settings.documentPath
+        const target = typeof rawPath === 'string' ? rawPath.trim() : ''
+        if (target === '') throw notFound('No configuration file is available for this profile')
+        if (!isAbsolute(target)) throw refused('Configuration file path must be absolute')
+        if (!existsSync(target)) {
+          await mkdir(dirname(target), { recursive: true })
+          try {
+            await writeFile(target, '[]\n', { flag: 'wx', mode: 0o600 })
+          } catch (error) {
+            if (error?.code !== 'EEXIST') throw error
+          }
+        }
+        if (typeof rt.openConfigFile === 'function') {
+          await rt.openConfigFile(target)
+        } else {
+          await openOsPath(target, 'edit', false)
+        }
+        return { ok: true, path: target }
       }
       case 'settings-mutate': {
         writeCheck()
@@ -325,15 +557,78 @@ export function install(rt) {
       case 'plugins-list': {
         const pm = pluginManagerService()
         if (pm === undefined) return { available: false, bundles: [], plugins: [] }
-        const [bundles, plugins] = await Promise.all([
+        const [rawBundles, rawPlugins] = await Promise.all([
           typeof pm.listBundles === 'function' ? pm.listBundles() : [],
           typeof pm.listPlugins === 'function' ? pm.listPlugins() : [],
         ])
+        const bundleList = Array.isArray(rawBundles) ? rawBundles : []
+        const pluginList = Array.isArray(rawPlugins) ? rawPlugins : []
+        const bundleEntryIds = new Set()
+        const bundleRowIds = new Set()
+        for (const bundle of bundleList) {
+          for (const row of bundle?.rows ?? []) {
+            if (row?.entryId) bundleEntryIds.add(String(row.entryId))
+            if (row?.rowId) bundleRowIds.add(String(row.rowId))
+          }
+        }
+        const profile = profileContextService()
+        const profileDir = typeof profile?.dir === 'string' && profile.dir.trim() !== '' ? profile.dir.trim() : null
+        const patchPath = typeof profile?.patchPath === 'string' && profile.patchPath.trim() !== '' ? profile.patchPath.trim() : null
+        const uiPluginsDir = resolveUiPluginsPath()
+
+        const bundles = await Promise.all(bundleList.map(async (bundle) => {
+          const extras = await inspectBundleSurface(bundle)
+          return cleanBundle(bundle, extras)
+        }))
+        const plugins = pluginList.map((plugin) => {
+          const id = String(plugin.entryId ?? plugin.id ?? '')
+          const bareId = id.replace(/^include:/, '')
+          const patchId = plugin.patchId !== undefined ? String(plugin.patchId) : ''
+          const fromBundle = (id !== '' && bundleEntryIds.has(id))
+            || (bareId !== '' && bundleRowIds.has(bareId))
+            || (patchId !== '' && bundleRowIds.has(patchId))
+            || (id !== '' && bundleRowIds.has(id))
+          const isInternalModule = /^@deepseek-ai\/(?:dsh-|cordis-)|^cordis:|^dsbot-engine(?:\/|$)|^ds-bot(?:\/|$)|^@deepseek-ai\/ds-bot(?:\/|$)/i.test(String(plugin.moduleName ?? '').trim())
+          const custom = !fromBundle && (!isInternalModule || Boolean(resolveLocalModulePath(plugin.moduleName, profileDir ?? '')))
+          const extras = custom ? inspectCustomPlugin(plugin, profileDir ?? '') : {}
+          return cleanPlugin(plugin, { custom, ...extras })
+        })
         return {
           available: true,
-          bundles: Array.isArray(bundles) ? bundles.map(cleanBundle) : [],
-          plugins: Array.isArray(plugins) ? plugins.map(cleanPlugin) : [],
+          ...(profileDir ? { profileDir } : {}),
+          ...(patchPath ? { patchPath } : {}),
+          ...(uiPluginsDir ? { uiPluginsDir } : {}),
+          bundles,
+          plugins,
         }
+      }
+      case 'plugins-open-ui-dir': {
+        writeCheck()
+        const dir = resolveUiPluginsPath()
+        if (!dir) throw notFound('No UI plugins folder is available for this profile')
+        await mkdir(dir, { recursive: true })
+        if (typeof rt.openUiPluginsDir === 'function') {
+          await rt.openUiPluginsDir(dir)
+        } else {
+          await openOsPath(dir, 'open', true)
+        }
+        return { ok: true, path: dir }
+      }
+      case 'plugins-exempt-version': {
+        writeCheck()
+        const pm = pluginManagerService()
+        if (pm === undefined || typeof pm.setVersionExemption !== 'function') {
+          throw refused('Version exemptions are not available on this host')
+        }
+        const target = typeof body.target === 'string' ? body.target.trim() : ''
+        const runtimeVersion = typeof body.runtimeVersion === 'string' ? body.runtimeVersion.trim() : ''
+        if (target === '' || runtimeVersion === '' || typeof body.enabled !== 'boolean') {
+          throw invalid('Package version, runtime version, and enabled flag are required')
+        }
+        if (body.enabled && body.acceptRisk !== true) {
+          throw refused('Explicit risk acknowledgement is required to exempt an incompatible plugin version')
+        }
+        return await pm.setVersionExemption(target, runtimeVersion, body.enabled, body.acceptRisk === true)
       }
       case 'plugins-toggle-bundle': {
         writeCheck()
@@ -440,11 +735,13 @@ export function install(rt) {
         const ids = Array.isArray(ctx.workspaceRegistry?.archivedSessionIds)
           ? [...ctx.workspaceRegistry.archivedSessionIds]
           : []
-        const restorableIds = ids.reverse().filter(id =>
-          rt.selfOf?.(id) === undefined
-          && rt.botOf?.(id) === undefined
-          && rt.roomOf?.(id) === undefined
-          && rt.pastOwners?.has?.(id) !== true)
+        const ownedByTeam = id => (typeof rt.isTeamSession === 'function'
+          ? rt.isTeamSession(id)
+          : rt.selfOf?.(id) !== undefined
+            || rt.botOf?.(id) !== undefined
+            || rt.roomOf?.(id) !== undefined
+            || rt.pastOwners?.has?.(id) === true)
+        const restorableIds = ids.reverse().filter(id => !ownedByTeam(id))
         const byId = restorableIds.length > 0 ? await passiveSessionMap(signal) : new Map()
         const sessions = restorableIds.map((id) => {
           const meta = byId.get(id)
@@ -467,10 +764,12 @@ export function install(rt) {
           ? ctx.workspaceRegistry.archivedSessionIds
           : []
         if (!archived.includes(sessionId)) throw notFound('This session is not archived')
-        const ownedByTeam = rt.selfOf?.(sessionId) !== undefined
-          || rt.botOf?.(sessionId) !== undefined
-          || rt.roomOf?.(sessionId) !== undefined
-          || rt.pastOwners?.has?.(sessionId) === true
+        const ownedByTeam = typeof rt.isTeamSession === 'function'
+          ? rt.isTeamSession(sessionId)
+          : rt.selfOf?.(sessionId) !== undefined
+            || rt.botOf?.(sessionId) !== undefined
+            || rt.roomOf?.(sessionId) !== undefined
+            || rt.pastOwners?.has?.(sessionId) === true
         if (ownedByTeam) throw refused('Bot and group conversation segments cannot be restored into Classic mode')
         await ctx.workspaceRegistry.unarchiveSession(sessionId)
         let adoptedAgentId = null
@@ -485,6 +784,63 @@ export function install(rt) {
           }
         }
         return { sessionId, restored: true, ...(adoptedAgentId ? { adoptedAgentId } : {}) }
+      }
+      case 'web-providers': {
+        const web = webService()
+        if (web === undefined || typeof web.listProviders !== 'function') {
+          return { available: false, search: [], fetch: [] }
+        }
+        const raw = await web.listProviders()
+        return {
+          available: true,
+          search: Array.isArray(raw?.search) ? raw.search.map(cleanWebProvider).filter(p => p.id !== '') : [],
+          fetch: Array.isArray(raw?.fetch) ? raw.fetch.map(cleanWebProvider).filter(p => p.id !== '') : [],
+        }
+      }
+      case 'model-catalog': {
+        const llm = llmService()
+        if (llm !== undefined && typeof llm.listProviders === 'function' && typeof llm.listModels === 'function') {
+          const providers = llm.listProviders() ?? []
+          let partial = false
+          const groups = []
+          for (const provider of providers) {
+            if (!provider?.id) continue
+            try {
+              const rawModels = await llm.listModels(provider.id)
+              const models = Array.isArray(rawModels)
+                ? rawModels
+                  .filter(model => typeof model?.id === 'string' && model.id !== '')
+                  .map(model => ({ id: model.id, name: typeof model.name === 'string' && model.name !== '' ? model.name : model.id }))
+                : []
+              if (models.length > 0) {
+                groups.push({
+                  id: String(provider.id),
+                  name: typeof provider.name === 'string' && provider.name !== '' ? provider.name : String(provider.id),
+                  models,
+                })
+              }
+            } catch {
+              partial = true
+            }
+          }
+          return { available: true, partial, groups }
+        }
+        const cached = typeof rt.cachedCatalog === 'function' ? rt.cachedCatalog() : []
+        const byProvider = new Map()
+        for (const entry of cached ?? []) {
+          const provider = typeof entry?.provider === 'string' ? entry.provider : ''
+          const modelId = typeof entry?.id === 'string' && entry.id !== ''
+            ? entry.id
+            : (typeof entry?.ref === 'string' && provider && entry.ref.startsWith(`${provider}/`) ? entry.ref.slice(provider.length + 1) : '')
+          if (!provider || !modelId) continue
+          let group = byProvider.get(provider)
+          if (!group) {
+            group = { id: provider, name: String(entry.providerName ?? provider), models: [] }
+            byProvider.set(provider, group)
+          }
+          group.models.push({ id: modelId, name: String(entry.name ?? modelId) })
+        }
+        return { available: byProvider.size > 0, partial: false, groups: [...byProvider.values()] }
       }
       case 'classic-sessions': {
         await rt.load()

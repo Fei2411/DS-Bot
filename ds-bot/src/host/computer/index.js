@@ -2,6 +2,7 @@
 // module mounts when the switch is on. DS Bot owns what the provider leaves to its
 // caller: per-Bot levels, per-Bot app consent, one-Bot-per-app leases, the
 // indicator, and take-over/hand-back.
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -26,6 +27,7 @@ const HANDOFF_TOOL = 'computer_handoff'
 // that ignores Bots) is never returned — an "Always" card answer becomes a per-Bot
 // grant and the question is answered as a session allow instead.
 const ALLOW_LABEL = 'Allow for this session'
+const LEGACY_ALLOW_LABEL = 'Allow for this task'
 const DENY_LABEL = 'Deny'
 const HANDOFF_REASONS = ['login', 'payment', 'captcha', 'confirm', 'other']
 const HANDBACK_TEXT = 'The user handed the computer back. Look at the app again before you go on.'
@@ -58,18 +60,45 @@ const PROTECTED_EXES = new Set(['dsbot', 'dsh', 'dsh-desktop', 'dsh-cua-native',
 
 export function isProtectedApp(app) {
   if (app === undefined || app === null) return false
-  const id = String(app.id ?? '').toLowerCase()
+  const id = String(app.id ?? '').trim().toLowerCase()
   if (PROTECTED_IDS.has(id)) return true
   const name = String(app.name ?? '').trim().toLowerCase()
   if (PROTECTED_NAMES.has(name)) return true
-  const base = (String(app.path ?? app.executablePath ?? '').split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.(exe|app)$/i, '')
+  const base = (String(app.path ?? app.executablePath ?? '').split(/[\\/]/).pop() ?? '').trim().toLowerCase().replace(/\.(exe|app)$/i, '')
   return PROTECTED_EXES.has(base)
 }
 
+const nonEmpty = value => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined)
 const normName = name => String(name ?? '').trim().toLowerCase()
-// The key an app grant and a lease share: the platform id (macOS bundle id / the
-// provider's application id) when known, else the display name.
-const appKeyOf = app => String(app?.id ?? app?.path ?? app?.executablePath ?? normName(app?.name) ?? '')
+const isGrantObject = entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+const isValidGrantKey = key => typeof key === 'string' && key.trim() !== ''
+// Display name is strictly for UI display, never an authorization identity.
+// Persistent grants require a stable platform id (e.g. bundleId) or canonical executable path.
+const stableIdentityOf = (app) => {
+  if (app === undefined || app === null) return undefined
+  return nonEmpty(app.id) ?? nonEmpty(app.path) ?? nonEmpty(app.executablePath)
+}
+const hasStableIdentity = app => stableIdentityOf(app) !== undefined
+const appKeyOf = app => stableIdentityOf(app) ?? ''
+const getAppIdentity = (result) => ({
+  name: nonEmpty(result?.authorization?.name) ?? nonEmpty(result?.name),
+  id: nonEmpty(result?.authorization?.id) ?? nonEmpty(result?.bundleId) ?? nonEmpty(result?.id),
+  executablePath: nonEmpty(result?.authorization?.executablePath) ?? nonEmpty(result?.executablePath) ?? nonEmpty(result?.path),
+})
+const unsavedAlwaysNotice = (appName, legacy = false) => legacy
+  ? `Always allow was not saved for ${appName}: the provider supplied no bundle ID. Access is allowed for this conversation only.`
+  : `Always allow was not saved for ${appName}: the provider supplied no stable application identity. Access is allowed for this conversation only.`
+const serializeValue = (value) => {
+  if (typeof value === 'string') return value
+  try { return JSON.stringify(value) } catch { return String(value) }
+}
+const appendNotice = (result, notice) => {
+  if (result === null || typeof result !== 'object') return result
+  const existing = Array.isArray(result.content) && result.content.length > 0
+    ? result.content
+    : (result.value !== undefined ? [{ type: 'text', text: serializeValue(result.value) }] : [])
+  return { ...result, content: [...existing, { type: 'text', text: notice }] }
+}
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -98,6 +127,22 @@ export function install(rt) {
   const holds = new Map()
   /** @type {Map<string, {botId:string, sessionId:string, appKey?:string, abort:AbortController}>} callId -> in-flight call */
   const inFlight = new Map()
+  /** @type {Map<string, string>} callId -> unsaved-always notice from pre-execute consent */
+  const pendingNotices = new Map()
+  const PENDING_NOTICES_MAX = 100
+  const notePendingNotice = (callId, notice) => {
+    if (typeof callId !== 'string' || notice === undefined) return
+    pendingNotices.delete(callId)
+    pendingNotices.set(callId, notice)
+    while (pendingNotices.size > PENDING_NOTICES_MAX) pendingNotices.delete(pendingNotices.keys().next().value)
+  }
+  const takePendingNotice = (callId) => {
+    if (typeof callId !== 'string') return undefined
+    const notice = pendingNotices.get(callId)
+    if (notice !== undefined) pendingNotices.delete(callId)
+    return notice
+  }
+  const getAppScope = new AsyncLocalStorage()
   /** @type {Map<string, {agent:any, mode:string, lifts:Array<()=>void>, handoffLift?:()=>void, triedDeny:Set<string>}>} */
   const applied = new Map()
   const disposedAgents = new WeakSet()
@@ -118,7 +163,11 @@ export function install(rt) {
 
   const enabled = () => state.computer?.enabled === true
   const levelOf = bot => (LEVELS.includes(bot?.computer?.level) ? bot.computer.level : 'background')
-  const grantsOf = bot => (bot?.computer?.apps ?? {})
+  const grantsOf = (bot) => {
+    const raw = bot?.computer?.apps
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
+    return Object.fromEntries(Object.entries(raw).filter(([key, entry]) => isValidGrantKey(key) && isGrantObject(entry)))
+  }
   const controlOf = (botId) => {
     let entry = control.get(botId)
     if (entry === undefined) control.set(botId, entry = { state: 'idle', steps: [], allowForegroundUntil: 0 })
@@ -440,11 +489,18 @@ export function install(rt) {
     }
     const args = exec.arguments ?? {}
     if (call.method === 'launch_app') {
-      const id = [args.bundle_id, args.bundleId, args.app_id, args.appId].find(value => typeof value === 'string' && value !== '')
-      const path = [args.path, args.app_path, args.executable_path, args.executablePath].find(value => typeof value === 'string' && value !== '')
-      const name = [args.name, args.app_name, args.appName, args.app].find(value => typeof value === 'string' && value !== '')
+      const id = nonEmpty(args.bundle_id) ?? nonEmpty(args.bundleId) ?? nonEmpty(args.app_id) ?? nonEmpty(args.appId)
+      const path = nonEmpty(args.path) ?? nonEmpty(args.app_path) ?? nonEmpty(args.executable_path) ?? nonEmpty(args.executablePath)
+      const name = nonEmpty(args.name) ?? nonEmpty(args.app_name) ?? nonEmpty(args.appName) ?? nonEmpty(args.app)
       if (id === undefined && path === undefined && name === undefined) return undefined
-      return { key: appKeyOf({ id, path, name }), name: name ?? path ?? id, id, path, tentative: true }
+      const stable = stableIdentityOf({ id, path })
+      return {
+        key: stable ?? `launch:${exec.callId ?? randomUUID()}`,
+        name: name ?? path ?? id,
+        ...(id !== undefined ? { id } : {}),
+        ...(path !== undefined ? { path } : {}),
+        tentative: true,
+      }
     }
     const pid = [args.pid, args.appPid, args.windowPid, args.target_pid].find(value => Number.isInteger(value))
     if (pid !== undefined) {
@@ -473,18 +529,18 @@ export function install(rt) {
     const sessionId = exec.agent?.id
     if (sessionId === undefined || result === null || typeof result !== 'object') return
     if (call.provider === 'cua' && call.method === 'getApp') {
-      const handle = result.appHandle
-      const authorization = result.authorization ?? {}
-      const identity = { name: authorization.name ?? result.name, id: authorization.id ?? result.bundleId ?? result.id, executablePath: authorization.executablePath ?? result.executablePath ?? result.path }
-      if (typeof handle === 'string' && (typeof identity.name === 'string' || typeof identity.id === 'string')) {
-        const app = { key: appKeyOf(identity), name: String(identity.name ?? 'app'), id: identity.id, path: identity.executablePath, pid: result.pid ?? undefined }
+      const handle = nonEmpty(result.appHandle)
+      const identity = getAppIdentity(result)
+      const stableKey = stableIdentityOf(identity)
+      if (handle !== undefined && (identity.name !== undefined || stableKey !== undefined)) {
+        const app = {
+          key: stableKey ?? `handle:${handle}`,
+          name: identity.name ?? identity.id ?? identity.executablePath ?? 'app',
+          ...(identity.id !== undefined ? { id: identity.id } : {}),
+          ...(identity.executablePath !== undefined ? { path: identity.executablePath } : {}),
+          pid: result.pid ?? undefined,
+        }
         appsOfSession(sessionId).set(`handle:${handle}`, app)
-        // An Always grant recorded name-only learns the id, so a later revoke can
-        // drop the provider's persistent decision too.
-        const owner = rt.botOf(rt.selfOf(sessionId))
-        const grant = owner === undefined || identity.id === undefined ? undefined
-          : Object.values(grantsOf(owner)).find(entry => entry.id === undefined && normName(entry.name) === normName(app.name))
-        if (grant !== undefined) { grant.id = identity.id; await rt.save() }
       }
       return
     }
@@ -496,16 +552,16 @@ export function install(rt) {
     const body = result.structuredContent !== null && typeof result.structuredContent === 'object' && !Array.isArray(result.structuredContent)
       ? result.structuredContent
       : result
-    const textOf = value => (typeof value === 'string' && value.trim() !== '' ? value : undefined)
     const recordPid = (item, known = {}) => {
       // list_apps lists installed apps too; their pid is 0 and is no target.
       const pid = [item?.pid, item?.appPid, item?.app_pid, item?.processId].find(value => Number.isInteger(value) && value > 0)
       if (pid === undefined) return undefined
-      const id = item.bundle_id ?? item.bundleId ?? item.id ?? item.app_id ?? item.appId ?? known.id
-      const path = item.launch_path ?? item.path ?? item.executablePath ?? item.executable_path ?? item.exe_path ?? known.path
-      const name = textOf(item.name) ?? textOf(item.app_name) ?? textOf(item.appName) ?? textOf(item.title) ?? textOf(item.window_title) ?? known.name
+      const id = nonEmpty(item.bundle_id) ?? nonEmpty(item.bundleId) ?? nonEmpty(item.id) ?? nonEmpty(item.app_id) ?? nonEmpty(item.appId) ?? nonEmpty(known.id)
+      const path = nonEmpty(item.launch_path) ?? nonEmpty(item.path) ?? nonEmpty(item.executablePath) ?? nonEmpty(item.executable_path) ?? nonEmpty(item.exe_path) ?? nonEmpty(known.path)
+      const name = nonEmpty(item.name) ?? nonEmpty(item.app_name) ?? nonEmpty(item.appName) ?? nonEmpty(item.title) ?? nonEmpty(item.window_title) ?? nonEmpty(known.name)
+      const stable = stableIdentityOf({ id, path })
       const app = {
-        key: appKeyOf({ id, path, name }),
+        key: stable ?? `pid:${pid}`,
         name: name ?? `pid ${pid}`,
         ...(id !== undefined ? { id } : {}),
         ...(path !== undefined ? { path } : {}),
@@ -514,14 +570,15 @@ export function install(rt) {
       apps.set(`pid:${pid}`, app)
       return app
     }
-    const recordTitle = (item) => {
-      const title = textOf(item?.title)
-      return title === undefined ? undefined : { key: `title:${normName(title)}`, name: title }
+    const recordTitle = (item, windowId) => {
+      const title = nonEmpty(item?.title)
+      if (title === undefined) return undefined
+      return { key: windowId !== undefined ? `window:${windowId}` : `title:${normName(title)}`, name: title }
     }
     const recordItem = (item, known = {}) => {
-      const app = recordPid(item, known) ?? recordTitle(item)
-      if (app === undefined) return
       const windowId = [item?.window_id, item?.windowId, item?.wid].find(value => value !== undefined && value !== null)
+      const app = recordPid(item, known) ?? recordTitle(item, windowId)
+      if (app === undefined) return
       if (windowId !== undefined) apps.set(`window:${windowId}`, app)
     }
     const lists = [body.apps, body.windows, body.items, Array.isArray(body) ? body : undefined]
@@ -532,14 +589,14 @@ export function install(rt) {
         // list_apps carries each app's windows; they identify the same app.
         if (!Array.isArray(item?.windows)) continue
         for (const win of item.windows) {
-          recordItem(win, { id: item.bundle_id ?? item.id, path: item.launch_path ?? item.path, name: textOf(item.name) })
+          recordItem(win, { id: nonEmpty(item.bundle_id) ?? nonEmpty(item.id), path: nonEmpty(item.launch_path) ?? nonEmpty(item.path), name: nonEmpty(item.name) })
         }
       }
     }
     // launch_app answers with the launched app and its windows; the windows carry
     // the same identity as the app, so a window call resolves to that same grant.
     if (call.method === 'launch_app') {
-      const known = { id: body.bundle_id ?? body.id, path: body.launch_path ?? body.path, name: textOf(body.name) }
+      const known = { id: nonEmpty(body.bundle_id) ?? nonEmpty(body.id), path: nonEmpty(body.launch_path) ?? nonEmpty(body.path), name: nonEmpty(body.name) }
       for (const win of Array.isArray(body.windows) ? body.windows : []) recordItem(win, known)
       recordItem(body)
     }
@@ -577,26 +634,50 @@ export function install(rt) {
   }
   // Consent after a real getApp: the model only keeps the handle when the Bot may
   // use the app. A refusal drops the handle record and returns an error envelope.
-  const consentAfterGetApp = async (exec, call, result) => {
+  const consentAfterGetApp = async (exec, result, flightConsent) => {
     const sessionId = exec.agent?.id
-    const handle = result?.appHandle
-    if (sessionId === undefined || typeof handle !== 'string') return undefined
+    const handle = nonEmpty(result?.appHandle)
+    if (sessionId === undefined || handle === undefined) return undefined
     const bot = rt.botOf(rt.selfOf(sessionId))
     if (bot === undefined) return undefined
-    const authorization = result.authorization ?? {}
-    const identity = { name: authorization.name ?? result.name, id: authorization.id ?? result.bundleId ?? result.id, executablePath: authorization.executablePath ?? result.executablePath ?? result.path }
-    const app = { key: appKeyOf(identity), name: String(identity.name ?? 'app'), id: identity.id, path: identity.executablePath }
+    const identity = getAppIdentity(result)
+    const stableKey = stableIdentityOf(identity)
+    const app = {
+      key: stableKey ?? `handle:${handle}`,
+      name: identity.name ?? identity.id ?? identity.executablePath ?? 'app',
+      ...(identity.id !== undefined ? { id: identity.id } : {}),
+      ...(identity.executablePath !== undefined ? { path: identity.executablePath } : {}),
+    }
     // The handle record stays, so a retry on it names why it was refused —
     // protected or denied — instead of looking like a revoke.
     const refuse = (reason) => ({ app: app.name, reason, envelope: { isError: true, content: [{ type: 'text', text: `Error: ${reason}` }] } })
     if (isProtectedApp({ name: app.name, id: app.id, path: app.path })) return refuse(`${bot.name} cannot use ${app.name}: that application is protected.`)
+    if (identity.name === undefined && stableKey === undefined) return refuse(`${bot.name} cannot use an application without an identity.`)
     const decisions = decisionsOf(bot.id, sessionId)
-    const decision = decisions.get(app.key) ?? decisions.get(normName(app.name))
+    const decision = decisions.get(app.key)
     if (decision === 'deny') return refuse(`The user did not allow ${bot.name} to use ${app.name}.`)
+    if (flightConsent !== undefined && !exec.signal?.aborted) {
+      if (flightConsent.answer === 'deny') {
+        decisions.set(app.key, 'deny')
+        return refuse(`The user did not allow ${bot.name} to use ${app.name}.`)
+      }
+      const canPersist = flightConsent.legacy
+        ? (app.id !== undefined && app.id === nonEmpty(result.bundleId))
+        : stableKey !== undefined
+      if (flightConsent.answer === 'always' && canPersist) {
+        await recordGrant(bot, app, flightConsent.path)
+      } else {
+        decisions.set(app.key, 'once')
+        if (flightConsent.answer === 'always') {
+          return { notice: unsavedAlwaysNotice(app.name, flightConsent.legacy) }
+        }
+      }
+      return undefined
+    }
     if (decision === 'once' || grantFor(bot, app) !== undefined) return undefined
-    const verdict = await driverConsent(exec, bot, sessionId, app)
-    if (verdict !== 'allow') return refuse(verdict)
-    return undefined
+    const verdict = await driverConsent(exec, bot, sessionId, app, stableKey !== undefined)
+    if (verdict.allowed !== true) return refuse(verdict.reason)
+    return verdict.notice !== undefined ? { notice: verdict.notice } : undefined
   }
   // ---- On-screen Bot cursor: where a just-finished action pointed ----
   // cua reports window bounds in global points and screenshot pixel sizes per
@@ -747,8 +828,10 @@ export function install(rt) {
   }
 
   // The display name the lease and the card show for an appKey, from any session's
-  // records or the key itself.
+  // records or the key itself. Foreground leases carry appKey: null.
   const appNameOf = (key) => {
+    if (typeof key !== 'string') return null
+    if (key === '') return 'an app'
     for (const map of sessionApps.values()) {
       for (const app of map.values()) if (app.key === key) return app.name
     }
@@ -763,21 +846,38 @@ export function install(rt) {
     return map
   }
   const grantFor = (bot, app) => {
+    const appId = nonEmpty(app?.id)
+    const appPath = nonEmpty(app?.path) ?? nonEmpty(app?.executablePath)
+    if (appId === undefined && appPath === undefined) return undefined
     const grants = grantsOf(bot)
-    const byKey = grants[app.key]
-    if (byKey !== undefined) return byKey
-    if (app.id !== undefined) return Object.values(grants).find(grant => grant.id === app.id)
-    // The name decides only when no id or path can: the macOS consent question
-    // carries a name alone. A same-named app with its own identity asks again.
-    if (app.path !== undefined) return undefined
-    const wanted = normName(app.name)
-    return Object.values(grants).find(grant => normName(grant.name) === wanted)
+    const isStableMatch = (entry) => {
+      if (!isGrantObject(entry)) return false
+      const grantId = nonEmpty(entry.id)
+      const grantPath = nonEmpty(entry.path) ?? nonEmpty(entry.executablePath)
+      if (grantId === undefined && grantPath === undefined) return false
+      if (appId !== undefined && grantId !== undefined) return grantId === appId
+      if (grantId !== undefined || appId !== undefined) return false
+      return appPath !== undefined && grantPath !== undefined && grantPath === appPath
+    }
+    const stableKey = appId ?? appPath
+    if (Object.hasOwn(grants, stableKey) && isStableMatch(grants[stableKey])) return grants[stableKey]
+    return Object.values(grants).find(isStableMatch)
   }
-  const recordGrant = async (bot, app) => {
+  const recordGrant = async (bot, app, path) => {
+    const id = nonEmpty(app?.id)
+    const grantPath = nonEmpty(path) ?? nonEmpty(app?.path) ?? nonEmpty(app?.executablePath)
+    const key = id ?? grantPath
+    if (key === undefined) return false
     bot.computer ??= {}
     bot.computer.apps ??= {}
-    bot.computer.apps[app.key] = { name: app.name, ...(app.id !== undefined ? { id: app.id } : {}), grantedAt: Date.now() }
+    bot.computer.apps[key] = {
+      name: nonEmpty(app?.name) ?? key,
+      ...(id !== undefined ? { id } : {}),
+      ...(grantPath !== undefined ? { path: grantPath } : {}),
+      grantedAt: Date.now(),
+    }
     await rt.save()
+    return true
   }
   // App-access prompt card. Group-session asks carry `roomId` so the group header
   // island and details panel can answer them in place instead of sending the user to
@@ -799,10 +899,12 @@ export function install(rt) {
         const moreForBot = [...pendingAsks.values()].some(item => item.botId === botId)
         if (ctl.waitingFor === 'app-access' && !moreForBot) ctl.waitingFor = undefined
         settleControl(botId)
+        rt.inboxChanged?.()
         resolve(answer)
       },
     }
     pendingAsks.set(id, entry)
+    rt.inboxChanged?.()
     const ctl = controlOf(botId)
     if (ctl.state !== 'user') {
       ctl.state = 'waiting'
@@ -837,36 +939,72 @@ export function install(rt) {
       return { answers: [{ id: 'cua-mouse-control', selected: [choice] }] }
     }
     if (!enabled()) return next()
-    const app = { name: String(question.intent?.subject?.name ?? ''), icon: question.intent?.subject?.icon }
-    app.key = appKeyOf(app)
     const deny = () => ({ answers: [{ id: 'cua-app-access', selected: [DENY_LABEL] }] })
-    const allow = () => ({ answers: [{ id: 'cua-app-access', selected: [ALLOW_LABEL] }] })
+    const legacy = question.intent === undefined && question.options?.some(option => option.label === LEGACY_ALLOW_LABEL)
+    const allow = () => ({ answers: [{ id: 'cua-app-access', selected: [legacy ? LEGACY_ALLOW_LABEL : ALLOW_LABEL] }] })
+    const flight = getAppScope.getStore()
+    const subject = question.intent?.subject
+    const app = legacy
+      ? {
+          name: nonEmpty(question.question?.match(/^Allow Computer Use to launch if needed, read, capture, and control (.+)\?$/)?.[1]) ?? '',
+          path: nonEmpty(question.detail?.match(/^Application: (\/[^\r\n]+)\nTask access applies to the selected application instance[^\r\n]*$/)?.[1]),
+        }
+      : {
+          name: nonEmpty(subject?.name) ?? '',
+          id: nonEmpty(subject?.id) ?? nonEmpty(subject?.bundleId),
+          path: nonEmpty(subject?.executablePath) ?? nonEmpty(subject?.path),
+          icon: subject?.icon,
+        }
+    app.key = appKeyOf(app)
+    if (!normName(app.name) || (legacy && flight?.sessionId !== sessionId)) return deny()
     if (isProtectedApp(app)) return deny()
-    if (grantFor(bot, app) !== undefined) return allow()
-    const call = [...inFlight.values()].find(item => item.sessionId === sessionId)
+    const stable = hasStableIdentity(app)
+    // Legacy DSH can launch the app before returning its bundle ID. A matching
+    // path alone cannot authorize that launch.
+    if (!legacy && stable && grantFor(bot, app) !== undefined) return allow()
+    if (!legacy && stable) {
+      const prior = decisionsOf(bot.id, sessionId).get(app.key)
+      if (prior === 'once') return allow()
+      if (prior === 'deny') return deny()
+    }
+    const call = flight?.sessionId === sessionId ? flight : [...inFlight.values()].find(item => item.sessionId === sessionId)
     const answer = await askAppAccess({ botId: bot.id, sessionId, callId: call?.callId, app, signal: request.signal })
+    if (legacy) {
+      flight.consent = { answer, path: app.path, legacy: true }
+      return answer === 'deny' ? deny() : allow()
+    }
+    if (!stable || (flight?.sessionId === sessionId && app.id === undefined)) {
+      // Display name alone is never an authorization identity; when getApp is in
+      // flight without a verified platform id yet, defer persistence and session
+      // scoping to consentAfterGetApp once getApp returns the real identity/handle.
+      if (flight?.sessionId === sessionId) flight.consent = { answer, path: app.path, legacy: false }
+      return answer === 'deny' ? deny() : allow()
+    }
     if (answer === 'always') {
-      await recordGrant(bot, { ...app, name: app.name })
+      await recordGrant(bot, app)
       return allow()
     }
     decisionsOf(bot.id, sessionId).set(app.key, answer === 'once' ? 'once' : 'deny')
     return answer === 'once' ? allow() : deny()
   }, { prepend: true })
-  // Windows/Linux: no consent inside the provider, so the first call that targets an
-  // app asks through the same card, before the call runs.
-  const driverConsent = async (exec, bot, sessionId, app) => {
-    if (grantFor(bot, app) !== undefined) return 'allow'
+  // Windows/Linux (and fallback macOS consent): no consent inside the provider, so
+  // the first call that targets an app asks through the same card.
+  const driverConsent = async (exec, bot, sessionId, app, persist = hasStableIdentity(app)) => {
+    if (grantFor(bot, app) !== undefined) return { allowed: true }
     const decisions = decisionsOf(bot.id, sessionId)
     const before = decisions.get(app.key)
-    if (before === 'once') return 'allow'
-    if (before === 'deny') return `The user did not allow ${bot.name} to use ${app.name} in this conversation.`
+    if (before === 'once') return { allowed: true }
+    if (before === 'deny') return { allowed: false, reason: `The user did not allow ${bot.name} to use ${app.name} in this conversation.` }
     const answer = await askAppAccess({ botId: bot.id, sessionId, callId: exec.callId, app, signal: exec.signal })
-    if (answer === 'always') {
+    const canPersist = persist && hasStableIdentity(app)
+    if (answer === 'always' && canPersist) {
       await recordGrant(bot, app)
-      return 'allow'
+      return { allowed: true }
     }
-    decisions.set(app.key, answer === 'once' ? 'once' : 'deny')
-    return answer === 'once' ? 'allow' : `The user did not allow ${bot.name} to use ${app.name}.`
+    decisions.set(app.key, answer === 'deny' ? 'deny' : 'once')
+    if (answer === 'deny') return { allowed: false, reason: `The user did not allow ${bot.name} to use ${app.name}.` }
+    if (answer === 'always') return { allowed: true, notice: unsavedAlwaysNotice(app.name) }
+    return { allowed: true }
   }
 
   // ---- User-presence gating (the desktop app reports idle seconds) ----
@@ -908,13 +1046,14 @@ export function install(rt) {
       // Session, so a revoke bites at once. A saved DSH decision can let getApp
       // through without asking here; then the first real call asks by card.
       const decisions = decisionsOf(bot.id, sessionId)
-      const decision = decisions.get(app.key) ?? decisions.get(normName(app.name))
+      const decision = decisions.get(app.key)
       if (decision === 'deny') {
         return { kind: 'deny', reason: `The user did not allow ${bot.name} to use ${app.name}.` }
       }
       if (decision !== 'once' && grantFor(bot, app) === undefined) {
-        const verdict = await driverConsent(exec, bot, sessionId, app)
-        if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
+        const verdict = await driverConsent(exec, bot, sessionId, app, hasStableIdentity(app))
+        if (verdict.allowed !== true) return { kind: 'deny', reason: verdict.reason }
+        if (verdict.notice !== undefined) notePendingNotice(exec.callId, verdict.notice)
       }
     }
     if (call.provider === 'cua-driver') {
@@ -933,8 +1072,9 @@ export function install(rt) {
       } else if (app.unknown === true) {
         return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
       } else {
-        const verdict = await driverConsent(exec, bot, sessionId, app)
-        if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
+        const verdict = await driverConsent(exec, bot, sessionId, app, hasStableIdentity(app))
+        if (verdict.allowed !== true) return { kind: 'deny', reason: verdict.reason }
+        if (verdict.notice !== undefined) notePendingNotice(exec.callId, verdict.notice)
       }
       injectDriverSession(exec, call, bot.id)
       await ensureDriverSession(exec, call)
@@ -990,8 +1130,9 @@ export function install(rt) {
     const previous = exec.signal
     exec.signal = previous !== undefined ? AbortSignal.any([previous, abort.signal]) : abort.signal
     const started = Date.now()
+    const getApp = call.provider === 'cua' && call.method === 'getApp'
     try {
-      const result = await next()
+      let result = await (getApp ? getAppScope.run(flight, next) : next())
       // DSH hands a failed tool body back as an error envelope, not an exception.
       if (call.provider === 'cua-driver' && isSessionEnded(result)) {
         await startDriverSession(exec, driverSessionKey(exec))
@@ -1003,17 +1144,24 @@ export function install(rt) {
       const payload = result !== null && typeof result === 'object' && result.isError !== true
         ? (result.value !== null && typeof result.value === 'object' ? result.value : result)
         : null
+      const pendingNotice = takePendingNotice(exec.callId)
       await recordAppResult(exec, call, payload)
       // A successful getApp returns its handle whether or not the provider's own
       // consent ran (its session decisions persist for the Bot's whole Session,
       // so a revoked app never asks again). DS Bot decides here by its own rules:
       // protected, an earlier deny, a This time or a grant, else the same card.
-      if (call.provider === 'cua' && call.method === 'getApp' && payload !== null && typeof payload === 'object') {
-        const consent = await consentAfterGetApp(exec, call, payload)
-        if (consent !== undefined) {
+      if (getApp && payload !== null && typeof payload === 'object') {
+        const consent = await consentAfterGetApp(exec, payload, flight.consent)
+        if (consent?.envelope !== undefined) {
           noteStep(botId, { time: started, callId: exec.callId, app: consent.app, action: call.method ?? exec.name, kind: call.kind, ok: false, error: consent.reason })
           return consent.envelope
         }
+        if (consent?.notice !== undefined) {
+          result = appendNotice(result, consent.notice)
+        }
+      }
+      if (pendingNotice !== undefined && payload !== null) {
+        result = appendNotice(result, pendingNotice)
       }
       recordGeo(sessionId, payload)
       // A refused or failed call pointed nowhere.
@@ -1068,6 +1216,7 @@ export function install(rt) {
     holds.delete(botId)
     controlOf(botId).waitingFor = undefined
     settleControl(botId)
+    rt.inboxChanged?.()
     if (outcome === 'takeover') return true
     const settled = outcome === 'done' ? 'done' : 'skipped'
     try {
@@ -1081,6 +1230,7 @@ export function install(rt) {
       await ctx.sessions.flush(agent.session)
     } catch (error) {
       holds.set(botId, hold)
+      rt.inboxChanged?.()
       throw error
     }
     return true
@@ -1092,7 +1242,18 @@ export function install(rt) {
     ctl.state = 'user'
     ctl.waitingFor = undefined
     const hold = holds.get(botId)
-    holds.set(botId, { id: hold?.id ?? randomUUID(), by: 'user', surface: 'computer', reason: hold?.reason ?? 'takeover', note: hold?.note ?? 'The user is operating the computer.', ...(hold?.callId !== undefined ? { callId: hold.callId } : {}) })
+    const fromBot = hold?.by === 'bot' || hold?.fromBot === true || hold?.callId !== undefined
+    holds.set(botId, {
+      id: hold?.id ?? randomUUID(),
+      by: 'user',
+      surface: 'computer',
+      reason: hold?.reason ?? 'takeover',
+      note: hold?.note ?? 'The user is operating the computer.',
+      at: Number.isFinite(hold?.at) ? hold.at : Date.now(),
+      ...(fromBot ? { fromBot: true } : {}),
+      ...(hold?.callId !== undefined ? { callId: hold.callId } : {}),
+    })
+    rt.inboxChanged?.()
     return true
   }
   const handBack = async (botId) => {
@@ -1100,6 +1261,7 @@ export function install(rt) {
     const ctl = controlOf(botId)
     ctl.state = 'idle'
     ctl.waitingFor = undefined
+    rt.inboxChanged?.()
     const sessionId = rt.chatOf(botId)
     await rt.ensureCapabilities?.(sessionId)
     const agent = await rt.resolveAgent(sessionId)
@@ -1135,14 +1297,16 @@ export function install(rt) {
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
         id: randomUUID(),
-        by: 'bot', surface: 'computer',
+        by: 'bot', fromBot: true, surface: 'computer',
         reason: HANDOFF_REASONS.includes(args.reason) ? args.reason : 'other',
         note: String(args.note ?? '').slice(0, 500),
         ...(callId !== undefined ? { callId } : {}),
+        at: Date.now(),
       })
       const ctl = controlOf(bot.id)
       ctl.state = 'waiting'
       ctl.waitingFor = 'handoff'
+      rt.inboxChanged?.()
       return 'Handed to the user. End your turn now; their answer arrives as a new message.'
     },
   })
@@ -1216,7 +1380,8 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
     const bot = rt.botOf(botId)
     if (bot === undefined) throw new Error('Unknown Bot')
-    const grant = grantsOf(bot)[appKey]
+    const rawApps = bot.computer?.apps
+    const grant = rawApps !== null && typeof rawApps === 'object' && Object.hasOwn(rawApps, appKey) ? rawApps[appKey] : undefined
     if (grant !== undefined) {
       delete bot.computer.apps[appKey]
       if (Object.keys(bot.computer.apps).length === 0) delete bot.computer.apps
@@ -1230,20 +1395,35 @@ export function install(rt) {
     // the provider's decision too or the Bot keeps using the app. Other Bots'
     // grants are unaffected: their next getApp is answered by DS Bot again.
     const access = service('cuaAccess')
-    const recorded = [...sessionApps.values()].flatMap(map => [...map.values()])
-      .find(app => app.key === appKey || app.id === appKey || normName(app.name) === normName(grant?.name ?? appKey))
-    const wanted = normName(grant?.name ?? recorded?.name ?? appKey)
+    const grantId = nonEmpty(grant?.id)
+    const grantPath = nonEmpty(grant?.path) ?? nonEmpty(grant?.executablePath)
+    const wanted = normName(grant?.name ?? appKey)
+    const matchesApp = (app) => {
+      if (app.key === appKey) return true
+      if (app.id !== undefined && (app.id === appKey || (grantId !== undefined && app.id === grantId))) return true
+      if (app.path !== undefined && (app.path === appKey || (grantPath !== undefined && app.path === grantPath))) return true
+      if (grantId === undefined && grantPath === undefined && !hasStableIdentity(app) && wanted !== '' && normName(app.name) === wanted) return true
+      return false
+    }
+    const recorded = [...sessionApps.values()].flatMap(map => [...map.values()]).find(matchesApp)
     const aliases = new Set([appKey])
+    if (grantId !== undefined) aliases.add(grantId)
+    if (grantPath !== undefined) aliases.add(grantPath)
     for (const map of sessionApps.values()) {
       for (const [key, app] of map) {
-        if (app.key === appKey || app.id === appKey || normName(app.name) === wanted) aliases.add(key)
+        if (matchesApp(app)) {
+          aliases.add(key)
+          if (typeof app.key === 'string' && app.key !== '') aliases.add(app.key)
+        }
       }
     }
     // A "This time" must not outlive the revoke, in any of this Bot's Sessions.
     for (const [key, decisions] of sessionDecisions) {
       if (!key.startsWith(`${botId}:`)) continue
       for (const entry of [...decisions.keys()]) {
-        if (aliases.has(entry) || normName(entry) === wanted) decisions.delete(entry)
+        if (aliases.has(entry) || (grantId === undefined && grantPath === undefined && wanted !== '' && normName(entry) === wanted)) {
+          decisions.delete(entry)
+        }
       }
     }
     // A revoked app keeps no recorded cua handles in this Bot's Sessions: the
@@ -1261,13 +1441,16 @@ export function install(rt) {
     // revoked directly; and its per-agent session grants cannot be addressed at
     // all — the guard above is what enforces a revoke. What applications() can
     // reach is the provider's saved/session-wide decision records, matched by
-    // executable path (or by name when the record carries no path).
+    // executable path (or by id/name when no path is available).
     if (access !== undefined && typeof access.applications === 'function' && typeof access.revoke === 'function') {
       try {
         const state = await access.applications()
-        const wantedPath = grant?.path ?? recorded?.path
+        const wantedPath = grantPath ?? nonEmpty(recorded?.path)
+        const wantedName = normName(grant?.name ?? recorded?.name ?? appKey)
         for (const entry of [...(state?.allowedApps ?? []), ...(state?.blockedApps ?? [])]) {
-          const match = wantedPath !== undefined ? entry.executablePath === wantedPath : normName(entry.name) === wanted
+          const match = wantedPath !== undefined
+            ? entry.executablePath === wantedPath
+            : (grantId !== undefined ? entry.id === grantId : wantedName !== '' && normName(entry.name) === wantedName)
           if (match && typeof entry.id === 'string') await access.revoke(entry.id).catch(() => {})
         }
       } catch (error) { rt.warn('ds-bot: revoking %s in the provider failed: %s', wanted, error) }
@@ -1420,7 +1603,7 @@ export function install(rt) {
       ...(entry.lastShot !== undefined ? { lastShot: entry.lastShot } : {}),
       steps: entry.steps,
     }])),
-    leases: leases.entries().map(entry => ({ ...entry, appName: appNameOf(entry.appKey) })),
+    leases: leases.entries().map(entry => ({ ...entry, appName: entry.kind === 'foreground' ? null : appNameOf(entry.appKey) })),
     cursors: [...cursors.values()],
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
       id: ask.id,
@@ -1474,6 +1657,7 @@ export function install(rt) {
     rt.closeComputerWaiters()
     for (const { resolve } of pendingAsks.values()) resolve('deny')
     pendingAsks.clear()
+    pendingNotices.clear()
     for (const { abort } of inFlight.values()) abort.abort(new Error('DS Bot stopped'))
     for (const held of applied.values()) liftHeld(held)
     applied.clear()

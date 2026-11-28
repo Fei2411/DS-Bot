@@ -7,11 +7,14 @@
 // (phone.js, remote.js), and terminal output rides local SSE only (`publishLocalFeed`).
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { watch as fsWatch } from 'node:fs'
 import { copyFile, mkdtemp, open, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, posix as posixPath, relative, resolve, sep, win32 as win32Path } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { pathToFileURL } from 'node:url'
 import { within } from './folders.js'
+import { parseXlsxBuffer } from './xlsx-preview.js'
 
 const MAX_LIST_ENTRIES = 500
 const PARALLEL_LIST_INSPECTS = 8
@@ -21,12 +24,26 @@ const MAX_OFFICE_INPUT_BYTES = 32 * 1024 * 1024
 const MAX_OFFICE_OUTPUT_BYTES = 24 * 1024 * 1024
 const MAX_OFFICE_CONVERSIONS = 2
 const MAX_TERMINALS = 8
+const MAX_WATCHES = 16
+const MAX_WATCH_ROOTS = 8
+const MAX_WATCH_DIRS = 32
+const MAX_WATCH_PATHS_PER_EVENT = 64
+const MAX_POLL_DIR_ENTRIES = MAX_LIST_ENTRIES
+const WATCH_DEBOUNCE_MS = 180
+const WATCH_MAX_WAIT_MS = 900
+const WATCH_POLL_MS = 1_500
+const ORPHAN_WATCH_GRACE_MS = 30_000
+const OPEN_OS_STDERR_BYTES = 4 * 1024
+const OPEN_OS_SETTLE_MS = 1_500
+const OPEN_OS_EXIT_TIMEOUT_MS = 10_000
 const TERMINAL_SCROLLBACK_CHARS = 64 * 1024
+const TERMINAL_SCROLLBACK_PART_CHARS = 4096
 const TERMINAL_BATCH_MS = 16
 const TERMINAL_GRACE_MS = 3000
 const DIFF_TIMEOUT_MS = 30_000
 
 const DEFAULT_IGNORED_NAMES = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db'])
+const XLSX_EXTS = new Set(['.xlsx', '.xlsm'])
 const SENSITIVE_ENV_RE = /KEY|PASSWORD|SECRET|TOKEN/i
 const STRIPPED_ENV_RE = /^(DS_BOT_|DSBOT_|DSH_|ELECTRON_RUN_AS_NODE$|ACP_BACKEND$|DEEPSEEK_|ANTIGRAVITY_|AGY_)/i
 
@@ -179,18 +196,292 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
   }
 }
 
+function scrubbedOpenEnv(extra = {}) {
+  const out = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value !== 'string') continue
+    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key)) continue
+    out[key] = value
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (typeof value !== 'string') continue
+    const lower = key.toLowerCase()
+    for (const existing of Object.keys(out)) {
+      if (existing !== key && existing.toLowerCase() === lower) delete out[existing]
+    }
+    out[key] = value
+  }
+  return out
+}
+
+// Keep double quotes out of `-Command` so `powershell.exe` command-line parsing never strips them.
+// Explicitly check existence, trap `Invoke-Item` errors, write a single readable line to Win32 stderr,
+// and `exit 1` so Windows PowerShell 5.1 never silently exits 0 on open failures.
+const WIN_OPEN_COMMAND = [
+  "$ErrorActionPreference = 'Stop'",
+  '$p = $env:DSB_OPEN_TARGET',
+  "try { if ([string]::IsNullOrEmpty($p) -or -not (Test-Path -LiteralPath $p)) { [Console]::Error.WriteLine('Cannot find path: ' + $p); exit 1 }; Invoke-Item -LiteralPath $p -ErrorAction Stop; if (-not $?) { [Console]::Error.WriteLine('Failed to open path: ' + $p); exit 1 } } catch { $m = $null; if ($_.Exception -and $_.Exception.ErrorRecord -and $_.Exception.ErrorRecord.Exception) { $m = $_.Exception.ErrorRecord.Exception.Message } elseif ($_.Exception) { $m = $_.Exception.Message }; if ([string]::IsNullOrWhiteSpace($m)) { $m = $_.ToString() }; if ([string]::IsNullOrWhiteSpace($m)) { $m = 'Failed to open path: ' + $p }; [Console]::Error.WriteLine($m); exit 1 }",
+].join('; ')
+
+// Encode a Windows path as a file URI Explorer accepts verbatim: keep non-ASCII characters
+// literal (Explorer rejects percent-encoded non-ASCII in file URIs) and escape `,` and `=`,
+// which Explorer otherwise splits on its own command line.
+function windowsExplorerFileUri(windowsPath) {
+  const href = pathToFileURL(windowsPath, { windows: true }).href
+  return href
+    .replace(/(?:%[89A-F][0-9A-F])+/gi, escaped => decodeURIComponent(escaped))
+    .replaceAll(',', '%2C')
+    .replaceAll('=', '%3D')
+}
+
+export function buildOpenOsCommand(target, action, isDirectory, platform = process.platform) {
+  const validAbsolute = typeof target === 'string' && target.trim() !== ''
+    && (platform === 'win32' ? win32Path.isAbsolute(target) : posixPath.isAbsolute(target))
+  if (!validAbsolute) {
+    throw Object.assign(new Error('Target path must be absolute'), { code: 'bot/invalid' })
+  }
+  if (platform === 'darwin') {
+    return {
+      command: 'open',
+      args: action === 'reveal' ? ['-R', target] : action === 'edit' ? ['-t', target] : [target],
+      options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+      waitForExit: true,
+    }
+  }
+  if (platform === 'win32') {
+    if (action === 'edit') {
+      // Hand an encoded file URI to Explorer so Windows uses shell default-application
+      // resolution and displays the "Open with" chooser when `.yml` has no association.
+      return {
+        command: 'explorer.exe',
+        args: [windowsExplorerFileUri(target)],
+        options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+        allowExit1: true,
+      }
+    }
+    if (action === 'reveal') {
+      if (isDirectory) {
+        return {
+          command: 'explorer.exe',
+          args: [target],
+          options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+          allowExit1: true,
+        }
+      }
+      // Explorer expects `/select,"C:\path\with spaces,commas"` verbatim on its command line.
+      const safe = target.replace(/"/g, '')
+      return {
+        command: 'explorer.exe',
+        args: [`/select,"${safe}"`],
+        options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, windowsVerbatimArguments: true, env: scrubbedOpenEnv() },
+        allowExit1: true,
+      }
+    }
+    // Pass path through an env var + `Invoke-Item -LiteralPath` so `%`, `#`, `[`, `]`,
+    // commas, and spaces stay literal (`Start-Process` has no `-LiteralPath` parameter).
+    // Omit `detached: true` here so libuv applies `CREATE_NO_WINDOW` with `windowsHide: true`
+    // and reliably delivers stderr + exit status (`Invoke-Item` already hands off to the shell).
+    return {
+      command: 'powershell.exe',
+      args: ['-NoProfile', '-NonInteractive', '-Command', WIN_OPEN_COMMAND],
+      options: {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        shell: false,
+        windowsHide: true,
+        env: scrubbedOpenEnv({ DSB_OPEN_TARGET: target }),
+      },
+      waitForExit: true,
+    }
+  }
+  return {
+    command: 'xdg-open',
+    args: [action === 'reveal' && !isDirectory ? dirname(target) : target],
+    options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+    waitForExit: false,
+  }
+}
+
+export function openOsPath(target, action, isDirectory, opts = {}) {
+  const spec = buildOpenOsCommand(target, action, isDirectory, opts.platform ?? process.platform)
+  const spawnFn = typeof opts.spawnFn === 'function' ? opts.spawnFn : spawn
+  const settleMs = Number.isFinite(opts.settleMs) && opts.settleMs >= 0
+    ? opts.settleMs
+    : (spec.waitForExit ? OPEN_OS_EXIT_TIMEOUT_MS : OPEN_OS_SETTLE_MS)
+
+  return new Promise((resolveOpen, rejectOpen) => {
+    let settled = false
+    let timer = null
+    let stderrText = ''
+    const cleanup = () => {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+    const finishOk = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolveOpen(true)
+    }
+    const finishErr = (error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      rejectOpen(error)
+    }
+
+    let child
+    try {
+      child = spawnFn(spec.command, spec.args, spec.options)
+    } catch (error) {
+      finishErr(error)
+      return
+    }
+
+    child.stderr?.on?.('data', (chunk) => {
+      if (stderrText.length >= OPEN_OS_STDERR_BYTES) return
+      const piece = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+      stderrText += piece.slice(0, OPEN_OS_STDERR_BYTES - stderrText.length)
+    })
+
+    child.once('error', (error) => {
+      finishErr(error)
+    })
+
+    child.once('close', (code, signal) => {
+      if (settled) return
+      const trimmedErr = stderrText.trim()
+      if (code === 0 || (spec.allowExit1 && code === 1 && trimmedErr === '')) {
+        finishOk()
+        return
+      }
+      const reason = code !== null && code !== undefined
+        ? `exited with code ${code}`
+        : (signal ? `terminated by ${signal}` : 'exited with code unknown')
+      finishErr(new Error(trimmedErr || `Failed to open path (${spec.command} ${reason})`))
+    })
+
+    child.once('spawn', () => {
+      if (settled) return
+      timer = setTimeout(() => {
+        timer = null
+        if (settled) return
+        child.stderr?.resume?.()
+        child.stderr?.destroy?.()
+        child.unref?.()
+        finishOk()
+      }, settleMs)
+      timer.unref?.()
+    })
+  })
+}
+
+const isWatchLimitError = error => error?.code === 'ENOSPC' || error?.code === 'EMFILE' || error?.code === 'ENOSYS'
+
+function isIgnoredWatchRel(rel) {
+  if (!rel) return false
+  const parts = rel.replace(/\\/g, '/').split('/')
+  for (const part of parts) {
+    if (DEFAULT_IGNORED_NAMES.has(part)) return true
+  }
+  return false
+}
+
 export function install(rt) {
   const { ctx } = rt
-  /** @type {Map<string, { id: string, cwd: string, title: string, pty: boolean, exited: boolean, closed: boolean, exitCode: number | null, buffer: string, write: (data: string) => Promise<void>, resize: (cols: number, rows: number) => Promise<void>, terminate: () => Promise<void> }>} */
+  /** @type {Map<string, { id: string, cwd: string, title: string, pty: boolean, exited: boolean, closed: boolean, exitCode: number | null, buffer: string, parts: { seq: number, text: string }[], startSeq: number, endSeq: number, write: (data: string) => Promise<void>, resize: (cols: number, rows: number) => Promise<void>, terminate: () => Promise<void> }>} */
   const terminals = new Map()
+  const rootWatches = new Map()
+  const watchSessions = new Map()
+  const inFlightWatchOps = new Set()
   /** @type {Set<Promise<void>>} */
   const inFlightSpawns = new Set()
   let reservedSlots = 0
   let disposed = false
+  let orphanWatchTimer = null
+
+  const rootKeyOf = (root) => {
+    const plat = typeof rt.watchPlatform === 'string' ? rt.watchPlatform : process.platform
+    return plat === 'win32' ? root.toLowerCase() : root
+  }
+
+  const closeRootWatch = (rootWatch) => {
+    if (!rootWatch || rootWatch.closed) return
+    rootWatch.closed = true
+    if (rootWatch.debounceTimer !== null) {
+      clearTimeout(rootWatch.debounceTimer)
+      rootWatch.debounceTimer = null
+    }
+    if (rootWatch.maxWaitTimer !== null) {
+      clearTimeout(rootWatch.maxWaitTimer)
+      rootWatch.maxWaitTimer = null
+    }
+    if (rootWatch.pollTimer !== null) {
+      clearInterval(rootWatch.pollTimer)
+      rootWatch.pollTimer = null
+    }
+    rootWatch.dirtyPaths.clear()
+    rootWatch.pollSnapshot.clear()
+    for (const watcher of rootWatch.watchers.values()) {
+      try { watcher.close() } catch { /* ignore close errors */ }
+    }
+    rootWatch.watchers.clear()
+    for (const session of [...rootWatch.sessions]) {
+      session.closed = true
+      watchSessions.delete(session.id)
+    }
+    rootWatch.sessions.clear()
+    if (rootWatches.get(rootWatch.key) === rootWatch) rootWatches.delete(rootWatch.key)
+  }
+
+  const trackWatchOp = (promise) => {
+    const tracked = Promise.resolve(promise).catch(() => {}).finally(() => {
+      inFlightWatchOps.delete(tracked)
+    })
+    inFlightWatchOps.add(tracked)
+    return tracked
+  }
+
+  const closeAllWatches = async () => {
+    if (orphanWatchTimer !== null) {
+      clearTimeout(orphanWatchTimer)
+      orphanWatchTimer = null
+    }
+    for (const rootWatch of [...rootWatches.values()]) closeRootWatch(rootWatch)
+    watchSessions.clear()
+    if (inFlightWatchOps.size > 0) {
+      await Promise.allSettled([...inFlightWatchOps])
+    }
+    for (const rootWatch of [...rootWatches.values()]) closeRootWatch(rootWatch)
+    watchSessions.clear()
+  }
+
+  const offLocalClients = typeof rt.onLocalFeedClients === 'function'
+    ? rt.onLocalFeedClients((count) => {
+      if (count > 0) {
+        if (orphanWatchTimer !== null) {
+          clearTimeout(orphanWatchTimer)
+          orphanWatchTimer = null
+        }
+        return
+      }
+      if (rootWatches.size === 0 || orphanWatchTimer !== null) return
+      const graceMs = Number.isFinite(rt.workspaceWatchOrphanGraceMs) && rt.workspaceWatchOrphanGraceMs >= 0
+        ? rt.workspaceWatchOrphanGraceMs
+        : ORPHAN_WATCH_GRACE_MS
+      orphanWatchTimer = setTimeout(() => {
+        orphanWatchTimer = null
+        if (typeof rt.localFeedClientCount === 'function' && rt.localFeedClientCount() > 0) return
+        if (rootWatches.size > 0) rt.invalidateFeedReplay?.()
+        void closeAllWatches()
+      }, graceMs)
+      orphanWatchTimer.unref?.()
+    })
+    : null
 
   const emitLocal = (event, data) => {
     if (typeof rt.publishLocalFeed === 'function') rt.publishLocalFeed(event, data)
-    else rt.publishFeed?.(event, data)
   }
 
   // Mirror folders.js's team-workspace exception strictly when `defaultTeamFolder()` is used
@@ -294,8 +585,369 @@ export function install(rt) {
     }
   }
 
+  async function watchWorkspace(realRoot, body = {}) {
+    if (disposed) throw refused('Host is shutting down')
+    const requestedId = typeof body.watchId === 'string' && body.watchId.trim() !== '' ? body.watchId.trim() : null
+    const extraDirs = Array.isArray(body.dirs)
+      ? body.dirs.filter(d => typeof d === 'string' && d !== '' && !isIgnoredWatchRel(d)).slice(0, MAX_WATCH_DIRS)
+      : []
+    const watchFn = typeof rt.watchWorkspaceDir === 'function' ? rt.watchWorkspaceDir : fsWatch
+    const platform = typeof rt.watchPlatform === 'string' ? rt.watchPlatform : process.platform
+    const allowRecursive = platform === 'darwin' || platform === 'win32'
+    const debounceMs = Number.isFinite(rt.workspaceWatchDebounceMs) && rt.workspaceWatchDebounceMs >= 0
+      ? rt.workspaceWatchDebounceMs
+      : WATCH_DEBOUNCE_MS
+    const maxWaitMs = Number.isFinite(rt.workspaceWatchMaxWaitMs) && rt.workspaceWatchMaxWaitMs >= debounceMs
+      ? rt.workspaceWatchMaxWaitMs
+      : Math.max(debounceMs * 4, WATCH_MAX_WAIT_MS)
+    const pollMs = Number.isFinite(rt.workspaceWatchPollMs) && rt.workspaceWatchPollMs >= 20
+      ? rt.workspaceWatchPollMs
+      : WATCH_POLL_MS
+
+    const flushRoot = (rootWatch) => {
+      if (rootWatch.debounceTimer !== null) {
+        clearTimeout(rootWatch.debounceTimer)
+        rootWatch.debounceTimer = null
+      }
+      if (rootWatch.maxWaitTimer !== null) {
+        clearTimeout(rootWatch.maxWaitTimer)
+        rootWatch.maxWaitTimer = null
+      }
+      if (rootWatch.closed || disposed || rootWatch.sessions.size === 0) {
+        rootWatch.dirtyPaths.clear()
+        rootWatch.overflow = false
+        return
+      }
+      const paths = [...rootWatch.dirtyPaths]
+      const overflow = rootWatch.overflow
+      rootWatch.dirtyPaths.clear()
+      rootWatch.overflow = false
+      const watchIds = [...rootWatch.sessions].map(s => s.id)
+      emitLocal('workspace-changed', {
+        watchId: watchIds[0] ?? null,
+        watchIds,
+        root: rootWatch.root,
+        paths,
+        overflow,
+      })
+    }
+
+    const queueChange = (rootWatch, rel) => {
+      if (rootWatch.closed || disposed) return
+      if (rel && isIgnoredWatchRel(rel)) return
+      if (rel) {
+        if (rootWatch.dirtyPaths.size < MAX_WATCH_PATHS_PER_EVENT) rootWatch.dirtyPaths.add(rel)
+        else rootWatch.overflow = true
+      }
+      if (rootWatch.debounceTimer !== null) clearTimeout(rootWatch.debounceTimer)
+      rootWatch.debounceTimer = setTimeout(() => { flushRoot(rootWatch) }, debounceMs)
+      rootWatch.debounceTimer.unref?.()
+      if (rootWatch.maxWaitTimer === null) {
+        rootWatch.maxWaitTimer = setTimeout(() => { flushRoot(rootWatch) }, maxWaitMs)
+        rootWatch.maxWaitTimer.unref?.()
+      }
+    }
+
+    const unionDirsOf = (rootWatch) => {
+      const merged = new Set()
+      for (const session of rootWatch.sessions) {
+        for (const d of session.dirs) {
+          if (merged.size >= MAX_WATCH_DIRS) break
+          merged.add(d)
+        }
+      }
+      return [...merged]
+    }
+
+    const maxPollEntries = Number.isInteger(rt.workspaceWatchPollMaxEntries) && rt.workspaceWatchPollMaxEntries > 0
+      ? rt.workspaceWatchPollMaxEntries
+      : MAX_POLL_DIR_ENTRIES
+
+    const dirFingerprint = async (dirAbs, rootWatch) => {
+      const dirInfo = await stat(dirAbs)
+      const entries = await readdir(dirAbs, { withFileTypes: true })
+      const visibleNames = []
+      for (const entry of entries) {
+        if (DEFAULT_IGNORED_NAMES.has(entry.name)) continue
+        visibleNames.push(entry.name)
+      }
+      visibleNames.sort()
+      const overflow = visibleNames.length > maxPollEntries
+      const bounded = overflow ? visibleNames.slice(0, maxPollEntries) : visibleNames
+      const parts = Array.from({ length: bounded.length })
+      let next = 0
+      const inspect = async () => {
+        while (next < bounded.length && !rootWatch.closed && !disposed) {
+          const at = next++
+          const name = bounded[at]
+          try {
+            const info = await stat(join(dirAbs, name))
+            parts[at] = `${name}:${info.isDirectory() ? 'd' : 'f'}:${info.size}:${Math.round(info.mtimeMs)}`
+          } catch { /* entry vanished mid-poll */ }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(PARALLEL_LIST_INSPECTS, bounded.length) }, inspect))
+      const header = `${Math.round(dirInfo.mtimeMs)}:${visibleNames.length}`
+      return {
+        fingerprint: `${header}|${parts.filter(Boolean).join('|')}`,
+        overflow,
+      }
+    }
+
+    const switchToPoll = (rootWatch) => {
+      if (rootWatch.closed || disposed) return
+      for (const watcher of rootWatch.watchers.values()) {
+        try { watcher.close() } catch { /* ignore */ }
+      }
+      rootWatch.watchers.clear()
+      rootWatch.mode = 'poll'
+      if (rootWatch.pollTimer !== null) return
+      let polling = false
+      const pollOnce = async () => {
+        if (polling || rootWatch.closed || disposed) return
+        polling = true
+        try {
+          const targets = [rootWatch.root]
+          for (const relDir of unionDirsOf(rootWatch)) {
+            if (rootWatch.closed || disposed) return
+            try {
+              const resolved = await resolveSafeTarget(rootWatch.root, relDir)
+              if (rootWatch.closed || disposed) return
+              const info = await stat(resolved)
+              if (info.isDirectory()) targets.push(resolved)
+            } catch { /* skip missing dir */ }
+          }
+          const keep = new Set(targets)
+          for (const key of [...rootWatch.pollSnapshot.keys()]) {
+            if (!keep.has(key)) rootWatch.pollSnapshot.delete(key)
+          }
+          for (const dirAbs of targets) {
+            if (rootWatch.closed || disposed) return
+            try {
+              const { fingerprint: fp, overflow } = await dirFingerprint(dirAbs, rootWatch)
+              if (rootWatch.closed || disposed) return
+              const prev = rootWatch.pollSnapshot.get(dirAbs)
+              rootWatch.pollSnapshot.set(dirAbs, fp)
+              if (prev !== undefined && prev !== fp) {
+                if (overflow) rootWatch.overflow = true
+                queueChange(rootWatch, toPosixRel(rootWatch.root, dirAbs))
+              }
+            } catch { /* dir removed */ }
+          }
+        } finally {
+          polling = false
+        }
+      }
+      const initialPoll = trackWatchOp(pollOnce())
+      rootWatch.pollTimer = setInterval(() => {
+        void trackWatchOp(pollOnce())
+      }, pollMs)
+      rootWatch.pollTimer.unref?.()
+      return initialPoll
+    }
+
+    const attachDirWatcher = (rootWatch, dirAbs, relPrefix, recursive) => {
+      if (rootWatch.closed || disposed) return false
+      if (rootWatch.watchers.has(dirAbs)) return true
+      const onChange = (_eventType, filename) => {
+        if (rootWatch.closed || disposed) return
+        const name = typeof filename === 'string' ? filename : (filename ? String(filename) : '')
+        const normalized = name.replace(/\\/g, '/').replace(/^\/+/, '')
+        const rel = relPrefix ? (normalized ? `${relPrefix}/${normalized}` : relPrefix) : normalized
+        queueChange(rootWatch, rel)
+      }
+      const watcher = watchFn(dirAbs, { recursive, persistent: false }, onChange)
+      if (rootWatch.closed || disposed) {
+        try { watcher.close() } catch { /* ignore */ }
+        return false
+      }
+      watcher.on?.('error', (error) => {
+        try { watcher.close() } catch { /* ignore */ }
+        rootWatch.watchers.delete(dirAbs)
+        if (!rootWatch.closed && !disposed && isWatchLimitError(error)) {
+          switchToPoll(rootWatch)
+        }
+      })
+      rootWatch.watchers.set(dirAbs, watcher)
+      return true
+    }
+
+    const syncDirsForRoot = async (rootWatch) => {
+      if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+      const wanted = new Set([rootWatch.root])
+      for (const relDir of unionDirsOf(rootWatch)) {
+        if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+        if (wanted.size >= MAX_WATCH_DIRS + 1) break
+        try {
+          const resolved = await resolveSafeTarget(rootWatch.root, relDir)
+          if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+          const info = await stat(resolved)
+          if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+          if (!info.isDirectory()) continue
+          wanted.add(resolved)
+          try {
+            attachDirWatcher(rootWatch, resolved, toPosixRel(rootWatch.root, resolved), false)
+          } catch (error) {
+            if (isWatchLimitError(error)) {
+              switchToPoll(rootWatch)
+              return
+            }
+            /* skip transient per-dir errors (e.g. ENOENT / EACCES) without downgrading healthy dirs */
+          }
+        } catch { /* skip missing/invalid dir */ }
+      }
+      if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+      for (const [watchedAbs, watcher] of [...rootWatch.watchers.entries()]) {
+        if (!wanted.has(watchedAbs)) {
+          try { watcher.close() } catch { /* ignore */ }
+          rootWatch.watchers.delete(watchedAbs)
+        }
+      }
+    }
+
+    const rootKey = rootKeyOf(realRoot)
+
+    // Reuse or replace an existing watch session id.
+    const existingSession = requestedId ? watchSessions.get(requestedId) : undefined
+    if (existingSession && existingSession.rootKey === rootKey && !existingSession.closed) {
+      const rootWatch = rootWatches.get(rootKey)
+      if (rootWatch && !rootWatch.closed) {
+        existingSession.dirs = new Set(extraDirs)
+        existingSession.lastActiveAt = Date.now()
+        if (rootWatch.mode === 'dirs') {
+          await trackWatchOp(syncDirsForRoot(rootWatch))
+        }
+        if (disposed || rootWatch.closed || existingSession.closed) {
+          if (rootWatch.sessions.size === 0) closeRootWatch(rootWatch)
+          return { watchId: null, root: realRoot, recursive: false, mode: 'closed' }
+        }
+        return {
+          watchId: existingSession.id,
+          root: rootWatch.root,
+          recursive: rootWatch.mode === 'recursive',
+          mode: rootWatch.mode,
+        }
+      }
+    }
+    if (existingSession) unwatchWorkspace({ watchId: existingSession.id })
+
+    // Bound total watch sessions by evicting the oldest session.
+    while (watchSessions.size >= MAX_WATCHES) {
+      const oldest = watchSessions.values().next().value
+      if (!oldest) break
+      unwatchWorkspace({ watchId: oldest.id })
+    }
+
+    let rootWatch = rootWatches.get(rootKey)
+    const createdRoot = !rootWatch || rootWatch.closed
+    if (createdRoot) {
+      while (rootWatches.size >= MAX_WATCH_ROOTS) {
+        const oldestRoot = rootWatches.values().next().value
+        if (!oldestRoot) break
+        closeRootWatch(oldestRoot)
+      }
+      rootWatch = {
+        key: rootKey,
+        root: realRoot,
+        mode: 'dirs',
+        watchers: new Map(),
+        pollTimer: null,
+        pollSnapshot: new Map(),
+        sessions: new Set(),
+        dirtyPaths: new Set(),
+        overflow: false,
+        debounceTimer: null,
+        maxWaitTimer: null,
+        closed: false,
+      }
+      rootWatches.set(rootKey, rootWatch)
+    }
+
+    const id = requestedId ?? `watch-${randomUUID().slice(0, 8)}`
+    const session = {
+      id,
+      rootKey,
+      root: realRoot,
+      dirs: new Set(extraDirs),
+      closed: false,
+      lastActiveAt: Date.now(),
+    }
+    watchSessions.set(id, session)
+    rootWatch.sessions.add(session)
+
+    let initialPoll = null
+    if (createdRoot) {
+      let attached = false
+      if (allowRecursive) {
+        try {
+          attached = attachDirWatcher(rootWatch, realRoot, '', true)
+          if (attached) rootWatch.mode = 'recursive'
+        } catch {
+          attached = false
+        }
+      }
+      if (!attached && !rootWatch.closed && !disposed) {
+        try {
+          attached = attachDirWatcher(rootWatch, realRoot, '', false)
+          if (attached) rootWatch.mode = 'dirs'
+        } catch {
+          initialPoll = switchToPoll(rootWatch)
+        }
+      }
+    }
+
+    if (initialPoll) await initialPoll
+    if (!rootWatch.closed && !session.closed && !disposed && rootWatch.mode === 'dirs') {
+      await trackWatchOp(syncDirsForRoot(rootWatch))
+    }
+
+    if (disposed || rootWatch.closed || session.closed) {
+      if (rootWatch.sessions.size === 0) closeRootWatch(rootWatch)
+      return { watchId: null, root: realRoot, recursive: false, mode: 'closed' }
+    }
+
+    return {
+      watchId: id,
+      root: rootWatch.root,
+      recursive: rootWatch.mode === 'recursive',
+      mode: rootWatch.mode,
+    }
+  }
+
+  function unwatchWorkspace(body = {}) {
+    const watchId = typeof body.watchId === 'string' ? body.watchId.trim() : ''
+    if (watchId === '') return { ok: true, removed: false }
+    const session = watchSessions.get(watchId)
+    if (!session) return { ok: true, removed: false }
+    session.closed = true
+    watchSessions.delete(watchId)
+    const rootWatch = rootWatches.get(session.rootKey)
+    if (rootWatch) {
+      rootWatch.sessions.delete(session)
+      if (rootWatch.sessions.size === 0) {
+        closeRootWatch(rootWatch)
+      } else if (rootWatch.mode === 'dirs' && !rootWatch.closed && !disposed) {
+        // Drop OS dir watches that were only held by the departing session.
+        const wanted = new Set([rootWatch.root])
+        for (const other of rootWatch.sessions) {
+          for (const relDir of other.dirs) {
+            wanted.add(resolve(rootWatch.root, relDir))
+          }
+        }
+        for (const [watchedAbs, watcher] of [...rootWatch.watchers.entries()]) {
+          if (!wanted.has(watchedAbs)) {
+            try { watcher.close() } catch { /* ignore */ }
+            rootWatch.watchers.delete(watchedAbs)
+          }
+        }
+      }
+    }
+    return { ok: true, removed: true }
+  }
+
   async function workspaceEndpoint(name, body = {}, signal) {
     if (name === 'changes') return changesDetail(body, signal)
+    if (name === 'unwatch') return unwatchWorkspace(body)
     const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
     let realRoot
     try {
@@ -310,7 +962,10 @@ export function install(rt) {
 
     if (typeof body.expectedRoot === 'string' && body.expectedRoot !== '') {
       const expected = await rt.real(body.expectedRoot)
-      if (expected !== realRoot) {
+      const sameRoot = process.platform === 'win32'
+        ? expected.toLowerCase() === realRoot.toLowerCase()
+        : expected === realRoot
+      if (!sameRoot) {
         throw Object.assign(new Error('Workspace folder changed'), { code: 'bot/stale' })
       }
     }
@@ -353,13 +1008,35 @@ export function install(rt) {
       }
     }
 
+    if (name === 'watch') {
+      return await watchWorkspace(realRoot, body)
+    }
+
+    if (name === 'open') {
+      if (body.action !== undefined && body.action !== 'open' && body.action !== 'reveal') {
+        throw invalid(`Unsupported workspace open action: ${String(body.action)}`)
+      }
+      const action = body.action === 'open' ? 'open' : 'reveal'
+      const target = await resolveSafeTarget(realRoot, body.path ?? '')
+      const info = await stat(target)
+      const isDirectory = info.isDirectory()
+      if (!isDirectory && !info.isFile()) throw invalid('Path is neither a file nor a folder')
+      if (typeof rt.openWorkspacePath === 'function') {
+        await rt.openWorkspacePath({ target, root: realRoot, action, isDirectory })
+      } else {
+        await openOsPath(target, action, isDirectory)
+      }
+      return { ok: true, action, path: toPosixRel(realRoot, target) }
+    }
+
     if (name === 'read') {
       if (typeof body.path !== 'string' || body.path === '') throw invalid('A file path is required')
       const target = await resolveSafeTarget(realRoot, body.path)
       const info = await stat(target)
-      if (!info.isFile()) throw invalid('Path is not a file')
-      const fileName = basename(target)
+      const fileName = basename(target) || basename(realRoot) || realRoot
       const relPath = toPosixRel(realRoot, target)
+      if (info.isDirectory()) return { kind: 'dir', name: fileName, path: relPath, root: realRoot }
+      if (!info.isFile()) throw invalid('Path is not a file')
       const ext = extname(fileName).toLowerCase()
 
       if (ext === '.pdf') {
@@ -383,6 +1060,24 @@ export function install(rt) {
       if (OFFICE_EXTS.has(ext)) {
         if (info.size > MAX_OFFICE_INPUT_BYTES) {
           return { kind: 'too-large', name: fileName, path: relPath, size: info.size, maxBytes: MAX_OFFICE_INPUT_BYTES }
+        }
+        if (XLSX_EXTS.has(ext) && body.format !== 'pdf') {
+          try {
+            const { bytes, truncated } = await readBoundedBytes(target, MAX_OFFICE_INPUT_BYTES)
+            if (!truncated) {
+              const parsed = await parseXlsxBuffer(bytes)
+              return {
+                kind: 'spreadsheet',
+                ext,
+                name: fileName,
+                path: relPath,
+                size: info.size,
+                ...parsed,
+              }
+            }
+          } catch {
+            // Fall through to LibreOffice PDF conversion for encrypted or non-standard workbooks.
+          }
         }
         try {
           const converted = await convertOfficeToPdf(target, ext, signal)
@@ -475,10 +1170,65 @@ export function install(rt) {
     return diff
   }
 
+  // Output positions count scrollback parts, not bytes: a client that holds part N asks
+  // for N + 1, and trimming drops whole parts so the position never lands inside one.
   const appendScrollback = (term, chunk) => {
     if (!chunk) return
-    const next = term.buffer + chunk
-    term.buffer = next.length > TERMINAL_SCROLLBACK_CHARS ? next.slice(next.length - TERMINAL_SCROLLBACK_CHARS) : next
+    let at = 0
+    while (at < chunk.length) {
+      let end = Math.min(at + TERMINAL_SCROLLBACK_PART_CHARS, chunk.length)
+      const code = chunk.charCodeAt(end - 1)
+      if (end < chunk.length && end > at + 1 && code >= 0xd800 && code <= 0xdbff) end -= 1
+      const text = chunk.slice(at, end)
+      term.endSeq += 1
+      term.parts.push({ seq: term.endSeq, text })
+      term.buffer += text
+      at = end
+    }
+  }
+
+  // Trim only between batches: output already collected for the next event keeps its
+  // part metadata until that event has been emitted, so positions never rewrite a batch.
+  const trimScrollback = (term) => {
+    while (term.buffer.length > TERMINAL_SCROLLBACK_CHARS && term.parts.length > 1) {
+      const first = term.parts.shift()
+      term.buffer = term.buffer.slice(first.text.length)
+    }
+    term.startSeq = term.parts[0]?.seq ?? term.endSeq + 1
+  }
+
+  const readScrollback = (term, after = 0) => {
+    if (!Number.isSafeInteger(after) || after < 0) throw invalid('after must be a non-negative whole number')
+    const truncated = after + 1 < term.startSeq
+    const from = Math.max(after, term.startSeq - 1)
+    const parts = term.parts.filter(part => part.seq > from).map(part => ({ seq: part.seq, text: part.text }))
+    return {
+      id: term.id,
+      start: term.startSeq,
+      end: term.endSeq,
+      truncated,
+      parts,
+      chunk: parts.map(part => part.text).join(''),
+      exited: term.exited,
+      exitCode: term.exitCode,
+    }
+  }
+
+  const terminalListEntry = (term, positions) => {
+    const base = {
+      id: term.id,
+      cwd: term.cwd,
+      title: term.title,
+      pty: term.pty,
+      exited: term.exited,
+      exitCode: term.exitCode,
+      start: term.startSeq,
+      end: term.endSeq,
+    }
+    if (positions === undefined) return { ...base, snapshot: term.buffer }
+    const after = Object.hasOwn(positions, term.id) ? positions[term.id] : undefined
+    const { chunk, ...catchup } = readScrollback(term, after ?? 0)
+    return { ...base, ...catchup, cwd: term.cwd, title: term.title, pty: term.pty }
   }
 
   async function openTerminal(body = {}, signal) {
@@ -504,6 +1254,7 @@ export function install(rt) {
       const subprocess = ctx.get?.('subprocess')
       let record
       let pendingOut = ''
+      let pendingStart = 0
       let flushTimer = null
       const clearBatch = () => {
         if (flushTimer !== null) {
@@ -511,6 +1262,7 @@ export function install(rt) {
           flushTimer = null
         }
         pendingOut = ''
+        pendingStart = 0
       }
       const flush = () => {
         flushTimer = null
@@ -519,12 +1271,19 @@ export function install(rt) {
           return
         }
         const chunk = pendingOut
+        const start = pendingStart
+        const end = record.endSeq
+        const parts = record.parts.filter(part => part.seq >= start && part.seq <= end).map(part => ({ seq: part.seq, text: part.text }))
         pendingOut = ''
-        emitLocal('terminal', { id, chunk })
+        pendingStart = 0
+        emitLocal('terminal', { id, chunk, start, end, parts })
+        trimScrollback(record)
       }
       const enqueueChunk = (text) => {
         if (!text || !record || record.closed) return
+        const before = record.endSeq
         appendScrollback(record, text)
+        if (pendingOut === '') pendingStart = before + 1
         pendingOut += text
         if (flushTimer === null) {
           flushTimer = setTimeout(flush, TERMINAL_BATCH_MS)
@@ -540,7 +1299,7 @@ export function install(rt) {
           return
         }
         if (flushTimer !== null) { clearTimeout(flushTimer); flush() }
-        emitLocal('terminal-exit', { id, code: record.exitCode })
+        emitLocal('terminal-exit', { id, code: record.exitCode, end: record.endSeq })
       }
 
       if (typeof subprocess?.spawnTerminal === 'function') {
@@ -568,6 +1327,9 @@ export function install(rt) {
           closed: false,
           exitCode: null,
           buffer: '',
+          parts: [],
+          startSeq: 1,
+          endSeq: 0,
           write: data => handle.write(data),
           resize: (c, r) => handle.resize(c, r),
           terminate: async () => {
@@ -615,6 +1377,9 @@ export function install(rt) {
           closed: false,
           exitCode: null,
           buffer: '',
+          parts: [],
+          startSeq: 1,
+          endSeq: 0,
           write: async (data) => {
             if (record.exited || record.closed) return
             // Non-PTY fallback has no foreground job group, so Ctrl+C cannot interrupt a
@@ -676,20 +1441,21 @@ export function install(rt) {
 
   async function terminalEndpoint(name, body = {}, signal) {
     if (name === 'list') {
-      return [...terminals.values()].map(term => ({
-        id: term.id,
-        cwd: term.cwd,
-        title: term.title,
-        pty: term.pty,
-        exited: term.exited,
-        exitCode: term.exitCode,
-        snapshot: term.buffer,
-      }))
+      const positions = body.positions !== null && typeof body.positions === 'object' && !Array.isArray(body.positions) ? body.positions : undefined
+      if (positions !== undefined) {
+        for (const value of Object.values(positions)) {
+          if (!Number.isSafeInteger(value) || value < 0) throw invalid('Terminal positions must be non-negative whole numbers')
+        }
+      }
+      return [...terminals.values()].map(term => terminalListEntry(term, positions))
     }
     if (name === 'open') return openTerminal(body, signal)
     const id = typeof body.id === 'string' ? body.id : ''
     const term = terminals.get(id)
     if (term === undefined) throw notFound('Unknown terminal')
+    if (name === 'read') {
+      return readScrollback(term, body.after ?? 0)
+    }
     if (name === 'input') {
       if (typeof body.data !== 'string') throw invalid('Input data must be a string')
       if (body.data.length > 64 * 1024) throw invalid('Input chunk is too large')
@@ -710,6 +1476,8 @@ export function install(rt) {
 
   async function terminalDispose() {
     disposed = true
+    offLocalClients?.()
+    await closeAllWatches()
     const pending = [...inFlightSpawns]
     const active = [...terminals.values()]
     terminals.clear()

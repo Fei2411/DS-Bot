@@ -78,15 +78,197 @@ test('openFeed escalates backoff on repeated 200-EOF responses, resets on valid 
   fireTimer()
   await tick()
   await tick()
-  assert.equal(calls, 5, 'oversized incomplete SSE frame throws and transitions to retry')
+  assert.equal(calls, 5, 'oversized incomplete SSE frame throws and stops reconnecting')
   assert.equal(overflowCancelled, true, 'oversized SSE stream reader must be cancelled')
   assert.equal(overflowSignal?.aborted, true, 'oversized SSE fetch controller must be aborted')
-  assert.equal(pendingTimers.size, 1, 'retry timer is armed before stop()')
+  assert.equal(pendingTimers.size, 0, 'oversized SSE frame stops retry loop instead of retrying forever')
+  assert.equal(events.some(([ev, data]) => ev === 'error' && data?.code === 'bot/stream-overflow'), true, 'oversized SSE frame emits visible terminal error')
   stop()
-  assert.equal(pendingTimers.size, 0, 'stop() cancels active backoff timer immediately')
+  assert.equal(pendingTimers.size, 0, 'stop() leaves no active timers')
 })
 
-test('createTeam pauses catch-up polling while hidden, caches sessionHook, prunes deleted sessions, and fires noteLive only on stream transitions', async () => {
+test('openFeed passes after, boot, and Last-Event-ID on reconnect and parses chunk-split CRLF/frame boundaries', async (t) => {
+  const origFetch = globalThis.fetch
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  t.after(() => {
+    globalThis.fetch = origFetch
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+  globalThis.setTimeout = () => 1
+  globalThis.clearTimeout = () => {}
+
+  const requests = []
+  const events = []
+  let calls = 0
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url, headers: init?.headers })
+    calls += 1
+    if (calls === 1) {
+      // Split CRLF (\r | \n), frame separator (\n | \n), and boot-scoped SSE id (`b-1:8`) across chunks.
+      return {
+        ok: true,
+        status: 200,
+        body: makeStream([
+          'id: b-1:7\r',
+          '\nevent: hello\r\ndata: {"revision":1,"boot":"b-1","feedSeq":7,"resumed":false}\r\n\r',
+          '\nid: b-1:8\nevent: live\ndata: {}\n',
+          '\n: rotate\n\n',
+        ]),
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        getReader() {
+          let sent = false
+          return {
+            async read() {
+              if (!sent) {
+                sent = true
+                return { value: new TextEncoder().encode('id: b-1:8\nevent: hello\ndata: {"revision":1,"boot":"b-1","feedSeq":8,"resumed":true}\n\n'), done: false }
+              }
+              return await new Promise(() => {})
+            },
+            async cancel() {},
+          }
+        },
+      },
+    }
+  }
+
+  const stop = openFeed((event, data) => events.push([event, data]))
+  await tick()
+  await tick()
+  await tick()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].url, 'api/bot/feed')
+  assert.equal(requests[1].url, 'api/bot/feed?after=8&boot=b-1')
+  assert.equal(requests[1].headers?.['Last-Event-ID'], 'b-1:8')
+  assert.deepEqual(events, [
+    ['hello', { revision: 1, boot: 'b-1', feedSeq: 7, resumed: false }],
+    ['live', {}],
+    ['hello', { revision: 1, boot: 'b-1', feedSeq: 8, resumed: true }],
+  ])
+  stop()
+})
+
+test('openFeed decodes multi-byte UTF-8 characters split across SSE byte chunks without corruption', async (t) => {
+  const origFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = origFetch })
+
+  const full = new TextEncoder().encode('id: b-utf:1\nevent: message\ndata: {"text":"你好 🚀 世界"}\n\n')
+  // Split right inside multi-byte UTF-8 sequences (1-byte slices across the CJK and emoji bytes).
+  const chunks = []
+  for (let i = 0; i < full.length; i += 2) {
+    chunks.push(full.slice(i, i + 2))
+  }
+  let idx = 0
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (idx < chunks.length) return { value: chunks[idx++], done: false }
+            return await new Promise(() => {})
+          },
+          async cancel() {},
+        }
+      },
+    },
+  })
+
+  const events = []
+  const stop = openFeed((event, data) => events.push([event, data]))
+  for (let i = 0; i < chunks.length + 4; i += 1) await tick()
+  assert.deepEqual(events, [['message', { text: '你好 🚀 世界' }]])
+  stop()
+})
+
+test('openFeed reconnects immediately without backoff or lost event on server : rotate comment', async (t) => {
+  const origFetch = globalThis.fetch
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  t.after(() => {
+    globalThis.fetch = origFetch
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+
+  const delays = []
+  const pendingTimers = new Map()
+  let nextId = 1
+  globalThis.setTimeout = (fn, ms) => {
+    const id = nextId++
+    delays.push(ms)
+    pendingTimers.set(id, fn)
+    return id
+  }
+  globalThis.clearTimeout = (id) => { pendingTimers.delete(id) }
+
+  let calls = 0
+  const events = []
+  globalThis.fetch = async () => {
+    calls += 1
+    // 1st connection: hello followed by server-initiated `: rotate` -> must reconnect immediately with no timer and no `lost`.
+    if (calls === 1) return { ok: true, status: 200, body: makeStream(['event: hello\ndata: {"revision":1}\n\n', ': rotate\n\n']) }
+    // 2nd connection: delivers fresh hello then stays open until stop().
+    if (calls === 2) {
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          getReader() {
+            let sent = false
+            return {
+              async read() {
+                if (!sent) {
+                  sent = true
+                  return { value: new TextEncoder().encode('event: hello\ndata: {"revision":2}\n\n'), done: false }
+                }
+                return await new Promise(() => {})
+              },
+              async cancel() {},
+            }
+          },
+        },
+      }
+    }
+    return { ok: true, status: 200, body: makeStream([]) }
+  }
+
+  const stop = openFeed((event, data) => events.push([event, data]))
+  await tick()
+  await tick()
+  await tick()
+  assert.equal(calls, 2, 'server : rotate triggers immediate second fetch without waiting on setTimeout')
+  assert.deepEqual(delays, [], 'no backoff timer scheduled on clean : rotate')
+  assert.deepEqual(events, [
+    ['hello', { revision: 1 }],
+    ['hello', { revision: 2 }],
+  ], 'no synthetic lost event emitted on clean : rotate')
+  stop()
+
+  // Guard: a bare `: rotate` with NO prior event still backs off instead of tight-spinning.
+  calls = 0
+  delays.length = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return { ok: true, status: 200, body: makeStream([': rotate\n\n']) }
+  }
+  const stop2 = openFeed(() => {})
+  await tick()
+  await tick()
+  assert.equal(calls, 1)
+  assert.deepEqual(delays, [500], 'bare : rotate without hello falls back to normal backoff')
+  stop2()
+})
+
+test('createTeam pauses catch-up polling while hidden, caches sessionHook, prunes deleted sessions, and fires noteLive only on stream transitions', async (t) => {
   const { outputFiles } = await build({
     entryPoints: [fileURLToPath(new URL('../ui/src/team.js', import.meta.url))],
     bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -136,6 +318,8 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   }
   const module = { exports: {} }
   const storageData = new Map()
+  let nextRead
+  let delayedSave
   const localStorage = {
     getItem: k => storageData.get(k) ?? null,
     setItem: (k, v) => storageData.set(k, String(v)),
@@ -144,8 +328,28 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   const sandbox = {
     module,
     exports: module.exports,
-    __call: async (name) => {
-      if (name === 'state') { pullCount += 1; return rosterValue }
+    __call: async (name, body) => {
+      if (name === 'state') {
+        pullCount += 1
+        if (nextRead) {
+          const read = nextRead
+          nextRead = undefined
+          return read.promise
+        }
+        if (body.since === rosterValue.revision) return { revision: rosterValue.revision, unchanged: true }
+        return rosterValue
+      }
+      if (name === 'section-save') {
+        const section = { ...rosterValue.sections[0], collapsed: body.collapsed }
+        rosterValue = { ...rosterValue, revision: rosterValue.revision + 1, sections: [section] }
+        const reply = body.withRevision ? { section, revision: rosterValue.revision } : section
+        if (delayedSave) {
+          const delay = delayedSave
+          delayedSave = undefined
+          await delay.promise
+        }
+        return reply
+      }
       return {}
     },
     __feedCb: null,
@@ -186,8 +390,10 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
 
   // 2. Start team: catch-up interval pauses when hidden and catches up on visibilitychange.
   const stop = team.start()
+  t.after(stop)
   await tick()
   assert.equal(pullCount, 1)
+  assert.equal(team.snapshots.shown(), 'b1', 'Bot mode lands on the Main Bot immediately on first pull without a 400 ms blank delay')
   assert.equal(intervalsStarted, 1)
   assert.ok(intervalCb !== null)
 
@@ -222,7 +428,36 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
     'noteLive fires once on stream text start and once on stream end across 10 deltas',
   )
 
-  // 4. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
+  // 4. Replies arriving while Inbox covers the active chat and group notices mark completionUnread, and closing Inbox clears the active chat.
+  rosterValue = {
+    ...rosterValue,
+    revision: 2,
+    rooms: [{ id: 'r1', sessionId: 'r1', name: 'Ops', members: ['b1', 'b2'] }],
+  }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  team.actions.openSession('b1')
+  team.actions.openInbox()
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', text: 'while inbox open', time: 110 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update', time: 111 })
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'active chat reply marks unread while Inbox covers it')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'group reply notice marks group unread')
+  // Opening r1 from Inbox clears r1 without clearing b1!
+  team.actions.openSession('r1')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'opening the group clears its unread flag')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'opening r1 from Inbox preserves b1 unread')
+  // Opening Inbox over r1, receiving a reply on r1, switching to New chat, then dismissing New chat clears r1 on reveal.
+  team.actions.openInbox()
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update 2', time: 112 })
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true)
+  team.actions.openNewChat('bot')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'replacing Inbox with New chat keeps covered chat unread')
+  team.actions.closeNewChat()
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'dismissing New chat reveals r1 and clears its unread flag')
+  team.actions.openSession('b1')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), false)
+
+  // 5. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
   team.actions.noteSent('b2')
   sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', text: 'bye', time: 100 } })
   const hookB2Before = team.sessionHook('b2')
@@ -231,8 +466,9 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
 
   rosterValue = {
     ...rosterValue,
-    revision: 2,
+    revision: 3,
     bots: [{ id: 'b1', sessionId: 'b1', name: 'Alpha', parts: ['b1'] }],
+    rooms: [],
   }
   sandbox.__feedCb('revision', {})
   await tick()
@@ -240,6 +476,142 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   assert.equal(team.hooks.useSessionStatus(map => map.has('b2')), false, 'deleted session pruned from status')
   assert.notEqual(team.sessionHook('b2'), hookB2Before, 'deleted session pruned from sessionHook cache')
 
+  await t.test('a read from another window wins over an older fold acknowledgement', async () => {
+    rosterValue = { ...rosterValue, revision: 4, sections: [{ id: 'work', name: 'Work' }] }
+    intervalCb()
+    await tick()
+    const snapshot = () => team.snapshots.roster()
+
+    for (const replyFirst of [true, false]) {
+      const saveGate = delayedSave = Promise.withResolvers()
+      const collapse = team.actions.saveSection({ id: 'work', collapsed: true })
+      await tick()
+      assert.equal(rosterValue.sections[0].collapsed, true)
+      const readGate = nextRead = Promise.withResolvers()
+      sandbox.__feedCb('revision', {})
+      await sandbox.__call('section-save', { id: 'work', collapsed: false })
+      const deliverSave = async () => {
+        saveGate.resolve()
+        await collapse
+      }
+      const deliverRead = async () => {
+        readGate.resolve(rosterValue)
+        await tick()
+      }
+      if (replyFirst) {
+        await deliverSave()
+        assert.equal(snapshot().sections[0].collapsed, true)
+        await deliverRead()
+      } else {
+        await deliverRead()
+        await deliverSave()
+      }
+      intervalCb()
+      await tick()
+      assert.equal(snapshot().revision, rosterValue.revision)
+      assert.equal(snapshot().sections[0].collapsed, false, `newer fold wins (save reply first: ${replyFirst})`)
+    }
+  })
+
+  await t.test('selectPanel routes workspace tabs, schedules, plugins, connectors, and unknown panels cleanly', () => {
+    team.actions.selectPanel('files')
+    assert.equal(team.hooks.useUi(s => s.rightPanel?.tab), 'files')
+    team.actions.selectPanel('schedules')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'schedules', id: null })
+    team.actions.selectPanel('plugins')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'plugins', id: null })
+    team.actions.selectPanel('connectors')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'connectors', id: null })
+    team.actions.selectPanel('unknown')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'overview', id: null })
+    team.actions.closeSettings()
+  })
+
+  // 6. Clean resumed hello does not trigger state pull; unresumed hello does; hidden window defers live pull until visible; lost > 2s surfaces reconnecting state.
+  const pullsBeforeResumed = pullCount
+  sandbox.__feedCb('hello', { revision: rosterValue.revision, feedSeq: 5, resumed: true })
+  await tick()
+  assert.equal(pullCount, pullsBeforeResumed, 'hello { resumed: true } must not trigger a redundant state pull')
+
+  sandbox.__feedCb('hello', { revision: rosterValue.revision, feedSeq: 5, resumed: false })
+  await tick()
+  assert.equal(pullCount, pullsBeforeResumed + 1, 'hello { resumed: false } triggers catch-up state pull')
+
+  // Hidden window defers live-triggered pull until visible again.
+  const pullsWhileHidden = pullCount
+  isHidden = true
+  docListeners.get('visibilitychange')()
+  sandbox.__feedCb('live', {})
+  await tick()
+  assert.equal(pullCount, pullsWhileHidden, 'live event while hidden does not trigger immediate state pull')
+  isHidden = false
+  docListeners.get('visibilitychange')()
+  await tick()
+  assert.equal(pullCount, pullsWhileHidden + 1, 'becoming visible flushes deferred pull')
+
+  // Disconnect visibility: lost > 2s marks reconnecting, hello clears it; fatal stream error surfaces error state.
+  assert.equal(team.hooks.useConnection(c => c.status), 'connected')
+  sandbox.__feedCb('lost', {})
+  assert.equal(team.hooks.useConnection(c => c.status), 'connected', 'brief lost does not flash reconnecting immediately')
+  await new Promise(resolve => setTimeout(resolve, 2100))
+  assert.equal(team.hooks.useConnection(c => c.status), 'reconnecting', 'lost > 2s shows reconnecting banner')
+  sandbox.__feedCb('hello', { revision: rosterValue.revision, feedSeq: 6, resumed: true })
+  assert.equal(team.hooks.useConnection(c => c.status), 'connected', 'hello restores connected state')
+  sandbox.__feedCb('error', { code: 'bot/stream-overflow', message: 'SSE buffer limit exceeded', fatal: true })
+  assert.equal(team.hooks.useConnection(c => c.status), 'error', 'fatal SSE overflow surfaces visible error state')
+
+  // 7. When liveKey is unchanged on a state pull, pull skips per-field JSON.stringify comparisons.
+  rosterValue = { ...rosterValue, revision: 5, liveKey: 'lk-stable', connectors: [{ id: 'c1' }] }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  const origStringify = sandbox.JSON?.stringify ?? JSON.stringify
+  let stringifyCalls = 0
+  sandbox.JSON = Object.assign(Object.create(JSON), {
+    stringify: (...args) => { stringifyCalls += 1; return origStringify(...args) },
+    parse: JSON.parse,
+  })
+  nextRead = {
+    promise: Promise.resolve({ revision: 5, unchanged: true, liveKey: 'lk-stable', connectors: [{ id: 'c1' }], activity: {} }),
+  }
+  intervalCb()
+  await tick()
+  assert.equal(stringifyCalls, 0, 'unchanged liveKey skips all per-field JSON.stringify checks in pull()')
+  // 8. Feed resume replay must not double-count replyCount for background DMs, foreground DMs, or group notices.
+  rosterValue = {
+    ...rosterValue,
+    revision: 6,
+    bots: [
+      { id: 'b1', sessionId: 'b1', name: 'Alpha', parts: ['b1'] },
+      { id: 'b2', sessionId: 'b2', name: 'Beta', parts: ['b2'] },
+    ],
+    rooms: [{ id: 'r1', sessionId: 'r1', name: 'Ops', members: ['b1', 'b2'] }],
+  }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  team.actions.openSession('b1')
+  const b1Before = team.snapshots.sessions().byId.b1?.replyCount ?? 0
+  const b2Before = team.snapshots.sessions().byId.b2?.replyCount ?? 0
+  const r1Before = team.snapshots.sessions().byId.r1?.replyCount ?? 0
+  // Initial live arrivals on foreground b1 (delegated to SessionTranscript), background b2, and room r1.
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', seq: 10, text: 'fg', time: 500 } })
+  sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', seq: 20, text: 'bg', time: 501 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', seq: 7, text: 'room 1', time: 502 })
+  assert.equal(team.snapshots.sessions().byId.b1?.replyCount ?? 0, b1Before, 'foreground DM replyCount is delegated to SessionTranscript watermark')
+  assert.equal(team.snapshots.sessions().byId.b2?.replyCount ?? 0, b2Before + 1, 'background DM increments replyCount once')
+  assert.equal(team.snapshots.sessions().byId.r1?.replyCount ?? 0, r1Before + 1, 'group notice increments replyCount once')
+  // Resumed hello + replayed seqs must NOT increment replyCount again.
+  sandbox.__feedCb('hello', { revision: 6, feedSeq: 20, resumed: true })
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', seq: 10, text: 'fg', time: 500 } })
+  sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', seq: 20, text: 'bg', time: 501 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', seq: 7, text: 'room 1', time: 502 })
+  assert.equal(team.snapshots.sessions().byId.b1?.replyCount ?? 0, b1Before, 'replayed foreground DM does not increment replyCount')
+  assert.equal(team.snapshots.sessions().byId.b2?.replyCount ?? 0, b2Before + 1, 'replayed background DM seq does not increment replyCount')
+  assert.equal(team.snapshots.sessions().byId.r1?.replyCount ?? 0, r1Before + 1, 'replayed group notice seq does not increment replyCount')
+  // Newer live seqs after resume still increment replyCount cleanly.
+  sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', seq: 21, text: 'bg 2', time: 503 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', seq: 8, text: 'room 2', time: 504 })
+  assert.equal(team.snapshots.sessions().byId.b2?.replyCount ?? 0, b2Before + 2, 'newer background DM seq increments replyCount')
+  assert.equal(team.snapshots.sessions().byId.r1?.replyCount ?? 0, r1Before + 2, 'newer group notice seq increments replyCount')
   void liveUpdates
   void unsubLive
   stop()

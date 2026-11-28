@@ -5,43 +5,52 @@ import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOut
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
 export { settingsOwnsKeyboard }
-import { BotSettingsForm, Switch } from './bot-settings.js'
+import { Switch } from './bot-settings.js'
 import { Segmented, useGlide } from './motion.js'
-import { GroupSettingsForm, NewGroupForm } from './group-settings.js'
-import { CreateBot } from './create-bot.js'
-import { KeptPrivateSection } from './kept-private.js'
-import { KeyIcon, SecretsPage } from './secret-card.js'
-import { UsagePage } from './usage-page.js'
-import { ConnectorsPage } from './connectors-page.js'
-import { PhonePage } from './phone-page.js'
-import { ApiPage } from './api-page.js'
-import { ImPage } from './im-page.js'
-import { CapabilitiesPage } from './capability-settings.js'
-import { DeepSeekServicesPage } from './services-settings.js'
-import { BrowserPage } from './browser-settings.js'
-import { PluginsPage } from './plugins-page.js'
-import { ComputerPage } from './computer.js'
-import { SchedulesPage } from './schedules.js'
-import { FeedbackIcon, FeedbackPage } from './feedback.js'
-import { PrivacyPage } from './privacy-page.js'
-import { AboutPage } from './about.js'
-import { ProvidersPage } from './providers-page.js'
-import { LocalAgentsPage } from './local-agents-page.js'
-import { BotModelsPage } from './bot-models-page.js'
+import { KeyIcon } from './secret-card.js'
+import { FeedbackIcon } from './feedback.js'
 import { SettingsTour, canAutoStartTour, hasSectionTour, markTourSeen } from './settings-tour.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { SelectMenu } from './select-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
+import { requestWindowReload } from './reload-action.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
-import { AppearancePage } from './appearance-page.js'
-import { ShortcutsPage } from './shortcuts-page.js'
 import { isShortcutRecording } from './shortcuts-model.js'
 import { isImeComposing } from './enter-key.js'
-import { SettingsPalette, isMac } from './settings-palette.js'
-import { OverviewPage } from './settings-overview.js'
+import {
+  AboutPage,
+  ApiPage,
+  AppearancePage,
+  BotModelsPage,
+  BotSettingsForm,
+  BrowserPage,
+  CapabilitiesPage,
+  ComputerPage,
+  ConnectorsPage,
+  CreateBot,
+  DeepSeekServicesPage,
+  FeedbackPage,
+  GroupSettingsForm,
+  ImPage,
+  KeptPrivateSection,
+  LocalAgentsPage,
+  NewGroupForm,
+  OverviewPage,
+  PhonePage,
+  PluginsPage,
+  PrivacyPage,
+  ProvidersPage,
+  SchedulesPage,
+  SecretsPage,
+  SettingsPalette,
+  ShortcutsPage,
+  UsagePage,
+} from './settings-pages.js'
+
+const isMac = () => typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? '')
 
 
 // Settings dialog: a nav rail beside the page, with search on top. A domain with several
@@ -353,6 +362,19 @@ class PageBoundary extends Component {
   render() { return this.state.failed ? h('div', { className: 'bt-error', role: 'alert' }, t('This page could not be shown.')) : this.props.children }
 }
 
+// Isolates failures inside SettingsPalette (including lazy chunk errors) so the Settings
+// dialog stays open, the broken overlay dismisses cleanly, and retry works on reopen.
+class PaletteBoundary extends Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch(error) {
+    console.error('ds-bot: settings palette failed', error)
+    noteClientError('settings-palette', error)
+    this.props.onError?.(error)
+  }
+  render() { return this.state.failed ? null : this.props.children }
+}
+
 // Where a part of a scrolling page sits, for the anchor row: the last part whose top
 // has passed the top of the box, or the last one once the box is scrolled to its end.
 function partAt(box) {
@@ -375,6 +397,7 @@ const OWN_HEAD_PARTS = new Set(['groups', 'schedules', 'capabilities', 'feedback
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
   const [palette, setPalette] = useState(false)
+  const [paletteFailures, setPaletteFailures] = useState(0)
   const [advancedToken, setAdvancedToken] = useState(0)
   const [tour, setTour] = useState(() => (!leaving && (!page || page === 'overview' || page === 'general' || page === 'guide') && !id && canAutoStartTour() ? { mode: 'full', nonce: 1 } : null))
   const dialogRef = useRef(null)
@@ -577,7 +600,25 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     const settle = () => { if (!userScrolled.current) scrollToPart(shown, false) }
     const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(settle) : 0
     const later = setTimeout(settle, 420)
-    return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame); clearTimeout(later) }
+    // Lazy sibling sections above the target part may resolve after 420 ms and grow;
+    // keep re-anchoring until the user takes over scrolling or the settle window ends.
+    let observer = null
+    let stopObserve = 0
+    const box = scrollRef.current
+    if (box && typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => {
+        if (userScrolled.current) { observer?.disconnect(); observer = null; return }
+        settle()
+      })
+      for (const el of box.querySelectorAll?.('[data-part]') ?? []) observer.observe(el)
+      stopObserve = setTimeout(() => { observer?.disconnect(); observer = null }, 3000)
+    }
+    return () => {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+      clearTimeout(later)
+      clearTimeout(stopObserve)
+      observer?.disconnect()
+    }
   }, [shown, pageKey, jump])
   const onPartsScroll = () => {
     const next = partAt(scrollRef.current)
@@ -629,7 +670,18 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [usageOpened, setUsageOpened] = useState(shown === 'usage')
   if (shown === 'usage' && !usageOpened) setUsageOpened(true)
   // Over a domain's parts the error stays at the top of the view, whichever part failed.
-  const errorLine = error ? h('div', { className: parts ? 'bt-error bt-set-error-pin' : 'bt-error', role: 'alert', style: parts ? undefined : { padding: 0 } }, error) : null
+  const errorLine = error
+    ? h('div', { className: parts ? 'bt-error bt-set-error-pin' : 'bt-error', role: 'alert', style: parts ? undefined : { padding: 0 } },
+      h('span', null, error),
+      paletteFailures >= 2
+        ? h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm',
+          style: { marginLeft: 8 },
+          onClick: () => { requestWindowReload({ onBlocked: (reason) => { setError(reason) } }) },
+        }, t('Reload window'))
+        : null)
+    : null
 
   const groupStatus = (groupId) => {
     if (groupId === 'models' && (needsModel || keyMissing)) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Needs your attention') })
@@ -673,7 +725,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const partPage = (key) => {
     switch (key) {
       case 'general': return h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken })
-      case 'shortcuts': return h(ShortcutsPage, { roster, actions, Section: SetSection, Row: SetRow })
+      case 'shortcuts': return h(ShortcutsPage, { roster, actions, surfaceMode: dsh?.surfaceMode ?? 'bot', Section: SetSection, Row: SetRow })
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
       case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
       // A preset opens the page afresh each time search offers it.
@@ -746,8 +798,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         }) : null,
         shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
         shown === 'appearance' ? h(AppearancePage, { roster, actions, run, Section: SetSection, Row: SetRow, Choice, Switch, ownWindow: dsh?.ownWindow ?? (dsh === undefined), dshRows: lookRows(dsh) }) : null,
-        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
-        enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget }, { only: 'plugins' })) : null,
+        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, ownWindow: dsh?.ownWindow, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
+        enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget, jump }, { only: 'plugins' })) : null,
         advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
         section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget }, { only: section.id })) : null,
         creatingBot ? h('div', { className: 'bt-settings-form' }, h(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings('bots'), onCreated: created => actions.openSettings('bots', created.id) })) : null,
@@ -807,12 +859,19 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'usage' ? errorLine : null,
           h(PageBoundary, { reset: shown }, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
       h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon)),
-      palette && !leaving ? h(SettingsPalette, {
+      palette && !leaving ? h(PaletteBoundary, {
+        onError: () => {
+          SettingsPalette.reset?.()
+          setPalette(false)
+          setPaletteFailures(count => count + 1)
+          setError(t('This page could not be shown.'))
+        },
+      }, h(SettingsPalette, {
         roster, extra, dsh, icons: PAGE_ICONS, pageAvailable, hasSurface,
         onPick: pickHit,
         onClose: () => setPalette(false),
         returnFocus: true,
-      }) : null,
+      })) : null,
       leaving ? null : h(SettingsTour, {
         tour,
         currentPage: activePart ?? shown,

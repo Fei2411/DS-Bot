@@ -2,6 +2,8 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
 const primitives = fileURLToPath(new URL('./ui/src/primitives.js', import.meta.url))
+const lazySettingsEntry = fileURLToPath(new URL('./ui/src/settings-entry-lazy.js', import.meta.url))
+const lazySettingsPages = fileURLToPath(new URL('./ui/src/settings-pages-lazy.js', import.meta.url))
 const appResolved = new Map([
   ['@deepseek-ai/dsh-llm/assistant-stream', fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))],
   ['@deepseek-ai/dsh-util-values', fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))],
@@ -11,16 +13,22 @@ const appResolved = new Map([
 ])
 
 // The plugin's Bot views take DSH's interface primitives from one module; the window does
-// not load DSH's interface, so its own module stands in for that one. Bare packages imported
-// by ../ds-bot/src/client/ also resolve from app/node_modules so CI packaging works without
-// a separate ds-bot/node_modules install.
+// not load DSH's interface, so its own module stands in for that one. Settings entry/pages
+// also alias to React.lazy wrappers in the desktop build while staying static in the plugin
+// bundle. Bare packages imported by ../ds-bot/src/client/ resolve from app/node_modules so
+// CI packaging works without a separate ds-bot/node_modules install.
 const ownPrimitives = {
   name: 'ds-bot-primitives',
   enforce: 'pre',
   resolveId(source, importer) {
     const norm = source.replaceAll('\\', '/')
-    if ((norm === './dsh-primitives.js' && importer?.replaceAll('\\', '/').includes('/ds-bot/src/client/'))
+    const fromClient = importer?.replaceAll('\\', '/').includes('/ds-bot/src/client/')
+    if ((norm === './dsh-primitives.js' && fromClient)
       || norm.endsWith('/ds-bot/src/client/dsh-primitives.js')) return primitives
+    if ((norm === './settings-entry.js' && fromClient)
+      || norm.endsWith('/ds-bot/src/client/settings-entry.js')) return lazySettingsEntry
+    if ((norm === './settings-pages.js' && fromClient)
+      || norm.endsWith('/ds-bot/src/client/settings-pages.js')) return lazySettingsPages
     return appResolved.get(source) ?? null
   },
 }
@@ -45,7 +53,7 @@ export default defineConfig({
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 30 },
             { name: 'vendor-markdown', test: /node_modules[\\/](react-markdown|remark-|rehype-|micromark|mdast-|hast-|unist-|unified|vfile|property-information|comma-separated-tokens|space-separated-tokens)/, priority: 25 },
             { name: 'vendor-xterm', test: /node_modules[\\/]@xterm[\\/]/, priority: 24 },
-            { name: 'ds-bot-locales', test: /ds-bot[\\/]src[\\/]client[\\/]locales[\\/]/, priority: 20 },
+            { name: 'vendor-deep-view', test: /node_modules[\\/]deep-view[\\/]/, priority: 23 },
           ],
         },
       },

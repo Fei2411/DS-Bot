@@ -18,9 +18,27 @@ export function createChatGPTStore({ userData, safeStorage, fs = filesystem, pla
   return {
     supported,
     async read() {
-      if (!supported()) throw new ChatGPTStoreError()
+      let data
+      if (platform === 'darwin') {
+        if (mockKeychain) throw new ChatGPTStoreError()
+        try {
+          data = await fs.readFile(file)
+        } catch (error) {
+          if (error.code === 'ENOENT') return undefined
+          throw new ChatGPTStoreError()
+        }
+        if (!supported()) throw new ChatGPTStoreError()
+      } else {
+        if (!supported()) throw new ChatGPTStoreError()
+        try {
+          data = await fs.readFile(file)
+        } catch (error) {
+          if (error.code === 'ENOENT') return undefined
+          throw new ChatGPTStoreError()
+        }
+      }
       try {
-        const record = JSON.parse(safeStorage.decryptString(await fs.readFile(file)))
+        const record = JSON.parse(safeStorage.decryptString(data))
         if (record.version !== 1 || typeof record.hostId !== 'string'
           || !/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(record.hostId)
           || (record.clientId !== undefined && (typeof record.clientId !== 'string' || !record.clientId || record.clientId === 'dynamic_agent_client'))
@@ -30,8 +48,7 @@ export function createChatGPTStore({ userData, safeStorage, fs = filesystem, pla
             || !Number.isFinite(record.tokens.expiresAt) || !Array.isArray(record.tokens.scopes)
             || !record.tokens.scopes.every(scope => typeof scope === 'string')))) throw new ChatGPTStoreError()
         return record
-      } catch (error) {
-        if (error.code === 'ENOENT') return undefined
+      } catch {
         throw new ChatGPTStoreError()
       }
     },

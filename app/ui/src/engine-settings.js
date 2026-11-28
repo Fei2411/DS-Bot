@@ -1,6 +1,6 @@
 // Lazy-loaded Engine settings pages for the desktop app's own interface:
 // Account, Plugins (with in-page built-in plugin settings), Agent presets,
-// Archived sessions, and Session log upload.
+// and Archived sessions.
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
@@ -16,7 +16,10 @@ import {
   CloseIcon,
   CodeIcon,
   CopyIcon,
+  FolderIcon,
   GlobeIcon,
+  LayersIcon,
+  PaletteIcon,
   PlusIcon,
   PuzzleIcon,
   SlidersIcon,
@@ -24,12 +27,21 @@ import {
 } from '../../../ds-bot/src/client/icons.js'
 import { toTraditional } from '../../../ds-bot/src/client/locales/zh-tw.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
+import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
+import { isBlockedEngineBundle } from '../../../ds-bot/src/shared/engine-bundles.js'
+import { getDesktopAccountState, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
+import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { writeClipboard } from './primitives.js'
+import { reloadExternalUiPlugins } from './ui-plugin-loader.js'
 
 // Module-level stale-while-revalidate caches so reopening Engine settings tabs never flashes "Loading…".
 let accountCache = null
+subscribeDesktopAccountState((reply, meta) => {
+  if (meta?.source === 'settings') return
+  accountCache = reply
+})
 let pluginsCache = null
 let settingsCache = null
 let presetsCache = null
@@ -68,36 +80,18 @@ const BANNED_NAMESPACES = new Set([
   'subagent-model-selection-settings',
 ])
 
-const HIDDEN_BUNDLES = new Set([
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-  'dsbot-engine',
-  '@deepseek-ai/dsh-headless',
-  '@deepseek-ai/dsh-sdk-app',
-  '@deepseek-ai/dsh-acp-app',
-  '@deepseek-ai/dsh-sdk-minimal',
-  '@deepseek-ai/dsh-experimental-terminal-bundle',
-  '@deepseek-ai/dsh-experimental-tool-worktree',
-])
-
-const BANNED_BUNDLES = new Set([
-  '@deepseek-ai/dsh-subagent-codex',
-  '@deepseek-ai/dsh-subagent-claude-code',
-  '@deepseek-ai/dsh-experimental-agent-team-profile',
-  '@deepseek-ai/dsh-experimental-ralph-bundle',
-])
-
+// DSH official optional bundles with host/engine functionality usable on DS Bot Desktop.
+// Desktop-unsupported DSH Web bundles (inspector, cot-translation, plugin-market, liveshare,
+// forge, personalized-recommendations, chat-import) are excluded from discovery when disabled
+// via `isBlockedEngineBundle({ desktop: true, enabled })`, while already-enabled ones stay
+// visible under Installed plugins so users can disable or remove them.
 const EXTENSION_BUNDLES = [
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
-  '@deepseek-ai/dsh-experimental-plugin-market-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
 ]
 
 const MORE_BUNDLES = [
-  '@deepseek-ai/dsh-personalized-recommendations',
-  '@deepseek-ai/dsh-experimental-inspector-profile',
   '@deepseek-ai/dsh-cua-bundle',
-  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
   '@deepseek-ai/dsh-experimental-session-search',
   '@deepseek-ai/dsh-experimental-session-titles-bundle',
   '@deepseek-ai/dsh-experimental-badge-skill-bundle',
@@ -106,18 +100,12 @@ const MORE_BUNDLES = [
 const MORE_BUNDLE_SET = new Set(MORE_BUNDLES)
 
 const EXPERIMENTAL_BUNDLES = new Set([
-  '@deepseek-ai/dsh-personalized-recommendations',
   '@deepseek-ai/dsh-cua-bundle',
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
-  '@deepseek-ai/dsh-experimental-inspector-profile',
-  '@deepseek-ai/dsh-experimental-forge-bundle',
-  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
   '@deepseek-ai/dsh-experimental-session-search',
   '@deepseek-ai/dsh-experimental-session-titles-bundle',
   '@deepseek-ai/dsh-experimental-badge-skill-bundle',
-  '@deepseek-ai/dsh-experimental-plugin-market-bundle',
-  '@deepseek-ai/dsh-experimental-liveshare',
 ])
 
 const BUILTIN_CONFIG_GROUPS = [
@@ -141,19 +129,37 @@ const BUILTIN_CONFIG_GROUPS = [
   },
 ]
 
-const BUILTIN_GROUP_BY_NS = new Map(
-  BUILTIN_CONFIG_GROUPS.flatMap(group => group.namespaces.map(ns => [ns, group.id])),
+// Subagents stay off by policy in Bot mode, and are exposed only in Classic Agent mode.
+const SUBAGENT_CONFIG_GROUP = {
+  id: 'subagent',
+  titleKey: 'Subagents',
+  icon: LayersIcon,
+  namespaces: ['subagent', 'subagent-model-selection-settings'],
+}
+
+const CLASSIC_SUBAGENT_NAMESPACES = new Set(SUBAGENT_CONFIG_GROUP.namespaces)
+
+const configGroupsForSurface = (surfaceMode = 'bot') => (
+  surfaceMode === 'agent' ? [...BUILTIN_CONFIG_GROUPS, SUBAGENT_CONFIG_GROUP] : BUILTIN_CONFIG_GROUPS
 )
 
-export function isBannedNamespace(ns) {
+const BUILTIN_GROUP_BY_NS = new Map(
+  [...BUILTIN_CONFIG_GROUPS, SUBAGENT_CONFIG_GROUP].flatMap(group => group.namespaces.map(ns => [ns, group.id])),
+)
+
+export function isBannedNamespace(ns, surfaceMode = 'bot') {
   if (typeof ns !== 'string') return false
+  if (surfaceMode === 'agent' && CLASSIC_SUBAGENT_NAMESPACES.has(ns)) return false
   return BANNED_NAMESPACES.has(ns) || /subagent/i.test(ns)
 }
 
 export function isExcludedBundle(bundle) {
   const name = typeof bundle === 'string' ? bundle : bundle?.name
-  if (typeof name !== 'string' || name === '') return true
-  return HIDDEN_BUNDLES.has(name) || BANNED_BUNDLES.has(name) || /subagent/i.test(name)
+  if (typeof name !== 'string' || name.trim() === '') return true
+  const enabled = typeof bundle === 'object' && bundle !== null
+    ? Boolean(bundle.enabled || (bundle.installed && bundle.error))
+    : false
+  return isBlockedEngineBundle(name, { desktop: true, enabled })
 }
 
 const CORE_DS_BOT_IDS = new Set(['ds-bot', '@deepseek-ai/ds-bot'])
@@ -196,6 +202,9 @@ const ENGINE_FIELD_LABELS = {
   sendOriginalQuestion: 'Send original question',
   searchProvider: 'Search provider',
   fetchProvider: 'Fetch provider',
+  searchBilling: 'Search billing',
+  fetchBilling: 'Fetch billing',
+  searchRequestsPerSecond: 'Search requests per second',
   cwd: 'Working directory',
   timeout: 'Timeout',
   timeoutMs: 'Timeout (ms)',
@@ -342,30 +351,61 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
     return values.length > 0 ? values : null
   }
 
+  let hasRootConfigFallback = false
+  const pushRootConfigFallback = (node) => {
+    if (hasRootConfigFallback) return
+    hasRootConfigFallback = true
+    fields.push({
+      path: [],
+      key: '__root__',
+      kind: 'config-file',
+      schemaType: node.type || 'any',
+      label: ns ? namespaceTitle(ns) : t('Settings'),
+      description: typeof node.meta?.description === 'string' ? node.meta.description : '',
+      defaultValue: node.meta?.default,
+      value,
+    })
+  }
+
   const walk = (target, path, seen, depth) => {
-    if (depth > 4) return
     const resolved = resolveRef(refs, target, seen)
     if (!resolved) return
     const { node, seen: nextSeen } = resolved
     if (isHiddenNode(node)) return
 
-    if (node.type === 'intersect' && Array.isArray(node.list)) {
-      for (const item of node.list) walk(item, path, nextSeen, depth)
-      return
-    }
-    if (node.type === 'object' && node.dict && typeof node.dict === 'object') {
-      for (const [key, childTarget] of Object.entries(node.dict)) {
-        walk(childTarget, [...path, key], nextSeen, depth + 1)
+    if (depth <= 4) {
+      if (path.length === 0) {
+        const unwrapped = unwrapNullableUnion(node, nextSeen)
+        if (unwrapped) {
+          const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
+          walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
+          return
+        }
       }
+      if (node.type === 'intersect' && Array.isArray(node.list)) {
+        for (const item of node.list) walk(item, path, nextSeen, depth)
+        return
+      }
+      if (depth < 4 && node.type === 'object' && node.dict && typeof node.dict === 'object' && Object.keys(node.dict).length > 0) {
+        for (const [key, childTarget] of Object.entries(node.dict)) {
+          walk(childTarget, [...path, key], nextSeen, depth + 1)
+        }
+        return
+      }
+    }
+    if (path.length === 0) {
+      if (node.type === 'object' || node.type === 'const') return
+      pushRootConfigFallback(node)
       return
     }
-    if (path.length === 0) return
 
-    const unwrapped = unwrapNullableUnion(node, nextSeen)
-    if (unwrapped) {
-      const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
-      walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
-      return
+    if (depth <= 4) {
+      const unwrapped = unwrapNullableUnion(node, nextSeen)
+      if (unwrapped) {
+        const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
+        walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
+        return
+      }
     }
 
     const pathKey = path.join('\0')
@@ -387,6 +427,22 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
       return
     }
 
+    if (depth > 4) {
+      fields.push({
+        path,
+        key: pathKey,
+        kind: 'config-file',
+        schemaType: node.type || 'nested',
+        label,
+        description,
+        defaultValue: fallbackDefault,
+        value: current,
+      })
+      return
+    }
+
+    if (node.type === 'const') return
+
     const enumOptions = enumValuesOf(node, nextSeen)
     if (enumOptions) {
       fields.push({
@@ -396,6 +452,7 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         label,
         description,
         options: enumOptions,
+        defaultValue: fallbackDefault,
         value: current ?? fallbackDefault ?? enumOptions[0]?.value ?? '',
       })
       return
@@ -408,6 +465,7 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         kind: 'boolean',
         label,
         description,
+        defaultValue: fallbackDefault,
         value: typeof current === 'boolean' ? current : Boolean(fallbackDefault),
       })
       return
@@ -423,6 +481,7 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         min: Number.isFinite(node.meta?.min) ? node.meta.min : (node.type === 'natural' ? 0 : undefined),
         max: Number.isFinite(node.meta?.max) ? node.meta.max : undefined,
         step: Number.isFinite(node.meta?.step) ? node.meta.step : (node.type === 'natural' ? 1 : undefined),
+        defaultValue: fallbackDefault,
         value: typeof current === 'number' ? current : (typeof fallbackDefault === 'number' ? fallbackDefault : ''),
       })
       return
@@ -435,9 +494,24 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         kind: 'string',
         label,
         description,
+        defaultValue: fallbackDefault,
         value: typeof current === 'string' ? current : (typeof fallbackDefault === 'string' ? fallbackDefault : ''),
       })
+      return
     }
+
+    // Complex schema types (array, dict, tuple, non-enum union, any, etc.) stay visible
+    // with a direct config-file editing action instead of being silently dropped.
+    fields.push({
+      path,
+      key: pathKey,
+      kind: 'config-file',
+      schemaType: node.type || 'any',
+      label,
+      description,
+      defaultValue: fallbackDefault,
+      value: current,
+    })
   }
 
   walk(rootTarget, [], new Set(), 0)
@@ -473,8 +547,8 @@ function formatWallets(wallets) {
 }
 
 export function AccountSettingsPage({ readOnly = false }) {
-  const [data, setData] = useState(() => accountCache)
-  const [loading, setLoading] = useState(() => !accountCache)
+  const [data, setData] = useState(() => accountCache ?? getDesktopAccountState())
+  const [loading, setLoading] = useState(() => !(accountCache ?? getDesktopAccountState()))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const mounted = useRef(true)
@@ -492,6 +566,7 @@ export function AccountSettingsPage({ readOnly = false }) {
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
       accountCache = next
+      publishDesktopAccountState(next, { source: 'settings' })
       if (mounted.current) setData(next)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
@@ -501,6 +576,18 @@ export function AccountSettingsPage({ readOnly = false }) {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => subscribeDesktopAccountState((reply, meta) => {
+    if (meta?.source === 'settings') return
+    accountCache = reply
+    if (mounted.current) {
+      setData(reply)
+      setLoading(false)
+    }
+    if (reply?.view?.status === 'credential-stored' && !reply.view?.profile && !reply.view?.balance) {
+      void load()
+    }
+  }), [load])
 
   const attemptPhase = data?.view?.attempt?.phase
   const signingIn = attemptPhase === 'initializing' || attemptPhase === 'waiting-browser' || attemptPhase === 'exchanging' || attemptPhase === 'committing'
@@ -661,12 +748,1097 @@ function bundleDisplayMeta(bundle, lang) {
   return { title, description }
 }
 
-function normalizeDetailTarget(subTarget) {
+function hasPath(obj, path) {
+  let cursor = obj
+  for (let i = 0; i < path.length; i += 1) {
+    if (cursor === null || cursor === undefined || typeof cursor !== 'object') return false
+    const key = path[i]
+    if (!Object.prototype.hasOwnProperty.call(cursor, key)) return false
+    cursor = cursor[key]
+  }
+  return cursor !== undefined
+}
+
+function defaultForField(descriptor, field) {
+  const fromBase = readPath(descriptor?.base, field.path)
+  if (fromBase !== undefined) return fromBase
+  if (field.defaultValue !== undefined) return field.defaultValue
+  if (field.kind === 'boolean') return false
+  return ''
+}
+
+function fieldInputString(value) {
+  return value === undefined || value === null ? '' : String(value)
+}
+
+function validateNumberText(text, { min, max, integer = false } = {}) {
+  const trimmed = String(text ?? '').trim()
+  if (trimmed === '') return { ok: true, empty: true, value: undefined }
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed)) return { ok: false, error: t('Enter a valid number') }
+  if (integer && !Number.isInteger(parsed)) return { ok: false, error: t('Enter a whole number') }
+  if (min !== undefined && parsed < min) return { ok: false, error: t('Must be at least {min}', { min }) }
+  if (max !== undefined && parsed > max) return { ok: false, error: t('Must be at most {max}', { max }) }
+  return { ok: true, empty: false, value: parsed }
+}
+
+function EngineFormBar({ dirty, invalid, saving, saved, disabled, onSave, onDiscard }) {
+  return h('div', { className: 'dsb-engine-form-bar' },
+    saved ? h('span', { className: 'dsb-engine-saved', role: 'status' }, t('Saved')) : null,
+    h('button', {
+      type: 'button',
+      className: 'bt-soft bt-soft-sm',
+      disabled: !dirty || saving,
+      onClick: onDiscard,
+    }, t('Discard')),
+    h('button', {
+      type: 'button',
+      className: 'bt-send bt-soft-sm',
+      disabled: !dirty || invalid || saving || disabled,
+      onClick: onSave,
+    }, saving ? t('Saving…') : t('Save')))
+}
+
+function dropNamespacesFromMap(map, nsSet) {
+  if (!nsSet || nsSet.size === 0) return map
+  let changed = false
+  const next = {}
+  for (const [compound, val] of Object.entries(map)) {
+    const colon = compound.indexOf(':')
+    const ns = colon >= 0 ? compound.slice(0, colon) : compound
+    if (nsSet.has(ns)) {
+      changed = true
+    } else {
+      next[compound] = val
+    }
+  }
+  return changed ? next : map
+}
+
+function StagedSchemaGroupForm({
+  groupKey = '',
+  entries,
+  detailTitle,
+  disabled,
+  canOpenConfigFile = false,
+  configFilePath = '',
+  openingConfigFile = false,
+  onOpenConfigFile,
+  onSaveNamespaces,
+  onSecretMutate,
+}) {
+  const [overrides, setOverrides] = useState({})
+  const [resets, setResets] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const savedTimer = useRef(0)
+  const prevGroupRef = useRef(groupKey)
+
+  useEffect(() => {
+    if (prevGroupRef.current !== groupKey) {
+      prevGroupRef.current = groupKey
+      setOverrides({})
+      setResets({})
+      setSaved(false)
+    }
+  }, [groupKey])
+  useEffect(() => () => clearTimeout(savedTimer.current), [])
+
+  const setFieldDraft = (ns, key, val) => {
+    const compound = `${ns}:${key}`
+    setSaved(false)
+    setOverrides(prev => ({ ...prev, [compound]: val }))
+    setResets((prev) => {
+      if (!prev[compound]) return prev
+      const next = { ...prev }
+      delete next[compound]
+      return next
+    })
+  }
+
+  const stageReset = (descriptor, field) => {
+    const compound = `${descriptor.ns}:${field.key}`
+    setSaved(false)
+    setOverrides((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, compound)) return prev
+      const next = { ...prev }
+      delete next[compound]
+      return next
+    })
+    setResets(prev => ({ ...prev, [compound]: true }))
+  }
+
+  const errorsByKey = {}
+  const displayValues = {}
+  const pendingByNs = []
+  let invalid = false
+  let dirty = false
+
+  for (const { descriptor, fields } of entries) {
+    const ops = []
+    for (const field of fields) {
+      if (field.kind === 'secret' || field.kind === 'config-file') continue
+      const compound = `${descriptor.ns}:${field.key}`
+      const curRaw = readPath(descriptor.value, field.path)
+      const defVal = defaultForField(descriptor, field)
+      const userSet = hasPath(descriptor.user, field.path)
+      const serverDisplay = field.kind === 'boolean'
+        ? (typeof curRaw === 'boolean' ? curRaw : Boolean(field.value))
+        : fieldInputString(curRaw ?? field.value)
+      const hasOverride = Object.prototype.hasOwnProperty.call(overrides, compound)
+      const draftVal = resets[compound]
+        ? (field.kind === 'boolean' ? Boolean(defVal) : fieldInputString(defVal))
+        : (hasOverride ? overrides[compound] : serverDisplay)
+      displayValues[compound] = draftVal
+
+      if (resets[compound]) {
+        if (userSet || curRaw !== defVal) {
+          dirty = true
+          ops.push({ op: 'unset', path: field.path })
+        }
+        continue
+      }
+      if (field.kind === 'number') {
+        const check = validateNumberText(draftVal, { min: field.min, max: field.max, integer: field.step === 1 })
+        if (!check.ok) {
+          invalid = true
+          errorsByKey[compound] = check.error
+          dirty = true
+          continue
+        }
+        if (check.empty) {
+          if (curRaw !== undefined && curRaw !== '') {
+            dirty = true
+            ops.push({ op: 'unset', path: field.path })
+          }
+        } else if (check.value !== curRaw) {
+          dirty = true
+          ops.push({ op: 'set', path: field.path, value: check.value })
+        }
+      } else if (field.kind === 'boolean') {
+        const effective = typeof curRaw === 'boolean' ? curRaw : Boolean(field.value)
+        if (Boolean(draftVal) !== effective) {
+          dirty = true
+          ops.push({ op: 'set', path: field.path, value: Boolean(draftVal) })
+        }
+      } else if (field.kind === 'select') {
+        const effective = fieldInputString(curRaw ?? field.value)
+        if (String(draftVal ?? '') !== effective) {
+          const chosen = field.options.find(opt => String(opt.value) === String(draftVal ?? ''))
+          dirty = true
+          ops.push({ op: 'set', path: field.path, value: chosen ? chosen.value : draftVal })
+        }
+      } else {
+        const effective = fieldInputString(curRaw ?? field.value)
+        const nextStr = String(draftVal ?? '')
+        if (nextStr !== effective) {
+          dirty = true
+          ops.push(nextStr === '' ? { op: 'unset', path: field.path } : { op: 'set', path: field.path, value: nextStr })
+        }
+      }
+    }
+    if (ops.length > 0) pendingByNs.push({ descriptor, ops })
+  }
+
+  const handleDiscard = () => {
+    setOverrides({})
+    setResets({})
+    setSaved(false)
+  }
+
+  const handleSave = async () => {
+    if (!dirty || invalid || saving || disabled || pendingByNs.length === 0) return
+    setSaving(true)
+    setSaved(false)
+    try {
+      const res = await onSaveNamespaces(pendingByNs)
+      const ok = res === true || res?.ok === true
+      const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
+      if (ok) {
+        setOverrides({})
+        setResets({})
+        setSaved(true)
+        clearTimeout(savedTimer.current)
+        savedTimer.current = setTimeout(() => setSaved(false), 2200)
+      } else if (savedList.length > 0) {
+        const savedNs = new Set(savedList)
+        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
+        setResets(prev => dropNamespacesFromMap(prev, savedNs))
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const hasStagedFields = entries.some(({ fields }) => fields.some(field => field.kind !== 'secret' && field.kind !== 'config-file'))
+
+  return h(Fragment, null,
+    entries.map(({ descriptor, fields }) => {
+      const nsTitle = entries.length > 1 ? namespaceTitle(descriptor.ns) : undefined
+      return h(EngineSection, {
+        key: descriptor.ns,
+        title: nsTitle && nsTitle !== detailTitle ? nsTitle : undefined,
+      },
+      fields.map((field) => {
+        const compound = `${descriptor.ns}:${field.key}`
+        if (field.kind === 'secret') {
+          return h('div', { key: field.key, className: 'dsb-engine-field-wrap' },
+            h(EngineRow, { label: field.label },
+              h(SchemaSecretField, { field, disabled: disabled || saving, onSave: op => onSecretMutate(descriptor, op) })))
+        }
+        if (field.kind === 'config-file') {
+          return h('div', { key: field.key, className: 'dsb-engine-field-wrap', 'data-schema-kind': field.schemaType },
+            h(EngineRow, { label: field.label },
+              h('button', {
+                type: 'button',
+                className: 'bt-soft bt-soft-sm',
+                disabled: disabled || !canOpenConfigFile || openingConfigFile || saving,
+                title: configFilePath || undefined,
+                onClick: () => { onOpenConfigFile?.() },
+              }, t('Edit in config file'))))
+        }
+        const err = errorsByKey[compound]
+        const defVal = defaultForField(descriptor, field)
+        const curVal = displayValues[compound]
+        const isOverridden = hasPath(descriptor.user, field.path)
+        const differsFromDefault = field.kind === 'boolean'
+          ? Boolean(curVal) !== Boolean(defVal)
+          : String(curVal ?? '') !== fieldInputString(defVal)
+        const showReset = !resets[compound] && (isOverridden || differsFromDefault)
+        const resetBtn = showReset
+          ? h('button', {
+            type: 'button',
+            className: 'bt-mini',
+            disabled: disabled || saving,
+            onClick: () => stageReset(descriptor, field),
+          }, t('Reset'))
+          : null
+
+        let control
+        if (field.kind === 'boolean') {
+          control = h(Switch, {
+            label: field.label,
+            on: Boolean(curVal),
+            disabled: disabled || saving,
+            onChange: next => setFieldDraft(descriptor.ns, field.key, next),
+          })
+        } else if (field.kind === 'select') {
+          control = h(SelectMenu, {
+            'aria-label': field.label,
+            value: String(curVal ?? ''),
+            disabled: disabled || saving,
+            options: field.options.map(opt => ({ value: String(opt.value), label: opt.label })),
+            onChange: next => setFieldDraft(descriptor.ns, field.key, next),
+          })
+        } else if (field.kind === 'number') {
+          control = h('input', {
+            className: 'bt-input bt-set-number',
+            type: 'number',
+            min: field.min,
+            max: field.max,
+            step: field.step,
+            disabled: disabled || saving,
+            'aria-label': field.label,
+            'aria-invalid': err ? true : undefined,
+            value: String(curVal ?? ''),
+            onChange: event => setFieldDraft(descriptor.ns, field.key, event.target.value),
+          })
+        } else {
+          control = h('input', {
+            className: 'bt-input dsb-engine-text',
+            type: 'text',
+            disabled: disabled || saving,
+            'aria-label': field.label,
+            value: String(curVal ?? ''),
+            onChange: event => setFieldDraft(descriptor.ns, field.key, event.target.value),
+          })
+        }
+
+        return h('div', { key: field.key, className: 'dsb-engine-field-wrap' },
+          h(EngineRow, { label: field.label },
+            h('div', { className: 'dsb-engine-inline' }, resetBtn, control)),
+          err ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, err) : null)
+      }))
+    }),
+    hasStagedFields ? h(EngineFormBar, {
+      dirty,
+      invalid,
+      saving,
+      saved,
+      disabled,
+      onSave: () => { void handleSave() },
+      onDiscard: handleDiscard,
+    }) : null)
+}
+
+const SEARCH_PROVIDER_ORDER = ['deepseek-search-api', 'deepseek-official']
+const FETCH_PROVIDER_ORDER = ['auto', 'http', 'deepseek-fetch-api']
+
+function webProviderLabel(kind, id, provider) {
+  if (id === '') return t('Automatic')
+  if (kind === 'search') {
+    if (id === 'auto') return provider?.title || t('Automatic')
+    if (id === 'deepseek-search-api') return t('DeepSeek Search API')
+    if (id === 'deepseek-official') return t('DeepSeek Messages search')
+  }
+  if (kind === 'fetch') {
+    if (id === 'auto') return provider?.title || t('Automatic')
+    if (id === 'http') return t('Direct HTTP')
+    if (id === 'deepseek-fetch-api') return t('DeepSeek Fetch API')
+  }
+  return provider?.title || id
+}
+
+function buildWebProviderOptions(kind, registered, currentId, baseId = '') {
+  const list = Array.isArray(registered) ? registered : []
+  const order = kind === 'search' ? SEARCH_PROVIDER_ORDER : FETCH_PROVIDER_ORDER
+  const rank = id => {
+    const idx = order.indexOf(id)
+    return idx === -1 ? order.length : idx
+  }
+  const sorted = [...list].sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id))
+  const hasAutoProvider = list.some(item => item?.id === 'auto')
+  const includeUnsetAuto = (!baseId && !hasAutoProvider) || currentId === ''
+  const unsetLabel = hasAutoProvider ? t('Default') : t('Automatic')
+  const options = includeUnsetAuto ? [{ value: '', label: unsetLabel }] : []
+  const seen = new Set(includeUnsetAuto ? [''] : [])
+  for (const item of sorted) {
+    if (!item?.id || seen.has(item.id)) continue
+    seen.add(item.id)
+    options.push({ value: item.id, label: webProviderLabel(kind, item.id, item) })
+  }
+  if (currentId && !seen.has(currentId)) {
+    options.push({ value: currentId, label: `${webProviderLabel(kind, currentId, null)} (${t('Unavailable')})` })
+  }
+  return options
+}
+
+function billingOptions() {
+  return [
+    { value: 'auto', label: t('Automatic') },
+    { value: 'account', label: t('DeepSeek account') },
+    { value: 'api-key', label: t('API key') },
+  ]
+}
+
+function dropKeysFromMap(map, keys) {
+  if (!keys || keys.size === 0) return map
+  let changed = false
+  const next = {}
+  for (const [key, val] of Object.entries(map)) {
+    if (keys.has(key)) { changed = true; continue }
+    next[key] = val
+  }
+  return changed ? next : map
+}
+
+function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMutate }) {
+  const byNs = useMemo(() => new Map(entries.map(e => [e.descriptor.ns, e])), [entries])
+  const webEntry = byNs.get('web')
+  const apiEntry = byNs.get('web-deepseek-api')
+  const legacyEntry = byNs.get('web-search-deepseek')
+
+  const [providers, setProviders] = useState({ loaded: false, available: false, search: [], fetch: [], error: '' })
+  const loadProviders = useCallback(async () => {
+    try {
+      const res = await call('engine-web-providers')
+      setProviders({
+        loaded: true,
+        available: res?.available === true,
+        search: Array.isArray(res?.search) ? res.search : [],
+        fetch: Array.isArray(res?.fetch) ? res.fetch : [],
+        error: '',
+      })
+    } catch (failure) {
+      setProviders(prev => ({
+        ...prev,
+        loaded: true,
+        error: hostText(failure?.message ?? String(failure)),
+      }))
+    }
+  }, [])
+  useEffect(() => { void loadProviders() }, [loadProviders])
+
+  const storedSearchProvider = typeof webEntry?.descriptor?.value?.searchProvider === 'string'
+    ? webEntry.descriptor.value.searchProvider
+    : ''
+  const storedFetchProvider = typeof webEntry?.descriptor?.value?.fetchProvider === 'string'
+    ? webEntry.descriptor.value.fetchProvider
+    : ''
+  const storedCount = apiEntry?.descriptor?.value?.count
+  const baseCount = readPath(apiEntry?.descriptor?.base, ['count']) ?? 10
+  const storedSearchBilling = apiEntry?.descriptor?.value?.searchBilling ?? 'auto'
+  const baseSearchBilling = readPath(apiEntry?.descriptor?.base, ['searchBilling']) ?? 'auto'
+  const storedFetchBilling = apiEntry?.descriptor?.value?.fetchBilling ?? 'auto'
+  const baseFetchBilling = readPath(apiEntry?.descriptor?.base, ['fetchBilling']) ?? 'auto'
+  const storedMaxUses = legacyEntry?.descriptor?.value?.maxUses
+  const baseMaxUses = readPath(legacyEntry?.descriptor?.base, ['maxUses']) ?? 5
+  const storedBaseUrl = legacyEntry?.descriptor?.value?.baseURL ?? ''
+  const baseBaseUrl = readPath(legacyEntry?.descriptor?.base, ['baseURL']) ?? ''
+
+  const hasCustomSearchEndpoint = Boolean(
+    (typeof apiEntry?.descriptor?.value?.searchBaseURL === 'string' && apiEntry.descriptor.value.searchBaseURL.trim() !== '')
+    || (typeof apiEntry?.descriptor?.value?.searchApiKeyEnv === 'string' && apiEntry.descriptor.value.searchApiKeyEnv.trim() !== ''),
+  )
+  const hasCustomFetchEndpoint = Boolean(
+    (typeof apiEntry?.descriptor?.value?.fetchBaseURL === 'string' && apiEntry.descriptor.value.fetchBaseURL.trim() !== '')
+    || (typeof apiEntry?.descriptor?.value?.fetchApiKeyEnv === 'string' && apiEntry.descriptor.value.fetchApiKeyEnv.trim() !== ''),
+  )
+
+  const [overrides, setOverrides] = useState({})
+  const [resetFlags, setResetFlags] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const savedTimer = useRef(0)
+
+  useEffect(() => () => clearTimeout(savedTimer.current), [])
+
+  const hasOv = key => Object.prototype.hasOwnProperty.call(overrides, key)
+  const setField = (key, value) => {
+    setSaved(false)
+    setOverrides(prev => ({ ...prev, [key]: value }))
+    setResetFlags((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+  const stageFieldReset = (key) => {
+    setSaved(false)
+    setOverrides((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setResetFlags(prev => ({ ...prev, [key]: true }))
+  }
+
+  const searchProvider = hasOv('web:searchProvider') ? overrides['web:searchProvider'] : storedSearchProvider
+  const fetchProvider = hasOv('web:fetchProvider') ? overrides['web:fetchProvider'] : storedFetchProvider
+  const countText = resetFlags['web-deepseek-api:count']
+    ? String(baseCount)
+    : hasOv('web-deepseek-api:count') ? overrides['web-deepseek-api:count'] : fieldInputString(storedCount ?? 10)
+  const searchBilling = resetFlags['web-deepseek-api:searchBilling']
+    ? baseSearchBilling
+    : hasOv('web-deepseek-api:searchBilling') ? overrides['web-deepseek-api:searchBilling'] : storedSearchBilling
+  const fetchBilling = resetFlags['web-deepseek-api:fetchBilling']
+    ? baseFetchBilling
+    : hasOv('web-deepseek-api:fetchBilling') ? overrides['web-deepseek-api:fetchBilling'] : storedFetchBilling
+  const maxUsesText = resetFlags['web-search-deepseek:maxUses']
+    ? String(baseMaxUses)
+    : hasOv('web-search-deepseek:maxUses') ? overrides['web-search-deepseek:maxUses'] : fieldInputString(storedMaxUses ?? 5)
+  const baseUrlText = resetFlags['web-search-deepseek:baseURL']
+    ? String(baseBaseUrl)
+    : hasOv('web-search-deepseek:baseURL') ? overrides['web-search-deepseek:baseURL'] : storedBaseUrl
+
+  const resetDraft = useCallback(() => {
+    setOverrides({})
+    setResetFlags({})
+  }, [])
+
+  const baseSearchProvider = typeof webEntry?.descriptor?.base?.searchProvider === 'string'
+    ? webEntry.descriptor.base.searchProvider
+    : ''
+  const baseFetchProvider = typeof webEntry?.descriptor?.base?.fetchProvider === 'string'
+    ? webEntry.descriptor.base.fetchProvider
+    : ''
+  const searchOptions = useMemo(
+    () => buildWebProviderOptions('search', providers.search, searchProvider, baseSearchProvider),
+    [providers.search, searchProvider, baseSearchProvider],
+  )
+  const fetchOptions = useMemo(
+    () => buildWebProviderOptions('fetch', providers.fetch, fetchProvider, baseFetchProvider),
+    [providers.fetch, fetchProvider, baseFetchProvider],
+  )
+
+  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || searchProvider === '' || !providers.available)
+  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || searchProvider === '' || !providers.available)
+  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || fetchProvider === '' || !providers.available)
+
+  // Only validate and commit fields belonging to currently visible provider sections,
+  // so switching away from a provider cannot leave Save blocked by a hidden error.
+  const countCheck = showSearchApiFields ? validateNumberText(countText, { min: 1, max: 50, integer: true }) : { ok: true, empty: true }
+  const maxUsesCheck = showLegacyFields ? validateNumberText(maxUsesText, { min: 1, integer: true }) : { ok: true, empty: true }
+  const invalid = !countCheck.ok || !maxUsesCheck.ok
+
+  // Build ordered mutations: provider config namespaces first, then `web` selection last.
+  // Track exact field keys per namespace so saving visible fields never discards unsaved edits
+  // under hidden providers (or unrelated keys in a shared namespace).
+  const pendingByNs = []
+  const visibleKeys = new Set()
+  if (apiEntry) {
+    const ops = []
+    const keys = []
+    if (showSearchApiFields) {
+      keys.push('web-deepseek-api:count')
+      visibleKeys.add('web-deepseek-api:count')
+      if (resetFlags['web-deepseek-api:count']) {
+        if (hasPath(apiEntry.descriptor.user, ['count']) || storedCount !== baseCount) {
+          ops.push({ op: 'unset', path: ['count'] })
+        }
+      } else if (countCheck.ok) {
+        if (countCheck.empty && storedCount !== undefined) ops.push({ op: 'unset', path: ['count'] })
+        else if (!countCheck.empty && countCheck.value !== storedCount) ops.push({ op: 'set', path: ['count'], value: countCheck.value })
+      }
+      if (!hasCustomSearchEndpoint) {
+        keys.push('web-deepseek-api:searchBilling')
+        visibleKeys.add('web-deepseek-api:searchBilling')
+        if (resetFlags['web-deepseek-api:searchBilling']) {
+          if (hasPath(apiEntry.descriptor.user, ['searchBilling']) || storedSearchBilling !== baseSearchBilling) {
+            ops.push({ op: 'unset', path: ['searchBilling'] })
+          }
+        } else if (searchBilling !== storedSearchBilling) {
+          ops.push({ op: 'set', path: ['searchBilling'], value: searchBilling })
+        }
+      }
+    }
+    if (showFetchApiFields && !hasCustomFetchEndpoint) {
+      keys.push('web-deepseek-api:fetchBilling')
+      visibleKeys.add('web-deepseek-api:fetchBilling')
+      if (resetFlags['web-deepseek-api:fetchBilling']) {
+        if (hasPath(apiEntry.descriptor.user, ['fetchBilling']) || storedFetchBilling !== baseFetchBilling) {
+          ops.push({ op: 'unset', path: ['fetchBilling'] })
+        }
+      } else if (fetchBilling !== storedFetchBilling) {
+        ops.push({ op: 'set', path: ['fetchBilling'], value: fetchBilling })
+      }
+    }
+    if (ops.length > 0) pendingByNs.push({ descriptor: apiEntry.descriptor, ops, keys })
+  }
+
+  if (legacyEntry && showLegacyFields) {
+    const ops = []
+    const keys = ['web-search-deepseek:maxUses', 'web-search-deepseek:baseURL']
+    visibleKeys.add('web-search-deepseek:maxUses')
+    visibleKeys.add('web-search-deepseek:baseURL')
+    if (resetFlags['web-search-deepseek:maxUses']) {
+      if (hasPath(legacyEntry.descriptor.user, ['maxUses']) || storedMaxUses !== baseMaxUses) {
+        ops.push({ op: 'unset', path: ['maxUses'] })
+      }
+    } else if (maxUsesCheck.ok) {
+      if (maxUsesCheck.empty && storedMaxUses !== undefined) ops.push({ op: 'unset', path: ['maxUses'] })
+      else if (!maxUsesCheck.empty && maxUsesCheck.value !== storedMaxUses) ops.push({ op: 'set', path: ['maxUses'], value: maxUsesCheck.value })
+    }
+    if (resetFlags['web-search-deepseek:baseURL']) {
+      if (hasPath(legacyEntry.descriptor.user, ['baseURL']) || storedBaseUrl !== baseBaseUrl) {
+        ops.push({ op: 'unset', path: ['baseURL'] })
+      }
+    } else if (baseUrlText !== storedBaseUrl) {
+      ops.push(baseUrlText.trim() === '' ? { op: 'unset', path: ['baseURL'] } : { op: 'set', path: ['baseURL'], value: baseUrlText.trim() })
+    }
+    if (ops.length > 0) pendingByNs.push({ descriptor: legacyEntry.descriptor, ops, keys })
+  }
+
+  if (webEntry) {
+    const ops = []
+    const keys = ['web:searchProvider', 'web:fetchProvider']
+    visibleKeys.add('web:searchProvider')
+    visibleKeys.add('web:fetchProvider')
+    if (searchProvider !== storedSearchProvider) {
+      ops.push(searchProvider === '' || searchProvider === baseSearchProvider
+        ? { op: 'unset', path: ['searchProvider'] }
+        : { op: 'set', path: ['searchProvider'], value: searchProvider })
+    }
+    if (fetchProvider !== storedFetchProvider) {
+      ops.push(fetchProvider === '' || fetchProvider === baseFetchProvider
+        ? { op: 'unset', path: ['fetchProvider'] }
+        : { op: 'set', path: ['fetchProvider'], value: fetchProvider })
+    }
+    if (ops.length > 0) pendingByNs.push({ descriptor: webEntry.descriptor, ops, keys })
+  }
+
+  const dirty = pendingByNs.length > 0 || invalid
+
+  const handleSave = async () => {
+    if (!dirty || invalid || saving || disabled || pendingByNs.length === 0) return
+    setSaving(true)
+    setSaved(false)
+    try {
+      const res = await onSaveNamespaces(pendingByNs)
+      const ok = res === true || res?.ok === true
+      const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
+      const savedNs = new Set(savedList)
+      const keysToClear = new Set()
+      for (const item of pendingByNs) {
+        if (!savedNs.has(item.descriptor.ns)) continue
+        for (const key of item.keys ?? []) keysToClear.add(key)
+      }
+      if (ok) {
+        for (const key of visibleKeys) keysToClear.add(key)
+        if (keysToClear.size > 0) {
+          setOverrides(prev => dropKeysFromMap(prev, keysToClear))
+          setResetFlags(prev => dropKeysFromMap(prev, keysToClear))
+        }
+        setSaved(true)
+        clearTimeout(savedTimer.current)
+        savedTimer.current = setTimeout(() => setSaved(false), 2200)
+      } else if (keysToClear.size > 0) {
+        setOverrides(prev => dropKeysFromMap(prev, keysToClear))
+        setResetFlags(prev => dropKeysFromMap(prev, keysToClear))
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const legacySecretField = legacyEntry?.fields?.find(f => f.kind === 'secret') ?? null
+  const billingChoices = billingOptions()
+
+  return h(Fragment, null,
+    providers.error ? h('div', { className: 'dsb-slot-error', role: 'alert' },
+      h('span', null, providers.error),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void loadProviders() } }, t('Retry'))) : null,
+    h(EngineSection, { title: t('Search') },
+      webEntry ? h('div', { className: 'dsb-engine-field-wrap' },
+        h(EngineRow, { label: t('Search provider') },
+          h(SelectMenu, {
+            'aria-label': t('Search provider'),
+            value: searchProvider,
+            disabled: disabled || saving,
+            options: searchOptions,
+            onChange: next => setField('web:searchProvider', next),
+          }))) : null,
+      showSearchApiFields ? h(Fragment, null,
+        h('div', { className: 'dsb-engine-field-wrap' },
+          h(EngineRow, { label: t('Results per search') },
+            h('div', { className: 'dsb-engine-inline' },
+              (!resetFlags['web-deepseek-api:count'] && (hasPath(apiEntry.descriptor.user, ['count']) || countText !== String(baseCount)))
+                ? h('button', {
+                  type: 'button',
+                  className: 'bt-mini',
+                  disabled: disabled || saving,
+                  onClick: () => stageFieldReset('web-deepseek-api:count'),
+                }, t('Reset'))
+                : null,
+              h('input', {
+                className: 'bt-input bt-set-number',
+                type: 'number',
+                min: 1,
+                max: 50,
+                step: 1,
+                disabled: disabled || saving,
+                'aria-label': t('Results per search'),
+                'aria-invalid': !countCheck.ok ? true : undefined,
+                value: countText,
+                onChange: event => setField('web-deepseek-api:count', event.target.value),
+              }))),
+          !countCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, countCheck.error) : null),
+        h('div', { className: 'dsb-engine-field-wrap' },
+          h(EngineRow, { label: t('Search billing') },
+            h(SelectMenu, {
+              'aria-label': t('Search billing'),
+              value: searchBilling,
+              disabled: disabled || saving || hasCustomSearchEndpoint,
+              options: billingChoices,
+              onChange: next => setField('web-deepseek-api:searchBilling', next),
+            })))) : null,
+      showLegacyFields ? h(Fragment, null,
+        h('div', { className: 'dsb-engine-field-wrap' },
+          h(EngineRow, { label: t('Max searches per request') },
+            h('div', { className: 'dsb-engine-inline' },
+              (!resetFlags['web-search-deepseek:maxUses'] && (hasPath(legacyEntry.descriptor.user, ['maxUses']) || maxUsesText !== String(baseMaxUses)))
+                ? h('button', {
+                  type: 'button',
+                  className: 'bt-mini',
+                  disabled: disabled || saving,
+                  onClick: () => stageFieldReset('web-search-deepseek:maxUses'),
+                }, t('Reset'))
+                : null,
+              h('input', {
+                className: 'bt-input bt-set-number',
+                type: 'number',
+                min: 1,
+                step: 1,
+                disabled: disabled || saving,
+                'aria-label': t('Max searches per request'),
+                'aria-invalid': !maxUsesCheck.ok ? true : undefined,
+                value: maxUsesText,
+                onChange: event => setField('web-search-deepseek:maxUses', event.target.value),
+              }))),
+          !maxUsesCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, maxUsesCheck.error) : null),
+        h('div', { className: 'dsb-engine-field-wrap' },
+          h(EngineRow, { label: t('Base URL') },
+            h('div', { className: 'dsb-engine-inline' },
+              (!resetFlags['web-search-deepseek:baseURL'] && (hasPath(legacyEntry.descriptor.user, ['baseURL']) || baseUrlText !== String(baseBaseUrl)))
+                ? h('button', {
+                  type: 'button',
+                  className: 'bt-mini',
+                  disabled: disabled || saving,
+                  onClick: () => stageFieldReset('web-search-deepseek:baseURL'),
+                }, t('Reset'))
+                : null,
+              h('input', {
+                className: 'bt-input dsb-engine-text',
+                type: 'text',
+                disabled: disabled || saving,
+                'aria-label': t('Base URL'),
+                value: baseUrlText,
+                onChange: event => setField('web-search-deepseek:baseURL', event.target.value),
+              })))),
+        legacySecretField ? h('div', { className: 'dsb-engine-field-wrap' },
+          h(EngineRow, { label: legacySecretField.label },
+            h(SchemaSecretField, { field: legacySecretField, disabled: disabled || saving, onSave: op => onSecretMutate(legacyEntry.descriptor, op) }))) : null) : null),
+    (webEntry || showFetchApiFields) ? h(EngineSection, { title: t('Web fetch') },
+      webEntry ? h('div', { className: 'dsb-engine-field-wrap' },
+        h(EngineRow, { label: t('Fetch provider') },
+          h(SelectMenu, {
+            'aria-label': t('Fetch provider'),
+            value: fetchProvider,
+            disabled: disabled || saving,
+            options: fetchOptions,
+            onChange: next => setField('web:fetchProvider', next),
+          }))) : null,
+      showFetchApiFields ? h('div', { className: 'dsb-engine-field-wrap' },
+        h(EngineRow, { label: t('Fetch billing') },
+          h(SelectMenu, {
+            'aria-label': t('Fetch billing'),
+            value: fetchBilling,
+            disabled: disabled || saving || hasCustomFetchEndpoint,
+            options: billingChoices,
+            onChange: next => setField('web-deepseek-api:fetchBilling', next),
+          }))) : null) : null,
+    h(EngineFormBar, {
+      dirty,
+      invalid,
+      saving,
+      saved,
+      disabled,
+      onSave: () => { void handleSave() },
+      onDiscard: () => { resetDraft(); setSaved(false) },
+    }))
+}
+
+const routeKeyOf = route => `${route.provider}\0${route.model}`
+
+function normalizeStoredRoutes(raw) {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  const out = []
+  for (const item of raw) {
+    if (!item || typeof item.provider !== 'string' || typeof item.model !== 'string') continue
+    if (!item.provider || !item.model) continue
+    const key = routeKeyOf(item)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ provider: item.provider, model: item.model })
+  }
+  return out
+}
+
+function sameRouteLists(a, b) {
+  if (a.length !== b.length) return false
+  const setA = new Set(a.map(routeKeyOf))
+  for (const item of b) if (!setA.has(routeKeyOf(item))) return false
+  return true
+}
+
+function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
+  const byNs = useMemo(() => new Map(entries.map(e => [e.descriptor.ns, e])), [entries])
+  const limitsEntry = byNs.get('subagent')
+  const modelEntry = byNs.get('subagent-model-selection-settings')
+
+  const storedMaxDepth = limitsEntry?.descriptor?.value?.maxDepth
+  const baseMaxDepth = readPath(limitsEntry?.descriptor?.base, ['maxDepth']) ?? 2
+  const storedMaxActive = limitsEntry?.descriptor?.value?.maxActiveSubagents
+  const baseMaxActive = readPath(limitsEntry?.descriptor?.base, ['maxActiveSubagents']) ?? 8
+  const storedEnabled = modelEntry?.descriptor?.value?.enabled === true
+  const storedRoutes = useMemo(
+    () => normalizeStoredRoutes(modelEntry?.descriptor?.value?.allowedModels),
+    [modelEntry],
+  )
+  const storedRouteKeys = useMemo(() => new Set(storedRoutes.map(routeKeyOf)), [storedRoutes])
+
+  const [overrides, setOverrides] = useState({})
+  const [resetFlags, setResetFlags] = useState({})
+  const [catalog, setCatalog] = useState({ status: 'idle', partial: false, groups: [], error: '' })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const savedTimer = useRef(0)
+
+  useEffect(() => () => clearTimeout(savedTimer.current), [])
+
+  const hasOv = key => Object.prototype.hasOwnProperty.call(overrides, key)
+  const setField = (key, value) => {
+    setSaved(false)
+    setOverrides(prev => ({ ...prev, [key]: value }))
+    setResetFlags((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+  const stageFieldReset = (key) => {
+    setSaved(false)
+    setOverrides((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setResetFlags(prev => ({ ...prev, [key]: true }))
+  }
+
+  const maxDepthText = resetFlags['subagent:maxDepth']
+    ? String(baseMaxDepth)
+    : hasOv('subagent:maxDepth') ? overrides['subagent:maxDepth'] : fieldInputString(storedMaxDepth ?? baseMaxDepth)
+  const maxActiveText = resetFlags['subagent:maxActive']
+    ? String(baseMaxActive)
+    : hasOv('subagent:maxActive') ? overrides['subagent:maxActive'] : fieldInputString(storedMaxActive ?? baseMaxActive)
+  const selectionEnabled = hasOv('subagent-model-selection-settings:enabled')
+    ? overrides['subagent-model-selection-settings:enabled']
+    : storedEnabled
+  const selectedKeys = hasOv('subagent-model-selection-settings:selectedKeys')
+    ? overrides['subagent-model-selection-settings:selectedKeys']
+    : storedRouteKeys
+
+  const resetDraft = useCallback(() => {
+    setOverrides({})
+    setResetFlags({})
+  }, [])
+
+  const loadCatalog = useCallback(async () => {
+    setCatalog(prev => ({ ...prev, status: 'loading', error: '' }))
+    try {
+      const res = await call('engine-model-catalog')
+      setCatalog({
+        status: 'ready',
+        partial: res?.partial === true,
+        groups: Array.isArray(res?.groups) ? res.groups : [],
+        error: '',
+      })
+    } catch (failure) {
+      setCatalog(prev => ({
+        ...prev,
+        status: 'error',
+        error: hostText(failure?.message ?? String(failure)),
+      }))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (modelEntry && selectionEnabled && catalog.status === 'idle') {
+      void loadCatalog()
+    }
+  }, [modelEntry, selectionEnabled, catalog.status, loadCatalog])
+
+  const depthCheck = limitsEntry ? validateNumberText(maxDepthText, { min: 0, integer: true }) : { ok: true, empty: true }
+  const activeCheck = limitsEntry ? validateNumberText(maxActiveText, { min: 1, integer: true }) : { ok: true, empty: true }
+
+  const { groupsWithRows, routeByKey } = useMemo(() => {
+    const map = new Map()
+    const storedMap = new Map(storedRoutes.map(r => [routeKeyOf(r), r]))
+    const grouped = []
+    for (const group of catalog.groups) {
+      const rows = []
+      for (const model of group.models ?? []) {
+        const route = { provider: group.id, model: model.id }
+        const key = routeKeyOf(route)
+        map.set(key, route)
+        storedMap.delete(key)
+        rows.push({ key, label: model.name || model.id, available: true })
+      }
+      if (rows.length > 0) grouped.push({ id: group.id, title: group.name || group.id, rows })
+    }
+    if (storedMap.size > 0) {
+      const unavailable = []
+      for (const [key, route] of storedMap) {
+        map.set(key, route)
+        unavailable.push({ key, label: `${route.provider} / ${route.model}`, available: false })
+      }
+      grouped.push({ id: '__unavailable__', title: t('Unavailable'), rows: unavailable })
+    }
+    return { groupsWithRows: grouped, routeByKey: map }
+  }, [catalog.groups, storedRoutes])
+
+  const nextRoutes = useMemo(() => {
+    const out = []
+    for (const key of selectedKeys) {
+      const route = routeByKey.get(key)
+      if (route) out.push(route)
+    }
+    return out
+  }, [selectedKeys, routeByKey])
+
+  const missingSelection = Boolean(modelEntry && selectionEnabled && nextRoutes.length === 0)
+  const invalid = !depthCheck.ok || !activeCheck.ok || missingSelection
+
+  const pendingByNs = []
+  if (limitsEntry) {
+    const ops = []
+    if (resetFlags['subagent:maxDepth']) {
+      if (hasPath(limitsEntry.descriptor.user, ['maxDepth']) || storedMaxDepth !== baseMaxDepth) {
+        ops.push({ op: 'unset', path: ['maxDepth'] })
+      }
+    } else if (depthCheck.ok) {
+      if (depthCheck.empty && storedMaxDepth !== undefined) ops.push({ op: 'unset', path: ['maxDepth'] })
+      else if (!depthCheck.empty && depthCheck.value !== storedMaxDepth) ops.push({ op: 'set', path: ['maxDepth'], value: depthCheck.value })
+    }
+    if (resetFlags['subagent:maxActive']) {
+      if (hasPath(limitsEntry.descriptor.user, ['maxActiveSubagents']) || storedMaxActive !== baseMaxActive) {
+        ops.push({ op: 'unset', path: ['maxActiveSubagents'] })
+      }
+    } else if (activeCheck.ok) {
+      if (activeCheck.empty && storedMaxActive !== undefined) ops.push({ op: 'unset', path: ['maxActiveSubagents'] })
+      else if (!activeCheck.empty && activeCheck.value !== storedMaxActive) ops.push({ op: 'set', path: ['maxActiveSubagents'], value: activeCheck.value })
+    }
+    if (ops.length > 0) pendingByNs.push({ descriptor: limitsEntry.descriptor, ops })
+  }
+
+  if (modelEntry) {
+    const ops = []
+    if (selectionEnabled !== storedEnabled) ops.push({ op: 'set', path: ['enabled'], value: selectionEnabled })
+    if (!sameRouteLists(nextRoutes, storedRoutes)) ops.push({ op: 'set', path: ['allowedModels'], value: nextRoutes })
+    if (ops.length > 0) pendingByNs.push({ descriptor: modelEntry.descriptor, ops })
+  }
+
+  const dirty = pendingByNs.length > 0 || invalid
+
+  const handleSave = async () => {
+    if (!dirty || invalid || saving || disabled || pendingByNs.length === 0) return
+    setSaving(true)
+    setSaved(false)
+    try {
+      const res = await onSaveNamespaces(pendingByNs)
+      const ok = res === true || res?.ok === true
+      const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
+      if (ok) {
+        setOverrides({})
+        setResetFlags({})
+        setSaved(true)
+        clearTimeout(savedTimer.current)
+        savedTimer.current = setTimeout(() => setSaved(false), 2200)
+      } else if (savedList.length > 0) {
+        const savedNs = new Set(savedList)
+        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
+        setResetFlags(prev => dropNamespacesFromMap(prev, savedNs))
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleRoute = (key) => {
+    setSaved(false)
+    setOverrides((prev) => {
+      const current = Object.prototype.hasOwnProperty.call(prev, 'subagent-model-selection-settings:selectedKeys')
+        ? prev['subagent-model-selection-settings:selectedKeys']
+        : storedRouteKeys
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return { ...prev, 'subagent-model-selection-settings:selectedKeys': next }
+    })
+  }
+
+  return h(Fragment, null,
+    limitsEntry ? h(EngineSection, { title: t('Limits') },
+      h('div', { className: 'dsb-engine-field-wrap' },
+        h(EngineRow, { label: t('Max depth') },
+          h('div', { className: 'dsb-engine-inline' },
+            (!resetFlags['subagent:maxDepth'] && (hasPath(limitsEntry.descriptor.user, ['maxDepth']) || maxDepthText !== String(baseMaxDepth)))
+              ? h('button', {
+                type: 'button',
+                className: 'bt-mini',
+                disabled: disabled || saving,
+                onClick: () => stageFieldReset('subagent:maxDepth'),
+              }, t('Reset'))
+              : null,
+            h('input', {
+              className: 'bt-input bt-set-number',
+              type: 'number',
+              min: 0,
+              step: 1,
+              disabled: disabled || saving,
+              'aria-label': t('Max depth'),
+              'aria-invalid': !depthCheck.ok ? true : undefined,
+              value: maxDepthText,
+              onChange: event => setField('subagent:maxDepth', event.target.value),
+            }))),
+        !depthCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, depthCheck.error) : null),
+      h('div', { className: 'dsb-engine-field-wrap' },
+        h(EngineRow, { label: t('Max active subagents') },
+          h('div', { className: 'dsb-engine-inline' },
+            (!resetFlags['subagent:maxActive'] && (hasPath(limitsEntry.descriptor.user, ['maxActiveSubagents']) || maxActiveText !== String(baseMaxActive)))
+              ? h('button', {
+                type: 'button',
+                className: 'bt-mini',
+                disabled: disabled || saving,
+                onClick: () => stageFieldReset('subagent:maxActive'),
+              }, t('Reset'))
+              : null,
+            h('input', {
+              className: 'bt-input bt-set-number',
+              type: 'number',
+              min: 1,
+              step: 1,
+              disabled: disabled || saving,
+              'aria-label': t('Max active subagents'),
+              'aria-invalid': !activeCheck.ok ? true : undefined,
+              value: maxActiveText,
+              onChange: event => setField('subagent:maxActive', event.target.value),
+            }))),
+        !activeCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, activeCheck.error) : null)) : null,
+    modelEntry ? h(EngineSection, { title: t('Subagent models') },
+      h('div', { className: 'dsb-engine-field-wrap' },
+        h(EngineRow, { label: t('Allow agents to choose models for subagents') },
+          h(Switch, {
+            label: t('Allow agents to choose models for subagents'),
+            on: selectionEnabled,
+            disabled: disabled || saving,
+            onChange: next => setField('subagent-model-selection-settings:enabled', next),
+          }))),
+      selectionEnabled ? h('div', { className: 'dsb-subagent-models' },
+        catalog.status === 'loading'
+          ? h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
+          : catalog.status === 'error'
+            ? h('div', { className: 'dsb-slot-error', role: 'alert' },
+              h('span', null, catalog.error || t('Could not load models.')),
+              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void loadCatalog() } }, t('Retry')))
+            : groupsWithRows.length === 0
+              ? h('div', { className: 'dsb-engine-empty' }, t('No models available.'))
+              : h(Fragment, null,
+                catalog.partial ? h('div', { className: 'dsb-engine-notice', role: 'status' }, t('Some model providers could not be loaded.')) : null,
+                groupsWithRows.map(group => h('div', { key: group.id, className: 'dsb-subagent-group' },
+                  h('div', { className: 'dsb-subagent-group-title' }, group.title),
+                  h('div', { className: 'dsb-subagent-list' },
+                    group.rows.map(row => h('label', {
+                      key: row.key,
+                      className: 'dsb-subagent-opt',
+                      'data-disabled': (disabled || saving) ? '' : undefined,
+                    },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: selectedKeys.has(row.key),
+                      disabled: disabled || saving,
+                      onChange: () => toggleRoute(row.key),
+                    }),
+                    h('span', { className: 'dsb-subagent-opt-name' }, row.label),
+                    !row.available ? h('span', { className: 'dsb-subagent-opt-tag' }, t('Unavailable')) : null)))))),
+        missingSelection ? h('div', { className: 'dsb-engine-field-err', 'data-inline': '', role: 'alert' }, t('Select at least one model before saving.')) : null) : null) : null,
+    h(EngineFormBar, {
+      dirty,
+      invalid,
+      saving,
+      saved,
+      disabled,
+      onSave: () => { void handleSave() },
+      onDiscard: () => { resetDraft(); setSaved(false) },
+    }))
+}
+
+function normalizeDetailTarget(subTarget, surfaceMode = 'bot') {
   if (typeof subTarget !== 'string') return ''
   const trimmed = subTarget.trim()
-  if (!trimmed || isBannedNamespace(trimmed)) return ''
-  if (BUILTIN_CONFIG_GROUPS.some(group => group.id === trimmed)) return trimmed
-  if (BUILTIN_GROUP_BY_NS.has(trimmed)) return BUILTIN_GROUP_BY_NS.get(trimmed)
+  if (!trimmed || isBannedNamespace(trimmed, surfaceMode)) return ''
+  const groups = configGroupsForSurface(surfaceMode)
+  if (groups.some(group => group.id === trimmed)) return trimmed
+  if (BUILTIN_GROUP_BY_NS.has(trimmed)) {
+    const groupId = BUILTIN_GROUP_BY_NS.get(trimmed)
+    if (groups.some(group => group.id === groupId)) return groupId
+  }
   return trimmed
 }
 
@@ -683,16 +1855,18 @@ function PluginIconBox({ src, fallback, accent = false }) {
     : (fallback || h(PuzzleIcon)))
 }
 
-export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
+export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump = 0, surfaceMode = 'bot', runtime = pluginRuntime }) {
+  const uiPlugins = usePlugins(runtime)
   const [data, setData] = useState(() => pluginsCache)
   const [settingsData, setSettingsData] = useState(() => settingsCache)
   const [loading, setLoading] = useState(() => !pluginsCache && !settingsCache)
   const [installOpen, setInstallOpen] = useState(false)
   const [spec, setSpec] = useState('')
   const [showMoreOptional, setShowMoreOptional] = useState(false)
-  const [detailId, setDetailId] = useState(() => normalizeDetailTarget(subTarget))
+  const [detailId, setDetailId] = useState(() => normalizeDetailTarget(subTarget, surfaceMode))
   const [busyKey, setBusyKey] = useState('')
   const [armedRemove, setArmedRemove] = useState('')
+  const [armedExempt, setArmedExempt] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const activeLang = language()
@@ -702,23 +1876,17 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
     return () => { mounted.current = false }
   }, [])
 
+  const prevNav = useRef({ subTarget, jump })
   useEffect(() => {
-    const next = normalizeDetailTarget(subTarget)
-    if (next) setDetailId(next)
-  }, [subTarget])
-
-  useEffect(() => {
-    if (!armedRemove) return undefined
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        setArmedRemove('')
-      }
+    if (prevNav.current.subTarget !== subTarget || prevNav.current.jump !== jump) {
+      prevNav.current = { subTarget, jump }
+      setDetailId(normalizeDetailTarget(subTarget, surfaceMode))
+    } else if (detailId && isBannedNamespace(detailId, surfaceMode)) {
+      setDetailId('')
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [armedRemove])
+  }, [subTarget, jump, surfaceMode, detailId])
+
+  useEscape(() => { setArmedRemove(''); setArmedExempt('') }, Boolean(armedRemove || armedExempt), { priority: ESCAPE_PRIORITY.INLINE_ACTION })
 
   const load = useCallback(async () => {
     if (!pluginsCache && !settingsCache) setLoading(true)
@@ -755,14 +1923,81 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
   const toggleBundle = async (bundle, enabled) => {
     if (busyKey || readOnly || isCoreDsBotEntry(bundle)) return
     setArmedRemove('')
+    setArmedExempt('')
     setBusyKey(`bundle:${bundle.name}`)
     setError('')
     try {
       const res = await call('engine-plugins-toggle-bundle', { name: bundle.name, enabled })
       if (mounted.current) noteOutcome(res)
       await load()
+      void reloadExternalUiPlugins(runtime)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const toggleCustomPlugin = async (plugin, enabled) => {
+    if (busyKey || readOnly || !plugin?.id || plugin.readOnlyReason) return
+    setBusyKey(`plugin:${plugin.id}`)
+    setError('')
+    try {
+      const res = await call('engine-plugins-toggle-plugin', { id: plugin.id, enabled })
+      if (mounted.current) noteOutcome(res)
+      await load()
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const exemptIncompatibleBundle = async (bundle) => {
+    const first = Array.isArray(bundle?.error?.incompatible) ? bundle.error.incompatible[0] : null
+    if (!first?.name || !first?.version || !first?.runtimeVersion || busyKey || readOnly) return
+    setBusyKey(`exempt:${bundle.name}`)
+    setError('')
+    try {
+      const res = await call('engine-plugins-exempt-version', {
+        target: `${first.name}@${first.version}`,
+        runtimeVersion: first.runtimeVersion,
+        enabled: true,
+        acceptRisk: true,
+      })
+      if (mounted.current) {
+        setArmedExempt('')
+        noteOutcome(res)
+      }
+      await load()
+      void reloadExternalUiPlugins(runtime)
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const openUiPluginsFolder = async () => {
+    if (busyKey || readOnly) return
+    setBusyKey('ui-plugins:open')
+    setError('')
+    try {
+      await call('engine-plugins-open-ui-dir')
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const reloadWindowPlugins = async () => {
+    if (busyKey) return
+    setBusyKey('ui-plugins:reload')
+    setError('')
+    try {
+      const meta = await reloadExternalUiPlugins(runtime)
+      if (mounted.current && meta?.error) setError(hostText(meta.error))
     } finally {
       if (mounted.current) setBusyKey('')
     }
@@ -773,6 +2008,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
     const clean = spec.trim()
     if (!clean || busyKey || readOnly) return
     setArmedRemove('')
+    setArmedExempt('')
     setBusyKey('install')
     setError('')
     setNotice('')
@@ -784,6 +2020,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
         noteOutcome(res)
       }
       await load()
+      void reloadExternalUiPlugins(runtime)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
@@ -802,6 +2039,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
         noteOutcome(res)
       }
       await load()
+      void reloadExternalUiPlugins(runtime)
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
@@ -840,22 +2078,75 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
     }
   }
 
+  const saveNamespaces = async (batch) => {
+    if (busyKey || readOnly || !settingsData?.writable || !Array.isArray(batch) || batch.length === 0) return { ok: false, saved: [] }
+    setBusyKey('cfg:batch')
+    setError('')
+    const saved = []
+    try {
+      for (const { descriptor, ops } of batch) {
+        if (!Array.isArray(ops) || ops.length === 0) continue
+        const updated = await call('engine-settings-mutate', {
+          ns: descriptor.ns,
+          ops,
+          expectedRevision: descriptor.revision,
+        })
+        saved.push(descriptor.ns)
+        if (settingsCache) {
+          settingsCache = {
+            ...settingsCache,
+            namespaces: settingsCache.namespaces.map(entry => (entry.ns === updated.ns ? updated : entry)),
+          }
+        }
+        if (mounted.current) {
+          setSettingsData(prev => (prev ? {
+            ...prev,
+            namespaces: prev.namespaces.map(entry => (entry.ns === updated.ns ? updated : entry)),
+          } : prev))
+        }
+      }
+      return { ok: true, saved }
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+      if (failure?.code === 'bot/stale') await load()
+      return { ok: false, saved }
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
+  const openConfigFile = async () => {
+    if (busyKey || !settingsData?.documentPath) return
+    setBusyKey('cfg:open-file')
+    setError('')
+    try {
+      await call('engine-settings-open-file')
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
   const configItems = useMemo(() => {
     void activeLang
+    const activeGroups = configGroupsForSurface(surfaceMode)
     const namespaces = (settingsData?.namespaces ?? []).filter(entry =>
-      entry && !DEDICATED_NAMESPACES.has(entry.ns) && !isBannedNamespace(entry.ns))
+      entry && !DEDICATED_NAMESPACES.has(entry.ns) && !isBannedNamespace(entry.ns, surfaceMode))
     const byNs = new Map(namespaces.map(entry => [entry.ns, entry]))
     const usedNs = new Set()
     const items = []
 
-    for (const group of BUILTIN_CONFIG_GROUPS) {
+    for (const group of activeGroups) {
       const entries = []
       for (const ns of group.namespaces) {
         const descriptor = byNs.get(ns)
         if (!descriptor) continue
         usedNs.add(ns)
         const fields = extractSchemaFields(descriptor.schema, descriptor.value, descriptor.secrets, descriptor.ns)
-        if (fields.length > 0) entries.push({ descriptor, fields })
+        if (fields.length > 0 || group.id === 'subagent' || group.id === 'web-search') {
+          entries.push({ descriptor, fields })
+        }
       }
       if (entries.length > 0) {
         items.push({ id: group.id, title: t(group.titleKey), icon: group.icon, entries })
@@ -880,7 +2171,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
       })
     }
     return items
-  }, [settingsData, activeLang])
+  }, [settingsData, activeLang, surfaceMode])
 
   const { installedBundles, primaryOptional, moreOptional } = useMemo(() => {
     void activeLang
@@ -889,7 +2180,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
     const optional = []
     for (const bundle of eligible) {
       const core = isCoreDsBotEntry(bundle)
-      if (core || bundle.enabled || (!bundle.official && bundle.installed)) {
+      if (core || bundle.enabled || (!bundle.official && bundle.installed) || (bundle.installed && bundle.error)) {
         installed.push(bundle)
       } else if (bundle.official || EXTENSION_BUNDLES.includes(bundle.name) || MORE_BUNDLE_SET.has(bundle.name)) {
         if (bundle.listedByDefault !== false || EXTENSION_BUNDLES.includes(bundle.name) || MORE_BUNDLE_SET.has(bundle.name)) {
@@ -922,6 +2213,16 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
     return { installedBundles: installed, primaryOptional: primary, moreOptional: more }
   }, [data, activeLang])
 
+  const customPlugins = useMemo(() => (
+    (data?.plugins ?? [])
+      .filter(plugin => plugin && plugin.custom === true && !isCoreDsBotEntry(plugin))
+      .sort((a, b) => String(a.name || a.id || a.moduleName).localeCompare(String(b.name || b.id || b.moduleName)))
+  ), [data])
+
+  const windowPluginRows = useMemo(() => (
+    uiPlugins.filter(entry => entry.status === 'error' || entry.external === true)
+  ), [uiPlugins])
+
   if (loading && !data && !settingsData) {
     return h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
   }
@@ -929,7 +2230,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
   // In-page built-in / plugin schema config drill-down view.
   if (detailId) {
     const activeItem = configItems.find(item => item.id === detailId)
-    const fallbackGroup = BUILTIN_CONFIG_GROUPS.find(group => group.id === detailId)
+    const fallbackGroup = configGroupsForSurface(surfaceMode).find(group => group.id === detailId)
     const detailTitle = activeItem?.title ?? (fallbackGroup ? t(fallbackGroup.titleKey) : namespaceTitle(detailId))
     const detailIcon = activeItem?.icon ?? fallbackGroup?.icon ?? CodeIcon
     const cfgDisabled = Boolean(busyKey) || readOnly || !settingsData?.writable
@@ -949,32 +2250,65 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
         ? h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
         : !activeItem || activeItem.entries.length === 0
           ? h('div', { className: 'dsb-engine-empty' }, t('No engine configuration options available.'))
-          : activeItem.entries.map(({ descriptor, fields }) => {
-            const nsTitle = activeItem.entries.length > 1 ? namespaceTitle(descriptor.ns) : undefined
-            return h(EngineSection, {
-              key: descriptor.ns,
-              title: nsTitle && nsTitle !== detailTitle ? nsTitle : undefined,
-            },
-            fields.map(field => h(SchemaFieldRow, {
-              key: field.key,
-              field,
+          : detailId === 'web-search'
+            ? h(WebSearchDetailForm, {
+              entries: activeItem.entries,
               disabled: cfgDisabled,
-              onSave: op => { void mutateField(descriptor, op) },
-            })))
-          }))
+              onSaveNamespaces: saveNamespaces,
+              onSecretMutate: (descriptor, op) => { void mutateField(descriptor, op) },
+            })
+            : detailId === 'subagent' && surfaceMode === 'agent'
+              ? h(SubagentDetailForm, {
+                entries: activeItem.entries,
+                disabled: cfgDisabled,
+                onSaveNamespaces: saveNamespaces,
+              })
+              : h(StagedSchemaGroupForm, {
+                key: detailId,
+                groupKey: detailId,
+                entries: activeItem.entries,
+                detailTitle,
+                disabled: cfgDisabled,
+                canOpenConfigFile: Boolean(settingsData?.documentPath),
+                configFilePath: settingsData?.documentPath || '',
+                openingConfigFile: busyKey === 'cfg:open-file',
+                onOpenConfigFile: () => { void openConfigFile() },
+                onSaveNamespaces: saveNamespaces,
+                onSecretMutate: (descriptor, op) => { void mutateField(descriptor, op) },
+              }))
   }
 
-  if (data && data.available === false && configItems.length === 0) {
+  if (data && data.available === false && configItems.length === 0 && windowPluginRows.length === 0) {
     return h('div', { className: 'dsb-engine-empty' }, t('Plugin management is not available on this host.'))
+  }
+
+  const bundleErrorDetail = (bundle) => {
+    const err = bundle?.error
+    if (!err) return ''
+    if (err.code === 'incompatible-version' && Array.isArray(err.incompatible) && err.incompatible.length > 0) {
+      const item = err.incompatible[0]
+      const reqs = Object.entries(item.requirements ?? {}).map(([k, v]) => `${k} ${v}`).join(', ')
+      return reqs
+        ? `${item.name}@${item.version} (${reqs}; DSH ${item.runtimeVersion})`
+        : (err.diagnostic || '')
+    }
+    return typeof err.diagnostic === 'string' ? err.diagnostic : ''
   }
 
   const renderBundleRow = (bundle, { showExperimentalBadge = false } = {}) => {
     const core = isCoreDsBotEntry(bundle)
     const { title, description } = bundleDisplayMeta(bundle, activeLang)
     const armed = armedRemove === bundle.name
+    const armedVersionExempt = armedExempt === bundle.name
     const removing = busyKey === `remove:${bundle.name}`
+    const exempting = busyKey === `exempt:${bundle.name}`
     const unsupported = bundle.error?.code === 'unsupported-platform'
+    const incompatible = bundle.error?.code === 'incompatible-version'
+    const hasIncompatibleTarget = incompatible && Array.isArray(bundle.error?.incompatible) && bundle.error.incompatible.length > 0
     const experimental = EXPERIMENTAL_BUNDLES.has(bundle.name)
+    const dshWebOnly = !core && bundle.clientSurface === 'dsh-web-only'
+    const hasDesktopUi = !core && (bundle.clientSurface === 'ds-bot' || bundle.clientSurface === 'both')
+    const errorText = bundleErrorDetail(bundle)
     return h('div', { key: bundle.name, className: 'dsb-plug-row', 'data-plugin-bundle': bundle.name },
       h(PluginIconBox, {
         src: core ? null : bundle.meta?.icon,
@@ -985,12 +2319,41 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
         h('div', { className: 'dsb-plug-title-row' },
           h('span', { className: 'dsb-plug-name' }, title),
           bundle.version ? h('span', { className: 'dsb-plug-ver' }, `v${bundle.version}`) : null,
-          experimental && !core && showExperimentalBadge ? h('span', { className: 'dsb-preset-badge' }, t('Experimental')) : null),
-        description ? h('span', { className: 'dsb-plug-desc' }, description) : null),
+          experimental && !core && showExperimentalBadge ? h('span', { className: 'dsb-preset-badge' }, t('Experimental')) : null,
+          hasDesktopUi ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'active' }, t('Desktop UI')) : null,
+          dshWebOnly ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'warn' }, t('DSH Web UI only')) : null,
+          incompatible ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'error' }, t('Incompatible')) : null,
+          !incompatible && bundle.error ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'error' }, t('Failed to load')) : null),
+        description ? h('span', { className: 'dsb-plug-desc' }, description) : null,
+        dshWebOnly ? h('span', { className: 'dsb-plug-note', 'data-tone': 'warn' }, t('Host tools still run; DSH Web UI and skins are not loaded in Desktop.')) : null,
+        errorText ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, errorText) : null),
       h('div', { className: 'bt-set-control' },
         core
           ? h('span', { className: 'dsb-preset-badge', 'data-core-plugin': '' }, t('Core'))
           : h('div', { className: 'dsb-engine-inline' },
+            hasIncompatibleTarget
+              ? (armedVersionExempt
+                ? h(Fragment, null,
+                  h('button', {
+                    type: 'button',
+                    className: 'bt-soft bt-soft-sm',
+                    'data-armed': '',
+                    disabled: Boolean(busyKey) || readOnly,
+                    onClick: () => { void exemptIncompatibleBundle(bundle) },
+                  }, exempting ? t('Loading…') : t('Confirm allow')),
+                  h('button', {
+                    type: 'button',
+                    className: 'bt-soft bt-soft-sm',
+                    disabled: Boolean(busyKey) || readOnly,
+                    onClick: () => setArmedExempt(''),
+                  }, t('Cancel')))
+                : h('button', {
+                  type: 'button',
+                  className: 'bt-soft bt-soft-sm',
+                  disabled: Boolean(busyKey) || readOnly,
+                  onClick: () => { setArmedRemove(''); setArmedExempt(bundle.name) },
+                }, t('Allow for this version')))
+              : null,
             bundle.removable
               ? (armed
                 ? h(Fragment, null,
@@ -1012,7 +2375,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
                   type: 'button',
                   className: 'bt-soft bt-soft-sm bt-danger',
                   disabled: Boolean(busyKey) || readOnly,
-                  onClick: () => setArmedRemove(bundle.name),
+                  onClick: () => { setArmedExempt(''); setArmedRemove(bundle.name) },
                 }, t('Remove')))
               : null,
             h(Switch, {
@@ -1028,8 +2391,95 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null }) {
     : (showMoreOptional ? [...primaryOptional, ...moreOptional] : primaryOptional)
   const hasMoreToggle = primaryOptional.length > 0 && moreOptional.length > 0
 
+  const uiPluginStatusLabel = (status) => {
+    if (status === 'active') return t('Active')
+    if (status === 'error') return t('Failed to load')
+    if (status === 'loading') return t('Loading…')
+    if (status === 'idle') return t('Idle')
+    if (status === 'disabled') return t('Disabled')
+    return t('Waiting')
+  }
+
+  const showWindowPluginsSection = windowPluginRows.length > 0 || Boolean(data?.uiPluginsDir)
+
   return h('div', { className: 'dsb-engine-page', 'data-engine-section': 'plugins' },
     h(StatusAlert, { error, notice }),
+    showWindowPluginsSection ? h(EngineSection, {
+      title: t('Window plugins'),
+      action: h('div', { className: 'dsb-engine-inline' },
+        data?.uiPluginsDir && !readOnly ? h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm bt-with-icon',
+          disabled: Boolean(busyKey),
+          onClick: () => { void openUiPluginsFolder() },
+        }, h(FolderIcon), t('Open folder')) : null,
+        h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm',
+          disabled: Boolean(busyKey),
+          onClick: () => { void reloadWindowPlugins() },
+        }, busyKey === 'ui-plugins:reload' ? t('Loading…') : t('Reload'))),
+    },
+    windowPluginRows.length > 0
+      ? windowPluginRows.map(entry => h('div', { key: entry.id, className: 'dsb-plug-row', 'data-ui-plugin': entry.id, 'data-ui-plugin-status': entry.status },
+        h(PluginIconBox, { fallback: entry.kind === 'theme' ? h(PaletteIcon) : h(PuzzleIcon) }),
+        h('div', { className: 'dsb-plug-copy' },
+          h('div', { className: 'dsb-plug-title-row' },
+            h('span', { className: 'dsb-plug-name' }, entry.name || entry.id),
+            entry.external ? h('span', { className: 'dsb-preset-badge' }, entry.kind === 'theme' ? t('Theme') : t('UI')) : null,
+            entry.source === 'local' ? h('span', { className: 'dsb-plug-ver' }, t('Local')) : null,
+            entry.packageName ? h('span', { className: 'dsb-plug-ver' }, entry.packageName) : null,
+            h('span', { className: 'dsb-ui-plug-status', 'data-status': entry.status }, uiPluginStatusLabel(entry.status))),
+          entry.error ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, entry.error) : null),
+        entry.status === 'error'
+          ? h('div', { className: 'bt-set-control' },
+            h('button', {
+              type: 'button',
+              className: 'bt-soft bt-soft-sm',
+              onClick: () => {
+                if (entry.external) {
+                  void reloadExternalUiPlugins(runtime, { onlyId: entry.id }).then((meta) => {
+                    if (mounted.current && meta?.error) setError(hostText(meta.error))
+                  })
+                } else {
+                  runtime.retry(entry.id)
+                }
+              },
+            }, t('Retry')))
+          : null))
+      : h('div', { className: 'dsb-engine-empty' }, data?.uiPluginsDir || '')) : null,
+    customPlugins.length > 0 ? h(EngineSection, {
+      title: t('Custom profile plugins'),
+      action: settingsData?.documentPath && settingsData?.writable && !readOnly ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: Boolean(busyKey),
+        onClick: () => { void openConfigFile() },
+      }, t('Open config file')) : null,
+    },
+    customPlugins.map((plugin) => {
+      const title = resolveLocalizedMetaText(plugin.meta?.title, activeLang) || plugin.name || plugin.patchId || plugin.id || plugin.moduleName
+      const status = plugin.enabled === false ? 'disabled' : (plugin.status || 'inactive')
+      const dshWebOnly = plugin.clientSurface === 'dsh-web-only'
+      const errText = plugin.error?.diagnostic || ''
+      return h('div', { key: plugin.id || plugin.moduleName, className: 'dsb-plug-row', 'data-custom-plugin': plugin.patchId || plugin.id || plugin.moduleName },
+        h(PluginIconBox, { fallback: h(CodeIcon) }),
+        h('div', { className: 'dsb-plug-copy' },
+          h('div', { className: 'dsb-plug-title-row' },
+            h('span', { className: 'dsb-plug-name' }, title),
+            h('span', { className: 'dsb-ui-plug-status', 'data-status': status === 'error' ? 'error' : (status === 'active' ? 'active' : 'idle') }, uiPluginStatusLabel(status)),
+            dshWebOnly ? h('span', { className: 'dsb-ui-plug-status', 'data-status': 'warn' }, t('DSH Web UI only')) : null),
+          plugin.moduleName && plugin.moduleName !== title ? h('span', { className: 'dsb-plug-ver' }, plugin.moduleName) : null,
+          dshWebOnly ? h('span', { className: 'dsb-plug-note', 'data-tone': 'warn' }, t('Host tools still run; DSH Web UI and skins are not loaded in Desktop.')) : null,
+          errText ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, errText) : null),
+        h('div', { className: 'bt-set-control' },
+          h(Switch, {
+            label: title,
+            on: plugin.enabled !== false,
+            disabled: Boolean(busyKey) || readOnly || Boolean(plugin.readOnlyReason),
+            onChange: next => { void toggleCustomPlugin(plugin, next) },
+          })))
+    })) : null,
     data?.available !== false ? h(EngineSection, {
       title: t('Installed plugins'),
       action: !readOnly ? h('button', {
@@ -1104,7 +2554,7 @@ const BUILTIN_PRESET_COPY = {
   },
   cordis: {
     name: 'Creator mode',
-    description: 'Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.',
+    description: 'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.',
   },
 }
 
@@ -1124,20 +2574,11 @@ function presetDisplayCopy(preset) {
 function PresetConfigModal({ doc, onClose }) {
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef(0)
-  useEffect(() => {
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      clearTimeout(copyTimer.current)
-    }
-  }, [onClose])
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MODAL_CHILD })
+  useModalFocusTrap(modalRef, true, { initialFocusRef: closeBtnRef })
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
 
   const copyYaml = async () => {
     if (await writeClipboard(doc.content)) {
@@ -1147,7 +2588,7 @@ function PresetConfigModal({ doc, onClose }) {
     }
   }
 
-  const modal = h('div', { className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
+  const modal = h('div', { ref: modalRef, tabIndex: -1, className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
     h('div', { className: 'dsb-preset-modal-scrim', onMouseDown: onClose }),
     h('div', { className: 'dsb-preset-modal' },
       h('div', { className: 'dsb-preset-modal-head' },
@@ -1158,7 +2599,7 @@ function PresetConfigModal({ doc, onClose }) {
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => { void copyYaml() } },
             copied ? h(CheckIcon) : h(CopyIcon),
             copied ? t('Copied') : t('Copy')),
-          h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
+          h('button', { ref: closeBtnRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
       h('pre', { className: 'dsb-preset-code' }, doc.content || t('No configuration content.'))))
   const target = typeof document !== 'undefined' && document.body ? document.body : null
   return target ? createPortal(modal, target) : modal
@@ -1411,56 +2852,6 @@ export function ArchivedSessionsPage({ readOnly = false, onRestoredSession }) {
         }, t('Restore'))))))
 }
 
-function SchemaNumberField({ field, disabled, onSave }) {
-  const [text, setText] = useState(field.value === '' ? '' : String(field.value))
-  useEffect(() => { setText(field.value === '' ? '' : String(field.value)) }, [field.value])
-  const commit = () => {
-    const trimmed = text.trim()
-    if (trimmed === '') {
-      if (field.value !== '') onSave({ op: 'unset', path: field.path })
-      return
-    }
-    const parsed = Number(trimmed)
-    if (!Number.isFinite(parsed)) { setText(field.value === '' ? '' : String(field.value)); return }
-    if (field.min !== undefined && parsed < field.min) { setText(field.value === '' ? '' : String(field.value)); return }
-    if (field.max !== undefined && parsed > field.max) { setText(field.value === '' ? '' : String(field.value)); return }
-    if (parsed !== field.value) onSave({ op: 'set', path: field.path, value: parsed })
-  }
-  return h('input', {
-    className: 'bt-input bt-set-number',
-    type: 'number',
-    min: field.min,
-    max: field.max,
-    step: field.step,
-    disabled,
-    'aria-label': field.label,
-    value: text,
-    onChange: event => setText(event.target.value),
-    onBlur: commit,
-    onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
-  })
-}
-
-function SchemaStringField({ field, disabled, onSave }) {
-  const [text, setText] = useState(field.value ?? '')
-  useEffect(() => { setText(field.value ?? '') }, [field.value])
-  const commit = () => {
-    if (text !== (field.value ?? '')) {
-      onSave(text === '' ? { op: 'unset', path: field.path } : { op: 'set', path: field.path, value: text })
-    }
-  }
-  return h('input', {
-    className: 'bt-input dsb-engine-text',
-    type: 'text',
-    disabled,
-    'aria-label': field.label,
-    value: text,
-    onChange: event => setText(event.target.value),
-    onBlur: commit,
-    onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
-  })
-}
-
 function SchemaSecretField({ field, disabled, onSave }) {
   const [text, setText] = useState('')
   const save = () => {
@@ -1485,169 +2876,8 @@ function SchemaSecretField({ field, disabled, onSave }) {
     field.isSet ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: () => onSave({ op: 'unset', path: field.path }) }, t('Clear')) : null)
 }
 
-function SchemaFieldRow({ field, disabled, onSave }) {
-  return h(EngineRow, {
-    label: field.label,
-    hint: field.description || undefined,
-  },
-  field.kind === 'boolean'
-    ? h(Switch, {
-      label: field.label,
-      on: field.value,
-      disabled,
-      onChange: next => onSave({ op: 'set', path: field.path, value: next }),
-    })
-    : field.kind === 'select'
-      ? h(SelectMenu, {
-        'aria-label': field.label,
-        value: String(field.value ?? ''),
-        disabled,
-        options: field.options.map(opt => ({ value: String(opt.value), label: opt.label })),
-        onChange: (next) => {
-          const chosen = field.options.find(opt => String(opt.value) === next)
-          onSave({ op: 'set', path: field.path, value: chosen ? chosen.value : next })
-        },
-      })
-      : field.kind === 'number'
-        ? h(SchemaNumberField, { field, disabled, onSave })
-        : field.kind === 'secret'
-          ? h(SchemaSecretField, { field, disabled, onSave })
-          : h(SchemaStringField, { field, disabled, onSave }))
-}
-
 function namespaceTitle(ns) {
   const known = ENGINE_NAMESPACE_META[ns]
   if (known) return t(known.titleKey)
   return formatSegment(ns)
-}
-
-export function EngineConfigPage({ readOnly = false }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [busyKey, setBusyKey] = useState('')
-  const [error, setError] = useState('')
-  const activeLang = language()
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => { mounted.current = false }
-  }, [])
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const next = await call('engine-settings-list')
-      if (mounted.current) setData(next)
-    } catch (failure) {
-      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
-    } finally {
-      if (mounted.current) setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { void load() }, [load])
-
-  const mutateField = async (descriptor, op) => {
-    if (busyKey || readOnly || !data?.writable) return
-    const key = `${descriptor.ns}:${op.path.join('.')}`
-    setBusyKey(key)
-    setError('')
-    try {
-      const updated = await call('engine-settings-mutate', {
-        ns: descriptor.ns,
-        ops: [op],
-        expectedRevision: descriptor.revision,
-      })
-      if (mounted.current) {
-        setData(prev => (prev ? {
-          ...prev,
-          namespaces: prev.namespaces.map(entry => (entry.ns === updated.ns ? updated : entry)),
-        } : prev))
-      }
-    } catch (failure) {
-      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
-      if (failure?.code === 'bot/stale') await load()
-    } finally {
-      if (mounted.current) setBusyKey('')
-    }
-  }
-
-  const sections = useMemo(() => {
-    void activeLang
-    const namespaces = data?.namespaces ?? []
-    return namespaces
-      .filter(entry => !DEDICATED_NAMESPACES.has(entry.ns) && !isBannedNamespace(entry.ns) && (ENGINE_NAMESPACE_META[entry.ns] !== undefined || entry.autoGenerate !== false))
-      .map(entry => ({
-        descriptor: entry,
-        fields: extractSchemaFields(entry.schema, entry.value, entry.secrets, entry.ns),
-        order: ENGINE_NAMESPACE_META[entry.ns]?.order ?? 900,
-      }))
-      .filter(entry => entry.fields.length > 0)
-      .sort((a, b) => (a.order - b.order) || a.descriptor.ns.localeCompare(b.descriptor.ns))
-  }, [data, activeLang])
-
-  if (loading && !data) {
-    return h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
-  }
-  if (data && data.available === false) {
-    return h('div', { className: 'dsb-engine-empty' }, t('Engine configuration is not available on this host.'))
-  }
-
-  const disabled = Boolean(busyKey) || readOnly || !data?.writable
-
-  return h('div', { className: 'dsb-engine-page', 'data-engine-section': 'engine-config' },
-    h(StatusAlert, { error }),
-    sections.length === 0
-      ? h('div', { className: 'dsb-engine-empty' }, t('No engine configuration options available.'))
-      : sections.map(({ descriptor, fields }) => h(EngineSection, { key: descriptor.ns, title: namespaceTitle(descriptor.ns) },
-        fields.map(field => h(SchemaFieldRow, {
-          key: field.key,
-          field,
-          disabled,
-          onSave: op => { void mutateField(descriptor, op) },
-        })))))
-}
-
-export function SessionLogGeneralItem({ readOnly = false }) {
-  const [descriptor, setDescriptor] = useState(null)
-  const [writable, setWritable] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    void call('engine-settings-list').then((res) => {
-      if (!mounted.current || !res?.available) return
-      setWritable(Boolean(res.writable))
-      const found = (res.namespaces ?? []).find(entry => entry.ns === 'session-log-deepseek')
-      setDescriptor(found ?? null)
-    }).catch(() => {})
-    return () => { mounted.current = false }
-  }, [])
-
-  if (!descriptor) return null
-  const enabled = descriptor.value?.enabled === true
-  const toggle = async (next) => {
-    if (busy || readOnly || !writable) return
-    setBusy(true)
-    try {
-      const updated = await call('engine-settings-mutate', {
-        ns: 'session-log-deepseek',
-        ops: [{ op: 'set', path: ['enabled'], value: next }],
-        expectedRevision: descriptor.revision,
-      })
-      if (mounted.current) setDescriptor(updated)
-    } catch { /* host refusal leaves accepted state intact */ } finally {
-      if (mounted.current) setBusy(false)
-    }
-  }
-  return h('div', { className: 'bt-set-row' },
-    h('div', { className: 'bt-set-copy' }, h('span', null, t('Session log upload'))),
-    h('div', { className: 'bt-set-control' },
-      h(Switch, {
-        label: t('Session log upload'),
-        on: enabled,
-        disabled: busy || readOnly || !writable,
-        onChange: next => { void toggle(next) },
-      })))
 }

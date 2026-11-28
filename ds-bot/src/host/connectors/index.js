@@ -651,7 +651,6 @@ export function install(rt) {
       })
       while (list.length > MAX_REQUESTS) { const at = list.findIndex(entry => entry.status !== 'pending'); list.splice(at === -1 ? 0 : at, 1) }
       await rt.save()
-      rt.cardShown?.(agentId, 'connector', entry.name)
       exec.concludeTurn?.()
       return `The card asking the user to connect ${entry.name} is on screen. A note arrives when the user connects or dismisses it.`
     },
@@ -765,7 +764,7 @@ export function install(rt) {
 
   const connectorsView = () => ({
     connectors: entries().filter(entry => entry.id !== 'mail').map(rowFor),
-    mail: rt.mailView?.() ?? { accounts: [], google: false },
+    mail: rt.mailView?.() ?? { accounts: [], google: false, offFor: [] },
   })
 
   const HTTP_SECRET_REF_ERROR = 'One-time secret-ref handles can only be consumed by Bot host tools (such as save_capability), not via HTTP endpoints.'

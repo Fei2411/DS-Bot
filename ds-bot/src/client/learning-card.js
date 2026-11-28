@@ -57,7 +57,7 @@ function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close
 
 // `proposal.outcome` set: an answered card, read-only and folded to one row (what
 // it was, how it ended, its name); the row opens the change.
-function ProposalCard({ proposal, initialError = '', onFailure, onResolved, actions }) {
+export function ProposalCard({ proposal, initialError = '', onFailure, onResolved, actions }) {
   const outcome = proposal.outcome
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(initialError)
@@ -231,7 +231,7 @@ export const LEARNING_CSS = `
 @keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
-.bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
+.bt-learning-dock{width:100%;max-width:var(--bt-chat-w,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}
 .bt-learning-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-learning-icon svg{width:18px;height:18px}

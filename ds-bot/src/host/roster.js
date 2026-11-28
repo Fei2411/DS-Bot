@@ -1,6 +1,6 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
-import { openSessions, ownChatSessions, retiredTaskSessionIds } from './threads.js'
+import { isMissingSessionError, openSessions, ownChatSessions, retiredTaskSessionIds } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { agentAvatar } from '../client/agent-routes.js'
@@ -13,6 +13,7 @@ const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'
 export const API_ACTOR = Symbol('external API')
 const API_ROOM_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove', 'avatar'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
+const TERMINAL_COORD_STATUSES = new Set(['done', 'failed', 'stopped'])
 
 const OWN_RULES = 'Where your instructions say otherwise, follow them.'
 const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
@@ -59,6 +60,106 @@ export function install(rt) {
   const { ctx, defaults, state } = rt
 
   let bootstrapping = null
+
+  // Atomically stops all active coordination-db works/calls/waits for a deleted Bot,
+  // deleted group, or removed group member, notifies/wakes upstream callers, and aborts
+  // any live DSH execution BEFORE sessions are archived.
+  async function stopCoordWorks({ botId, botIds, roomId, reason, by } = {}) {
+    const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+    if (!db || db.readonly || db.isClosed?.()) return { stoppedWorkIds: [], wokenWorkIds: [] }
+    const targetBots = botIds !== undefined ? new Set(botIds) : (botId !== undefined ? new Set([botId]) : undefined)
+    const stoppedWorkIds = new Set()
+    const wokenWorkIds = new Set()
+    const settledEvents = []
+    try {
+      db.transaction(() => {
+        const candidateIds = new Set()
+        if (targetBots !== undefined && roomId !== undefined) {
+          for (const memberId of targetBots) {
+            for (const work of db.listWorks({ botId: memberId, roomId, activeOnly: true, limit: 1000 })) {
+              candidateIds.add(work.workId)
+            }
+          }
+          for (const call of db.listCalls({ status: 'open', limit: 1000 })) {
+            if (call.roomId !== roomId) continue
+            if (targetBots.has(call.calleeBotId)) candidateIds.add(call.childWorkId)
+            if (targetBots.has(call.callerBotId)) {
+              const parent = db.getWork(call.parentWorkId)
+              if (parent && parent.roomId === roomId) candidateIds.add(parent.workId)
+            }
+          }
+        } else if (targetBots !== undefined) {
+          for (const memberId of targetBots) {
+            for (const work of db.listWorks({ botId: memberId, activeOnly: true, limit: 1000 })) {
+              candidateIds.add(work.workId)
+            }
+          }
+          for (const call of db.listCalls({ status: 'open', limit: 1000 })) {
+            if (targetBots.has(call.calleeBotId)) candidateIds.add(call.childWorkId)
+            if (targetBots.has(call.callerBotId)) {
+              candidateIds.add(call.parentWorkId)
+              candidateIds.add(call.childWorkId)
+            }
+          }
+        } else if (roomId !== undefined) {
+          for (const work of db.listWorks({ roomId, activeOnly: true, limit: 1000 })) {
+            candidateIds.add(work.workId)
+          }
+          for (const call of db.listCalls({ status: 'open', limit: 1000 })) {
+            if (call.roomId === roomId) candidateIds.add(call.childWorkId)
+          }
+        }
+
+        for (const workId of candidateIds) {
+          const current = db.getWork(workId)
+          if (!current || TERMINAL_COORD_STATUSES.has(current.status)) continue
+          const senderName = rt.botOf?.(current.botId)?.name ?? 'The other Bot'
+          const tag = current.workRef ? ` #${current.workRef}` : ''
+          const summaryText = reason || `${senderName} was stopped.`
+          const res = db.stopWork(workId, {
+            reason: summaryText,
+            by,
+            cascadeChildren: true,
+            summary: summaryText,
+            resultMeta: {
+              role: 'reply',
+              replyTo: current.workId,
+              ...(current.workRef ? { workRef: current.workRef } : {}),
+              senderName,
+              renderedText: `[Work${tag} stopped · ${senderName}]\n${summaryText}`,
+              source: {
+                replyTo: current.workId,
+                ...(current.workRef ? { workRef: current.workRef } : {}),
+                senderName,
+              },
+            },
+          })
+          if (res.settled) {
+            stoppedWorkIds.add(workId)
+            settledEvents.push(res)
+            for (const childId of res.stoppedChildren ?? []) stoppedWorkIds.add(childId)
+            for (const parentId of res.wokenParents ?? []) wokenWorkIds.add(parentId)
+            for (const askerId of res.wokenAskers ?? []) wokenWorkIds.add(askerId)
+          }
+        }
+      })
+    } catch (error) {
+      rt.warn?.('ds-bot: stopping coordination works failed: %s', error?.message ?? error)
+    }
+
+    for (const settled of settledEvents) {
+      rt.emitWorkSettled?.({ outcome: 'stopped', ...settled })
+    }
+
+    if (stoppedWorkIds.size > 0 && typeof rt.abortWorkExecution === 'function') {
+      await Promise.allSettled([...stoppedWorkIds].map(workId =>
+        Promise.resolve(rt.abortWorkExecution(workId, { reason, by, cascadeChildren: false })).catch(() => {})))
+    }
+    if (wokenWorkIds.size > 0) {
+      void Promise.resolve(rt.kickScheduler?.()).catch(() => {})
+    }
+    return { stoppedWorkIds: [...stoppedWorkIds], wokenWorkIds: [...wokenWorkIds] }
+  }
 
   // The team folder is DS Bot's own: deleted, it is made again before a Session needs it.
   async function keepTeamFolder() {
@@ -447,18 +548,31 @@ export function install(rt) {
   function sendKickoff(bot, greeting) {
     // A greeting waiting for its model may still be waiting when the host goes away.
     if (rt.hostClosing?.() === true) return
+    if (bot.sessionMissing === rt.chatOf(bot.id)) {
+      sentKickoffs.set(bot.id, greeting)
+      holdKickoffAgain(bot.id)
+      return
+    }
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
     void rt.deliver({ fromId: greeting.from ?? undefined, ...(greeting.from === 'api:external' ? { fromName: 'External API' } : {}), toId: bot.id, text, role: 'kickoff' })
-      .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
+      .catch((error) => {
+        if (isMissingSessionError(error)) {
+          const missingId = rt.chatOf(bot.id)
+          if (missingId !== undefined && bot.sessionMissing !== missingId) bot.sessionMissing = missingId
+          holdKickoffAgain(bot.id)
+        }
+        rt.warn('ds-bot: kickoff failed: %s', error)
+      })
   }
 
   // A held greeting goes out once its Bot has a model, on that model once its provider
-  // is registered. False while the Bot has none.
+  // is registered. False while the Bot has none or its current Session is missing.
   const releasing = new Set()
   async function releaseKickoff(bot) {
     const greeting = bot.kickoff
     if (greeting === undefined || !bot.model) return false
+    if (bot.sessionMissing === rt.chatOf(bot.id)) return false
     delete bot.kickoff
     releasing.add(bot.id)
     await rt.save().catch((error) => { releasing.delete(bot.id); throw error })
@@ -993,6 +1107,16 @@ export function install(rt) {
     if (added.length > 0) changes.push(`added ${names(added)}`)
     // A deleted Bot still listed goes without a word.
     if (names(removed) !== '') changes.push(`removed ${names(removed)}`)
+    // Atomically stop coordination works/calls/waits for removed members and notify upstream
+    // BEFORE dropping their group sessions.
+    const coordStopPromise = removed.length > 0
+      ? stopCoordWorks({
+          botIds: removed,
+          roomId: room.id,
+          reason: 'Member was removed from the group',
+          by: typeof actorId === 'string' ? actorId : 'user',
+        })
+      : undefined
     // A member who leaves and comes back starts from a fresh look at the log.
     const noteCleanups = []
     for (const member of removed) {
@@ -1070,6 +1194,7 @@ export function install(rt) {
       }
     }
     await rt.save()
+    if (coordStopPromise !== undefined) await coordStopPromise.catch(() => {})
     if (noteCleanups.length > 0) await Promise.allSettled(noteCleanups)
     for (const member of removed) {
       await rt.stopMemberRoomTasks?.(room.id, member, 'removed from group')
@@ -1086,6 +1211,11 @@ export function install(rt) {
     if (room === undefined) throw new Error('Unknown group chat')
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
+    // Settle pending roomReports with their rich deletion notice BEFORE sweeping remaining
+    // coordination works so `forgetRoomReports` still finds every open report.
+    await rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
+    // Atomically stop all coordination works/calls/waits tied to this group and notify upstream.
+    await stopCoordWorks({ roomId: room.id, reason: `Group "${room.name}" was deleted before it finished.`, by: 'roster:deleteRoom' })
     await rt.stopRoomTasks?.(room.id, 'group deleted')
       .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
     const noteCleanups = []
@@ -1102,6 +1232,7 @@ export function install(rt) {
       delete state.questions[sid]
       if (state.views !== undefined) delete state.views[sid]
       if (state.closedCards !== undefined) delete state.closedCards[sid]
+      if (state.closedCardSeqs !== undefined) delete state.closedCardSeqs[sid]
       delete state.exchangeTurns[sid]
       rt.forgetSessionParts?.(sid)
       rt.forgetSessionTurn?.(sid)
@@ -1111,7 +1242,6 @@ export function install(rt) {
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
-    void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
     await Promise.allSettled(noteCleanups)
     const failed = await saveForDelete()
@@ -1229,6 +1359,9 @@ export function install(rt) {
       sentKickoffs.delete(id)
       clearPresetWarnings(id)
       for (const hook of botDeleteHooks) await hook(id)
+      // Atomically stop all coordination works/calls/waits for this Bot and notify upstream
+      // BEFORE releasing turns, dropping state, or archiving Sessions.
+      await stopCoordWorks({ botId: id, reason: `${bot.name} was deleted from the team before it could finish.`, by: 'roster:deleteBot' })
       rt.forgetBotTasks?.(bot)
       rt.forgetBotPermissions?.(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.
@@ -1259,6 +1392,7 @@ export function install(rt) {
         delete state.questions[part]
         if (state.views !== undefined) delete state.views[part]
         if (state.closedCards !== undefined) delete state.closedCards[part]
+        if (state.closedCardSeqs !== undefined) delete state.closedCardSeqs[part]
         delete state.exchangeTurns[part]
         delete state.switching[part]
         rt.forgetSessionChanges?.(part)
@@ -1330,6 +1464,12 @@ export function install(rt) {
     await rt.load()
     void rt.syncModels()
     if (state.mainBotIds.some(id => rt.botOf(id))) return
+    // Brand-new installs with no persisted team record the current version silently
+    // so first-run onboarding is not interrupted by an upgrade release-notes dialog.
+    if (!rt.hasExistingTeamData?.() && state.lastSeenVersion === undefined) {
+      const current = rt.currentReleaseVersion?.()
+      if (current) state.lastSeenVersion = current
+    }
     // Only the team's first Main Bot is stored as the DeepSeek whale; other Bots get a
     // look from their id, and a Bot made Main Bot later keeps its own.
     bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'deepseek', avatar: { shape: 'whale' }, pickModel: true })

@@ -9,13 +9,18 @@ import { within } from './folders.js'
 import { unquote } from './text.js'
 import { openSessions, retiredTaskSessionIds } from './threads.js'
 
+// Older DSH releases lack @deepseek-ai/dsh-fs-patch; patchPathsOf also scans headers directly.
+const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
+
 const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 const SEARCH_TOOLS = ['glob', 'grep']
-const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send']
+const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send', 'run_code']
 const SESSION_TOOLS = ['session_search', 'session_event_search', 'session_trace', 'session_event_trace', 'session_event_read']
 const SECRET_GUARDED_TOOLS = new Set([
   ...Object.keys(FILE_TOOLS),
+  'apply_patch',
+  'present',
   ...SEARCH_TOOLS,
   ...SHELL_TOOLS,
   'subagent',
@@ -40,11 +45,213 @@ const fold = text => (process.platform === 'linux' ? text : text.toLowerCase())
 const overlap = (a, b) => within(a, b) || within(b, a)
 const expandHome = (path) => (path === '~' ? homedir() : /^~[\\/]/.test(path) ? join(homedir(), path.slice(2)) : path)
 const strings = value => (typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [])
-// The same path as a shell writes it: forward slashes, and on Windows both drive forms.
+// The same path as a shell writes it: collapsed forward slashes, and on Windows both drive forms.
+const normalizeSlashes = text => text.replace(/[\\/]+/g, '/')
 const asShell = (path) => {
-  const slashed = path.replace(/\\/g, '/')
+  const slashed = normalizeSlashes(path)
   const drive = /^([a-z]):\//i.exec(slashed)
   return drive ? [slashed, `/${drive[1]}${slashed.slice(2)}`] : [slashed]
+}
+
+// Extract every source and destination path from an apply_patch input.
+function patchPathsOf(args) {
+  const input = args?.input
+  if (typeof input !== 'string' || input === '') return []
+  const paths = new Set()
+  if (typeof parsePatch === 'function') {
+    try {
+      for (const op of parsePatch(input)) {
+        if (typeof op.path === 'string' && op.path !== '') paths.add(expandHome(op.path))
+        if (typeof op.moveTo === 'string' && op.moveTo !== '') paths.add(expandHome(op.moveTo))
+      }
+      return [...paths]
+    } catch {
+      // Fall through to header scan so malformed or partial patches still cannot bypass fences.
+    }
+  }
+  for (const line of input.split(/\r?\n/)) {
+    const match = /^\*\*\*\s+(?:Add File|Update File|Delete File|Move to):\s*(.+?)\s*$/.exec(line)
+    if (match !== null && match[1] !== '') paths.add(expandHome(match[1]))
+  }
+  return [...paths]
+}
+
+const DIRECT_HOST_MODULES = new Set([
+  'fs', 'node:fs', 'fs/promises', 'node:fs/promises',
+  'child_process', 'node:child_process',
+])
+const DIRECT_HOST_EXPLICIT_MODULES = new Set([
+  'node:fs', 'node:fs/promises', 'node:child_process',
+])
+const PROCESS_ESCAPE_PROPS = new Set(['binding', 'dlopen', 'getBuiltinModule'])
+
+// Tokenize JS/TS code enough to detect direct host escape imports/calls (node:fs,
+// child_process, process.binding/dlopen/getBuiltinModule) while ignoring comments and
+// code embedded inside string/template payloads passed to tools.write/edit.
+function hasDirectHostModuleAccess(code) {
+  const tokens = []
+  const templateBraceStack = []
+  let i = 0
+  const len = code.length
+  const prevCanEndExpr = () => {
+    const prev = tokens.at(-1)
+    if (prev === undefined) return false
+    if (prev.kind === 'id') return !['return', 'throw', 'case', 'in', 'of', 'typeof', 'void', 'delete', 'new', 'await', 'yield', 'else', 'do'].includes(prev.value)
+    return prev.kind === 'str' || prev.kind === 'num' || prev.value === ')' || prev.value === ']' || prev.value === '}'
+  }
+  const readTemplateChunk = () => {
+    let val = ''
+    let hasExpr = false
+    while (i < len) {
+      const ch = code[i]
+      if (ch === '\\' && i + 1 < len) {
+        val += code[i + 1]
+        i += 2
+        continue
+      }
+      if (ch === '`') {
+        i += 1
+        return { val, closed: true, hasExpr }
+      }
+      if (ch === '$' && code[i + 1] === '{') {
+        i += 2
+        templateBraceStack.push(0)
+        hasExpr = true
+        return { val, closed: false, hasExpr }
+      }
+      val += ch
+      i += 1
+    }
+    return { val, closed: true, hasExpr }
+  }
+
+  while (i < len) {
+    const ch = code[i]
+    if (/\s/.test(ch)) { i += 1; continue }
+    if (ch === '/' && code[i + 1] === '/') {
+      i += 2
+      while (i < len && code[i] !== '\n') i += 1
+      continue
+    }
+    if (ch === '/' && code[i + 1] === '*') {
+      i += 2
+      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) i += 1
+      i += 2
+      continue
+    }
+    if (ch === '/' && !prevCanEndExpr()) {
+      i += 1
+      let inClass = false
+      while (i < len) {
+        const rc = code[i]
+        if (rc === '\\' && i + 1 < len) { i += 2; continue }
+        if (rc === '[') inClass = true
+        else if (rc === ']') inClass = false
+        else if (rc === '/' && !inClass) { i += 1; break }
+        else if (rc === '\n' || rc === '\r') break
+        i += 1
+      }
+      tokens.push({ kind: 'regex', value: '' })
+      continue
+    }
+    if (ch === '\'' || ch === '"') {
+      const quote = ch
+      i += 1
+      let val = ''
+      while (i < len && code[i] !== quote) {
+        if (code[i] === '\\' && i + 1 < len) {
+          val += code[i + 1]
+          i += 2
+          continue
+        }
+        if (code[i] === '\n' || code[i] === '\r') break
+        val += code[i]
+        i += 1
+      }
+      if (code[i] === quote) i += 1
+      tokens.push({ kind: 'str', value: val })
+      continue
+    }
+    if (ch === '`') {
+      i += 1
+      const chunk = readTemplateChunk()
+      tokens.push({ kind: chunk.closed && !chunk.hasExpr ? 'str' : 'tpl', value: chunk.val })
+      continue
+    }
+    if (ch === '{' && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1] += 1
+      tokens.push({ kind: 'punct', value: '{' })
+      i += 1
+      continue
+    }
+    if (ch === '}' && templateBraceStack.length > 0) {
+      if (templateBraceStack[templateBraceStack.length - 1] === 0) {
+        templateBraceStack.pop()
+        i += 1
+        readTemplateChunk()
+        tokens.push({ kind: 'tpl', value: '' })
+        continue
+      }
+      templateBraceStack[templateBraceStack.length - 1] -= 1
+      tokens.push({ kind: 'punct', value: '}' })
+      i += 1
+      continue
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i
+      i += 1
+      while (i < len && /[\w$]/.test(code[i])) i += 1
+      tokens.push({ kind: 'id', value: code.slice(start, i) })
+      continue
+    }
+    if (/[0-9]/.test(ch)) {
+      const start = i
+      i += 1
+      while (i < len && /[\w.]/.test(code[i])) i += 1
+      tokens.push({ kind: 'num', value: code.slice(start, i) })
+      continue
+    }
+    tokens.push({ kind: 'punct', value: ch })
+    i += 1
+  }
+
+  for (let t = 0; t < tokens.length; t += 1) {
+    const tok = tokens[t]
+    const next = tokens[t + 1]
+    const next2 = tokens[t + 2]
+    if (tok.kind === 'str' && DIRECT_HOST_EXPLICIT_MODULES.has(tok.value)) return true
+    if (tok.kind === 'id' && tok.value === 'from' && next?.kind === 'str' && DIRECT_HOST_MODULES.has(next.value)) return true
+    if (tok.kind === 'id' && tok.value === 'import' && next?.kind === 'str' && DIRECT_HOST_MODULES.has(next.value)) return true
+    if (tok.kind === 'id' && (tok.value === 'import' || tok.value === 'require' || tok.value === 'getBuiltinModule')
+      && next?.kind === 'punct' && next.value === '('
+      && next2?.kind === 'str' && DIRECT_HOST_MODULES.has(next2.value)) return true
+    if (tok.kind === 'id' && tok.value === 'process') {
+      if (next?.kind === 'punct' && next.value === '.' && next2?.kind === 'id' && PROCESS_ESCAPE_PROPS.has(next2.value)) return true
+      if (next?.kind === 'punct' && next.value === '?' && next2?.kind === 'punct' && next2.value === '.'
+        && tokens[t + 3]?.kind === 'id' && PROCESS_ESCAPE_PROPS.has(tokens[t + 3].value)) return true
+      if (next?.kind === 'punct' && next.value === '[' && next2?.kind === 'str' && PROCESS_ESCAPE_PROPS.has(next2.value)) return true
+      if (next?.kind === 'punct' && next.value === '?' && next2?.kind === 'punct' && next2.value === '.'
+        && tokens[t + 3]?.kind === 'punct' && tokens[t + 3].value === '['
+        && tokens[t + 4]?.kind === 'str' && PROCESS_ESCAPE_PROPS.has(tokens[t + 4].value)) return true
+    }
+  }
+  return false
+}
+
+// Extract quoted path-like literals from run_code text so relative traversals and symlinks
+// into closed folders are caught alongside literal absolute paths.
+function codePathCandidates(text) {
+  const found = new Set()
+  for (const match of text.matchAll(/(["'`])((?:\\.|(?!\1)[^\\\r\n])*)\1/g)) {
+    const raw = match[2]
+    if (raw === '' || raw.includes('${')) continue
+    const unescaped = raw.replace(/\\([\\'"`])/g, '$1')
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(unescaped)) continue
+    if (/(?:^|[\\/])\.\.(?:$|[\\/])/.test(unescaped) || /^([a-z]:|[\\/]|~)/i.test(unescaped) || /[\\/]/.test(unescaped)) {
+      found.add(expandHome(unescaped))
+    }
+  }
+  return [...found]
 }
 
 // Splits shell command text into simple-command token arrays. Breaks on unquoted
@@ -284,12 +491,23 @@ export function install(rt) {
   const privateBots = () => Object.values(state.bots).filter(bot => bot.private === true)
   // Deleting a private Bot does not make the files and memory it leaves behind public.
   const protectedBots = () => [...new Map([...(state.privateArchives ?? []), ...privateBots()].map(bot => [bot.id, bot])).values()]
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
+  const coordSessionsOf = (botId) => {
+    const db = existingCoordDb()
+    if (!db) return []
+    try {
+      return db.listWorks({ botId, limit: 200 }).map(work => work.sessionId).filter(Boolean)
+    } catch {
+      return []
+    }
+  }
   // Every Session a private Bot speaks from: its own chat, the parts it opened while it
   // was busy (a background part reads and writes in that Bot's name), its earlier parts
   // and its groups. A deleted Bot's archive lists them itself.
   const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [
     rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId),
     ...openSessions(bot), ...retiredTaskSessionIds(bot), ...rt.groupSessionsOf(bot.id),
+    ...coordSessionsOf(bot.id),
   ])])]
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 
@@ -467,7 +685,7 @@ export function install(rt) {
   // Text a shell runs: a closed path anywhere in it closes the command. A path that the
   // command builds, or reaches by walking up from a folder, is not seen.
   async function ownerInText(text, self, memo = new Map()) {
-    const flat = fold(text.replace(/\\/g, '/'))
+    const flat = fold(normalizeSlashes(text))
     const bots = protectedBots()
     for (const bot of bots) {
       if (bot.id === self) continue
@@ -503,6 +721,45 @@ export function install(rt) {
   // The Bot a tool argument names, as the tools and the memory scopes read it.
   const botNamed = ref => (typeof ref === 'string' && ref !== '' ? rt.findBot(ref) ?? rt.findBot(unquote(ref)) : undefined)
 
+  // Read-only lookup against coordination.sqlite for privacy checks on works & calls.
+  const coordWorkFor = (refOrSessionId) => {
+    const db = existingCoordDb()
+    if (!db || typeof refOrSessionId !== 'string' || refOrSessionId === '') return undefined
+    try {
+      const clean = refOrSessionId.replace(/^#/, '')
+      return db.getWork(clean)
+        ?? db.getWorkByRef(clean)
+        ?? db.getWork(`handoff:${clean}`)
+        ?? db.getWork(`task:${clean}`)
+        ?? db.getWorkBySessionId(refOrSessionId)
+    } catch {
+      return undefined
+    }
+  }
+  const coordCallsOf = (workId) => {
+    const db = existingCoordDb()
+    if (!db || !workId) return { incoming: [], outgoing: [] }
+    try {
+      return {
+        incoming: db.listCalls({ childWorkId: workId, limit: 50 }),
+        outgoing: db.listCalls({ parentWorkId: workId, limit: 50 }),
+      }
+    } catch {
+      return { incoming: [], outgoing: [] }
+    }
+  }
+  const isPrivacyScopedWork = (work) => work !== undefined && (work.privacyScoped === true || work.visibility === 'private' || isPrivate(work.botId))
+
+  // Privacy-scoped work can never implicitly escalate its visible scope to a group room;
+  // only an explicit publish/approval flow may cross into room visibility.
+  function checkWorkVisibility(workOrId, visibleScope, { explicitPublish = false } = {}) {
+    if (visibleScope !== 'room' || explicitPublish === true) return
+    const work = typeof workOrId === 'string' ? coordWorkFor(workOrId) : workOrId
+    if (isPrivacyScopedWork(work)) {
+      throw new Error('Privacy-scoped work cannot be shared to a group chat without explicit user approval.')
+    }
+  }
+
   // Tools between Bots. Other Bots may not reach a private Bot; what a private Bot sends
   // to them is the user's to allow. A private Bot is no member of a group, which the
   // roster checks as the members are written.
@@ -512,14 +769,37 @@ export function install(rt) {
       const bot = botNamed(ref)
       return bot !== undefined && isPrivate(bot.id) && bot.id !== self ? bot : undefined
     }
+    const activeCoordWork = coordWorkFor(exec.agent?.id) ?? coordWorkFor(exec.agent?.session?.id)
     switch (exec.name) {
       case 'delegate_work':
       case 'message_bot': {
         const body = String(args.goal ?? args.message ?? '')
         const bot = target(args.to)
         if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot delegate work to it. Ask the user to pass it on.`)
+        const inGroup = rt.groupOwners?.has(exec.agent?.id) || rt.taskOwners?.get(exec.agent?.id)?.roomId !== undefined
+        if (inGroup && (isPrivate(self) || isPrivacyScopedWork(activeCoordWork))) {
+          throw new Error('Not sent: privacy-scoped work cannot be escalated into a group chat.')
+        }
         const to = botNamed(args.to)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} send this to ${to.name}?\n\n${body}`, zh: `允许 ${senderName} 把下面的内容发给 ${to.name} 吗？\n\n${body}` })
+        }
+        return
+      }
+      case 'post_to_group': {
+        if (isPrivate(self)) {
+          throw new Error(`Not sent: ${rt.botOf(self).name} is a private Bot and cannot post to a group chat.`)
+        }
+        if (isPrivacyScopedWork(activeCoordWork)) {
+          const body = String(args.message ?? '')
+          const groupLabel = typeof args.group === 'string' && args.group.trim() !== '' ? args.group.trim() : 'the group'
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, {
+            en: `Let ${senderName} share this from privacy-scoped work into ${groupLabel}?\n\n${body}`,
+            zh: `允许 ${senderName} 把隐私工作中的下面内容发到群「${groupLabel}」吗？\n\n${body}`,
+          })
+        }
         return
       }
       case 'note_bot': {
@@ -527,7 +807,10 @@ export function install(rt) {
         const bot = target(args.to)
         if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot leave notes for it. Ask the user to pass it on.`)
         const to = botNamed(args.to)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} leave this note for ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 给 ${to.name} 留这条静默留言吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} leave this note for ${to.name}?\n\n${body}`, zh: `允许 ${senderName} 给 ${to.name} 留这条静默留言吗？\n\n${body}` })
+        }
         return
       }
       case 'ask_back': {
@@ -535,9 +818,18 @@ export function install(rt) {
         const explicit = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
         const activeId = explicit ?? rt.workOf?.(rt.live?.get(exec.agent?.id)?.info)
         const active = activeId !== undefined ? rt.resolveWork?.(activeId)?.work : undefined
-        const to = active?.from ? rt.botOf(active.from) : undefined
+        let fromBotId = active?.from
+        if (fromBotId === undefined) {
+          const cw = (explicit ? coordWorkFor(explicit) : undefined) ?? (activeId ? coordWorkFor(activeId) : undefined) ?? activeCoordWork
+          const incoming = cw ? coordCallsOf(cw.workId).incoming : []
+          fromBotId = incoming.find(c => c.status === 'open')?.callerBotId ?? incoming[0]?.callerBotId
+        }
+        const to = fromBotId ? rt.botOf(fromBotId) : undefined
         if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} ask ${to.name} this?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 向 ${to.name} 追问下面的问题吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} ask ${to.name} this?\n\n${body}`, zh: `允许 ${senderName} 向 ${to.name} 追问下面的问题吗？\n\n${body}` })
+        }
         return
       }
       case 'answer_work': {
@@ -549,23 +841,52 @@ export function install(rt) {
           : turnAskWork !== undefined
             ? rt.resolveWork?.(turnAskWork)?.work
             : rt.needInputWorksFor?.(self)?.[0]?.work
-        const to = active?.to ? rt.botOf(active.to) : undefined
+        let toBotId = active?.to
+        if (toBotId === undefined) {
+          const cw = (explicit ? coordWorkFor(explicit) : undefined) ?? (turnAskWork ? coordWorkFor(turnAskWork) : undefined)
+          if (cw) {
+            toBotId = cw.botId
+          } else if (activeCoordWork) {
+            const db = existingCoordDb()
+            if (db) {
+              try {
+                const incomingAsks = db.listWaits({ kind: 'ask', targetWorkId: activeCoordWork.workId, status: 'open', limit: 10 })
+                const asker = incomingAsks[0] ? db.getWork(incomingAsks[0].workId) : undefined
+                toBotId = asker?.botId
+              } catch { /* ignore */ }
+            }
+          }
+        }
+        const to = toBotId ? rt.botOf(toBotId) : undefined
         if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this answer to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的答复发给 ${to.name} 吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} send this answer to ${to.name}?\n\n${body}`, zh: `允许 ${senderName} 把下面的答复发给 ${to.name} 吗？\n\n${body}` })
+        }
         return
       }
       case 'cancel_work': {
         const ref = typeof args.target === 'string' ? args.target.trim() : ''
         const byRef = ref !== '' ? rt.resolveWork?.(ref)?.work : undefined
+        const byCoord = ref !== '' ? coordWorkFor(ref) : undefined
+        const coordCalls = byCoord ? coordCallsOf(byCoord.workId) : { incoming: [], outgoing: [] }
         const byName = botNamed(ref)
-        const touched = [byRef?.to ? rt.botOf(byRef.to) : undefined, byRef?.from ? rt.botOf(byRef.from) : undefined, byName].filter(Boolean)
+        const touched = [
+          byRef?.to ? rt.botOf(byRef.to) : undefined,
+          byRef?.from ? rt.botOf(byRef.from) : undefined,
+          byCoord?.botId ? rt.botOf(byCoord.botId) : undefined,
+          ...coordCalls.incoming.map(c => rt.botOf(c.callerBotId)),
+          ...coordCalls.outgoing.map(c => rt.botOf(c.calleeBotId)),
+          byName,
+        ].filter(Boolean)
         const locked = touched.find(bot => isPrivate(bot.id) && bot.id !== self)
         if (locked !== undefined) throw new Error(`Not cancelled: ${locked.name} is a private Bot, and other Bots cannot touch its work.`)
-        const to = byRef?.to ? rt.botOf(byRef.to) : byName
+        const to = byRef?.to ? rt.botOf(byRef.to) : (byCoord?.botId ? rt.botOf(byCoord.botId) : byName)
         const reason = String(args.reason ?? '').trim()
-        if (isPrivate(self) && to !== undefined && to.id !== self) {
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
           const detail = reason !== '' ? `\n\n${reason}` : ''
-          await approve(exec, { en: `Let ${rt.botOf(self).name} cancel work on ${to.name}?${detail}`, zh: `允许 ${rt.botOf(self).name} 取消发给 ${to.name} 的工单吗？${detail}` })
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} cancel work on ${to.name}?${detail}`, zh: `允许 ${senderName} 取消发给 ${to.name} 的工单吗？${detail}` })
         }
         return
       }
@@ -623,6 +944,10 @@ export function install(rt) {
     }
   }
 
+  const presentPathsOf = (args) => (Array.isArray(args?.files) ? args.files : [])
+    .map(file => (typeof file?.path === 'string' && file.path.trim() !== '' ? expandHome(file.path) : ''))
+    .filter(Boolean)
+
   // The file tools, the shell and the session search: where the path or text names a
   // closed place, the call fails before it runs.
   async function guardFiles(exec, self) {
@@ -631,6 +956,14 @@ export function install(rt) {
     const refuse = (bot) => { throw closed(bot, 'files') }
     const name = exec.name
     const memo = new Map()
+    if (name === 'present') {
+      const base = folder()
+      for (const path of presentPathsOf(args)) {
+        const bot = await ownerOfPath(path, { self, base, memo })
+        if (bot) refuse(bot)
+      }
+      return
+    }
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
@@ -654,6 +987,50 @@ export function install(rt) {
       }
       return
     }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      for (const path of paths) {
+        const bot = await ownerOfPath(path, { self, base, memo })
+        if (bot) refuse(bot)
+      }
+      if (isPrivate(self)) {
+        const own = await spellings(rt.botOf(self).workDir, memo)
+        const outside = []
+        for (const path of paths) {
+          if (!isAbsolute(path) && (typeof base !== 'string' || !isAbsolute(base))) {
+            throw new Error('The file destination cannot be determined, so it was not changed.')
+          }
+          const absolute = resolve(base ?? '.', path)
+          const real = await rt.realBeyond(absolute)
+          const target = [fold(absolute), fold(real)]
+          if (!target.every(key => own.some(root => within(key, root)))) {
+            outside.push({ path, absolute, real })
+          }
+        }
+        if (outside.length > 0) {
+          const list = outside.map(item => item.absolute).join(', ')
+          const botName = rt.botOf(self).name
+          await approve(exec, {
+            en: `Let ${botName} change ${list}? It is outside its own folder.`,
+            zh: `允许 ${botName} 修改 ${list} 吗？它在自己的文件夹之外。`,
+          }, {
+            cwd: base,
+            path: outside[0].absolute,
+            resolvedPath: outside[0].real,
+            ...(outside.length > 1 ? { paths: outside.map(item => item.absolute), resolvedPaths: outside.map(item => item.real) } : {}),
+          })
+          for (const item of outside) {
+            const current = resolve(folder() ?? '.', item.path)
+            if (current !== item.absolute || await rt.realBeyond(current) !== item.real || resolve(folder() ?? '.', item.path) !== item.absolute) {
+              throw new Error('The file destination changed during approval, so it was not changed.')
+            }
+          }
+        }
+      }
+      return
+    }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const bot = await ownerOfPath(where, { self, search: true, base: folder(), memo })
@@ -662,8 +1039,34 @@ export function install(rt) {
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const bot = await ownerInText(strings(args).join('\n'), self, memo)
+      const text = strings(args).join('\n')
+      const bot = await ownerInText(text, self, memo)
       if (bot) refuse(bot)
+      if (name === 'run_code') {
+        const base = folder()
+        for (const candidate of codePathCandidates(text)) {
+          const targetBot = await ownerOfPath(candidate, { self, base, memo })
+          if (targetBot) refuse(targetBot)
+        }
+        const otherPrivate = protectedBots().find(found => found.id !== self)
+        if (otherPrivate !== undefined && typeof args.code === 'string' && hasDirectHostModuleAccess(args.code)) {
+          throw new Error(`${otherPrivate.name} is a private Bot, and other Bots cannot import or invoke direct host filesystem or process modules in run_code. Use tools.* instead.`)
+        }
+        if (isPrivate(self)) {
+          const own = await spellings(rt.botOf(self).workDir, memo)
+          const policyMode = args.sandbox_permissions ?? ctx.get?.('sandboxPolicy')?.resolve?.({ session: exec.agent?.session })?.mode
+          const baseOutside = typeof base !== 'string' || !isAbsolute(base)
+            || !(await spellings(base, memo)).every(key => own.some(root => within(key, root)))
+          if (baseOutside || policyMode === 'danger-full-access') {
+            const botName = rt.botOf(self).name
+            const summary = typeof args.description === 'string' && args.description.trim() !== '' ? args.description.trim() : 'run_code'
+            await approve(exec, {
+              en: `Let ${botName} run code (${summary}) outside its own folder fence?`,
+              zh: `允许 ${botName} 在自己的文件夹围栏之外运行代码（${summary}）吗？`,
+            }, { cwd: base, ...(policyMode === undefined ? {} : { sandboxMode: policyMode }) })
+          }
+        }
+      }
       return
     }
     if ((name === 'subagent' || name === 'subagent_fork') && typeof args.cwd === 'string') {
@@ -701,6 +1104,10 @@ export function install(rt) {
     join(rt.home, 'api-audit.jsonl'),
     join(rt.home, 'api-config.json'),
     join(rt.home, 'api-runs.json'),
+    join(rt.home, 'coordination.sqlite'),
+    join(rt.home, 'coordination.sqlite-wal'),
+    join(rt.home, 'coordination.sqlite-shm'),
+    join(rt.home, 'coordination.sqlite-journal'),
     join(rt.home, 'telemetry.json'),
   ].map(file => spellings(file, memo)))).flat()
 
@@ -720,10 +1127,32 @@ export function install(rt) {
       if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
+    if (name === 'present') {
+      const paths = presentPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const protectedPaths = await apiProtectedFiles(memo)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      }
+      return
+    }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const protectedPaths = await apiProtectedFiles(memo)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      }
+      return
+    }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
-      if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
+      if (pattern.includes('api-') || pattern.includes('mcp.json') || pattern.includes('coordination.sqlite')) throw closedApi()
       const base = folder()
       const [keys, protectedPaths] = await Promise.all([
         spellings(base === undefined ? where : resolve(base, where), memo),
@@ -733,16 +1162,30 @@ export function install(rt) {
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
-      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
+      const rawText = strings(args).join('\n')
+      const flat = fold(normalizeSlashes(rawText))
+      if (name !== 'run_code' && (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('coordination.sqlite'))) throw closedApi()
       const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
       }
+      if (name === 'run_code') {
+        const base = folder()
+        for (const candidate of codePathCandidates(rawText)) {
+          const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
+          if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+        }
+        if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json') || flat.includes('coordination.sqlite')) {
+          const homeKeys = await spellings(rt.home, memo)
+          const baseKeys = base === undefined ? [] : await spellings(base, memo)
+          if (base === undefined || baseKeys.some(k => homeKeys.some(h => within(h, k)))) throw closedApi()
+        }
+        return
+      }
       if (flat.includes('telemetry.json')) {
         const base = folder()
-        const homeKeys = await spellings(rt.home)
-        const baseKeys = base === undefined ? [] : await spellings(base)
+        const homeKeys = await spellings(rt.home, memo)
+        const baseKeys = base === undefined ? [] : await spellings(base, memo)
         if (base === undefined || baseKeys.some(k => homeKeys.some(h => overlap(k, h)))) throw closedApi()
       }
     }
@@ -758,6 +1201,10 @@ export function install(rt) {
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
+    } else if (name === 'apply_patch') {
+      if (typeof args.input !== 'string' || args.input === '') return
+    } else if (name === 'present') {
+      if (presentPathsOf(args).length === 0) return
     } else if (name === 'subagent' || name === 'subagent_fork') {
       if (typeof args.cwd !== 'string' || args.cwd === '') return
     } else if (name === 'working_directory') {
@@ -799,6 +1246,30 @@ export function install(rt) {
         if (WRITE_TOOLS.includes(name)) throw closedSecret()
         const ownDir = await getOwnDir()
         if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
+      }
+      return
+    }
+    if (name === 'present') {
+      const paths = presentPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const roots = await spelledSecretRoots(memo)
+      const { inRefs, inFiles } = rootsOf(roots)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      }
+      return
+    }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const roots = await spelledSecretRoots(memo)
+      const { inRefs, inFiles } = rootsOf(roots)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       }
       return
     }
@@ -891,7 +1362,7 @@ export function install(rt) {
         }
       }
       const rawText = strings(args).join('\n')
-      const flat = fold(rawText.replace(/\\/g, '/'))
+      const flat = fold(normalizeSlashes(rawText))
       const hasRootBoundary = (text, at, len) => {
         const before = at === 0 ? '' : text[at - 1]
         if (before !== '' && /[a-z0-9_.-]/i.test(before)) return false
@@ -981,7 +1452,7 @@ export function install(rt) {
         for (let i = 0; i < segment.length; i += 1) {
           const tok = segment[i]
           if (isPlainSearchPattern(tok, i, exempt)) continue
-          const tokFlat = fold(tok.value.replace(/\\/g, '/'))
+          const tokFlat = fold(normalizeSlashes(tok.value))
           if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/i.test(tokFlat)) {
             throw closedSecret()
           }
@@ -994,6 +1465,32 @@ export function install(rt) {
             checkRestAfterFilesRoot(rest)
           }
         }
+      }
+      if (name === 'run_code') {
+        for (const candidate of codePathCandidates(rawText)) {
+          const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
+          if (inRefs(keys)) throw closedSecret()
+          if (inFiles(keys)) {
+            const ownDir = await getOwnDir()
+            if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
+          }
+        }
+      }
+    }
+  }
+
+  async function guardPresentData(exec) {
+    if (exec.name !== 'present' || typeof rt.inData !== 'function') return
+    const paths = presentPathsOf(exec.arguments ?? {})
+    if (paths.length === 0) return
+    const base = exec.agent?.session?.header?.cwd
+    for (const path of paths) {
+      const full = base === undefined ? resolve(path) : resolve(base, path)
+      const candidates = new Set([full])
+      const realPath = await (rt.realBeyond ?? rt.real)?.(full)
+      if (realPath) candidates.add(realPath)
+      for (const candidate of candidates) {
+        if (await rt.inData(candidate)) throw new Error('Files inside DeepSeek Harness data cannot be presented')
       }
     }
   }
@@ -1009,6 +1506,7 @@ export function install(rt) {
       const memo = new Map()
       await guardApiFiles(exec, memo)
       await guardSecretFiles(exec, self, memo)
+      await guardPresentData(exec)
     }
     return next()
   })
@@ -1080,5 +1578,14 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
-  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
+  const isPrivatePathBlocked = async (path, self, base) => (typeof path === 'string' && path !== ''
+    ? (await ownerOfPath(expandHome(path), { self, base })) !== undefined
+    : false)
+
+  Object.assign(rt, {
+    isPrivate, isPrivatePathBlocked, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, checkWorkVisibility, releaseArchive, archivesView,
+    // The private Bot a real path belongs to, for callers outside the file tools that read
+    // a file the user names: a photo must not come out of a folder that is closed.
+    privateOwnerOf: (path, options) => ownerOfPath(path, options),
+  })
 }

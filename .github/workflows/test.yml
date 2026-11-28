@@ -5,41 +5,55 @@ on:
     branches: [main, dev]
   pull_request:
   schedule:
-    # Daily full cross-platform verification at 19:00 UTC (03:00 +08:00) on the default branch
-    # so heavy packaging, iOS builds, Node 22 and caches stay verified and warm without slowing PRs.
+    # Daily full cross-platform verification at 19:00 UTC (03:00 +08:00) targeting dev
+    # so Windows, Node 22, browser tests and Docker (:dev) stay verified. Caches remain
+    # read-only on schedule so dev code never writes into main's release cache scope.
     - cron: '0 19 * * *'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or ref to test (defaults to workflow branch)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
-# A newer push to a pull request replaces its running checks. A run on main or dev finishes, and
-# of the pushes that wait for it only the newest runs next: a cancelled run never saves the
-# download caches that every pull request restores, and running one at a time keeps the
-# Docker image of an earlier commit from being pushed after a later one.
+# Pull requests and dev pushes cancel superseded runs so rapid merges never pile up.
+# Main pushes and the daily dev Nightly run to completion in isolated lanes so Docker
+# publishes and cache saves stay ordered and never block each other.
+# Heavy desktop packaging and native mobile builds live in package.yml.
 concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    ${{ github.event_name == 'schedule' && 'test-nightly-dev'
+        || (github.event_name == 'workflow_dispatch'
+            && format('test-dispatch-{0}', github.event.inputs.ref || github.ref)
+            || format('test-{0}', github.ref)) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev') }}
 
 jobs:
   changes:
     name: Detect changed areas
     runs-on: ubuntu-latest
     outputs:
+      checkout_ref: ${{ steps.filter.outputs.checkout_ref }}
       full: ${{ steps.filter.outputs.full }}
+      hotfix: ${{ steps.filter.outputs.hotfix }}
+      release_pr: ${{ steps.filter.outputs.release_pr }}
       ds_bot: ${{ steps.filter.outputs.ds_bot }}
+      ds_bot_browser: ${{ steps.filter.outputs.ds_bot_browser }}
+      ds_bot_win: ${{ steps.filter.outputs.ds_bot_win }}
       node22: ${{ steps.filter.outputs.node22 }}
       app_unit: ${{ steps.filter.outputs.app_unit }}
-      app_package_full: ${{ steps.filter.outputs.app_package_full }}
-      app_package_linux: ${{ steps.filter.outputs.app_package_linux }}
-      app_update: ${{ steps.filter.outputs.app_update }}
+      app_unit_win: ${{ steps.filter.outputs.app_unit_win }}
       mobile: ${{ steps.filter.outputs.mobile }}
-      mobile_ios: ${{ steps.filter.outputs.mobile_ios }}
       link: ${{ steps.filter.outputs.link }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
           fetch-depth: 0
       - name: Classify changed paths
         id: filter
@@ -47,17 +61,47 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_SAME_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+          PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           full=false
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$REF" = "refs/heads/main" ] || [ "$BASE_REF" = "main" ]; then
+          main_push=false
+          hotfix=false
+          release_pr=false
+
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            if [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ "$IS_SAME_REPO" = "true" ] && [[ "$HEAD_REF" == hotfix/* || "$HEAD_REF" == fix/hot-* ]]; then
+              hotfix=true
+            elif [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+              if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'release/hotfix'; then
+                hotfix=true
+              fi
+            fi
+            if [ "$hotfix" = "false" ]; then
+              release_pr=true
+            fi
+          fi
+
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$release_pr" = "true" ]; then
             full=true
+          elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+            # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
+            # schedule keeps caches warm. Running only the Linux baseline + Docker publish here
+            # prevents push:main from competing for runners with the Release workflow.
+            main_push=true
           fi
 
           changed=""
-          if [ "$full" = "false" ]; then
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ]; then
             if [ "$EVENT" = "pull_request" ]; then
               if ! changed="$(git -c core.quotepath=false diff --name-only "origin/$BASE_REF...HEAD")"; then
                 full=true
@@ -77,122 +121,241 @@ jobs:
             grep -qE "$1" <<< "$changed"
           }
 
-          if [ "$full" = "false" ] && has '^\.github/workflows/'; then
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/test\.yml$'; then
             full=true
           fi
 
           if [ "$full" = "true" ]; then
             ds_bot=true
+            ds_bot_browser=true
+            ds_bot_win=true
             node22=true
             app_unit=true
-            app_package_full=true
-            app_package_linux=true
-            app_update=true
+            app_unit_win=true
             mobile=true
-            mobile_ios=true
+            link=true
+            docker=true
+          elif [ "$main_push" = "true" ]; then
+            ds_bot=true
+            ds_bot_browser=true
+            ds_bot_win=false
+            node22=true
+            app_unit=true
+            app_unit_win=false
+            mobile=true
             link=true
             docker=true
           else
             ds_bot=false
+            ds_bot_browser=false
+            ds_bot_win=false
             node22=false
             app_unit=false
-            app_package_full=false
-            app_package_linux=false
-            app_update=false
+            app_unit_win=false
             mobile=false
-            mobile_ios=false
             link=false
             docker=false
-            if has '^(ds-bot/|link/|start\.ps1$)'; then ds_bot=true; fi
-            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
-            if has '^(app/|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/cordis\.patch\.yml$|ds-bot/office\.js$|ds-bot/src/office/|ds-bot/src/host/computer/)'; then app_package_full=true; fi
-            if [ "$app_package_full" = "true" ]; then app_package_linux=true; fi
-            if has '^app/'; then app_update=true; fi
-            if has '^(mobile/|link/|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data)\.js$)'; then mobile=true; fi
-            if has '^(mobile/|ds-bot/package\.json$)'; then mobile_ios=true; fi
+            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/(check-pure-base-sync|check-release-milestone)\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels|pr-merge-guard|release|nightly-release|cut-release)\.yml$)'; then ds_bot=true; fi
+            if has '^(ds-bot/(src/client/|src/host/browser/|src/host/fonts\.js$|src/shared/|assets/|test/(browser/|harness-resolve\.mjs$)|scripts/|dev/harness/|package\.json$|package-lock\.json$)|app/ui/src/html-preview\.js$)'; then ds_bot_browser=true; fi
+            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$|scripts/check-desktop-selectors\.mjs$|\.github/workflows/release\.yml$)'; then app_unit=true; fi
+            if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/(package\.json|link\.js)$|ds-bot/src/shared/|ds-bot/src/host/phone\.js$|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
-            if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/\.npmrc$|ds-bot/cordis\.patch\.yml$|ds-bot/plugin\.js$)'; then docker=true; fi
-            # Rapid merges to dev can supersede intermediate queued pushes, so always run the
-            # fast Linux/Windows baseline checks and publish :dev on push to dev without using macOS runners.
+            if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$)'; then docker=true; fi
+            # Hotfix PRs targeting main still run the fast 4-shard Windows unit suites (~5m)
+            # whenever plugin or desktop code changes so main never loses Windows test coverage.
+            if [ "$hotfix" = "true" ]; then
+              if [ "$ds_bot" = "true" ]; then ds_bot_win=true; fi
+              if [ "$app_unit" = "true" ]; then app_unit_win=true; fi
+            fi
+            # Push to dev stays fast and Linux-only so rapid merges warm Linux caches and catch
+            # cross-PR regressions immediately without hogging Windows or Docker runners; Windows,
+            # Node 22, and Docker :dev publishing run on the daily dev Nightly.
             if [ "$EVENT" = "push" ]; then
               ds_bot=true
-              node22=true
               app_unit=true
-              app_package_linux=true
-              docker=true
+              docker=false
             fi
           fi
 
+          checkout_ref=""
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+            # Pin every downstream job to the exact commit SHA resolved here so a concurrent
+            # merge to dev cannot mix commits across scan, unit tests, and Docker publishing.
+            checkout_ref="$(git rev-parse HEAD)"
+          fi
+
           {
+            echo "checkout_ref=$checkout_ref"
             echo "full=$full"
+            echo "hotfix=$hotfix"
+            echo "release_pr=$release_pr"
             echo "ds_bot=$ds_bot"
+            echo "ds_bot_browser=$ds_bot_browser"
+            echo "ds_bot_win=$ds_bot_win"
             echo "node22=$node22"
             echo "app_unit=$app_unit"
-            echo "app_package_full=$app_package_full"
-            echo "app_package_linux=$app_package_linux"
-            echo "app_update=$app_update"
+            echo "app_unit_win=$app_unit_win"
             echo "mobile=$mobile"
-            echo "mobile_ios=$mobile_ios"
             echo "link=$link"
             echo "docker=$docker"
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
-    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    name: ubuntu-latest · Node 24 (${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.ds_bot == 'true'
-    runs-on: ${{ matrix.os }}
-    # The suite takes a few minutes; a test that never settles used to hold the job for the
-    # runner's six-hour limit.
-    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    # Each shard runs roughly one-third of ds-bot's unit tests in ~1–2 minutes.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, node: 24, browser: true, lint: true }
-          - { os: windows-latest, node: 24 }
+        shard: [1, 2, 3]
     defaults:
       run:
         shell: bash
         working-directory: ds-bot
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
-          cache: npm
+          node-version: 24
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: |
             ds-bot/package-lock.json
             link/package-lock.json
       - run: npm ci --no-fund --no-audit
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
-      - name: Cache DSH test harness
+      - name: Restore DSH test harness
         id: harness-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
-          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ hashFiles('ds-bot/dev/harness/package.json') }}
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
-      - run: npm test
+      - name: Save DSH test harness
+        if: matrix.shard == 1 && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
+      - name: Run unit tests (shard ${{ matrix.shard }}/3)
+        run: node --import ./test/harness-resolve.mjs --test --test-shard=${{ matrix.shard }}/3 --test-timeout=120000 --test-force-exit "test/*.test.js"
       - name: Lint
-        if: matrix.lint
+        if: matrix.shard == 1
         run: npm run lint
-      # The Bot browser and settings layout tests drive a real Chromium; one Linux run is enough.
-      - name: Cache Playwright Chromium
-        if: matrix.browser
-        uses: actions/cache@v4
+
+  test-browser:
+    name: Browser tests (ubuntu-latest)
+    needs: changes
+    if: needs.changes.outputs.ds_bot_browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: ds-bot
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
+          cache-dependency-path: |
+            ds-bot/package-lock.json
+            link/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - name: Restore DSH test harness
+        id: harness-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
+      - name: Install DSH test harness
+        if: steps.harness-cache.outputs.cache-hit != 'true'
+        run: npm run harness
+      - name: Save DSH test harness
+        if: needs.changes.outputs.ds_bot != 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
+      - name: Restore Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ds-bot/package-lock.json') }}
       - name: Install Chromium for the browser tests
-        if: matrix.browser
         run: npx playwright-core install --with-deps --only-shell chromium
+      - name: Save Playwright Chromium
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
       - name: Browser tests
-        if: matrix.browser
         run: npm run test:browser
+
+  test-windows:
+    name: windows-latest · Node 24 (shard ${{ matrix.shard }}/4)
+    needs: changes
+    if: needs.changes.outputs.ds_bot_win == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        shell: bash
+        working-directory: ds-bot
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
+          cache-dependency-path: |
+            ds-bot/package-lock.json
+            link/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - name: Restore DSH test harness
+        id: harness-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
+      - name: Install DSH test harness
+        if: steps.harness-cache.outputs.cache-hit != 'true'
+        run: npm run harness
+      - name: Save DSH test harness
+        if: matrix.shard == 1 && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
+      - name: Run unit tests (Windows shard ${{ matrix.shard }}/4)
+        env:
+          MATRIX_SHARD: ${{ matrix.shard }}
+        run: |
+          # Split Windows unit tests across 4 balanced parallel shards while keeping
+          # --test-concurrency=2 per shard to avoid Windows file-lock contention.
+          npm run test:windows:shard -- --shard "${MATRIX_SHARD}/4"
 
   test-node22:
     name: ubuntu-latest · Node 22
@@ -206,32 +369,79 @@ jobs:
         working-directory: ds-bot
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: |
             ds-bot/package-lock.json
             link/package-lock.json
       - run: npm ci --no-fund --no-audit
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
-      - name: Cache DSH test harness
+      - name: Restore DSH test harness
         id: harness-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
-          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('ds-bot/dev/harness/package.json') }}
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
+      - name: Save DSH test harness
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - run: npm test
+
+  release-milestone:
+    name: Release milestone gate
+    needs: changes
+    if: needs.changes.outputs.release_pr == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify target release Milestone has zero blocking open items
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./ds-bot/package.json').version")"
+          args=(--version "v$version" --repo "$GITHUB_REPOSITORY" --base-ref origin/main --head-ref HEAD)
+          if [ -n "$PR_NUMBER" ]; then
+            args+=(--ignore-pr "$PR_NUMBER")
+          fi
+          # Fork PRs may receive a restricted token; gracefully skip only on 401/403.
+          if [ "$IS_FORK" = "true" ]; then
+            args+=(--allow-missing-token)
+          fi
+          node scripts/check-release-milestone.mjs "${args[@]}"
 
   scan:
     name: Leak scan
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -246,18 +456,49 @@ jobs:
     needs: changes
     if: needs.changes.outputs.app_unit == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: app/package-lock.json
-      # The test composes the profile and starts no window, so it needs no Electron binary.
+      # The UI build and unit tests start no Electron binary.
+      - run: npm ci --no-fund --no-audit
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Check desktop selectors
+        run: node ../scripts/check-desktop-selectors.mjs
+      - name: Build desktop UI bundle
+        run: npm run build
+      - run: npm test
+
+  app-windows:
+    name: Desktop app unit tests (Windows)
+    needs: changes
+    if: needs.changes.outputs.app_unit_win == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
+          cache-dependency-path: app/package-lock.json
       - run: npm ci --no-fund --no-audit
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
@@ -268,16 +509,19 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: |
             mobile/package-lock.json
             link/package-lock.json
@@ -288,385 +532,28 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  mobile-ios:
-    name: Mobile app iOS build (simulator)
-    needs: changes
-    if: needs.changes.outputs.mobile_ios == 'true'
-    runs-on: macos-latest
-    timeout-minutes: 60
-    env:
-      # CocoaPods normalizes paths as UTF-8; a C locale fails `pod install`.
-      LANG: en_US.UTF-8
-    defaults:
-      run:
-        shell: bash
-        working-directory: mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            mobile/package-lock.json
-            link/package-lock.json
-      # The app imports the shared code in ../link, which has its own packages.
-      - name: Install the phone link's packages
-        run: npm ci --no-fund --no-audit --prefix ../link
-      - run: npm ci --no-fund --no-audit
-      # ios/ is generated by the build and not committed (see mobile/README.md); this is
-      # the same prebuild the release script runs.
-      - name: Generate the iOS project
-        run: npx expo prebuild --platform ios --no-install
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/CocoaPods
-          key: cocoapods-${{ runner.os }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/ios/Podfile') }}
-          restore-keys: cocoapods-${{ runner.os }}-
-      - name: Install CocoaPods
-        working-directory: mobile/ios
-        run: pod install
-      # Unsigned: this proves the app compiles for the simulator. Signing and the
-      # TestFlight upload need the Apple account (docs/plans/2026-11-13-ios-release.md).
-      - name: Build for the simulator
-        working-directory: mobile/ios
-        run: |
-          xcodebuild -workspace DSBot.xcworkspace -scheme DSBot \
-            -configuration Debug -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
   link:
     name: Phone link and Relay Server
     needs: changes
     if: needs.changes.outputs.link == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
         working-directory: link
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: link/package-lock.json
       - run: npm ci --no-fund --no-audit
       - run: npm run typecheck
       - run: npm test
-
-  app-package:
-    name: Desktop app package (Windows)
-    needs: changes
-    if: needs.changes.outputs.app_package_full == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
-      # 504. The key holds the Electron and electron-builder versions and the builder config, which
-      # decide the files downloaded.
-      - name: Name the download cache
-        id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
-      - name: Restore Electron and the build tools
-        id: downloads
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/AppData/Local/electron/Cache
-            ~/AppData/Local/electron-builder/Cache
-          key: ${{ steps.downloads-key.outputs.key }}
-      - run: npm ci --no-fund --no-audit
-      - name: Run desktop app unit tests (Windows)
-        run: npm test
-      - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
-        with:
-          # A cache from another lock version cannot supply a wrong runtime: the archives are
-          # stored under their sha256 and every read is verified against it again.
-          path: app/build/runtime-cache
-          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
-      - run: npm run dist
-        env:
-          # CI packages are never published; fast compression cuts archive time dramatically.
-          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
-      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
-      - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/AppData/Local/electron/Cache
-            ~/AppData/Local/electron-builder/Cache
-          key: ${{ steps.downloads.outputs.cache-primary-key }}
-      # The runner is a fresh machine, so the installer may run here. It must install for the
-      # current user only, the installed app must pass check-packed, and the uninstaller must
-      # remove it again.
-      - name: Install and check
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          function Find-Entry($root) {
-            Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
-              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot*' }
-          }
-          $installer = Get-Item dist-pack/DS-Bot-*-win-x64.exe
-          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
-          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot'
-          $exe = Join-Path $dir 'DS Bot.exe'
-          if (-not (Test-Path $exe)) { throw "The installer did not put the app in $dir" }
-          $entry = Find-Entry 'HKCU:'
-          if (-not $entry) { throw 'No uninstall entry for the current user' }
-          if (Find-Entry 'HKLM:') { throw 'The installer installed for all users' }
-          node scripts/check-packed.mjs $exe
-          if ($LASTEXITCODE -ne 0) { throw 'The installed app failed its check' }
-
-      # The update builds the app a second time, so it runs only for changes to the app or workflows
-      # (and full runs). A build of the next version is the feed; the installed app downloads it,
-      # checks its sha512, and installs it as it quits.
-      - name: Build the next version
-        if: needs.changes.outputs.app_update == 'true'
-        env:
-          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
-        run: |
-          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
-          echo "NEXT_VERSION=$next" >> "$GITHUB_ENV"
-          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
-      - name: Update the installed app and check it
-        if: needs.changes.outputs.app_update == 'true'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $exe = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot\DS Bot.exe'
-          node scripts/check-update.mjs $exe dist-next
-          if ($LASTEXITCODE -ne 0) { throw 'The installed app did not take the update' }
-          # The installer goes on after the app has quit.
-          function Installed-Version {
-            Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
-              ForEach-Object { Get-ItemProperty $_.PSPath } |
-              Where-Object { $_.DisplayName -like 'DS Bot*' } |
-              Select-Object -ExpandProperty DisplayVersion
-          }
-          $deadline = (Get-Date).AddSeconds(240)
-          while ((Installed-Version) -ne $env:NEXT_VERSION -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
-          if ((Installed-Version) -ne $env:NEXT_VERSION) { throw "The installed version is $(Installed-Version), not $env:NEXT_VERSION" }
-          while ((Get-Process | Where-Object { $_.Path -like '*dsbot-updater*' }) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
-          node scripts/check-packed.mjs $exe
-          if ($LASTEXITCODE -ne 0) { throw 'The updated app failed its check' }
-
-      - name: Uninstall
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          function Find-Entry($root) {
-            Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
-              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot*' }
-          }
-          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot'
-          $exe = Join-Path $dir 'DS Bot.exe'
-          # The uninstaller removes the program only: the data location and the app's own data stay.
-          $kept = foreach ($folder in (Join-Path $HOME '.ds-bot'), (Join-Path $env:APPDATA 'DS Bot')) {
-            New-Item -ItemType Directory -Force $folder | Out-Null
-            $file = Join-Path $folder 'kept.txt'
-            Set-Content $file 'kept'
-            $file
-          }
-          $uninstaller = Join-Path $dir 'Uninstall DS Bot.exe'
-          Start-Process -FilePath $uninstaller -ArgumentList '/currentuser', '/S' -Wait
-          # The uninstaller goes on from a copy in the temp folder, so wait for its result.
-          $deadline = (Get-Date).AddSeconds(120)
-          while (((Test-Path $exe) -or (Find-Entry 'HKCU:')) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
-          if (Test-Path $exe) { throw 'The uninstaller left the app in place' }
-          if (Find-Entry 'HKCU:') { throw 'The uninstaller left its uninstall entry' }
-          foreach ($file in $kept) { if (-not (Test-Path $file)) { throw "The uninstaller removed $file" } }
-
-  app-package-macos:
-    name: Desktop app package (macOS ${{ matrix.arch }})
-    needs: changes
-    if: needs.changes.outputs.app_package_full == 'true'
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { arch: arm64, runner: macos-latest }
-          - { arch: x64, runner: macos-26-intel }
-    defaults:
-      run:
-        shell: bash
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
-      # 504. The key holds the Electron and electron-builder versions and the builder config, which
-      # decide the files downloaded.
-      - name: Name the download cache
-        id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
-      - name: Restore Electron and the build tools
-        id: downloads
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-          key: ${{ steps.downloads-key.outputs.key }}
-      - run: npm ci --no-fund --no-audit
-      - name: Run desktop app unit tests (macOS)
-        if: matrix.arch == 'arm64'
-        run: npm test
-      - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
-        with:
-          # A cache from another lock version cannot supply a wrong runtime: the archives are
-          # stored under their sha256 and every read is verified against it again.
-          path: app/build/runtime-cache
-          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
-      - run: npm run dist
-        env:
-          # Ad-hoc identity '-' uses no certificate or secret, so PR signing is safe; otherwise electron-builder skips signing and leaves an unsealed bundle.
-          CSC_FOR_PULL_REQUEST: 'true'
-          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
-      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
-      - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/Library/Caches/electron
-            ~/Library/Caches/electron-builder
-          key: ${{ steps.downloads.outputs.cache-primary-key }}
-      - name: Install from the zip and check
-        run: |
-          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
-          test -f "$zip"
-          ditto -x -k "$zip" /Applications
-          app="/Applications/DS Bot.app"
-          exe="$app/Contents/MacOS/DS Bot"
-          codesign --verify --deep --strict "$app"
-          file "$exe"
-          expected="${{ matrix.arch }}"
-          if [ "$expected" = x64 ]; then expected=x86_64; fi
-          file -b "$exe" | grep -F "$expected"
-          node scripts/check-packed.mjs "$exe"
-          node scripts/check-update.mjs "$exe" 99.0.0
-
-  app-package-linux:
-    name: Desktop app package (Linux x64)
-    needs: changes
-    if: needs.changes.outputs.app_package_linux == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
-      # 504. The key holds the Electron and electron-builder versions and the builder config, which
-      # decide the files downloaded.
-      - name: Name the download cache
-        id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
-      - name: Restore Electron and the build tools
-        id: downloads
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-          key: ${{ steps.downloads-key.outputs.key }}
-      - run: npm ci --no-fund --no-audit
-      - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
-        with:
-          # A cache from another lock version cannot supply a wrong runtime: the archives are
-          # stored under their sha256 and every read is verified against it again.
-          path: app/build/runtime-cache
-          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
-      - run: npm run dist
-      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
-      - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-          key: ${{ steps.downloads.outputs.cache-primary-key }}
-      - name: Check the packages
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          test -f "dist-pack/DS-Bot-$version-linux-x86_64.AppImage"
-          test -f "dist-pack/DS-Bot-$version-linux-amd64.deb"
-          test -f dist-pack/latest-linux.yml
-      # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
-      # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
-      - name: Prepare to run the app
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse2t64 xvfb
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # apt-get, not dpkg: it also installs the deb's dependencies. The ./ prefix makes apt-get
-      # read a file; without it the path is taken for a package name.
-      - name: Install the deb and check
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          sudo apt-get install -y "./dist-pack/DS-Bot-$version-linux-amd64.deb"
-          test -f /usr/share/applications/dsbot.desktop
-          xvfb-run -a node scripts/check-packed.mjs "/opt/DS Bot/dsbot"
-      # A deb cannot update itself: it points at the release page, as on macOS.
-      - name: The deb's app hears of a new version
-        run: xvfb-run -a node scripts/check-update.mjs "/opt/DS Bot/dsbot" 99.0.0
-      # The update builds the app a second time, so it runs only for changes to the app or workflows
-      # (and full runs). The AppImage downloads the new one and replaces itself as it quits.
-      - name: Build the next version
-        if: needs.changes.outputs.app_update == 'true'
-        run: |
-          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
-          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
-      - name: The AppImage takes the update
-        if: needs.changes.outputs.app_update == 'true'
-        run: |
-          tmp="$(mktemp -d)"
-          cp dist-pack/DS-Bot-*-linux-x86_64.AppImage "$tmp/dsbot.AppImage"
-          chmod +x "$tmp/dsbot.AppImage"
-          xvfb-run -a node scripts/check-update.mjs "$tmp/dsbot.AppImage" dist-next
-          pkill -f "$tmp/dsbot" || true
-          next="$(ls dist-next/DS-Bot-*-linux-x86_64.AppImage)"
-          test "$(sha512sum "$tmp/dsbot.AppImage" | cut -d' ' -f1)" = "$(sha512sum "$next" | cut -d' ' -f1)"
-      - name: Uninstall
-        run: |
-          sudo apt-get remove -y dsbot
-          test ! -e "/opt/DS Bot/dsbot"
 
   docker:
     name: Docker startup and data migration
@@ -674,8 +561,28 @@ jobs:
     timeout-minutes: 20
     needs: [changes, test, scan]
     if: ${{ !failure() && !cancelled() && needs.changes.result == 'success' && needs.scan.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped') && needs.changes.outputs.docker == 'true' }}
+    outputs:
+      image_sha: ${{ steps.build-meta.outputs.sha }}
+      image_branch: ${{ steps.build-meta.outputs.branch }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
+      - name: Record tested image metadata
+        id: build-meta
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          branch=""
+          if [ "$EVENT" = "schedule" ]; then
+            branch=dev
+          elif [ "$EVENT" = "push" ]; then
+            branch=main
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -689,10 +596,11 @@ jobs:
           context: .
           file: docker/Dockerfile
           tags: ds-bot:test
+          labels: org.opencontainers.image.revision=${{ steps.build-meta.outputs.sha }}
           load: true
           push: false
           cache-from: type=gha,scope=docker-prod
-          cache-to: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'type=gha,mode=max,scope=docker-prod' || '' }}
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=docker-prod' || '' }}
       - run: node docker/test.mjs ds-bot:test
       - name: Build dev image
         uses: docker/build-push-action@v6
@@ -703,13 +611,13 @@ jobs:
           load: true
           push: false
           cache-from: type=gha,scope=docker-dev
-          cache-to: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'type=gha,mode=max,scope=docker-dev' || '' }}
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=docker-dev' || '' }}
       - run: node docker/test-dev.mjs ds-bot:dev-test ds-bot:test
       - name: Save the tested image
-        if: github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot'
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot'
         run: docker save --output "$RUNNER_TEMP/ds-bot-image.tar" ds-bot:test
       - name: Upload the tested image
-        if: github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot'
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot'
         uses: actions/upload-artifact@v4
         with:
           name: ds-bot-image
@@ -722,9 +630,11 @@ jobs:
   # The one check that branch rules require. A job whose needs failed is skipped,
   # and GitHub counts a skipped required check as passed, so this job always runs
   # and fails unless every job required for the changed paths passed.
+  # Live label/milestone merge gating (needs-product-ok, future Milestone) runs in
+  # pr-merge-guard.yml via the independent "PR merge guard" commit status.
   result:
     name: Test result
-    needs: [changes, test, test-node22, scan, app, mobile, mobile-ios, link, app-package, app-package-macos, app-package-linux, docker]
+    needs: [changes, test, test-browser, test-windows, test-node22, release-milestone, scan, app, app-windows, mobile, link, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -734,21 +644,22 @@ jobs:
           SCAN_RESULT: ${{ needs.scan.result }}
           RUN_DS_BOT: ${{ needs.changes.outputs.ds_bot }}
           TEST_RESULT: ${{ needs.test.result }}
+          RUN_DS_BOT_BROWSER: ${{ needs.changes.outputs.ds_bot_browser }}
+          TEST_BROWSER_RESULT: ${{ needs.test-browser.result }}
+          RUN_DS_BOT_WIN: ${{ needs.changes.outputs.ds_bot_win }}
+          TEST_WIN_RESULT: ${{ needs.test-windows.result }}
           RUN_NODE22: ${{ needs.changes.outputs.node22 }}
           NODE22_RESULT: ${{ needs.test-node22.result }}
+          RUN_RELEASE_MILESTONE: ${{ needs.changes.outputs.release_pr }}
+          RELEASE_MILESTONE_RESULT: ${{ needs.release-milestone.result }}
           RUN_APP_UNIT: ${{ needs.changes.outputs.app_unit }}
           APP_RESULT: ${{ needs.app.result }}
+          RUN_APP_UNIT_WIN: ${{ needs.changes.outputs.app_unit_win }}
+          APP_WIN_UNIT_RESULT: ${{ needs.app-windows.result }}
           RUN_MOBILE: ${{ needs.changes.outputs.mobile }}
           MOBILE_RESULT: ${{ needs.mobile.result }}
-          RUN_MOBILE_IOS: ${{ needs.changes.outputs.mobile_ios }}
-          MOBILE_IOS_RESULT: ${{ needs.mobile-ios.result }}
           RUN_LINK: ${{ needs.changes.outputs.link }}
           LINK_RESULT: ${{ needs.link.result }}
-          RUN_APP_PKG_FULL: ${{ needs.changes.outputs.app_package_full }}
-          APP_WIN_RESULT: ${{ needs.app-package.result }}
-          APP_MAC_RESULT: ${{ needs.app-package-macos.result }}
-          RUN_APP_PKG_LINUX: ${{ needs.changes.outputs.app_package_linux }}
-          APP_LINUX_RESULT: ${{ needs.app-package-linux.result }}
           RUN_DOCKER: ${{ needs.changes.outputs.docker }}
           DOCKER_RESULT: ${{ needs.docker.result }}
         run: |
@@ -774,21 +685,21 @@ jobs:
           check "changes" "true" "$CHANGES_RESULT"
           check "scan" "true" "$SCAN_RESULT"
           check "test" "$RUN_DS_BOT" "$TEST_RESULT"
+          check "test-browser" "$RUN_DS_BOT_BROWSER" "$TEST_BROWSER_RESULT"
+          check "test-windows" "$RUN_DS_BOT_WIN" "$TEST_WIN_RESULT"
           check "test-node22" "$RUN_NODE22" "$NODE22_RESULT"
+          check "release-milestone" "$RUN_RELEASE_MILESTONE" "$RELEASE_MILESTONE_RESULT"
           check "app" "$RUN_APP_UNIT" "$APP_RESULT"
+          check "app-windows" "$RUN_APP_UNIT_WIN" "$APP_WIN_UNIT_RESULT"
           check "mobile" "$RUN_MOBILE" "$MOBILE_RESULT"
-          check "mobile-ios" "$RUN_MOBILE_IOS" "$MOBILE_IOS_RESULT"
           check "link" "$RUN_LINK" "$LINK_RESULT"
-          check "app-package" "$RUN_APP_PKG_FULL" "$APP_WIN_RESULT"
-          check "app-package-macos" "$RUN_APP_PKG_FULL" "$APP_MAC_RESULT"
-          check "app-package-linux" "$RUN_APP_PKG_LINUX" "$APP_LINUX_RESULT"
           check "docker" "$RUN_DOCKER" "$DOCKER_RESULT"
           exit "$fail"
 
   publish-docker:
     name: Publish Docker image
     needs: [docker, result]
-    if: ${{ !cancelled() && needs.docker.result == 'success' && needs.result.result == 'success' && github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot' }}
+    if: ${{ !cancelled() && needs.docker.result == 'success' && needs.result.result == 'success' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -806,8 +717,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_REPOSITORY: ${{ github.repository }}
-          GHCR_BRANCH: ${{ github.ref_name }}
-          GHCR_SHA: ${{ github.sha }}
+          GHCR_BRANCH: ${{ needs.docker.outputs.image_branch }}
+          GHCR_SHA: ${{ needs.docker.outputs.image_sha }}
         run: |
           set -euo pipefail
           image="ghcr.io/${GHCR_REPOSITORY,,}"
@@ -819,10 +730,42 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           docker tag ds-bot:test "$image:sha-$GHCR_SHA"
           docker push "$image:sha-$GHCR_SHA"
-          branch_sha="$(gh api "repos/$GHCR_REPOSITORY/git/ref/heads/$GHCR_BRANCH" --jq .object.sha)"
-          if [ "$GHCR_SHA" != "$branch_sha" ]; then
-            echo "Skipping :$tag because $GHCR_BRANCH now points to $branch_sha instead of $GHCR_SHA"
-            exit 0
+          if [ "$GHCR_BRANCH" = "main" ]; then
+            branch_sha="$(gh api "repos/$GHCR_REPOSITORY/git/ref/heads/$GHCR_BRANCH" --jq .object.sha)"
+            if [ "$GHCR_SHA" != "$branch_sha" ]; then
+              echo "Skipping :$tag because $GHCR_BRANCH now points to $branch_sha instead of $GHCR_SHA"
+              exit 0
+            fi
+          else
+            # For nightly :dev publishes, dev pushes do not publish replacement images; advance
+            # :dev for the latest passing nightly ancestor while preventing older reruns from
+            # rolling :dev backwards.
+            cmp_dev="$(gh api "repos/$GHCR_REPOSITORY/compare/$GHCR_SHA...dev" --jq .status)"
+            if [ "$cmp_dev" != "identical" ] && [ "$cmp_dev" != "ahead" ]; then
+              echo "Skipping :$tag because $GHCR_SHA is not an ancestor of dev (compare status: $cmp_dev)"
+              exit 0
+            fi
+            repo_lc="${GHCR_REPOSITORY,,}"
+            reg_token="$(curl -fsSL -u "$GHCR_ACTOR:$GH_TOKEN" "https://ghcr.io/token?service=ghcr.io&scope=repository:$repo_lc:pull" | jq -r '.token // empty' || true)"
+            current_sha=""
+            if [ -n "$reg_token" ]; then
+              cfg_digest="$(curl -fsSL \
+                -H "Authorization: Bearer $reg_token" \
+                -H "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+                "https://ghcr.io/v2/$repo_lc/manifests/$tag" 2>/dev/null | jq -r '.config.digest // empty' || true)"
+              if [ -n "$cfg_digest" ]; then
+                current_sha="$(curl -fsSL \
+                  -H "Authorization: Bearer $reg_token" \
+                  "https://ghcr.io/v2/$repo_lc/blobs/$cfg_digest" 2>/dev/null | jq -r '.config.Labels["org.opencontainers.image.revision"] // empty' || true)"
+              fi
+            fi
+            if [[ "$current_sha" =~ ^[0-9a-f]{40}$ ]] && [ "$current_sha" != "$GHCR_SHA" ]; then
+              cmp_prev="$(gh api "repos/$GHCR_REPOSITORY/compare/$current_sha...$GHCR_SHA" --jq .status 2>/dev/null || echo unknown)"
+              if [ "$cmp_prev" != "ahead" ] && [ "$cmp_prev" != "identical" ]; then
+                echo "Skipping :$tag because current :$tag ($current_sha) is not behind $GHCR_SHA (compare status: $cmp_prev)"
+                exit 0
+              fi
+            fi
           fi
           docker tag ds-bot:test "$image:$tag"
           docker push "$image:$tag"

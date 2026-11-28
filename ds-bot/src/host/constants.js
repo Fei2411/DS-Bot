@@ -8,7 +8,7 @@ export const EXTRA_COLORS = ['charcoal', 'graphite', 'rose', 'sky', 'tangerine',
 // Renamed color ids, so a Bot saved with an old one keeps its color (LEGACY: old id → new id).
 export const LEGACY_COLORS = { kimi: 'charcoal', zai: 'graphite', minimax: 'rose', stepfun: 'sky', mimo: 'tangerine', qwen: 'cobalt' }
 // Renamed theme ids, so a saved choice keeps its look (LEGACY: old id → new id).
-export const LEGACY_THEMES = { grok: 'mono' }
+export const LEGACY_THEMES = { grok: 'mono', celadon: 'fei' }
 
 export const OCR_PROMPT = [
   'Transcribe all text in this image exactly, in its original language, keeping line breaks and reading order; use Markdown tables for tables.',
@@ -176,6 +176,16 @@ export const ROOM_IDLE_RELAY_LIMIT = 2
 // Consecutive Bot-to-Bot relays with no work tool at all before pausing even when
 // each turn rephrases its chatter.
 export const ROOM_ZERO_WORK_RELAY_LIMIT = 4
+// Runaway single-Bot & multi-Bot pause guards: pause visibly so the user can see and
+// click Continue (or steer), never silently drop work.
+export const CONSECUTIVE_TOOL_ERROR_PAUSE = 8
+export const REPEAT_TOOL_CALL_PAUSE = 12
+export const REPEAT_TOOL_CYCLE_PAUSE = 6
+export const AUTO_SWITCH_RESUME_LIMIT = 3
+export const LOCAL_AGENT_SESSION_LOST_LIMIT = 2
+export const GOAL_STAGE_REWORK_LIMIT = 4
+export const ALWAYS_RETRY_MAX = 10
+export const ALWAYS_AUX_RETRY_MAX = 6
 
 export const OWN_CHAT_LINE_MAX = 400
 // The message an anchor points at is shown whole (up to this), so a long draft takes

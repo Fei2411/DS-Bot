@@ -2,11 +2,16 @@
 // engine's `state` endpoint and live feed. The views also read a few Session facts that
 // DSH keeps for them in the plugin; here the window keeps those as well.
 import { useRef, useSyncExternalStore } from 'react'
+import { watchAgentTerminals } from '../../../ds-bot/src/client/agent-terminals.js'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
+import { createAvatarRefCache } from '../../../ds-bot/src/client/avatar-refs.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
+import { watchBotCompletions } from '../../../ds-bot/src/client/bot-completions.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
-import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
+import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
+import { sameVersion } from '../../../ds-bot/src/client/dsh-offer.js'
+import { frameLayout, readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -16,16 +21,22 @@ import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/cli
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
 import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
-import { teamActions } from '../../../ds-bot/src/client/team-actions.js'
+import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
+import { createDesktopAccountBridge, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
+
+export { publishDesktopAccountState, subscribeDesktopAccountState }
+import { pruneFailedSends } from './failed-send-bar.js'
+import { slots } from './slots.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
-const READ_AGAIN = new Set(['hello', 'revision', 'live'])
+const RECONNECT_NOTICE_MS = 2_000
 const NO_WORK = { bots: {}, approvals: [] }
 const EMPTY_PENDING = Object.freeze([])
+export const CLASSIC_BROWSER_OWNER = 'classic'
 
 // A selection from a source. The value is kept per snapshot and selector, so React reads
 // one value until the source changes.
@@ -57,21 +68,48 @@ const setChanged = (source, value) => { if (JSON.stringify(source.getSnapshot())
 
 export function createTeam() {
   migrateStorage()
+  let savedPrefs = {}
+  try { savedPrefs = JSON.parse(localStorage.getItem(STORAGE.prefs) ?? '{}') ?? {} } catch { savedPrefs = {} }
   const unreadStore = sharedMap(STORAGE.unread)
   const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new entries against it.
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
-  const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
+  const botCompletions = createSource({})
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, pendingOpen: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
+  const userQuestions = createSource([])
+  const sessionQueues = createSource({})
+  const mergeSessionQueues = (nextMap) => {
+    if (!nextMap || typeof nextMap !== 'object') return
+    sessionQueues.set((prev) => {
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(nextMap)
+      let changed = prevKeys.length !== nextKeys.length
+      const merged = {}
+      for (const sid of nextKeys) {
+        const prevRows = prev[sid]
+        const nextRows = nextMap[sid]
+        if (prevRows !== undefined && JSON.stringify(prevRows) === JSON.stringify(nextRows)) {
+          merged[sid] = prevRows
+        } else {
+          merged[sid] = nextRows
+          changed = true
+        }
+      }
+      return changed ? merged : prev
+    })
+  }
   const memoryNews = createSource({})
   const live = createSource({})
   const cards = createSource({})
   const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
+  const connection = createSource({ status: 'connected', error: null, code: null })
+  let restartFeed = () => {}
   const mergeUpdate = (value) => {
     if (!value || typeof value !== 'object') return
     update.set(previous => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }))
@@ -99,10 +137,18 @@ export function createTeam() {
   // Remember positions in both modes so switching Bot <-> Classic preserves each side.
   let lastTeamSession = null
   let lastAgentSession = null
+  let terminalNonceSeq = 0
+  let navSeq = 0
+  const recovering = new Set()
   const agentNewInFlight = new Map()
   let classicSeq = 0
   const sessionHooks = new Map()
   const streamingReply = new Set()
+  const closingRepliesBySession = new Map()
+  const draftFileStore = new Map()
+  let draftFileSeq = 0
+  const lastFeedReplySeq = new Map()
+  const lastGroupNoticeSeq = new Map()
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -170,7 +216,7 @@ export function createTeam() {
     const before = shown.getSnapshot()
     shown.set(id)
     if (before) editRow(before, row => ({ ...row, retainedBy: { mainView: 0 } }))
-    editRow(id, row => ({ ...row, retainedBy: { mainView: 1 } }))
+    editRow(id, row => ({ ...row, replyCount: row.replyCount ?? 0, retainedBy: { mainView: 1 } }))
     setStatus(id, { completionUnread: false })
   }
 
@@ -218,6 +264,17 @@ export function createTeam() {
       return next
     })
     for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
+    for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id)
+    for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id)
+    for (const id of [...lastFeedMessageCursor.keys()]) if (!keep(id)) lastFeedMessageCursor.delete(id)
+    for (const id of [...confirmedUsersBySession.keys()]) if (!keep(id)) confirmedUsersBySession.delete(id)
+    for (const id of [...evictedConfirmedSeqBySession.keys()]) if (!keep(id)) evictedConfirmedSeqBySession.delete(id)
+    for (const id of [...maxConfirmedUserSeqBySession.keys()]) if (!keep(id)) maxConfirmedUserSeqBySession.delete(id)
+    for (const [fileId, entry] of [...draftFileStore.entries()]) {
+      if (entry?.sessionId && !keep(entry.sessionId)) draftFileStore.delete(fileId)
+    }
+    for (const id of [...lastFeedReplySeq.keys()]) if (!keep(id)) lastFeedReplySeq.delete(id)
+    for (const id of [...lastGroupNoticeSeq.keys()]) if (!keep(id)) lastGroupNoticeSeq.delete(id)
     for (const id of [...streamingReply]) {
       if (!keep(id)) {
         streamingReply.delete(id)
@@ -229,57 +286,115 @@ export function createTeam() {
   // Reads can overlap (the feed and a finished action); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const foldWrites = sectionFoldWrites()
+  const avatarRefs = createAvatarRefCache(call)
+  let avatarIncomplete = false
   let liveKey
+  const persistPrefs = (prefs) => {
+    if (!prefs || typeof prefs !== 'object') return
+    try {
+      localStorage.setItem(STORAGE.prefs, JSON.stringify({
+        theme: prefs.theme,
+        accent: prefs.accent,
+        motion: prefs.motion,
+        layout: prefs.layout,
+        effects: prefs.effects,
+        width: prefs.width,
+        flatWidth: prefs.flatWidth,
+        thinking: prefs.thinking,
+        defaultBotModel: prefs.defaultBotModel,
+        enterToSend: prefs.enterToSend,
+      }))
+    } catch { /* storage unavailable */ }
+  }
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
+    const since = avatarIncomplete ? -1 : known.revision
+    const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
     if (order < applied) return
     applied = order
+    const liveSame = liveKey !== undefined && value.liveKey !== undefined && value.liveKey === liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
-    if (value.activity !== undefined) setChanged(activity, value.activity)
-    if (value.work !== undefined) setChanged(work, value.work)
-    if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
-    if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
-    if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    if (!liveSame) {
+      if (value.activity !== undefined) setChanged(activity, value.activity)
+      if (value.work !== undefined) setChanged(work, value.work)
+      if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
+      if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
+      if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
+      if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
+      if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    }
     const current = roster.getSnapshot()
-    const changed = {}
-    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
-    if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
-    if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
-    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
-    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
-    if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
-    if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
-    if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
-    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
-    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
-    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
-    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
-    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
-    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
-    if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
-    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
-    if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+    const computeChanged = (base) => {
+      const next = {}
+      if (value.readOnly !== undefined && (value.readOnly ?? null) !== (base.readOnly ?? null)) next.readOnly = value.readOnly
+      if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(base.connectors ?? [])) next.connectors = value.connectors
+      if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(base.capabilityStatuses ?? {})) next.capabilityStatuses = value.capabilityStatuses
+      if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(base.learning ?? {})) next.learning = value.learning
+      // What waits for the user across the team (ds-bot/src/host/inbox.js).
+      if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(base.inbox ?? null)) next.inbox = value.inbox
+      if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(base.learningSettled ?? {})) next.learningSettled = value.learningSettled
+      if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(base.btwCards ?? {})) next.btwCards = value.btwCards
+      if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(base.sideChats ?? {})) next.sideChats = value.sideChats
+      if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(base.phone ?? null)) next.phone = value.phone
+      if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(base.api ?? null)) next.api = value.api
+      if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(base.apiVia ?? {})) next.apiVia = value.apiVia
+      if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(base.imStatus ?? {})) next.imStatus = value.imStatus
+      if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(base.imVia ?? {})) next.imVia = value.imVia
+      if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(base.secrets ?? [])) next.secrets = value.secrets
+      if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(base.secretStore ?? {})) next.secretStore = value.secretStore
+      if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(base.memoryReviews ?? {})) next.memoryReviews = value.memoryReviews
+      if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(base.plugins ?? null)) next.plugins = value.plugins
+      if (value.speech !== undefined && Boolean(value.speech) !== Boolean(base.speech)) next.speech = Boolean(value.speech)
+      if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(base.telemetryPrompt)) next.telemetryPrompt = Boolean(value.telemetryPrompt)
+      if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(base.releaseNotes ?? null)) next.releaseNotes = value.releaseNotes
+      return next
+    }
+    if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (liveSame) return
+      const changed = computeChanged(current)
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
+    const { state: hydrated, incomplete } = await avatarRefs.hydrate(value)
+    if (order < applied) return
+    avatarIncomplete = incomplete
+    const latest = roster.getSnapshot()
+    const sameState = hydrated.revision === latest.revision && hydrated.modelsKey === latest.modelsKey && latest.ready
+    const avatarsChanged = sameState && (
+      (hydrated.bots ?? []).some(bot => bot?.avatar?.image !== latest.byId?.[bot.id]?.avatar?.image)
+      || (hydrated.rooms ?? []).some(room => room?.avatar?.image !== latest.roomsById?.[room.id]?.avatar?.image)
+    )
+    if (sameState && !avatarsChanged) {
+      if (liveSame) return
+      const changed = computeChanged(latest)
+      if (Object.keys(changed).length > 0) roster.set({ ...latest, ...changed })
+      return
+    }
     // In a window with no visit record yet, everything already there counts as seen.
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    const indexed = indexRoster(value)
-    if (current.ready) {
+    if (Object.keys(seenAt).length === 0) leaveVisits([...(hydrated.bots ?? []), ...(hydrated.rooms ?? [])].map(entry => entry.id))
+    const indexed = indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) })
+    if (latest.ready) {
       const gone = [
-        ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
-        ...Object.keys(current.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
+        ...Object.keys(latest.byId ?? {}).filter(id => indexed.byId[id] === undefined),
+        ...Object.keys(latest.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
+        ...Object.keys(latest.agentOf ?? {}).filter(id => indexed.agentOf?.[id] === undefined),
       ]
-      if (gone.length > 0) questionDrafts.pruneChats(gone)
+      if (gone.length > 0) {
+        questionDrafts.pruneChats(gone)
+        pruneDrafts(gone)
+        pruneFailedSends(gone)
+      }
     }
     roster.set(indexed)
+    persistPrefs(indexed.prefs)
     if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
       void refreshClassicSessions()
     }
     // Follow a Bot or group chat onto its new segment when context rolls over or moves to background.
+    // On first load in Bot mode, land on the Main Bot in the same tick as `roster.set` so the
+    // team window paints the chat immediately instead of sitting 400 ms on a blank main area.
     const open = shown.getSnapshot()
     if (open) {
       const target = indexed.byId[open] ?? indexed.roomsById[open]
@@ -289,6 +404,9 @@ export function createTeam() {
       const firstAgent = (indexed.agents ?? [])[0]
       const latest = firstAgent ? (latestAgentSession(firstAgent.id) ?? firstAgent.sessions?.[0]) : undefined
       if (latest) show(latest)
+    } else {
+      const target = indexed.mainBotId ?? indexed.bots?.[0]?.id
+      if (target) show(partFor(target))
     }
     pruneSessions(indexed)
   }
@@ -315,8 +433,34 @@ export function createTeam() {
     }
   }
 
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot()
+    const rawViewport = typeof window === 'undefined' ? 1280 : window.innerWidth
+    const isNarrow = rawViewport <= 768
+    const lay = layout.getSnapshot()
+    const effectiveSideW = isNarrow
+      ? Math.min(lay.width, Math.max(264, Math.round(rawViewport * 0.84)))
+      : Math.min(lay.width, Math.max(264, rawViewport - 420))
+    const viewport = isNarrow ? Math.min(rawViewport, 680) : rawViewport
+    const pref = isNarrow ? (state.leftDrawer ? 'open' : 'hidden') : lay.pref
+    return frameLayout({
+      viewport,
+      sidebarWidth: effectiveSideW,
+      pref,
+      drawer: state.leftDrawer === true,
+      panel: { view: view ?? state.view, yielded: state.panelYield === true },
+    }).panel === 'folded'
+  }
+
+  const accountBridge = createDesktopAccountBridge({
+    call,
+    after,
+    work,
+    refreshModels: () => pull().catch(() => {}),
+  })
+  const appUpdates = globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.updates ?? null : null
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -332,7 +476,7 @@ export function createTeam() {
 
   // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
   // chats, and tasks inside one shared `BotPanel` strip.
-  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileSessionId: null, fileRoot: null, changes: null, terminalNonce: 0 }
+  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileLine: null, fileSessionId: null, fileRoot: null, revealDir: null, revealNonce: 0, changes: null, terminalNonce: 0 }
   const STALE_WORKSPACE_TABS = new Set(['preview', 'changes'])
   const normalizeRightPanel = (prev) => {
     if (!prev || typeof prev !== 'object') return { ...EMPTY_RIGHT_PANEL, tabs: [] }
@@ -350,8 +494,10 @@ export function createTeam() {
     const changed = keptTabs.length !== normalized.tabs.length
       || nextTab !== prev.tab
       || prev.file !== null
+      || prev.fileLine !== null
       || prev.fileSessionId !== null
       || prev.fileRoot !== null
+      || prev.revealDir !== null
       || prev.changes !== null
     if (!changed) return prev
     return {
@@ -359,11 +505,297 @@ export function createTeam() {
       tabs: keptTabs,
       tab: nextTab,
       file: null,
+      fileLine: null,
       fileSessionId: null,
       fileRoot: null,
+      revealDir: null,
       changes: null,
     }
   }
+  const openTurnOf = (sessionId) => {
+    const facts = turnFactsBySession.get(sessionId)
+    if (!facts?.turns || facts.turns.size === 0) return undefined
+    let active
+    for (const entry of facts.turns.values()) {
+      if (Number.isInteger(entry?.turn) && entry.turn >= 0 && entry.status !== 'closed') {
+        if (active === undefined || entry.turn > active) active = entry.turn
+      }
+    }
+    return active
+  }
+
+  const appendTurnOutline = (row, { kind, text, turn, seq = null }) => {
+    const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
+    const outline = prev.map(entry => ({ ...entry }))
+    const field = kind === 'bot' ? 'response' : 'prompt'
+    const joinText = (existing, nextText, sameSeq) => (
+      kind === 'bot' && sameSeq && typeof existing === 'string' && existing !== ''
+        ? `${existing}\n\n${nextText}`
+        : nextText
+    )
+    let effectiveTurn
+    if (Number.isInteger(turn) && turn >= 0) {
+      effectiveTurn = turn
+      const idx = outline.findIndex(entry => entry.turn === turn)
+      if (idx >= 0) {
+        const current = outline[idx]
+        const sameSeq = Number.isInteger(seq) && current.seq === seq
+        outline[idx] = {
+          ...current,
+          [field]: joinText(current[field], text, sameSeq),
+          ...(Number.isInteger(seq) ? { seq } : {}),
+          _synthetic: false,
+        }
+      } else {
+        outline.push({ turn, [field]: text, ...(Number.isInteger(seq) ? { seq } : {}) })
+        outline.sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0))
+      }
+    } else {
+      const last = outline.at(-1)
+      const sameSeqBot = kind === 'bot' && last && Number.isInteger(seq) && last.seq === seq
+      if (sameSeqBot) {
+        effectiveTurn = last.turn
+        outline[outline.length - 1] = {
+          ...last,
+          response: joinText(last.response, text, true),
+        }
+      } else if (kind === 'bot' && last && Number.isInteger(last.turn) && last.turn >= 0 && !last.response) {
+        effectiveTurn = last.turn
+        outline[outline.length - 1] = {
+          ...last,
+          response: text,
+          ...(Number.isInteger(seq) ? { seq } : {}),
+        }
+      } else {
+        const maxTurn = outline.reduce((max, entry) => (Number.isInteger(entry.turn) && entry.turn > max ? entry.turn : max), -1)
+        effectiveTurn = maxTurn + 1
+        outline.push({
+          turn: effectiveTurn,
+          [field]: text,
+          ...(Number.isInteger(seq) ? { seq } : {}),
+          _synthetic: true,
+        })
+      }
+    }
+    return { outline, turn: effectiveTurn }
+  }
+
+  const recordClosingReply = (sessionId, turn, text, seq = null) => {
+    if (!sessionId || !Number.isInteger(turn) || turn < 0 || typeof text !== 'string' || text === '') return
+    let map = closingRepliesBySession.get(sessionId)
+    if (!map) { map = new Map(); closingRepliesBySession.set(sessionId, map) }
+    const prev = map.get(turn)
+    if (prev && seq !== null && prev.seq === seq) {
+      map.set(turn, { text: `${prev.text}\n\n${text}`, seq })
+    } else {
+      map.set(turn, { text, seq })
+    }
+    notifyTurnWatchers(sessionId)
+  }
+
+  const outlineReconcileListeners = new Set()
+  const notifyOutlineReconciled = (sessionId, maxTurn) => {
+    for (const listener of outlineReconcileListeners) {
+      try { listener(sessionId, maxTurn) } catch {}
+    }
+  }
+  // Per-session monotonic `(seq, block)` watermark for live feed `message` items:
+  // O(1) state per session with no eviction cap, preserving identical text blocks
+  // within the same `seq` while skipping any replayed `(seq, block) <= watermark`.
+  const lastFeedMessageCursor = new Map()
+  const advanceFeedMessageCursor = (sessionId, seq, block) => {
+    if (!sessionId || !Number.isInteger(seq)) return false
+    const ordinal = Number.isInteger(block) && block >= 0 ? block : 0
+    const prev = lastFeedMessageCursor.get(sessionId)
+    if (prev !== undefined && (seq < prev.seq || (seq === prev.seq && ordinal <= prev.block))) {
+      return true
+    }
+    lastFeedMessageCursor.set(sessionId, { seq, block: ordinal })
+    return false
+  }
+  const maxCoveredSeqOf = (sessionId) => {
+    const facts = turnFactsBySession.get(sessionId)
+    if (!facts?.turns || facts.turns.size === 0) return -1
+    let maxSeq = -1
+    for (const entry of facts.turns.values()) {
+      if (Number.isInteger(entry?.end?.seq) && entry.end.seq > maxSeq) maxSeq = entry.end.seq
+      if (Number.isInteger(entry?.start?.seq) && entry.start.seq > maxSeq) maxSeq = entry.start.seq
+    }
+    return maxSeq
+  }
+
+  // Sent-confirmation tracking is decoupled from feed replay / outline deduplication:
+  // each confirmed user message (from either transcript facts or the live feed) clears
+  // at most one matching pending submission, never hangs when history arrives first,
+  // and never double-pops a later pending submission on duplicate/replayed confirmations.
+  const MAX_CONFIRMED_USERS = 512
+  const confirmedUsersBySession = new Map()
+  const evictedConfirmedSeqBySession = new Map()
+  const maxConfirmedUserSeqBySession = new Map()
+  const pendingSentMeta = new WeakMap()
+
+  const confirmedUserKey = (msg) => {
+    if (Number.isInteger(msg?.seq)) return `seq:${msg.seq}`
+    if (msg?.id !== undefined && msg.id !== null && msg.id !== '') return `id:${msg.id}`
+    if (Number.isFinite(msg?.time)) return `time:${msg.time}:${typeof msg.text === 'string' ? msg.text : ''}`
+    return null
+  }
+
+  const recordConfirmedUser = (sessionId, msg) => {
+    const key = confirmedUserKey(msg)
+    const hasSeq = Number.isInteger(msg?.seq)
+    if (key !== null) {
+      const evictedMax = evictedConfirmedSeqBySession.get(sessionId) ?? -1
+      if (hasSeq && msg.seq <= evictedMax) return false
+      let seen = confirmedUsersBySession.get(sessionId)
+      if (!seen) { seen = new Set(); confirmedUsersBySession.set(sessionId, seen) }
+      if (seen.has(key)) return false
+      seen.add(key)
+      while (seen.size > MAX_CONFIRMED_USERS) {
+        const oldest = seen.values().next().value
+        seen.delete(oldest)
+        if (typeof oldest === 'string' && oldest.startsWith('seq:')) {
+          const oldSeq = Number(oldest.slice(4))
+          if (Number.isInteger(oldSeq) && oldSeq > (evictedConfirmedSeqBySession.get(sessionId) ?? -1)) {
+            evictedConfirmedSeqBySession.set(sessionId, oldSeq)
+          }
+        }
+      }
+    }
+    if (hasSeq) {
+      const prevMax = maxConfirmedUserSeqBySession.get(sessionId) ?? -1
+      if (msg.seq > prevMax) maxConfirmedUserSeqBySession.set(sessionId, msg.seq)
+    }
+    return true
+  }
+
+  const textMatchesPending = (pendingText, msgText) => (
+    pendingText === msgText || pendingText.trim() === msgText.trim()
+  )
+
+  const findPendingMatchIndex = (queue, msg, source) => {
+    const hasSeq = Number.isInteger(msg?.seq)
+    const hasMsgText = typeof msg?.text === 'string'
+    const hasMsgTime = Number.isFinite(msg?.time)
+    const isEligible = (entry) => {
+      const meta = pendingSentMeta.get(entry)
+      if (hasSeq && Number.isInteger(meta?.afterSeq) && meta.afterSeq >= 0 && msg.seq <= meta.afterSeq) {
+        return false
+      }
+      if (source === 'facts' && meta?.hasExplicitTime && hasMsgTime && msg.time < entry.time - 2000) {
+        return false
+      }
+      return true
+    }
+    if (hasMsgText) {
+      for (let i = 0; i < queue.length; i += 1) {
+        const entry = queue[i]
+        if (typeof entry.text === 'string' && isEligible(entry) && textMatchesPending(entry.text, msg.text)) {
+          return i
+        }
+      }
+      for (let i = 0; i < queue.length; i += 1) {
+        const entry = queue[i]
+        if (entry.text === undefined && isEligible(entry)) {
+          return i
+        }
+      }
+      return -1
+    }
+    for (let i = 0; i < queue.length; i += 1) {
+      if (isEligible(queue[i])) return i
+    }
+    return -1
+  }
+
+  const confirmUserMessage = (sessionId, msg, { source = 'feed' } = {}) => {
+    if (!sessionId || !msg) return
+    if (!recordConfirmedUser(sessionId, msg)) return
+    sent.set((state) => {
+      const queue = state[sessionId]
+      if (!queue?.length) return state
+      const index = findPendingMatchIndex(queue, msg, source)
+      if (index < 0) return state
+      if (queue.length === 1) {
+        const next = { ...state }
+        delete next[sessionId]
+        return next
+      }
+      return { ...state, [sessionId]: [...queue.slice(0, index), ...queue.slice(index + 1)] }
+    })
+  }
+
+  const syncOutlineFromFacts = (sessionId, facts) => {
+    if (!facts?.turns || facts.turns.size === 0) return
+    const closedReplies = facts.closingReplies
+    const ordered = [...facts.turns.values()]
+      .filter(entry => Number.isInteger(entry.turn) && entry.turn >= 0)
+      .sort((a, b) => a.turn - b.turn)
+    if (ordered.length === 0) return
+    let prunedSynthetic = false
+    let reconciledMaxTurn = ordered[ordered.length - 1].turn
+    sessions.set((list) => {
+      const row = list.byId[sessionId] ?? { id: sessionId }
+      const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
+      const canonicalTurns = new Set(ordered.map(entry => entry.turn))
+      const byTurn = new Map()
+      let droppedSynthetic = false
+      for (const item of prev) {
+        if (!Number.isInteger(item?.turn) || item.turn < 0) continue
+        if (item._synthetic && !canonicalTurns.has(item.turn)) {
+          droppedSynthetic = true
+          continue
+        }
+        byTurn.set(item.turn, { ...item })
+      }
+      if (droppedSynthetic) prunedSynthetic = true
+      let changed = droppedSynthetic
+      for (const entry of ordered) {
+        const hasReply = Boolean(closedReplies?.has(entry.turn))
+        const reply = hasReply ? closedReplies.get(entry.turn) : undefined
+        const existing = byTurn.get(entry.turn)
+        if (!existing) {
+          byTurn.set(entry.turn, reply ? { turn: entry.turn, response: reply } : { turn: entry.turn })
+          changed = true
+        } else {
+          const nextEntry = { ...existing }
+          let updated = false
+          if (nextEntry._synthetic) {
+            delete nextEntry._synthetic
+            updated = true
+          }
+          if (hasReply && nextEntry.response !== reply) {
+            if (reply) nextEntry.response = reply
+            else delete nextEntry.response
+            updated = true
+          }
+          if (updated) {
+            byTurn.set(entry.turn, nextEntry)
+            changed = true
+          }
+        }
+      }
+      const needReplyCount = typeof row.replyCount !== 'number'
+      if (!changed && !needReplyCount) return list
+      const nextOutline = [...byTurn.values()].sort((a, b) => a.turn - b.turn)
+      if (nextOutline.length > 0) reconciledMaxTurn = nextOutline[nextOutline.length - 1].turn
+      return {
+        ids: list.ids.includes(sessionId) ? list.ids : [...list.ids, sessionId],
+        byId: {
+          ...list.byId,
+          [sessionId]: {
+            ...row,
+            replyCount: row.replyCount ?? 0,
+            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: nextOutline },
+          },
+        },
+      }
+    })
+    if (prunedSynthetic) {
+      notifyOutlineReconciled(sessionId, reconciledMaxTurn)
+    }
+  }
+
   const openWorkspaceTab = (tabId, updateFn, fallbackSubject = null) => {
     if (typeof tabId !== 'string' || tabId === '') return
     const snap = roster.getSnapshot()
@@ -404,6 +836,25 @@ export function createTeam() {
       ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
     },
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
+    selectPanel: (id) => {
+      if (typeof id !== 'string' || id === '') return
+      if (id === 'files' || id === 'terminal' || id === 'preview' || id === 'changes') {
+        openWorkspaceTab(id)
+        return
+      }
+      if (
+        id === 'overview' || id === 'general' || id === 'shortcuts' || id === 'appearance'
+        || id === 'models' || id === 'local-agents' || id === 'bot-models' || id === 'deepseek-services'
+        || id === 'bots' || id === 'groups' || id === 'schedules'
+        || id === 'connectors' || id === 'im' || id === 'phone' || id === 'api'
+        || id === 'computer' || id === 'browser' || id === 'capabilities' || id === 'secrets'
+        || id === 'plugins' || id === 'usage' || id === 'about' || id === 'privacy' || id === 'feedback'
+      ) {
+        actions.openSettings(id)
+        return
+      }
+      actions.openSettings('overview')
+    },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
     openGroupSearch: (...args) => { clearShortcuts(); return baseActions.openGroupSearch?.(...args) },
     openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },
@@ -434,11 +885,13 @@ export function createTeam() {
         panelYield: false,
         rightPanel: null,
         newChat: null,
+        inbox: false,
         exchange: null,
         menu: null,
         palette: null,
         groupSearch: null,
         settings: null,
+        releaseNotes: null,
         shortcuts: false,
       }))
       writeMode(nextMode)
@@ -473,6 +926,7 @@ export function createTeam() {
         actions.openAgentSession(id)
         return
       }
+      navSeq += 1
       if (surface.getSnapshot().mode === 'agent') {
         writeMode('bot')
         surface.set({ mode: 'bot' })
@@ -480,31 +934,73 @@ export function createTeam() {
       lastTeamSession = id
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
+      const fromInbox = ui.getSnapshot().inbox === true
+      show(next)
       ui.set((state) => {
-        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts)
+        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox || state.inboxTarget || state.pendingOpen)
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const foldWorkspace = switched && state.view === 'workspace' && rp === null
         if (!dropOverlay && rp === state.rightPanel && !foldWorkspace) return state
         return {
           ...state,
-          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : {}),
+          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false, inbox: false, inboxTarget: fromInbox ? next : null, pendingOpen: null } : {}),
           ...(foldWorkspace ? { view: 'details' } : {}),
           rightPanel: rp,
         }
       })
-      show(next)
+    },
+    retryOpening: (target) => {
+      if (!target) return
+      actions.openSession(target)
+    },
+    recoverOpening: async (botId) => {
+      if (!botId || recovering.has(botId)) return
+      recovering.add(botId)
+      const seq = ++navSeq
+      try {
+        await after(call('recover-session', { botId }))
+        if (seq !== navSeq) return
+        const bot = roster.getSnapshot().byId?.[botId]
+        if (bot === undefined) {
+          ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null }))
+          return
+        }
+        actions.openSession(currentPart(bot))
+      } catch (error) {
+        actions.reportError?.(error, 'reopen-session')
+      } finally {
+        recovering.delete(botId)
+      }
     },
     openAgentSession: (sessionId) => {
       if (!sessionId) return
+      navSeq += 1
       const switched = sessionId !== shown.getSnapshot()
+      const fromInbox = ui.getSnapshot().inbox === true
       lastAgentSession = sessionId
+      const hasClassicBrowser = Boolean(
+        roster.getSnapshot().browser === true
+        && browsers
+        && (browsers.tabs.getSnapshot()[CLASSIC_BROWSER_OWNER]?.ids?.length ?? 0) > 0,
+      )
+      show(sessionId)
       ui.set((state) => {
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
-        const keepPanel = Boolean(state.details && rp !== null && rp.tabs.length > 0)
+        const hasWorkspace = rp !== null && rp.tabs.length > 0
+        const keepBrowser = Boolean(state.details && state.view === 'browser' && hasClassicBrowser)
+        const keepWorkspace = Boolean(state.details && hasWorkspace)
+        const keepPanel = keepBrowser || keepWorkspace
         return {
           ...state,
           ...(keepPanel
-            ? { details: sessionId, view: 'workspace', renaming: false, tab: null, side: null, task: null }
+            ? {
+                details: sessionId,
+                view: keepBrowser ? 'browser' : 'workspace',
+                renaming: false,
+                tab: null,
+                side: null,
+                task: null,
+              }
             : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false }),
           newChat: null,
           exchange: null,
@@ -512,10 +1008,12 @@ export function createTeam() {
           palette: null,
           groupSearch: null,
           shortcuts: false,
-          rightPanel: keepPanel ? rp : null,
+          inbox: false,
+          inboxTarget: fromInbox ? sessionId : null,
+          pendingOpen: null,
+          rightPanel: keepWorkspace ? rp : null,
         }
       })
-      show(sessionId)
     },
     addAgent: async (options = {}) => {
       const agentPreset = typeof options?.agentPreset === 'string' && options.agentPreset.trim() !== '' ? options.agentPreset.trim() : undefined
@@ -557,6 +1055,8 @@ export function createTeam() {
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call('agent-archive', { agentId, sessionId }))
+      pruneDrafts([sessionId])
+      pruneFailedSends([sessionId])
       if (lastAgentSession === sessionId) lastAgentSession = null
       if (shown.getSnapshot() === sessionId) {
         const snap = roster.getSnapshot()
@@ -579,6 +1079,10 @@ export function createTeam() {
     removeAgent: async (agentId) => {
       const owned = roster.getSnapshot().agentsById?.[agentId]?.sessions ?? []
       const result = await after(call('remove-agent', { agentId }))
+      if (owned.length > 0) {
+        pruneDrafts(owned)
+        pruneFailedSends(owned)
+      }
       if (owned.includes(lastAgentSession)) lastAgentSession = null
       const currentShown = shown.getSnapshot()
       if (currentShown !== null && owned.includes(currentShown)) {
@@ -590,6 +1094,33 @@ export function createTeam() {
       return result
     },
     stopAgent: (agentId, sessionId) => after(call('stop-agent', sessionId ? { agentId, sessionId } : { agentId })),
+    sessionControls: sessionId => call('session-controls', { sessionId }),
+    selectSessionModel: (sessionId, ref, effort) => after(call('session-model', {
+      sessionId,
+      ...(ref !== undefined ? { ref } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+    })),
+    setSessionPermission: (sessionId, preset) => after(call('session-permission', { sessionId, preset })),
+    sessionCommands: (sessionId, options) => call('session-commands', {
+      sessionId,
+      ...(options?.wake ? { wake: true } : {}),
+    }),
+    runSessionCommand: (sessionId, line, extra) => after(call('session-command-run', {
+      sessionId,
+      line,
+      ...(extra?.images?.length ? { images: extra.images } : {}),
+      ...(extra?.files?.length ? { files: extra.files } : {}),
+    })),
+    sessionSkills: sessionId => call('session-skills', { sessionId }),
+    sessionFiles: (sessionId, query = '') => call('session-files', { sessionId, query }),
+    answerUserQuestion: (sessionId, requestId, answers) => after(call('session-question-answer', { sessionId, requestId, answers })),
+    dismissUserQuestion: (sessionId, requestId) => after(call('session-question-dismiss', { sessionId, requestId })),
+    updateSessionQueue: (sessionId, itemId, action) => after(call('session-queue-update', { sessionId, itemId, action })),
+    steerSessionQueue: (sessionId, itemIds) => after(call('session-queue-update', {
+      sessionId,
+      ...(Array.isArray(itemIds) && itemIds.length > 0 ? { itemIds } : {}),
+      action: { kind: 'steer-all' },
+    })),
     createClassicSession: (options = {}) => {
       const snap = roster.getSnapshot()
       if (snap.readOnly) return undefined
@@ -613,7 +1144,91 @@ export function createTeam() {
       await pull().catch(() => {})
       await refreshClassicSessions()
     },
-    landOn: id => show(partFor(id)),
+    navSeq: () => navSeq,
+    landOn: (id, last, expectedSeq) => {
+      if (expectedSeq !== undefined && expectedSeq !== navSeq) return undefined
+      const seq = ++navSeq
+      if (!last) {
+        show(partFor(id))
+        return undefined
+      }
+      const currentOfLast = (snap) => {
+        const bot = last.kind === 'room' ? undefined : snap.byId?.[last.botId ?? last.id]
+        if (bot !== undefined) return currentPart(bot)
+        const room = snap.roomsById?.[last.roomId ?? last.id]
+        return room === undefined ? undefined : (room.sessionId ?? room.id)
+      }
+      return (async () => {
+        let moved = currentOfLast(roster.getSnapshot())
+        if (moved === undefined || moved === last.sessionId) {
+          await pull().catch(() => {})
+          if (seq !== navSeq) return
+          moved = currentOfLast(roster.getSnapshot())
+        }
+        if (seq !== navSeq) return
+        const target = moved !== undefined && moved !== last.sessionId ? moved : partFor(id)
+        if (target) show(target)
+      })()
+    },
+    steerQueued: async (sessionId) => {
+      if (!sessionId) return
+      const rows = sessionQueues.getSnapshot()[sessionId] ?? []
+      const ids = rows
+        .filter(row => typeof row?.id === 'string' && row.id !== '' && row?.source?.kind === 'user')
+        .map(row => row.id)
+      if (ids.length === 0) return
+      try {
+        if (roster.getSnapshot().byId?.[sessionId] !== undefined && typeof actions.steerQueueBatch === 'function') {
+          try {
+            const result = await actions.steerQueueBatch(sessionId, ids)
+            if (result?.fallback !== true) return
+          } catch (error) {
+            if (error?.code !== 'bot/not-found') throw error
+          }
+        }
+        await actions.steerSessionQueue(sessionId, ids)
+      } catch {
+        actions.reportError?.(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
+      }
+    },
+    draftFiles: (ids) => {
+      if (!Array.isArray(ids) || ids.length === 0) return []
+      const out = []
+      for (const id of ids) {
+        const entry = draftFileStore.get(id)
+        if (entry) out.push({ kind: entry.kind, file: entry.file })
+      }
+      return out
+    },
+    restoreDraftFiles: (sessionId, files) => {
+      if (!Array.isArray(files) || files.length === 0) return []
+      const ids = []
+      for (const item of files) {
+        if (!item || typeof item !== 'object') continue
+        const isWrapper = item.file && typeof item.file === 'object'
+        const file = isWrapper ? item.file : item
+        if (typeof file.name !== 'string' && typeof file.size !== 'number' && typeof file.type !== 'string') continue
+        const mime = typeof file.type === 'string' ? file.type : ''
+        const kind = isWrapper && typeof item.kind === 'string'
+          ? item.kind
+          : (mime.startsWith('image/') ? 'image' : 'file')
+        const id = `draft-file-${++draftFileSeq}`
+        draftFileStore.set(id, { sessionId: sessionId ?? null, kind, file })
+        ids.push(id)
+      }
+      return ids
+    },
+    releaseDraftFiles: (ids) => {
+      if (!Array.isArray(ids)) return
+      for (const id of ids) draftFileStore.delete(id)
+    },
+    holdSettingsLook: () => () => {},
+    watchAgentTerminals: sessionId => watchAgentTerminals(slots, sessionId, error => actions.reportError?.(error, 'right-sidebar')),
+    signInEntry: () => accountBridge.signInEntry(),
+    canSignIn: () => accountBridge.canSignIn(),
+    signIn: () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 })),
+    closeSignIn: () => ui.set(state => ({ ...state, signIn: null })),
+    accountT: () => accountBridge.accountT(),
     setSidebarPref: (pref) => {
       const next = pref === 'rail' || pref === 'hidden' ? pref : 'open'
       const nextShown = next === 'hidden' ? sidebarSaved.shown : next
@@ -675,12 +1290,29 @@ export function createTeam() {
     canOpenFiles: () => true,
     canOpenTerminal: () => !roster.getSnapshot().readOnly,
     openFiles: () => openWorkspaceTab('files'),
+    revealFolder: (input) => {
+      const raw = typeof input === 'string' ? input : (typeof input?.path === 'string' ? input.path : '')
+      const target = raw.replace(/[\\/]+$/, '')
+      const revealSessionId = typeof input?.sessionId === 'string' && input.sessionId !== '' ? input.sessionId : null
+      openWorkspaceTab('files', prev => ({
+        ...prev,
+        revealDir: target,
+        revealNonce: (prev?.revealNonce ?? 0) + 1,
+      }), revealSessionId)
+    },
     openFile: (path) => {
       const target = typeof path === 'string' ? path : (typeof path?.path === 'string' ? path.path : '')
       if (target === '') return
       const fileSessionId = typeof path?.sessionId === 'string' && path.sessionId !== '' ? path.sessionId : null
+      const isDir = path?.isDir === true || (/[\\/]$/.test(target) && target !== '/' && !/^[A-Za-z]:[\\/]$/.test(target))
+      if (isDir) {
+        actions.revealFolder({ path: target, sessionId: fileSessionId })
+        return
+      }
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
-      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileSessionId, fileRoot }), fileSessionId)
+      const fileLine = Number.isInteger(path?.line) && path.line > 0 ? path.line : null
+      const fileFallback = typeof path?.onUnavailable === 'function' ? path.onUnavailable : null
+      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileLine, fileSessionId, fileRoot, fileFallback }), fileSessionId)
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
@@ -689,7 +1321,14 @@ export function createTeam() {
       if (!available) { actions.notice?.(t('These changes are no longer available')); return }
       openWorkspaceTab('changes', prev => ({ ...prev, changes }), changes.sessionId)
     },
-    newTerminal: () => openWorkspaceTab('terminal', prev => ({ ...prev, terminalNonce: (prev?.terminalNonce ?? 0) + 1 })),
+    newTerminal: () => openWorkspaceTab('terminal', prev => ({ ...prev, terminalNonce: ++terminalNonceSeq })),
+    consumeTerminalNonce: (nonce) => {
+      if (!nonce) return
+      ui.set((state) => {
+        if (!state.rightPanel || state.rightPanel.terminalNonce !== nonce) return state
+        return { ...state, rightPanel: { ...state.rightPanel, terminalNonce: 0 } }
+      })
+    },
     setRightPanelTab: (tabId) => openWorkspaceTab(tabId),
     closeWorkspaceTab: (tabId) => {
       if (typeof tabId !== 'string' || tabId === '') return
@@ -705,8 +1344,9 @@ export function createTeam() {
               ...prev,
               tabs: remaining,
               tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
-              ...(tabId === 'preview' ? { file: null, fileSessionId: null, fileRoot: null } : {}),
+              ...(tabId === 'preview' ? { file: null, fileLine: null, fileSessionId: null, fileRoot: null, fileFallback: null } : {}),
               ...(tabId === 'changes' ? { changes: null } : {}),
+              ...(tabId === 'terminal' ? { terminalNonce: 0 } : {}),
             },
           }
         }
@@ -729,6 +1369,20 @@ export function createTeam() {
             ...(hasSide ? {} : { side: null }),
             renaming: false,
             tab: null,
+          }
+        }
+        if (surface.getSnapshot().mode === 'agent'
+          && snap.browser === true
+          && browsers
+          && (browsers.tabs.getSnapshot()[CLASSIC_BROWSER_OWNER]?.ids?.length ?? 0) > 0) {
+          return {
+            ...state,
+            rightPanel: null,
+            view: 'browser',
+            renaming: false,
+            tab: null,
+            side: null,
+            task: null,
           }
         }
         return {
@@ -764,8 +1418,34 @@ export function createTeam() {
         turnFactsBySession.delete(sessionId)
       } else {
         turnFactsBySession.set(sessionId, facts)
+        syncOutlineFromFacts(sessionId, facts)
+        if (Array.isArray(facts.userMessages)) {
+          for (const msg of facts.userMessages) {
+            confirmUserMessage(sessionId, msg, { source: 'facts' })
+          }
+        }
       }
       notifyTurnWatchers(sessionId)
+    },
+    closingReply: (sessionId, turn) => {
+      if (!sessionId || !Number.isInteger(turn) || turn < 0) return null
+      const facts = turnFactsBySession.get(sessionId)
+      const turnFact = facts?.turns?.get(turn)
+      if (turnFact && turnFact.status !== 'closed') return undefined
+      const fromFacts = facts?.closingReplies?.get(turn)
+      if (typeof fromFacts === 'string' && fromFacts !== '') return fromFacts
+      if (turnFact?.status === 'closed') return ''
+      const fromFeed = closingRepliesBySession.get(sessionId)?.get(turn)?.text
+      if (typeof fromFeed === 'string' && fromFeed !== '') return fromFeed
+      const row = sessions.getSnapshot().byId?.[sessionId]
+      const outline = row?.projectionValues?.turnOutline
+      if (Array.isArray(outline)) {
+        const entry = outline.find(item => item?.turn === turn)
+        if (typeof entry?.response === 'string' && entry.response !== '') return entry.response
+      }
+      const snap = roster.getSnapshot()
+      const known = row !== undefined || snap.byId?.[sessionId] !== undefined || snap.roomsById?.[sessionId] !== undefined
+      return known ? undefined : null
     },
     turnFacts: sessionId => turnFactsBySession.get(sessionId) ?? EMPTY_TURN_FACTS,
     watchTurns: (sessionId, listener) => {
@@ -778,8 +1458,32 @@ export function createTeam() {
         if (set.size === 0) turnWatchers.delete(sessionId)
       }
     },
-    noteSent: (sessionId) => {
-      sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? EMPTY_PENDING), { placement: 'direct', time: Date.now() }] }))
+    noteSent: (sessionId, meta) => {
+      if (!sessionId) return () => {}
+      const hasExplicitTime = Number.isFinite(meta?.time)
+      const entry = {
+        placement: typeof meta?.placement === 'string' ? meta.placement : 'direct',
+        time: hasExplicitTime ? meta.time : Date.now(),
+        ...(typeof meta?.requestId === 'string' && meta.requestId !== '' ? { requestId: meta.requestId } : {}),
+        ...(typeof meta?.text === 'string' ? { text: meta.text } : {}),
+      }
+      const afterSeq = Math.max(maxCoveredSeqOf(sessionId), maxConfirmedUserSeqBySession.get(sessionId) ?? -1)
+      pendingSentMeta.set(entry, { afterSeq, hasExplicitTime })
+      sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? EMPTY_PENDING), entry] }))
+      return () => {
+        sent.set((state) => {
+          const queue = state[sessionId]
+          if (!queue?.length) return state
+          const index = queue.indexOf(entry)
+          if (index < 0) return state
+          if (queue.length === 1) {
+            const next = { ...state }
+            delete next[sessionId]
+            return next
+          }
+          return { ...state, [sessionId]: [...queue.slice(0, index), ...queue.slice(index + 1)] }
+        })
+      }
     },
     checkUpdate: async () => {
       const value = await call('update-check', { fresh: true })
@@ -796,52 +1500,82 @@ export function createTeam() {
       update.set(previous => ({ ...previous, dsh }))
       wakeUpdate()
     },
+    openAppUpdates: async (verified) => {
+      if (!appUpdates?.status) return
+      const app = await appUpdates.status()
+      if (app) update.set(previous => ({ ...previous, app }))
+      if (sameVersion(app?.version, verified)) await appUpdates.open?.()
+    },
     checkOwnApp: async () => { await globalThis.dsBotApp?.updates?.check?.() },
     installOwnApp: async () => { await globalThis.dsBotApp?.updates?.install?.() },
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    noteReplyArrival: (sessionId, delta) => {
+      if (!sessionId || !Number.isFinite(delta) || delta <= 0) return
+      editRow(sessionId, (row) => {
+        const base = typeof row.replyCount === 'number'
+          ? row.replyCount
+          : (Array.isArray(row.projectionValues?.turnOutline)
+            ? row.projectionValues.turnOutline.reduce((count, entry) => count + (entry?.response ? 1 : 0), 0)
+            : 0)
+        return { ...row, replyCount: base + delta }
+      })
+    },
+    reconnectFeed: () => { restartFeed() },
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
+  // Classic mode shares the same browser view plumbing under a dedicated owner key.
+  const resolveBrowserOwner = (id) => {
+    const snap = roster.getSnapshot()
+    const bot = id ? snap.byId?.[id] : undefined
+    if (bot) return { ownerId: bot.id, detailsId: id, isClassic: false }
+    if (id === CLASSIC_BROWSER_OWNER || surface.getSnapshot().mode === 'agent') {
+      return { ownerId: CLASSIC_BROWSER_OWNER, detailsId: shown.getSnapshot() || CLASSIC_BROWSER_OWNER, isClassic: true }
+    }
+    return null
+  }
   if (browsers) {
     Object.assign(actions, {
-      // The globe / `+ -> Browser` trigger: the Bot's active tab in the browser view, or a new tab.
+      // The globe / `+ -> Browser` trigger: the active browser tab (Bot or Classic), or a new tab.
       openBrowser: (id) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return
-        browsers.ensureTabs(bot.id)
-        if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        const target = resolveBrowserOwner(id)
+        if (!target) return
+        browsers.ensureTabs(target.ownerId)
+        if (browsers.tabs.getSnapshot()[target.ownerId]?.active == null) browsers.openTab(target.ownerId)
+        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       toggleBrowser: (id) => {
         const snap = roster.getSnapshot()
         if (snap.browser === false) return
-        const bot = snap.byId?.[id]
-        if (!bot) return
+        const target = resolveBrowserOwner(id)
+        if (!target) return
         const state = ui.getSnapshot()
-        const detailsBotId = state.details ? (snap.byId?.[state.details]?.id ?? state.details) : null
-        if (state.details && state.view === 'browser' && detailsBotId === bot.id) {
+        const sameOwner = target.isClassic
+          ? (!snap.byId?.[state.details] && !snap.roomsById?.[state.details])
+          : ((snap.byId?.[state.details]?.id ?? state.details) === target.ownerId)
+        if (state.details && state.view === 'browser' && sameOwner) {
           actions.closePanel()
           return
         }
-        actions.openBrowser(bot.id)
+        actions.openBrowser(target.isClassic ? CLASSIC_BROWSER_OWNER : target.ownerId)
       },
       // `+` on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return null
-        browsers.ensureTabs(bot.id)
-        const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        const target = resolveBrowserOwner(id)
+        if (!target) return null
+        browsers.ensureTabs(target.ownerId)
+        const tabId = browsers.openTab(target.ownerId)
+        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
         return tabId
       },
       // A drawer card: its tab active, the panel on the browser view.
       browserPick: (id, tabId) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return
-        browsers.activate(bot.id, tabId)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        const target = resolveBrowserOwner(id)
+        if (!target) return
+        browsers.activate(target.ownerId, tabId)
+        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       browserEnsure: botId => browsers.ensureTabs(botId),
       browserCloseTab: async (botId, tabId) => {
@@ -853,11 +1587,13 @@ export function createTeam() {
           if (!state.details || state.view !== 'browser') return state
           const subjectBot = snap.byId?.[state.details]
           if (subjectBot && subjectBot.id !== botId) return state
+          if (!subjectBot && botId !== CLASSIC_BROWSER_OWNER) return state
           const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
           if (hasWorkspace) return { ...state, view: 'workspace', renaming: false, tab: null }
           const hasSide = Boolean(subjectBot && state.side && (snap.sideChats?.[subjectBot.id] ?? []).some(chat => chat?.id === state.side))
           if (hasSide) return { ...state, view: 'side', renaming: false, tab: null }
-          return { ...state, view: 'details', renaming: false, tab: null }
+          if (subjectBot || snap.roomsById?.[state.details]) return { ...state, view: 'details', renaming: false, tab: null }
+          return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
         })
       },
       browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
@@ -933,26 +1669,103 @@ export function createTeam() {
   }
   roster.subscribe(followWork)
   work.subscribe(followWork)
+  const isCovered = snap => snap.inbox === true || Boolean(snap.newChat)
+  let wasCovered = isCovered(ui.getSnapshot())
+  ui.subscribe(() => {
+    const covered = isCovered(ui.getSnapshot())
+    if (wasCovered && !covered) {
+      const active = shown.getSnapshot()
+      if (active) setStatus(active, { completionUnread: false })
+    }
+    wasCovered = covered
+  })
 
   const onFeed = (event, data) => {
-    if (event === 'hello') {
+    if (event === 'hello' && data?.resumed !== true) {
       for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
       streamingReply.clear()
+      // Notice seq restarts from 1 on a fresh host boot; session log seq is durable.
+      lastGroupNoticeSeq.clear()
     }
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
-      editRow(sessionId, row => ({
-        ...row,
-        updatedAt: Math.max(row.updatedAt ?? 0, item.time ?? 0),
-        // The sidebar's preview line; turn -1 is never a hidden exchange turn.
-        projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
-      }))
-      if (item.kind === 'bot') {
-        if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
-        if (shown.getSnapshot() !== sessionId) setStatus(sessionId, { completionUnread: true })
+      const hasSeq = Number.isInteger(item.seq)
+      const isReplay = Boolean(hasSeq && advanceFeedMessageCursor(sessionId, item.seq, item.block))
+      const coveredByFacts = Boolean(
+        text
+        && hasSeq
+        && !(Number.isInteger(item.turn) && item.turn >= 0)
+        && item.seq <= maxCoveredSeqOf(sessionId),
+      )
+      if (item.kind === 'user') {
+        confirmUserMessage(sessionId, item, { source: 'feed' })
       }
-      if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
+      let countReply = false
+      if (item.kind === 'bot') {
+        const hasFiniteSeq = Number.isFinite(item.seq)
+        const prevSeq = hasFiniteSeq ? (lastFeedReplySeq.get(sessionId) ?? -1) : -1
+        const seqReplay = hasFiniteSeq && item.seq <= prevSeq
+        if (hasFiniteSeq && !seqReplay) lastFeedReplySeq.set(sessionId, item.seq)
+        // Active DM Sessions count tail arrivals via SessionTranscript's monotonic seq watermark
+        // so "Load earlier", gap fills, and replays never inflate replyCount or double-count.
+        countReply = !seqReplay && !isReplay && !coveredByFacts && shown.getSnapshot() !== sessionId
+      }
+      if (!isReplay && !coveredByFacts) {
+        if (item.kind === 'bot') {
+          if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
+          // Set completionUnread BEFORE updating turnOutline so watchBotCompletions sees the
+          // unread flag on the first turnOutline snapshot for a background Bot.
+          if (shown.getSnapshot() !== sessionId || isCovered(ui.getSnapshot())) setStatus(sessionId, { completionUnread: true })
+        }
+        let effectiveTurn = null
+        editRow(sessionId, (row) => {
+          const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
+          const replyPatch = countReply
+            ? { replyCount: (row.replyCount ?? 0) + 1 }
+            : (typeof row.replyCount === 'number' ? {} : { replyCount: 0 })
+          if (!text) return { ...row, updatedAt, ...replyPatch }
+          const resolvedTurn = Number.isInteger(item.turn) && item.turn >= 0 ? item.turn : openTurnOf(sessionId)
+          const next = appendTurnOutline(row, {
+            kind: item.kind,
+            text,
+            turn: resolvedTurn,
+            seq: hasSeq ? item.seq : null,
+          })
+          effectiveTurn = next.turn
+          return {
+            ...row,
+            updatedAt,
+            ...replyPatch,
+            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
+          }
+        })
+        if (item.kind === 'bot' && text && Number.isInteger(effectiveTurn)) {
+          recordClosingReply(sessionId, effectiveTurn, text, hasSeq ? item.seq : null)
+        }
+      } else if (item.kind === 'bot' && streamingReply.delete(sessionId)) {
+        actions.noteLive(sessionId, 'reply', null)
+      }
+    }
+    if (event === 'notice' && data?.kind === 'group' && data.roomId) {
+      const room = roster.getSnapshot().roomsById?.[data.roomId]
+      const roomSession = room ? currentPart(room) : data.roomId
+      const hasSeq = Number.isFinite(data.seq)
+      const prevSeq = hasSeq ? (lastGroupNoticeSeq.get(roomSession) ?? -1) : -1
+      const isReplay = hasSeq && data.seq <= prevSeq
+      if (hasSeq && !isReplay) lastGroupNoticeSeq.set(roomSession, data.seq)
+      if (!isReplay && (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot()))) setStatus(roomSession, { completionUnread: true })
+      if (data.text && !isReplay) {
+        editRow(roomSession, (row) => {
+          const next = appendTurnOutline(row, { kind: 'bot', text: data.text, turn: data.turn, seq: Number.isInteger(data.seq) ? data.seq : null })
+          return {
+            ...row,
+            updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+            replyCount: (row.replyCount ?? 0) + 1,
+            projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
+          }
+        })
+      }
     }
     // While a reply streams in, it stands in for the activity row; notify only on transitions.
     if (event === 'stream' && data?.sessionId) {
@@ -972,6 +1785,9 @@ export function createTeam() {
   const start = () => {
     let stopped = false
     let timer
+    let lostTimer
+    let lostSince = 0
+    let closeFeed = () => {}
     const read = () => {
       void pull().catch((error) => {
         if (stopped) return
@@ -991,7 +1807,61 @@ export function createTeam() {
     const onVisibility = () => {
       if (stopped) return
       if (document.hidden) stopTimer()
-      else { read(); startTimer() }
+      else {
+        read()
+        startTimer()
+      }
+    }
+    const clearLost = () => {
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = 0
+      if (connection.getSnapshot().status !== 'connected') {
+        connection.set({ status: 'connected', error: null, code: null })
+      }
+    }
+    const noteLost = () => {
+      if (stopped || lostSince > 0 || connection.getSnapshot().status === 'error') return
+      lostSince = Date.now()
+      lostTimer = setTimeout(() => {
+        lostTimer = undefined
+        if (!stopped && lostSince > 0) {
+          connection.set({ status: 'reconnecting', error: null, code: null })
+        }
+      }, RECONNECT_NOTICE_MS)
+    }
+    const handleFeedEvent = (event, data) => {
+      if (stopped) return
+      if (event === 'lost') {
+        noteLost()
+        onFeed(event, data)
+        return
+      }
+      if (event === 'error' && data?.fatal === true) {
+        if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+        lostSince = 0
+        connection.set({ status: 'error', error: data?.message ?? null, code: data?.code ?? null })
+        onFeed(event, data)
+        return
+      }
+      clearLost()
+      if (event === 'revision') read()
+      else if (event === 'live') {
+        if (typeof document === 'undefined' || !document.hidden) read()
+      } else if (event === 'hello' && data?.resumed !== true) {
+        if (typeof document === 'undefined' || !document.hidden) read()
+      }
+      onFeed(event, data)
+    }
+    const connectFeed = () => {
+      closeFeed()
+      closeFeed = openFeed(handleFeedEvent)
+    }
+    restartFeed = () => {
+      if (stopped) return
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = Date.now()
+      connection.set({ status: 'reconnecting', error: null, code: null })
+      connectFeed()
     }
     read()
     let updateTimer
@@ -1011,6 +1881,14 @@ export function createTeam() {
     wakeUpdate = () => { void pollUpdate() }
     scheduleUpdate = armUpdate
     void pollUpdate()
+    let unsubscribeAppUpdates = null
+    if (appUpdates?.status && appUpdates.subscribe) {
+      const takeApp = (app) => {
+        if (!stopped && app) update.set(previous => ({ ...previous, app }))
+      }
+      void Promise.resolve(appUpdates.status()).then(takeApp, () => {})
+      unsubscribeAppUpdates = appUpdates.subscribe(takeApp)
+    }
     let unsubscribeOwnApp = null
     const ownAppUpdates = globalThis.dsBotApp?.updates ?? null
     if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
@@ -1020,10 +1898,20 @@ export function createTeam() {
       void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
       unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
     }
-    const closeFeed = openFeed((event, data) => {
-      if (READ_AGAIN.has(event)) read()
-      onFeed(event, data)
+    const stopAccountExternal = accountBridge.subscribeExternal()
+    void accountBridge.refresh()
+    const stopBotCompletions = watchBotCompletions({
+      roster,
+      sessions,
+      statuses: status,
+      unread: botCompletions,
+      ui,
+      onReconcile: (listener) => {
+        outlineReconcileListeners.add(listener)
+        return () => { outlineReconcileListeners.delete(listener) }
+      },
     })
+    connectFeed()
     const stopApprovalNotices = noticeApprovals({
       work,
       roster,
@@ -1041,7 +1929,8 @@ export function createTeam() {
         if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
         if (!on && stopReads) { stopReads(); stopReads = null }
         // A Bot deleted here or in another window takes its guests and saved tabs along.
-        void browsers.retain(snapshot.bots.map(bot => bot.id)).catch(() => {})
+        // Keep the shared Classic browser owner alive across roster updates.
+        void browsers.retain([...snapshot.bots.map(bot => bot.id), CLASSIC_BROWSER_OWNER]).catch(() => {})
         // A panel open on a deleted subject or unavailable browser falls back cleanly to
         // workspace (if open), details (if subject still exists), or closes completely.
         ui.set((state) => {
@@ -1049,8 +1938,9 @@ export function createTeam() {
           const hasBot = Boolean(snapshot.byId[state.details])
           const hasRoom = Boolean(snapshot.roomsById?.[state.details])
           const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+          const isClassicBrowser = !hasBot && !hasRoom && surface.getSnapshot().mode === 'agent'
           if (state.view === 'browser') {
-            if (on && hasBot) return state
+            if (on && (hasBot || isClassicBrowser)) return state
             if (hasWorkspace) return { ...state, view: 'workspace' }
             if (hasBot || hasRoom) return { ...state, view: 'details' }
             return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
@@ -1075,7 +1965,7 @@ export function createTeam() {
     const cleanups = []
     const appComputer = globalThis.dsBotApp
     if (typeof appComputer?.computer === 'function') {
-      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
+      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? t('a Bot')
       const syncComputer = () => {
         if (stopped) return
         const live = computer.getSnapshot()
@@ -1204,9 +2094,18 @@ export function createTeam() {
     return () => {
       stopped = true
       clearTimeout(updateTimer)
+      clearTimeout(lostTimer)
+      lostTimer = undefined
+      lostSince = 0
       wakeUpdate = () => {}
       scheduleUpdate = () => {}
+      unsubscribeAppUpdates?.()
+      restartFeed = () => {}
       unsubscribeOwnApp?.()
+      stopAccountExternal()
+      stopBotCompletions()
+      avatarRefs.clear()
+      avatarIncomplete = false
       closeFeed()
       stopApprovalNotices()
       stopBrowsers?.()
@@ -1223,6 +2122,8 @@ export function createTeam() {
     useUi: use(ui),
     useActivity: use(activity),
     useWork: use(work),
+    useUserQuestions: use(userQuestions),
+    useSessionQueues: use(sessionQueues),
     useMemoryNews: use(memoryNews),
     useLive: use(live),
     useCards: use(cards),
@@ -1230,11 +2131,13 @@ export function createTeam() {
     useRescuedDrafts: use(questionDrafts.rescued),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
+    useConnection: use(connection),
     useRegistry: use(registry),
     useComputer: use(computer),
     useBrowserHolds: use(browserHolds),
     useBrowserPages: use(browserPages),
     useBrowserTabs: use(browserTabs),
+    useBotCompletions: use(botCompletions),
     useSessions: use(sessions),
     useSessionStatus: use(status),
     useSessionRetainInfo: (id, selector) => useSelect(sessions, list => selector(list.byId[id])),
@@ -1267,6 +2170,7 @@ export function createTeam() {
     shown: () => shown.getSnapshot(),
     surface: () => surface.getSnapshot(),
     status: () => status.getSnapshot(),
+    connection: () => connection.getSnapshot(),
   }
   return { actions, hooks, snapshots, sessionHook, chat, start }
 }

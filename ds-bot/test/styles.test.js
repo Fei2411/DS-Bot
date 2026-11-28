@@ -187,7 +187,7 @@ test('mounting and unmounting compiled styles twice leaves no extra nodes', asyn
 })
 
 test('the chat-room rule is installed through installStyles, so it is owned too', () => {
-  const pane = readFileSync(new URL('../src/client/frame-watch.js', import.meta.url), 'utf8')
+  const pane = readFileSync(new URL('../src/client/chat-room.js', import.meta.url), 'utf8')
   assert.match(pane, /installStyles\(.*'chat-room'/)
   assert.equal(pane.includes("dataset.dshBot = 'chat-room'"), false)
 })
@@ -276,17 +276,18 @@ test('the panel strip and strip-less drawer top rows carry the shell window drag
   assert.match(drawer, /className: 'bt-subhead'[^}]*'data-window-drag': !hasStrip \|\| undefined/)
 })
 
-test('dsh-mobile conversation header is opaque and catches hits without altering desktop', () => {
+test('dsh-mobile conversation header is opaque and catches hits without altering desktop', async () => {
   const { window, module } = bench([])
-  const { CONVERSATION_CSS, botOwnCss, installCompiledStyles } = module.exports
+  const { botOwnCss, installCompiledStyles } = module.exports
+  const { DSH_CONVERSATION_CSS } = await import('../src/client/styles-dsh.js')
   const { document } = window
   const hostSheet = document.createElement('style')
   hostSheet.textContent = '.wSkVaW_header{display:grid;border-bottom:.5px solid rgba(0,0,0,.1)}'
   document.head.appendChild(hostSheet)
 
-  const dispose = installCompiledStyles(CONVERSATION_CSS, 'conversation')
+  const dispose = installCompiledStyles(DSH_CONVERSATION_CSS, 'dsh-conversation')
   try {
-    const [compiled] = tagged(document, 'conversation')
+    const [compiled] = tagged(document, 'dsh-conversation')
     const text = compiled.textContent
     // Desktop floating header keeps its transparent canvas, click-through hit policy, and ::before fade.
     assert.match(text, /header:is\(\.wSkVaW_header\):has\(\.bt-head\)\{[^}]*background:transparent!important;pointer-events:none/)
@@ -314,31 +315,32 @@ test('dsh-mobile conversation header is opaque and catches hits without altering
     )
 
     // Host header rules stay excluded from botOwnCss so Agent mode never inherits them.
-    assert.equal(botOwnCss(CONVERSATION_CSS).includes('dsh-native-mobile-active'), false)
-    assert.equal(botOwnCss(CONVERSATION_CSS).includes('data-dsh-mobile-header'), false)
+    assert.equal(botOwnCss(DSH_CONVERSATION_CSS).includes('dsh-native-mobile-active'), false)
+    assert.equal(botOwnCss(DSH_CONVERSATION_CSS).includes('data-dsh-mobile-header'), false)
   } finally {
     dispose()
   }
 })
 
 test('trigger menu descriptions stay beside their row labels', () => {
-  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../src/client/styles-dsh.js', import.meta.url), 'utf8')
   assert.match(css, /\[data-trigger-menu\] \[role=option\]>span\{text-align:left\}/)
 })
 
 test('send and voice buttons tint background-color on hover, matching their transition', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const dshCss = readFileSync(new URL('../src/client/styles-dsh.js', import.meta.url), 'utf8')
   const send = '[data-composer-card] button[class*="_primary"]'
-  for (const selector of [`${send}:hover:not(:disabled)`, '.bt-voice:hover']) {
-    const start = css.indexOf(`${selector}{`)
+  for (const [sheet, selector] of [[dshCss, `${send}:hover:not(:disabled)`], [css, '.bt-voice:hover']]) {
+    const start = sheet.indexOf(`${selector}{`)
     assert.ok(start >= 0, `${selector} rule exists`)
-    const body = css.slice(start + selector.length + 1, css.indexOf('}', start))
+    const body = sheet.slice(start + selector.length + 1, sheet.indexOf('}', start))
     assert.match(body, /(^|;)background-color:color-mix\(in srgb,var\(--bt-accent\) 90%,transparent\)/)
     assert.doesNotMatch(body, /(^|;)background:/)
     assert.doesNotMatch(body, /opacity/)
   }
   // The transition lists the property the hover changes, so the tint animates.
-  assert.match(css, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
+  assert.match(dshCss, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
   assert.match(css, /\.bt-voice\{[^}]*;transition:background-color \.15s ease|\.bt-mic,\.bt-voice\{[^}]*transition:background-color \.15s ease/)
 })
 
@@ -363,4 +365,72 @@ test('sidebar top stays a single clean row with New section moved to CommandPale
   assert.match(css, /\.bt-side-top \.bt-round\{width:30px;height:30px;border:0;background:transparent;color:var\(--bt-ink-2\)\}/)
   assert.equal(sidebar.includes("t('New section')"), false)
   assert.match(palette, /key:\s*'cmd:section'[\s\S]*t\('New section'\)/)
+})
+
+test('full-window modal layers keep a top drag strip in frameless windows while dialogs stay no-drag', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const strip = /(:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)>:is\(\.bt-scrim,\.bt-backdrop\)::before,:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-opening::before)\{([^}]*)\}/.exec(css)
+  assert.ok(strip, 'modal top drag strip rule exists on scrim/backdrop and opening cover')
+  assert.match(strip[2], /position:absolute/)
+  assert.match(strip[2], /inset:0 0 auto/)
+  assert.match(strip[2], /height:var\(--bt-modal-drag-h,0px\)/)
+  assert.match(strip[2], /z-index:1/)
+  assert.match(strip[2], /-webkit-app-region:drag/)
+  assert.match(strip[2], /app-region:drag/)
+
+  const leaving = /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)\[data-leaving\]>:is\(\.bt-scrim,\.bt-backdrop\)::before,:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-opening\[data-leaving\]::before\{([^}]*)\}/.exec(css)
+  assert.ok(leaving, 'leaving modal layers drop the drag strip')
+  assert.match(leaving[1], /-webkit-app-region:initial/)
+
+  const dialog = /(:is\(\.bt-settings-layer,\.bt-mem-layer,\.bt-palette-layer,\.bt-rn-layer,\.bt-priv-layer\)>:is\(\[role=dialog\],\[role=alertdialog\]\))\{([^}]*)\}/.exec(css)
+  assert.ok(dialog, 'dialog surfaces stay above the drag strip as no-drag')
+  assert.match(dialog[2], /z-index:2/)
+  assert.match(dialog[2], /-webkit-app-region:no-drag/)
+  assert.doesNotMatch(dialog[2], /position:relative/, 'keeps .bt-palette position:absolute intact')
+
+  const openingCard = /\.bt-opening>\.bt-opening-card\{([^}]*)\}/.exec(css)
+  assert.ok(openingCard)
+  assert.match(openingCard[1], /position:relative/)
+  assert.match(openingCard[1], /z-index:2/)
+  assert.match(openingCard[1], /-webkit-app-region:no-drag/)
+
+  // Verify selectors match scrim/backdrop children and opening cover in frameless modes and skip fullscreen/Linux.
+  const hostSelector = strip[1].replace(/::before/g, '')
+  const scrimLayers = [
+    ['bt-settings-layer', 'bt-scrim'],
+    ['bt-mem-layer', 'bt-scrim'],
+    ['bt-palette-layer', 'bt-backdrop'],
+    ['bt-rn-layer', 'bt-scrim'],
+    ['bt-priv-layer', 'bt-scrim'],
+  ]
+  for (const attrs of ['data-windows-titlebar=""', 'data-platform="darwin"']) {
+    const html = `<!doctype html><html ${attrs}><body>${scrimLayers.map(([l, s]) => `<div class="${l}"><div class="${s}"></div><div role="dialog"></div></div>`).join('')}<div class="bt-opening"><div class="bt-opening-card"></div></div></body></html>`
+    const { window } = new JSDOM(html)
+    for (const [l, s] of scrimLayers) {
+      assert.equal(window.document.querySelector(`.${l} > .${s}`).matches(hostSelector), true, `${attrs} matches .${l} > .${s}`)
+    }
+    assert.equal(window.document.querySelector('.bt-opening').matches(hostSelector), true, `${attrs} matches .bt-opening`)
+    window.document.documentElement.dataset.fullscreen = 'true'
+    for (const [l, s] of scrimLayers) {
+      assert.equal(window.document.querySelector(`.${l} > .${s}`).matches(hostSelector), false, `fullscreen skips .${l} > .${s}`)
+    }
+    assert.equal(window.document.querySelector('.bt-opening').matches(hostSelector), false, 'fullscreen skips .bt-opening')
+  }
+  const { window: linuxWin } = new JSDOM('<!doctype html><html><body><div class="bt-settings-layer"><div class="bt-scrim"></div><div role="dialog"></div></div></body></html>')
+  assert.equal(linuxWin.document.querySelector('.bt-settings-layer > .bt-scrim').matches(hostSelector), false)
+
+  // Narrow-viewport fullscreen settings and memory dialogs keep top drag strips, shift overlays, and clear drag on exit.
+  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(var\(--bt-titlebar-h,0px\) - var\(--bt-chrome-top,0px\)\)\)/)
+  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(40px - var\(--bt-chrome-top,0px\)\)\)/)
+  assert.match(css, /\.bt-tour-layer\{-webkit-app-region:initial;app-region:initial\}/)
+  assert.match(css, /:is\(\.bt-set-palette,\.bt-tour-card\)\{z-index:2;-webkit-app-region:no-drag;app-region:no-drag\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-layer\[data-leaving\] \.bt-settings::before\{-webkit-app-region:initial;app-region:initial\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-close\{top:calc\(14px \+ var\(--bt-modal-drag-h,0px\)\)\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-set-palette-layer\{padding-top:calc\(12px \+ var\(--bt-modal-drag-h,0px\)\)\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-set-palette-scrim::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-layer\[data-leaving\] \.bt-set-palette-scrim::before\{-webkit-app-region:initial;app-region:initial\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-mem\{padding-top:var\(--bt-modal-drag-h,0px\);box-sizing:border-box\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-mem::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-mem-layer\[data-leaving\] \.bt-mem::before\{-webkit-app-region:initial;app-region:initial\}/)
 })

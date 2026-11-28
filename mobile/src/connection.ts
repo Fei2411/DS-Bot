@@ -30,6 +30,8 @@ export interface Bot {
   permission?: string
   // A credential or balance failure that stops the Bot until the user fixes it (turns.js).
   blocked?: { code: string; status?: number; provider?: string; at?: number }
+  // The newest turn failure per part, cleared once a later turn succeeds (turns.js).
+  failures?: Record<string, { turn?: number; code?: string; message?: string; provider?: string; at?: number }>
   color?: string
   avatar?: { shape?: string; image?: string; imageRef?: string }
   model?: string
@@ -49,6 +51,8 @@ export interface Bot {
   hidden?: boolean
   createdAt?: number
   lastAt?: number
+  lastBotAt?: number
+  latestTurn?: number
   preview?: string
 }
 
@@ -76,6 +80,36 @@ export interface Question {
   detail?: string
   options?: { label: string }[]
   multiSelect?: boolean
+}
+
+/**
+ * One thing that waits for the user, as the host's inbox lists it (ds-bot/src/host/
+ * inbox.js). `id` is `kind:ref`; the fields after `text` belong to some kinds only.
+ */
+export interface InboxItem {
+  id: string
+  kind: string
+  group: 'decide' | 'fix' | 'suggest'
+  ref: string
+  at: number
+  botId?: string
+  roomId?: string
+  sessionId?: string
+  taskId?: string
+  text?: string
+  tool?: string
+  note?: string
+  taskTitle?: string
+  need?: 'fill' | 'allow'
+  connectorId?: string
+  to?: string
+  surface?: 'browser' | 'computer'
+  reason?: string
+  status?: number
+  provider?: string
+  limit?: number
+  count?: number
+  proposal?: 'skill' | 'agents'
 }
 
 export interface Approval {
@@ -137,10 +171,16 @@ export interface TeamState {
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectorRequests?: Record<string, ConnectorRequest[]>
+  mailRequests?: Record<string, MailRequest[]>
   learning?: Record<string, LearningProposal[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
+  computerLive?: {
+    asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }>
+    holds?: Record<string, { by?: string; fromBot?: boolean; reason?: string; note?: string; callId?: string }>
+  }
+  inbox?: { count: number; counts: Record<'decide' | 'fix' | 'suggest', number>; items: InboxItem[] } | null
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>
   sideChats?: Record<string, { chatId: string; entries?: { id: string; question?: string; answer?: string; status?: string; failure?: string }[] }[]>
   capabilityStatuses?: Record<string, Record<string, CapabilityStatus> | CapabilityStatus>
@@ -148,20 +188,37 @@ export interface TeamState {
   dataPath?: string
   version?: string
   work?: {
-    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean; roomId?: string }>
     agents?: Record<string, { tool?: string; said?: string; note?: string; target?: string }>
     rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
     waiting?: Record<string, { bots?: string[]; rooms?: string[] }>
     turns?: Record<string, number>
   }
-  activity?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean }>
+  // One word per Bot from turns.js activityView (thinking, searching, working, sending, orbit, waiting, alert).
+  activity?: Record<string, string>
+  // Per-Bot own-chat tail updates carried on live() for unchanged-revision polls.
+  botTails?: Record<string, { lastAt?: number; lastBotAt?: number; latestTurn?: number; preview?: string }>
   exchangeTurns?: Record<string, number[]>
-  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean }
+  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean; motion?: string; effects?: string }
 }
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
-export interface ShownView { id?: string; title?: string; view?: unknown }
+export interface ShownView { id?: string; callId?: string; callSessionId?: string; title?: string; view?: unknown }
+
+/** A pending outgoing email request awaiting the user's confirmation. */
+export interface MailRequest {
+  id: string
+  sessionId?: string
+  to?: string
+  cc?: string
+  bcc?: string
+  subject?: string
+  body?: string
+  attachments?: (string | { name?: string; path?: string; size?: number })[]
+  attachmentDetails?: { name?: string; path?: string; size?: number }[]
+  status?: string
+}
 
 /** Opens the encrypted link to the computer. The pairing code goes only with the first connection. */
 export async function openLink(computer: SavedComputer, identity: PhoneIdentity, pairingCode?: string): Promise<RpcClient> {

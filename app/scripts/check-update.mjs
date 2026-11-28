@@ -1,41 +1,81 @@
-// Check a packaged app's update on throwaway folders. Windows and a Linux AppImage download and
-// install a feed; macOS and a Linux deb read the latest release and open no browser.
-// Usage: node scripts/check-update.mjs <app executable> <feed folder with latest.yml or latest-linux.yml> [--kill]
-//        node scripts/check-update.mjs <app executable> <version> (macOS, a Linux deb)
-import { spawn, spawnSync } from 'node:child_process'
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+// Check a packaged app's update on throwaway folders. Windows, writable macOS .app bundles, and
+// a Linux AppImage download and install a feed; a Linux deb reads the latest release and opens no
+// browser.
+// Usage: node scripts/check-update.mjs <app executable> <feed folder with latest.yml, latest-linux.yml, or mac zip> [--kill]
+//        node scripts/check-update.mjs <app executable> <version> (Linux deb)
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { mockKeychainArgs } from '../src/legacy.mjs'
+import { resolveMacAppBundle } from '../src/mac-updater.mjs'
 
 const [executable, source, mode] = process.argv.slice(2)
 const mac = process.platform === 'darwin'
-// An AppImage updates itself, as on Windows; any other Linux executable (a deb's) only hears
-// of the release, as on macOS.
-const releasePage = mac || (process.platform === 'linux' && !executable?.endsWith('.AppImage'))
+// Windows, writable macOS .app bundles, and Linux AppImages update themselves; Linux debs only
+// hear of the release.
+const releasePage = process.platform === 'linux' && !executable?.endsWith('.AppImage')
 const manifest = process.platform === 'linux' ? 'latest-linux.yml' : 'latest.yml'
-// The asset the fake release lists: what this install's update check waits for. The deb's file
-// name uses the Debian architecture (x64 → amd64).
-const asset = mac
-  ? version => `DS-Bot-${version}-mac-${process.arch}.zip`
-  : version => `DS-Bot-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
-if (!executable || !source || !existsSync(executable)
-  || (releasePage ? mode !== undefined : !existsSync(join(source, manifest)))) {
+// The asset the fake release lists for a Linux deb install (x64 → amd64).
+const debAsset = version => `DS-Bot-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
+
+let macZipName
+let macZipVersion
+let macZipSha256
+if (mac && source && existsSync(source) && statSync(source).isDirectory()) {
+  const pattern = new RegExp(`^DS-Bot-(.+)-mac-${process.arch}\\.zip$`, 'u')
+  for (const entry of readdirSync(source)) {
+    const match = pattern.exec(entry)
+    if (match !== null) {
+      macZipName = entry
+      macZipVersion = match[1]
+      break
+    }
+  }
+}
+
+const macValid = mac ? (macZipName !== undefined && (mode === undefined || mode === '--kill')) : true
+const nonMacValid = releasePage
+  ? mode === undefined
+  : (!mac && existsSync(join(source ?? '', manifest)) && (mode === undefined || mode === '--kill'))
+
+if (!executable || !source || !existsSync(executable) || !(mac ? macValid : nonMacValid)) {
   console.error(`check-update: usage: ${releasePage
     ? 'node scripts/check-update.mjs <app executable> <version>'
-    : `node scripts/check-update.mjs <app executable> <feed folder with ${manifest}> [--kill]`}`)
+    : mac
+      ? `node scripts/check-update.mjs <app executable> <feed folder with DS-Bot-<version>-mac-${process.arch}.zip> [--kill]`
+      : `node scripts/check-update.mjs <app executable> <feed folder with ${manifest}> [--kill]`}`)
   process.exit(2)
 }
-const version = releasePage ? source : /^version:\s*(\S+)/mu.exec(readFileSync(join(source, manifest), 'utf8'))?.[1]
+
+if (mac) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(join(source, macZipName))) hash.update(chunk)
+  macZipSha256 = hash.digest('hex')
+}
+
+const version = releasePage
+  ? source
+  : mac
+    ? macZipVersion
+    : /^version:\s*(\S+)/mu.exec(readFileSync(join(source, manifest), 'utf8'))?.[1]
+const macBundle = mac ? resolveMacAppBundle(resolve(executable)) : null
+if (mac && !macBundle?.eligible) {
+  console.error(`check-update: macOS executable is not in a writable .app bundle (${macBundle?.reason})`)
+  process.exit(2)
+}
+
 const work = mkdtempSync(join(tmpdir(), 'ds-bot-update-'))
 mkdirSync(join(work, 'home'))
 
+let feed = ''
 const served = []
 const server = createServer((request, response) => {
+  const pathname = new URL(request.url, 'http://feed/').pathname
   if (releasePage) {
-    const pathname = new URL(request.url, 'http://feed/').pathname
     if (request.method !== 'GET' || pathname !== '/') { response.writeHead(404).end(); return }
     served.push(pathname)
     response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify([{
@@ -43,11 +83,41 @@ const server = createServer((request, response) => {
       html_url: `https://github.com/Fei-Craft/DS-Bot/releases/tag/v${version}`,
       draft: false,
       prerelease: false,
-      assets: [{ name: asset(version) }],
+      assets: [{ name: debAsset(version) }],
     }]))
     return
   }
-  const name = basename(decodeURIComponent(new URL(request.url, 'http://feed/').pathname))
+  if (mac) {
+    if (request.method !== 'GET') { response.writeHead(404).end(); return }
+    if (pathname === '/') {
+      served.push('/')
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify([{
+        tag_name: `v${version}`,
+        html_url: `https://github.com/Fei-Craft/DS-Bot/releases/tag/v${version}`,
+        draft: false,
+        prerelease: false,
+        assets: [
+          { name: macZipName, browser_download_url: `${feed}${encodeURIComponent(macZipName)}` },
+          { name: 'SHA256SUMS.txt', browser_download_url: `${feed}SHA256SUMS.txt` },
+        ],
+      }]))
+      return
+    }
+    if (pathname === '/SHA256SUMS.txt') {
+      served.push('SHA256SUMS.txt')
+      const body = `${macZipSha256}  ${macZipName}\n`
+      response.writeHead(200, { 'content-type': 'text/plain', 'content-length': Buffer.byteLength(body) }).end(body)
+      return
+    }
+    const name = basename(decodeURIComponent(pathname))
+    if (name !== macZipName) { response.writeHead(404).end(); return }
+    const file = join(source, macZipName)
+    served.push(name)
+    response.writeHead(200, { 'content-type': 'application/zip', 'content-length': statSync(file).size })
+    createReadStream(file).pipe(response)
+    return
+  }
+  const name = basename(decodeURIComponent(pathname))
   const file = join(source, name)
   served.push(name)
   if (!existsSync(file) || !statSync(file).isFile()) { response.writeHead(404).end(); return }
@@ -55,7 +125,7 @@ const server = createServer((request, response) => {
   createReadStream(file).pipe(response)
 })
 await new Promise((done) => { server.listen(0, '127.0.0.1', done) })
-const feed = `http://127.0.0.1:${String(server.address().port)}/`
+feed = `http://127.0.0.1:${String(server.address().port)}/`
 
 // The tray's Quit ends the app. The check cannot click the tray icon, so it asks the browser
 // target of the debugging port to close. Tray menu dispatch is covered by the main-process tests.
@@ -98,8 +168,8 @@ async function quitApp(port, waitForReady = false) {
     if (!ready) throw new Error('the app window did not finish booting')
   }
   socket.close()
-  const version = await (await fetch(`http://127.0.0.1:${String(port)}/json/version`)).json()
-  const browser = new WebSocket(version.webSocketDebuggerUrl)
+  const browserVersion = await (await fetch(`http://127.0.0.1:${String(port)}/json/version`)).json()
+  const browser = new WebSocket(browserVersion.webSocketDebuggerUrl)
   await new Promise((done, reject) => {
     browser.addEventListener('open', done, { once: true })
     browser.addEventListener('error', reject, { once: true })
@@ -120,7 +190,7 @@ let app
 try {
   // A terminal inside an Electron-based editor may set ELECTRON_RUN_AS_NODE, which turns the app into plain Node.
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
-  Object.assign(env, { DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'), DS_BOT_UPDATE_URL: feed })
+  Object.assign(env, { DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'), DS_BOT_UPDATE_URL: feed, DS_BOT_TELEMETRY_DISABLED: '1' })
   const port = 9300 + Math.floor(Math.random() * 600)
   app = spawn(resolve(executable), [...mockKeychainArgs(), `--remote-debugging-port=${String(port)}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
   const exited = new Promise((done) => { app.once('exit', (code) => { done(code) }) })
@@ -160,6 +230,25 @@ try {
     if (code === 'timeout') throw new Error('the app did not exit after its window closed')
     if (code !== 0) throw new Error(`the app exited with code ${String(code)}, so it does not install the update`)
     console.log('check-update: the app quit; its installer runs now')
+    if (mac) {
+      // Wait for the detached macOS swap helper to finish replacing the bundle BEFORE removing
+      // `work` (which holds DS_BOT_SHELL_DATA/mac-updates staging).
+      const swapDeadline = Date.now() + 90_000
+      let swapped = ''
+      while (Date.now() < swapDeadline) {
+        try {
+          swapped = execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleShortVersionString', 'raw', join(macBundle.appPath, 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim()
+          if (swapped === version) break
+        } catch { /* mid-swap */ }
+        await sleep(250)
+      }
+      if (swapped !== version) {
+        const logPath = join(work, 'shell', 'logs', 'mac-updater.log')
+        const logTail = existsSync(logPath) ? `\n${readFileSync(logPath, 'utf8')}` : ''
+        throw new Error(`macOS bundle version is ${swapped || '<unreadable>'}, expected ${version}${logTail}`)
+      }
+      console.log(`check-update: macOS bundle swapped to ${swapped}`)
+    }
   }
   console.log('check-update: passed')
 } catch (error) {

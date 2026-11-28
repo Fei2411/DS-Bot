@@ -33,7 +33,7 @@ const KNOWN_PROVIDERS = new Set([
 const KNOWN_LOCAL_AGENTS = new Set([
   'claude-code', 'codex', 'gemini', 'antigravity', 'opencode', 'cursor', 'devin', 'qoder',
 ])
-const KNOWN_THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'celadon'])
+const KNOWN_THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'fei'])
 const KNOWN_IM = new Set(['telegram', 'feishu', 'discord', 'slack', 'dingtalk', 'wecom', 'qq', 'weixin'])
 const KNOWN_FEATURES = new Set([
   'group_chat', 'background_task', 'bot_browser', 'computer_use', 'schedule',
@@ -50,7 +50,11 @@ const SAFE_ERROR_NAMES = new Set([
 const SAFE_ERROR_CODES = new Set([
   'bot/invalid', 'bot/not-found', 'bot/refused', 'bot/read-only', 'bot/stale',
   'bot/busy', 'bot/conflict', 'bot/timeout', 'bot/internal', 'schedule/pending',
+  'gateway/internal', 'gateway/timeout', 'gateway/unavailable',
+  'session/not-found', 'session/agent-busy', 'session/archived', 'subagent/unauthorized',
   'AUTH', 'QUOTA', 'RATE_LIMIT', 'NETWORK', 'TIMEOUT', 'CONTENT_POLICY', 'ABORTED', 'UNKNOWN',
+  'SERVER', 'MAX_TOKENS', 'CONTEXT_WINDOW_EXCEEDED', 'BAD_REQUEST', 'FORBIDDEN', 'NOT_FOUND',
+  'OVERLOADED', 'PROVIDER', 'MODEL',
   'ENOENT', 'EACCES', 'EPERM', 'EEXIST', 'EISDIR', 'ENOTDIR', 'EMFILE', 'ENOSPC', 'EPIPE',
   'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH',
   'EADDRINUSE', 'EADDRNOTAVAIL', 'EAI_AGAIN', 'ENOTFOUND', 'EBUSY', 'EXDEV', 'EINVAL',
@@ -100,12 +104,26 @@ const ownVersion = () => {
   }
 }
 
+const isTruthyEnv = (value) => {
+  const clean = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return clean === '1' || clean === 'true'
+}
+
 export function envDisabledReason(env = process.env) {
   if (typeof env.DS_BOT_TELEMETRY_DISABLED === 'string' && env.DS_BOT_TELEMETRY_DISABLED !== '') {
     return 'DS_BOT_TELEMETRY_DISABLED'
   }
-  const dnt = typeof env.DO_NOT_TRACK === 'string' ? env.DO_NOT_TRACK.trim().toLowerCase() : ''
-  if (dnt === '1' || dnt === 'true') return 'DO_NOT_TRACK'
+  if (isTruthyEnv(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK'
+  return null
+}
+
+export function automatedEnvReason(env = process.env) {
+  if (isTruthyEnv(env.CI)) return 'CI'
+  if (isTruthyEnv(env.GITHUB_ACTIONS)) return 'GITHUB_ACTIONS'
+  if (typeof env.NODE_TEST_CONTEXT === 'string' && env.NODE_TEST_CONTEXT !== '') return 'NODE_TEST_CONTEXT'
+  if (typeof env.VITEST === 'string' && env.VITEST !== '') return 'VITEST'
+  if (typeof env.JEST_WORKER_ID === 'string' && env.JEST_WORKER_ID !== '') return 'JEST_WORKER_ID'
+  if (typeof env.PLAYWRIGHT_TEST === 'string' && env.PLAYWRIGHT_TEST !== '') return 'PLAYWRIGHT_TEST'
   return null
 }
 
@@ -280,7 +298,14 @@ export function install(rt) {
   let startTimer = null
   let periodicTimer = null
 
-  const envReason = () => (configDisabled ? 'config' : envDisabledReason(process.env))
+  const hasTestOverride = typeof config.telemetryFetch === 'function' || typeof config.telemetryUrl === 'string'
+  const envReason = () => {
+    if (configDisabled) return 'config'
+    const explicit = envDisabledReason(process.env)
+    if (explicit !== null) return explicit
+    if (!hasTestOverride) return automatedEnvReason(process.env)
+    return null
+  }
   const isDisabled = () => envReason() !== null || endpoint === null
 
   const rotateIfNeeded = (now = nowFn()) => {

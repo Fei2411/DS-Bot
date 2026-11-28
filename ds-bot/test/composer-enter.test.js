@@ -11,8 +11,8 @@ function bench({ composing = false, listbox = false, actions = true } = {}) {
   const target = {
     ownerDocument: { querySelector: selector => selector === '[role="listbox"]' && listbox ? {} : null },
     closest(selector) {
-      if (selector === '[data-composer-card] [role="textbox"]') return this
-      if (selector === '[data-composer-composing]') return composing ? this : null
+      if (selector === '[data-bt-composer] [data-bt-composer-input]') return this
+      if (selector === '[data-bt-composing]') return composing ? this : null
       return null
     },
   }

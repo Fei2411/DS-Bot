@@ -294,7 +294,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   const rt = {
     async channelCall(endpoint, payload, signal) {
       received.push({ endpoint, payload, aborted: signal?.aborted ?? false })
-      if (endpoint === 'abort-probe') {
+      if (endpoint === 'update-check') {
         await new Promise((_resolve, reject) => {
           signal?.addEventListener('abort', () => {
             abortedStates.push(signal.aborted)
@@ -302,7 +302,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
           }, { once: true })
         })
       }
-      if (endpoint === 'slim') return { ok: true, value: { id: 'b1', avatar: { shape: 'whale', image: undefined } } }
+      if (endpoint === 'state') return { ok: true, value: { id: 'b1', avatar: { shape: 'whale', image: undefined } } }
       if (endpoint === '') return { ok: false, error: { code: 'bot/not-found', message: 'Unknown endpoint ', details: {} } }
       return { ok: true, value: { endpoint, payload } }
     },
@@ -340,7 +340,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   // 2. Unary call omitting `payload` + `undefined` stripped by `plain` so Typert accepts JSON
   const omittedPayload = await gateway.dispatchRpc(
     `${RPC_NAMESPACE}/call`,
-    { args: { endpoint: 'slim' } },
+    { args: { endpoint: 'state' } },
     new AbortController().signal,
     ownerPeer(),
   )
@@ -372,14 +372,13 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   )
   assert.equal(nonStringEndpoint.ok, true)
   assert.equal(nonStringEndpoint.value.ok, false)
-  assert.equal(nonStringEndpoint.value.error.code, 'bot/not-found')
-  assert.equal(received.at(-1).endpoint, '')
+  assert.equal(nonStringEndpoint.value.error.code, 'bot/refused')
 
   // 4. Cancellation signal reaches rt.channelCall when peer/request aborts
   const abortControl = new AbortController()
   const inflight = gateway.dispatchRpc(
     `${RPC_NAMESPACE}/call`,
-    { args: { endpoint: 'abort-probe', payload: {} } },
+    { args: { endpoint: 'update-check', payload: {} } },
     abortControl.signal,
     ownerPeer(),
   )
@@ -623,7 +622,7 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   )
   assert.equal(unknownEndpoint.ok, true)
   assert.equal(unknownEndpoint.value.ok, false)
-  assert.equal(unknownEndpoint.value.error.code, 'bot/not-found')
+  assert.equal(unknownEndpoint.value.error.code, 'bot/refused')
 
   feedControl.abort()
   await assert.rejects(() => iterator.next(), error => error?.code === 'gateway/cancelled')
@@ -715,4 +714,101 @@ test('plugin entry tracks late TypertGatewayService mount and disposal in hello'
   const disposed = await callHttp('hello', { api: [1] })
   assert.equal(disposed.value.capabilities.includes('rpc'), false)
   assert.equal(disposed.value.rpc, undefined)
+})
+
+test('dsBot Remote RPC refuses Always allow and subagent parent image reads, strips alwaysAllow on state and live feed, and drops local jobs feed events', async (t) => {
+  const root = new Context()
+  await startGatewayHost(root)
+  t.after(async () => { await root.fiber.dispose() })
+
+  const called = []
+  const feedListeners = new Set()
+  const approval = { id: 'ap-1', botId: 'b1', sessionId: 'b1', tool: 'write', answerable: true, alwaysAllow: { kind: 'extra-dir', dirs: ['/tmp/ext'], scope: 'bot' } }
+  const rt = {
+    async channelCall(endpoint, payload) {
+      called.push({ endpoint, payload })
+      if (endpoint === 'state') {
+        return { ok: true, value: { revision: 1, phone: { pairing: 'secret' }, work: { approvals: [approval] } } }
+      }
+      return { ok: true, value: true }
+    },
+    subscribeFeed(listener) {
+      feedListeners.add(listener)
+      listener('hello', { revision: 1 })
+      return () => feedListeners.delete(listener)
+    },
+  }
+  await root.plugin((sub) => { installRemote({ ...rt, ctx: sub }) })
+  await tick()
+
+  const gateway = root.typertGateway
+
+  // 1. `approval-answer` with choice: 'always' is refused before reaching channelCall.
+  const deniedAlways = await gateway.dispatchRpc(
+    `${RPC_NAMESPACE}/call`,
+    { args: { endpoint: 'approval-answer', payload: { id: 'ap-1', choice: 'always' } } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(deniedAlways.ok, true)
+  assert.equal(deniedAlways.value.ok, false)
+  assert.equal(deniedAlways.value.error.code, 'bot/refused')
+
+  // Allow-once still reaches channelCall.
+  const allowOnce = await gateway.dispatchRpc(
+    `${RPC_NAMESPACE}/call`,
+    { args: { endpoint: 'approval-answer', payload: { id: 'ap-1', choice: 'allow' } } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(allowOnce.ok, true)
+  assert.equal(allowOnce.value.ok, true)
+
+  // 2. `image` with non-empty `parent` (subagent child session read) is refused; plain `image` is allowed.
+  const deniedParentImg = await gateway.dispatchRpc(
+    `${RPC_NAMESPACE}/call`,
+    { args: { endpoint: 'image', payload: { sessionId: 'sub-1', parent: 'b1', attachmentId: 'att-1' } } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(deniedParentImg.ok, true)
+  assert.equal(deniedParentImg.value.ok, false)
+  assert.equal(deniedParentImg.value.error.code, 'bot/refused')
+
+  const plainImg = await gateway.dispatchRpc(
+    `${RPC_NAMESPACE}/call`,
+    { args: { endpoint: 'image', payload: { sessionId: 'b1', attachmentId: 'att-1' } } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(plainImg.ok, true)
+  assert.equal(plainImg.value.ok, true)
+
+  // 3. `state` strips both `phone.pairing` and `work.approvals[*].alwaysAllow`.
+  const stateReply = await gateway.dispatchRpc(
+    `${RPC_NAMESPACE}/call`,
+    { args: { endpoint: 'state', payload: {} } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(stateReply.ok, true)
+  assert.equal(stateReply.value.value.phone.pairing, undefined)
+  assert.equal(stateReply.value.value.work.approvals[0].alwaysAllow, undefined)
+
+  // 4. `dsBot/feed` strips `alwaysAllow` on `live` events and drops `jobs` events.
+  const ctrl = new AbortController()
+  const stream = await gateway.openWireStream(`${RPC_NAMESPACE}/feed`, { args: {} }, undefined, ownerPeer(), ctrl.signal, ctrl, undefined)
+  const iter = stream[Symbol.asyncIterator]()
+  const first = await iter.next()
+  assert.equal(first.value.event, 'hello')
+  for (const listener of feedListeners) {
+    listener('jobs', { sessionId: 'b1', jobId: 'job-1' })
+    listener('live', { phone: { pairing: 'secret' }, work: { approvals: [approval] } })
+  }
+  const next = await iter.next()
+  assert.equal(next.value.event, 'live')
+  assert.equal(next.value.data.phone.pairing, undefined)
+  assert.equal(next.value.data.work.approvals[0].alwaysAllow, undefined)
+  ctrl.abort()
+  await assert.rejects(() => iter.next(), error => error?.code === 'gateway/cancelled')
 })

@@ -618,3 +618,163 @@ test('show_view closes an earlier-segment card as dismissed even when the new ca
   await show('writer-now', { title: 'New View Again', view: CHOICES }, 'v-dup')
   assert.equal((await team()).closedCards['writer-now'], undefined)
 })
+
+test('displayItems emits a pending show_view inline for visible turns, and omits hidden-turn or rolled-over pending views', async (t) => {
+  const eventsByPart = {
+    'writer-now': [
+      { seq: 1, time: 1000, type: 'turn/start', data: { turn: 1 } },
+      { seq: 2, time: 1001, type: 'user/message', data: { content: text('Show options'), source: { kind: 'user' } } },
+      { seq: 3, time: 1002, type: 'tool/call', data: { name: 'show_view', callId: 'call-visible', arguments: { title: 'Pick', view: CHOICES } } },
+      { seq: 4, time: 1003, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { seq: 5, time: 2000, type: 'turn/start', data: { turn: 2 } },
+      { seq: 6, time: 2001, type: 'user/message', data: { content: text('[Message from Chief]\nAsk privately'), source: { kind: 'bot', role: 'request', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x1', hop: 0 } } },
+      { seq: 7, time: 2002, type: 'tool/call', data: { name: 'show_view', callId: 'call-hidden', arguments: { title: 'Hidden', view: CHOICES } } },
+    ],
+  }
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-views-inline-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    ...TEAM,
+    exchangeTurns: { 'writer-now': [2] },
+    views: { 'writer-now': { id: 'v-vis', callId: 'call-visible', callSeq: 3, title: 'Pick', view: CHOICES, askedAt: 1002 } },
+  }))
+  const ctx = fakeContext()
+  Object.assign(ctx, {
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, unarchiveSession: async () => {} },
+    sessionController: {
+      create: async () => ({ sessionId: 's1' }),
+      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup() {} } }),
+      selectModel: async () => {},
+      page: async ({ address }) => ({
+        records: (eventsByPart[address.sessionId] ?? []).map(event => ({ event })),
+      }),
+    },
+    sessionTitle: { rename: async () => {} },
+    sessions: { flush: async () => {} },
+  })
+  let route
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (options) => { route = options; return register(options) }
+  const host = createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const call = async (endpoint, payload = {}) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+
+  // Visible turn: pending view appears inline at its call site with turn stamped,
+  // and show_view is excluded from stepsItems so no stray tool-step row sits above it.
+  const first = (await call('chat', { botId: 'writer', steps: true })).value
+  const inline = first.items.filter(item => item.kind === 'view')
+  assert.equal(inline.length, 1)
+  assert.equal(inline[0].id, 'v-vis')
+  assert.equal(inline[0].callId, 'call-visible')
+  assert.equal(inline[0].pending, true)
+  assert.equal(inline[0].turn, 1)
+  assert.equal(inline[0].title, 'Pick')
+  assert.equal(first.items.filter(item => item.kind === 'steps').length, 0)
+
+  // Dismissing the pending view replaces the inline view with a closed card.
+  await call('dismiss-view', { sessionId: 'writer-now' })
+  const afterDismiss = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterDismiss.items.filter(item => item.kind === 'view').length, 0)
+  const closedRows = afterDismiss.items.filter(item => item.kind === 'closed')
+  assert.equal(closedRows.length, 1)
+  assert.equal(closedRows[0].closed, 'dismissed')
+  assert.equal(closedRows[0].title, 'Pick')
+
+  // Answering a pending view removes the inline pending view and emits the answer row.
+  delete host.state.closedCards?.['writer-now']
+  delete host.state.closedCardSeqs?.['writer-now']
+  host.state.views['writer-now'] = { id: 'v-vis', callId: 'call-visible', callSeq: 3, title: 'Pick', view: CHOICES, askedAt: 1002 }
+  const sentFollowups = []
+  ctx.sessionController.resolveAgent = async sessionId => ({
+    agent: { session: { id: sessionId }, followup: msg => sentFollowups.push(msg) },
+  })
+  const replied = await call('view-reply', { sessionId: 'writer-now', viewId: 'v-vis', action: 'pick', values: { selected: ['A'] } })
+  assert.equal(replied.ok, true)
+  assert.equal(sentFollowups.length, 1)
+  eventsByPart['writer-now'].push({
+    seq: 8,
+    time: 1005,
+    type: 'user/message',
+    data: { content: sentFollowups[0].content, source: sentFollowups[0].source },
+  })
+  const afterReply = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterReply.items.filter(item => item.kind === 'view').length, 0)
+  const answerRows = afterReply.items.filter(item => item.kind === 'answer')
+  assert.equal(answerRows.length, 1)
+  assert.equal(answerRows[0].views?.[0]?.id, 'v-vis')
+
+  // Refused / invalid show_view calls emit no row at all.
+  eventsByPart['writer-now'].push({
+    seq: 9,
+    time: 1006,
+    type: 'tool/call',
+    data: { name: 'show_view', callId: 'call-bad', arguments: { title: 'Bad', view: { type: 'unknown-widget' } } },
+  })
+  const afterBad = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterBad.items.filter(item => item.kind === 'view').length, 0)
+
+  // Hidden turn: pending view must NOT be emitted into the transcript (stays in Dock).
+  host.state.views['writer-now'] = { id: 'v-hid', callId: 'call-hidden', callSeq: 7, title: 'Hidden', view: CHOICES, askedAt: 2002 }
+  const second = (await call('chat', { botId: 'writer' })).value
+  assert.equal(second.items.filter(item => item.kind === 'view').length, 0)
+
+  // Rolled-over card from an earlier part: must NOT match the current part's transcript.
+  host.state.views['writer-now'] = { id: 'v-roll', callId: 'call-visible', callSeq: 3, callSessionId: 'writer-old', title: 'Rolled', view: CHOICES, askedAt: 3000 }
+  const third = (await call('chat', { botId: 'writer' })).value
+  assert.equal(third.items.filter(item => item.kind === 'view').length, 0)
+
+  // Reused short callId ("call_0") across turns: callSeq pins pending projection to the exact
+  // tool/call event so an earlier display view with the same callId is never hijacked.
+  eventsByPart['writer-now'].push(
+    { seq: 10, time: 4000, type: 'turn/start', data: { turn: 3 } },
+    { seq: 11, time: 4001, type: 'tool/call', data: { name: 'show_view', callId: 'call_0', arguments: { title: 'Metric', view: METER } } },
+    { seq: 12, time: 4002, type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
+    { seq: 13, time: 5000, type: 'turn/start', data: { turn: 4 } },
+    { seq: 14, time: 5001, type: 'tool/call', data: { name: 'show_view', callId: 'call_0', arguments: { title: 'Pick again', view: CHOICES } } },
+  )
+  // Real show_view execution after turns.js observes tool/call records callSeq automatically.
+  await ctx.emitAsync('agent/created', { agent: ctx.scopeAgent('writer-now') })
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    if (listener.length >= 2) listener({ id: 'writer-now' }, eventsByPart['writer-now'].at(-2))
+    if (listener.length >= 2) listener({ id: 'writer-now' }, eventsByPart['writer-now'].at(-1))
+  }
+  await host.teamTools.find(d => d.name === 'show_view').execute(
+    { title: 'Pick again', view: CHOICES },
+    { agent: { id: 'writer-now' }, callId: 'call_0', concludeTurn() {} },
+  )
+  assert.equal(host.state.views['writer-now']?.callSeq, 14)
+  const reused = (await call('chat', { botId: 'writer' })).value.items.filter(item => item.kind === 'view')
+  assert.equal(reused.length, 2)
+  assert.equal(reused[0].title, 'Metric')
+  assert.equal(reused[0].pending, undefined)
+  assert.equal(reused[1].title, 'Pick again')
+  assert.equal(reused[1].pending, true)
+  assert.equal(reused[1].seq, 14)
+
+  // Legacy persisted pending view without callSeq: never hijacks historical rows (falls back to Dock).
+  delete host.state.views['writer-now'].callSeq
+  const legacy = (await call('chat', { botId: 'writer' })).value.items.filter(item => item.kind === 'view')
+  assert.equal(legacy.length, 1)
+  assert.equal(legacy[0].title, 'Metric')
+  assert.equal(legacy[0].pending, undefined)
+
+  // Dismissing a sequenced call_0 records closedCardSeqs under call_0@14 so a subsequent
+  // reused call_0 at seq 16 (even a legacy pending record without callSeq) is never rendered as closed.
+  host.state.views['writer-now'].callSeq = 14
+  await call('dismiss-view', { sessionId: 'writer-now' })
+  assert.equal(host.state.closedCardSeqs['writer-now']?.['call_0@14'], 'dismissed')
+  eventsByPart['writer-now'].push(
+    { seq: 15, time: 6000, type: 'turn/start', data: { turn: 5 } },
+    { seq: 16, time: 6001, type: 'tool/call', data: { name: 'show_view', callId: 'call_0', arguments: { title: 'Still pending', view: CHOICES } } },
+  )
+  host.state.views['writer-now'] = { id: 'v-leg2', callId: 'call_0', title: 'Still pending', view: CHOICES, askedAt: 6001 }
+  const afterSeqDismiss = (await call('chat', { botId: 'writer' })).value
+  const closedAfterSeq = afterSeqDismiss.items.filter(item => item.kind === 'closed')
+  assert.equal(closedAfterSeq.length, 1)
+  assert.equal(closedAfterSeq[0].title, 'Pick again')
+
+  // Legacy un-sequenced closedCards for call_0 + legacy pending view reusing call_0:
+  // ambiguous legacy closed outcome is suppressed so the pending Dock card is never contradicted.
+  delete host.state.closedCardSeqs['writer-now']
+  const afterLegacyAmbiguous = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterLegacyAmbiguous.items.filter(item => item.kind === 'closed').length, 0)
+})

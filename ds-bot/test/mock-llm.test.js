@@ -51,6 +51,21 @@ async function startMock(t) {
   })
 }
 
+test('code-mode smoke calls run_code only when offered and reports its result', async t => {
+  const url = await startMock(t)
+  const messages = [{ role: 'user', content: '代码模式烟测' }]
+  const off = await call(url, messages)
+  assert.equal(off.text, 'Code-mode is off.')
+  assert.deepEqual(off.tools, [])
+  const on = await call(url, messages, ['read', 'bash', 'run_code'])
+  assert.deepEqual(on.tools.map(tool => tool.name), ['run_code'])
+  fold(messages, on)
+  messages.at(-1).content[0].content = 'CODE_MODE_OK'
+  assert.equal((await call(url, messages, ['run_code'])).text, 'Code-mode ok: CODE_MODE_OK')
+  messages.at(-1).content[0].is_error = true
+  assert.equal((await call(url, messages, ['run_code'])).text, 'Code-mode failed: CODE_MODE_OK')
+})
+
 // "长任务 N [K]" adds about K×1000 characters per step, defaulting to 4. A missing K once
 // parsed as NaN, so every step after the opener silently sent no text block.
 test('长任务 writes text on every step when the step size is left out', async (t) => {

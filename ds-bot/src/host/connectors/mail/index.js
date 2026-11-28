@@ -808,6 +808,7 @@ export function install(rt, host) {
     google: googleReady(),
     allowedRecipients: state.connectors?.mail?.allowedRecipients ?? [],
     noDraftFor: state.connectors?.mail?.noDraftFor ?? [],
+    offFor: state.connectors?.mail?.offFor ?? [],
     ...(googlePendings.size > 0 ? { pending: [...googlePendings.values()].map(p => ({ kind: 'browser', url: p.url, address: p.address })) } : {}),
   })
 

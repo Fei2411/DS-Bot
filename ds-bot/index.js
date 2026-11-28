@@ -8,7 +8,8 @@ import * as branding from './src/host/branding.js'
 import * as telemetry from './src/host/telemetry.js'
 import * as store from './src/host/store.js'
 import * as contextRuntime from './src/host/context-runtime.js'
-import * as coordination from './src/host/coordination.js'
+import * as coordinationDb from './src/host/coordination-db.js'
+import * as dshAdapter from './src/host/dsh-adapter.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
 import * as chatgpt from './src/host/chatgpt.js'
@@ -44,6 +45,7 @@ import * as appearance from './src/host/appearance.js'
 import * as browser from './src/host/browser.js'
 import * as browserPlugins from './src/host/browser-plugins.js'
 import * as computer from './src/host/computer/index.js'
+import * as inbox from './src/host/inbox.js'
 import * as secrets from './src/host/secrets.js'
 import * as connectors from './src/host/connectors/index.js'
 import * as capabilities from './src/host/capabilities.js'
@@ -52,6 +54,7 @@ import * as learning from './src/host/learning.js'
 import * as schedules from './src/host/schedules.js'
 import * as usage from './src/host/usage.js'
 import * as update from './src/host/update.js'
+import * as releaseNotes from './src/host/release-notes.js'
 import * as dshUpdate from './src/host/dsh-update.js'
 import * as thinking from './src/host/thinking.js'
 import * as phone from './src/host/phone.js'
@@ -61,8 +64,11 @@ import * as mobile from './src/host/mobile.js'
 import * as feed from './src/host/feed.js'
 import * as fonts from './src/host/fonts.js'
 import * as sessionFollow from './src/host/session-follow.js'
+import * as sessionControls from './src/host/session-controls.js'
+import * as jobs from './src/host/jobs.js'
 import * as workspacePanel from './src/host/workspace-panel.js'
 import * as engineSettings from './src/host/engine-settings.js'
+import * as messageFeedback from './src/host/message-feedback.js'
 import * as im from './src/host/im/index.js'
 import * as externalApi from './src/host/api/index.js'
 import * as officeSkills from './src/host/office-skills.js'
@@ -71,6 +77,7 @@ import * as maintenanceSkills from './src/host/maintenance-skills.js'
 import * as issueReport from './src/host/issue-report.js'
 import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
+import { installBotCodeMode } from './src/host/bot-code-mode.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
 
 export { COLORS } from './src/host/constants.js'
@@ -81,17 +88,18 @@ export { name, inject } from './src/host/entry.js'
 // Each module's install(rt) registers its listeners, tools, and effects, and puts on `rt`
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
-// usage meters model requests after every listener that rewrites them. privacy checks a
-// call before the hooks of tools do, so a closed call never reaches a card they show.
+// store → contextRuntime → coordinationDb → ledger → dshAdapter come first so every
+// module sees `rt.coordDb` and the unified D1–D4 adapter; usage meters model requests
+// after every listener that rewrites them; privacy checks a call before tools do;
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, branding, store, contextRuntime, ledger, coordination, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, telemetry, thinking, mobile, feed, fonts, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, ledger, dshAdapter, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, chatgpt, usage, update, releaseNotes, dshUpdate, telemetry, thinking, mobile, sessionControls, feed, fonts, sessionFollow, jobs, workspacePanel, engineSettings, messageFeedback, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
-  createRuntime(ctx, config)
+  return createRuntime(ctx, config)
 }
 
-export function createRuntime(ctx, config = {}) {
+export function createRuntime(ctx, config = {}, codeMode) {
   const dshHome = folders.dshHomeOf(process.env.DSH_HOME)
   const home = config.home ?? join(dshHome, 'bot')
   const rt = {
@@ -111,7 +119,8 @@ export function createRuntime(ctx, config = {}) {
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of [...MODULES, chatgpt]) module.install(rt)
+  for (const module of MODULES) module.install(rt)
+  if (codeMode !== undefined) installBotCodeMode(rt, codeMode)
   rt.installed = true
   // A live Agent can be scoped before the last module has added its tools (the memory
   // module starts a load during install): complete the scope now that every tool is in.
@@ -120,6 +129,6 @@ export function createRuntime(ctx, config = {}) {
   // keeps the turns and child agents it had, while this runtime starts with empty
   // maps. Adopt them now, so Stop, the group view and a late child settle still see
   // the work. A fresh start has nothing to adopt.
-  void rt.adoptLiveWork?.().catch(error => rt.warn?.('ds-bot: adopting the work still running failed: %s', error))
+  void rt.adoptLiveWork?.({ lazy: true }).catch(error => rt.warn?.('ds-bot: adopting the work still running failed: %s', error))
   return rt
 }

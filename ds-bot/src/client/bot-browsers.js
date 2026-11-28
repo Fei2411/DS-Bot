@@ -33,6 +33,8 @@ export const PREVIEW_SCRIPT = `(() => {
 })()`
 
 const EMPTY = { url: '', title: '', favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, live: false, excerpt: '' }
+const CLASSIC_BROWSER_OWNER = 'classic'
+const normalizeGuestUrl = url => (!url || url === 'about:blank' || String(url).startsWith('about:blank#') ? '' : String(url))
 export function createAppViewProxy(bridge, botId, tabId) {
   const listeners = new Map()
   const state = { url: '', title: '', loading: false, canGoBack: false, canGoForward: false }
@@ -166,29 +168,30 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
         if (own.ids.includes(tabId)) return snapshot
         return { ...snapshot, [botId]: { ids: [...own.ids, tabId], active: tabId } }
       })
-      publish(tabId, { url: change.url ?? '', title: change.title ?? '', live: true })
+      publish(tabId, { url: normalizeGuestUrl(change.url), title: change.title ?? '', live: true })
       persist(botId)
       void open(tabId)
     }
+    const cleanChange = 'url' in change ? { ...change, url: normalizeGuestUrl(change.url) } : change
     const entry = views.get(tabId)
     if (entry?.appView) {
       const wasLoading = entry.element.isLoading()
       const prevUrl = entry.element.getURL()
-      entry.botAttached = change.botAttached === true
-      entry.ready = change.live !== false && change.loading !== true
-      entry.element.update(change, { silent: true })
+      entry.botAttached = cleanChange.botAttached === true
+      entry.ready = cleanChange.live !== false && cleanChange.loading !== true
+      entry.element.update(cleanChange, { silent: true })
       if (entry.ready) {
-        observe(entry, change)
+        observe(entry, cleanChange)
         const nextUrl = entry.element.getURL()
         if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
           void preview(tabId)
         }
       } else {
-        publish(tabId, change)
+        publish(tabId, cleanChange)
       }
       return
     }
-    publish(tabId, change)
+    publish(tabId, cleanChange)
   })
 
   const savedTab = (botId, tabId) => saved[botId]?.tabs?.find(entry => entry.id === tabId)
@@ -273,15 +276,17 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const observe = (entry, extra) => {
     const { element } = entry
     if (!entry.ready) return
-    const url = element.getURL()
-    if (url.startsWith('about:blank#')) return
+    const rawUrl = element.getURL()
+    if (rawUrl === 'about:blank' || rawUrl.startsWith('about:blank#')) return
+    const url = normalizeGuestUrl(rawUrl)
     if (entry.fresh) {
       // The lease-bearing bootstrap document is not a history entry.
       element.clearHistory()
       entry.fresh = false
     }
     const title = element.getTitle()
-    publish(entry.tabId, { ...extra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true })
+    const safeExtra = extra && 'url' in extra ? { ...extra, url: normalizeGuestUrl(extra.url) } : extra
+    publish(entry.tabId, { ...safeExtra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true })
     persist(entry.botId)
   }
 
@@ -365,13 +370,14 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     if (guest.appView) {
       const state = (await bridge.views.sync(botId)).find(view => view.tabId === tabId)
       if (state) {
-        entry.botAttached = state.botAttached === true
-        if (state.live === false) {
+        const cleanState = 'url' in state ? { ...state, url: normalizeGuestUrl(state.url) } : state
+        entry.botAttached = cleanState.botAttached === true
+        if (cleanState.live === false) {
           entry.ready = false
-          element.update(state, { silent: true })
-          publish(tabId, state)
+          element.update(cleanState, { silent: true })
+          publish(tabId, cleanState)
         } else {
-          element.update(state)
+          element.update(cleanState)
         }
       }
     }
@@ -499,6 +505,10 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     visible = tabId !== null && box !== null
     for (const entry of views.values()) place(entry)
     if (tabId === null) return
+    if (box === null && !views.has(tabId)) {
+      const knownUrl = normalizeGuestUrl(pages.getSnapshot()[tabId]?.url || savedTab(owner.get(tabId), tabId)?.url)
+      if (!knownUrl) return
+    }
     const entry = await open(tabId)
     if (entry === undefined || shown !== tabId) return
     entry.usedAt = Date.now()
@@ -576,10 +586,12 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       const open = {}
       const snapshot = pages.getSnapshot()
       for (const [botId, state] of Object.entries(tabs.getSnapshot())) {
+        if (botId === CLASSIC_BROWSER_OWNER) continue
         const tabId = state.active
         const entry = tabId ? views.get(tabId) : undefined
         const page = tabId ? snapshot[tabId] : undefined
-        if (entry?.ready && page?.live !== false && page?.url) open[botId] = { url: page.url, title: page.title }
+        const url = normalizeGuestUrl(page?.url)
+        if (entry?.ready && page?.live !== false && url) open[botId] = { url, title: page.title }
       }
       return open
     },
