@@ -21,6 +21,7 @@ import {
   ensureProfileDir,
   isLocalAgentRoute,
   isValidProfileId,
+  MODES,
   profileRoute,
   signInFor,
   signedInFor,
@@ -66,8 +67,37 @@ export function presetOf(rt, sessionId) {
   const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
   // Approval review is DS Bot's own policy, not a sandbox preset: the Session
   // runs on workspace-write while the review policy does the asking.
-  const permission = room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  const permission = room?.permission ?? bot?.permission
+    // A Session with no Bot whose preset cannot be read runs read-only: the
+    // profile default may grant more than the Session's own settings allow.
+    ?? (bot === undefined && room === undefined ? ownPresetOf(rt, sessionId) ?? 'read-only' : undefined)
+    ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
   return permission === 'review' ? 'workspace-write' : permission
+}
+
+// That read-only fallback holds only if the CLI takes it, so its turn needs the mode.
+function presetUnreadable(rt, sessionId) {
+  const bot = rt.botOf(rt.selfOf(sessionId))
+  const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
+  return bot === undefined && room === undefined && ownPresetOf(rt, sessionId) === undefined
+}
+
+// A Session with no Bot keeps the preset the user picked on it in DSH, read as
+// the sandbox it writes through. Full access that still asks (Auto review)
+// runs on the workspace sandbox, so the CLI's prompts reach DSH's approval.
+function ownPresetOf(rt, sessionId) {
+  const service = rt.ctx?.get?.('permissionPresets')
+  const session = rt.ctx?.get?.('agents')?.get?.(sessionId)?.session
+  if (service === undefined || session === undefined) return undefined
+  let spec
+  try {
+    spec = service.resolve(service.current(session))
+  } catch {
+    // A custom knob mix resolves to no preset: presetOf then runs read-only.
+    return undefined
+  }
+  if (MODES[spec?.sandbox] === undefined) return undefined
+  return spec.sandbox === 'danger-full-access' && spec.approval !== 'never' ? 'workspace-write' : spec.sandbox
 }
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
@@ -294,6 +324,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       if (record !== undefined) Object.assign(record, patch)
     },
     presetFor: sessionId => presetOf(rt, sessionId),
+    requireModeFor: sessionId => presetUnreadable(rt, sessionId),
     freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
     onCompaction: (sessionId, info) => {
       rt.contextRuntime?.bumpEpoch(sessionId, info?.reason ?? 'cli-compaction')
@@ -445,10 +476,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   }
 
   // ---------------------------------------------------------------------------
-  // approve_agent_action: served only to abot sessions; the CLI's permission
-  // prompts arrive through it as an ordinary approval card. It stays off
-  // rt.teamTools (the catalog every Bot gets) and joins the scope only for a
-  // local-agent Bot.
+  // approve_agent_action: the CLI's permission prompts arrive through it as an
+  // ordinary approval card. It stays off rt.teamTools (the catalog every Bot
+  // gets): it joins a local-agent Bot's scope, and is global below for every
+  // other Session on a local route.
 
   rt.localAgentTools = [defineTool({
     name: 'approve_agent_action',
@@ -480,6 +511,16 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
     },
   })]
+
+  // Any Session can pick a local route, but a Bot's scope is the only one
+  // tools.js gives approve_agent_action. Every other Session gets it globally
+  // on the steps that run on a local route, so its CLI's prompts are asked.
+  const tools = ctx.get?.('tools')
+  if (typeof tools?.register === 'function') {
+    ctx.effect(() => tools.register(rt.localAgentTools[0], {
+      when: ({ agent, modelSelection }) => isLocalAgentRoute(modelSelection?.provider) && rt.isBotSession?.(agent?.session?.id) !== true,
+    }), 'ds-bot: local agent approvals')
+  }
 
   // ---------------------------------------------------------------------------
   // The Settings page's endpoints.

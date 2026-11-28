@@ -2,7 +2,7 @@
 // dispatch and its steering deliver to the fake ACP CLI, not stubs.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -185,4 +185,127 @@ test('user image saved in LocalAttachmentStore reaches the local agent through t
   }))
   await waitForIdle(ctx, agent)
   assert.match(texts(agent), new RegExp(`"mimeType":"${stored.ref.mediaType}","data":"${expectedBase64}"`))
+})
+
+// An ordinary DSH Session (no Bot) on a custom local-agent route: install()
+// alone must serve the CLI's permission prompt, as it does for a Bot (#2466).
+async function bootWithoutBot(t, { approval, preset, spec, catalogDefault, args = [] } = {}) {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  t.after(() => ctx.fiber.dispose())
+  if (approval !== undefined) ctx.provide('approval', approval)
+  if (preset !== undefined) {
+    ctx.provide('permissionPresets', {
+      current: () => preset,
+      resolve: name => {
+        if (spec instanceof Error) throw spec
+        return spec ?? { sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' }
+      },
+      catalog: () => ({ options: [], defaultPreset: 'workspace-write' }),
+    })
+  }
+  const rt = {
+    ctx, state: { bots: {}, localAgents: { custom: [{ id: 'fake', name: 'Fake ACP', command: process.execPath, args: [FIXTURE, ...args] }], profiles: [], sessions: {} } },
+    teamTools: [], warn() {}, save: async () => {},
+    selfOf: () => undefined, botOf: () => undefined, roomOf: () => undefined,
+    config: {}, load: async () => {}, readOnly: () => undefined,
+    pastOwners: new Map(), chatOwners: new Map(), groupOwners: new Map(), roomOwners: new Map(), taskOwners: new Map(),
+    isBotSession: () => false, ownRequest: () => true,
+    ...(catalogDefault !== undefined ? { permissionCatalog: () => ({ defaultPreset: catalogDefault }) } : {}),
+  }
+  installLocalAgents(rt, { probeSignIn: async () => ({ signedIn: true }), probeVersion: async () => '1.0.0' })
+  await mountAgentLoopTestHarness(ctx)
+  const agent = await ctx.agentLoop.create(SessionId('plain'), { provider: 'local-acp-fake', model: 'default' })
+  return { ctx, agent }
+}
+
+test('a Session with no Bot on a local route asks for the CLI permission prompt (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'workspace-write',
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  const result = agent.session.snapshotEvents().find(event => event.type === 'tool/result')
+  assert.equal(result?.data.error?.code, undefined, result?.data.message.content[0]?.text)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].toolName, 'approve_agent_action')
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a Session with no Bot on a local route follows its own full-access preset (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'danger-full-access',
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  assert.equal(requests.length, 0)
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a Session with no Bot on Auto review still asks for the CLI permission prompt (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'auto',
+    spec: { sandbox: 'danger-full-access', approval: 'ask' },
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  assert.equal(requests.length, 1)
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a Session with no Bot follows the sandbox its preset writes through (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'workspace-write',
+    spec: { sandbox: 'danger-full-access', approval: 'never' },
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  assert.equal(requests.length, 0)
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a local agent refuses to review its own pending action instead of stalling (#2466)', async () => {
+  const adapter = makeAdapter(new Context())
+  const stream = adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's-review', purpose: 'auto-review', messages: [] })
+  await assert.rejects(stream.next(), /cannot review its own actions/)
+})
+
+for (const [name, options] of [
+  ['an unresolvable preset', { preset: 'custom', spec: new Error('custom knobs resolve to no preset') }],
+  ['no preset service', {}],
+]) {
+  test(`a Session with no Bot and ${name} runs read-only, not on the profile default (#2466)`, async (t) => {
+    const requests = []
+    const { ctx, agent } = await bootWithoutBot(t, {
+      ...options,
+      catalogDefault: 'danger-full-access',
+      approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
+    })
+    send(agent, 'ask-permission')
+    await waitForIdle(ctx, agent)
+    assert.equal(requests.length, 0)
+    assert.doesNotMatch(texts(agent), /allowed via allow-once/)
+  })
+}
+
+test('a Session with no Bot does not start its turn when the CLI refuses the read-only fallback (#2466)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-refuse-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const recordPath = join(dir, 'calls.jsonl')
+  const { ctx, agent } = await bootWithoutBot(t, { args: ['--refuse-modes', '--record', recordPath] })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  const end = agent.session.snapshotEvents().find(event => event.type === 'turn/end')
+  assert.equal(end?.data.reason.error?.code, 'LOCAL_AGENT_MODE')
+  const calls = existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : ''
+  assert.doesNotMatch(calls, /session\/prompt/)
+  assert.match(calls, /session\/close/)
 })

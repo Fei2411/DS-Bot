@@ -555,7 +555,14 @@ export class AcpEngine {
       session.models = listed.models
       // The preset maps to a mode only once the agent has listed its own.
       const mode = acpMode(preset, session.modes, this.engine.modes)
-      if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
+      const strict = openArgs.requireMode === true
+      const applied = mode !== undefined && await this.setOption(session, 'mode', mode, { strict }).then(() => true, () => false)
+      // A required mode the agent does not take fails the turn: its own mode may
+      // allow more than the Session does.
+      if (strict && !applied) {
+        if (this.caps.close) await peer.request('session/close', { sessionId: session.acpSessionId }, { timeout: 15_000 }).catch(() => {})
+        throw Object.assign(new Error(`${this.engine.name} did not switch to a ${preset} mode, so the turn did not start. Pick a permission preset for this Session.`), { code: 'LOCAL_AGENT_MODE' })
+      }
       // A model the agent does not take fails the turn: going on would answer with a
       // model the user did not pick.
       const modelKey = model !== undefined && model !== 'default' ? model : ''
@@ -588,9 +595,9 @@ export class AcpEngine {
     }
   }
 
-  async setOption(session, category, value) {
+  async setOption(session, category, value, { strict = false } = {}) {
     const worker = this.workerOf(session)
-    if (worker !== undefined && worker !== this) return worker.setOption(session, category, value)
+    if (worker !== undefined && worker !== this) return worker.setOption(session, category, value, { strict })
     const peer = await this.ensure()
     const option = configOptionsOf(session.configOptions ?? [], category)
     if (category === 'model' && option === undefined && !this.hasModelConfig && (session.models?.length ?? 0) > 0) {
@@ -612,7 +619,7 @@ export class AcpEngine {
         return
       }
       if (category !== 'mode') throw error
-      await peer.request('session/set_mode', { sessionId: session.acpSessionId, modeId: value }, { timeout: 15_000 }).catch(() => {})
+      await peer.request('session/set_mode', { sessionId: session.acpSessionId, modeId: value }, { timeout: 15_000 }).catch((modeError) => { if (strict) throw modeError })
     }
   }
 

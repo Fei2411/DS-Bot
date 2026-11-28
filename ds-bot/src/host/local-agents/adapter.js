@@ -120,7 +120,7 @@ const RESUME_RETRIED = Symbol('resume retried')
 
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
-  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
+  //        saveRecord, dropRecord, presetFor(sessionId), requireModeFor(sessionId), toolsFor(options), signInHint(route),
   //        usedModels(route)}
   constructor(deps) {
     super()
@@ -828,6 +828,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (options.purpose === 'aside') {
       throw new LlmError('aside requests must not run on a live local-agent session', 'INVALID_REQUEST')
     }
+    // Auto review asks the Session's route to judge an action its live CLI is
+    // waiting on; that request would queue behind the very turn it reviews.
+    if (options.purpose === 'auto-review') {
+      throw new LlmError('Auto review needs a model API; a local agent cannot review its own actions', 'INVALID_REQUEST')
+    }
     const sessionId = options.sessionId
     if (sessionId === undefined) throw new LlmError('a local agent request needs a session', 'INVALID_REQUEST')
     const preset = this.deps.presetFor(sessionId)
@@ -959,6 +964,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         resumeOnly: switchOnResumeLost && priorCliId !== undefined && !isForkOpen,
         mode,
         preset,
+        requireMode: this.deps.requireModeFor?.(sessionId) === true,
         review: this.deps.reviewFor?.(sessionId) === true,
         model: options.model,
         defaultEffort: live.defaultEffort,
@@ -1620,6 +1626,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       resumeOnly: priorCliId !== undefined,
       mode: cliMode(live.spec.kind, live.preset),
       preset: live.preset,
+      requireMode: this.deps.requireModeFor?.(sessionId) === true,
       review: this.deps.reviewFor?.(sessionId) === true,
       model: live.model,
       defaultEffort: live.record === undefined || live.record.model === live.model ? live.defaultEffort : undefined,

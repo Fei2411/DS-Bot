@@ -29,6 +29,8 @@ const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const noCancelAck = process.argv.includes('--no-cancel-ack')
 const lateCancelReply = process.argv.includes('--late-cancel-reply')
 const cursorModes = process.argv.includes('--cursor-modes')
+// `--refuse-modes` lists no modes and refuses every mode change.
+const refuseModes = process.argv.includes('--refuse-modes')
 const agyModes = process.argv.includes('--agy-modes')
 const thoughtLevels = process.argv.includes('--thought-levels')
 const legacyModels = process.argv.includes('--legacy-models')
@@ -65,7 +67,7 @@ const noImage = process.argv.includes('--no-image')
 const listsCompact = !process.argv.includes('--no-compact')
 const reportsUsage = !process.argv.includes('--no-usage')
 const WINDOW = 262_000
-const MODES = agyModes ? ['default', 'accept-edits', 'auto', 'plan'] : cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
+const MODES = refuseModes ? [] : agyModes ? ['default', 'accept-edits', 'auto', 'plan'] : cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
 let refusedModes = 0
 const sessions = new Map()
 let nextId = 0
@@ -509,6 +511,7 @@ process.stdin.on('data', (chunk) => {
           .then(() => { if (exitAfterTurn) setTimeout(() => process.exit(0), 50) })
         break
       case 'session/close':
+        record('session/close', params)
         sessions.delete(params.sessionId)
         reply(id, {})
         break
