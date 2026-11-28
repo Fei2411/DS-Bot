@@ -3,9 +3,12 @@
 // it, the route's key in DSH's credential store under the reference the route names.
 // The providers to add are the ones DSH's directory of configurable providers offers.
 
+import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { serviceOf } from './services.js'
 import { CHATGPT_PROVIDER } from './chatgpt.js'
+
 const PI_AI = 'llm-pi-ai'
+const DEEPSEEK = 'llm-deepseek'
 const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 // The baseline wire protocols DSH's pi-ai adapter serves on a custom route; newer DSH
 // builds advertise any additional protocols (such as `google-generative-ai`) in their
@@ -14,16 +17,11 @@ export const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-m
 // The protocols whose model-listing the pi-ai adapter can read. A route on any other
 // protocol has no refresh entry: the adapter would answer DISCOVERY_UNSUPPORTED.
 const LISTABLE_PROTOCOLS = new Set(PROTOCOLS)
-
-function protocolsOf(section) {
-  const schema = section?.schema
-  const refs = schema?.refs
-  const at = node => (typeof node === 'number' || typeof node === 'string' ? refs?.[String(node)] : node)
-  const root = at(schema?.uid ?? schema)
-  const api = at(at(at(root?.dict?.providers)?.inner)?.dict?.api)
-  const fromSchema = api?.list?.map(item => at(item)?.value).filter(item => typeof item === 'string' && item !== '')
-  return Array.isArray(fromSchema) && fromSchema.length > 0 ? fromSchema : PROTOCOLS
-}
+const DEFAULT_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+const GEMINI_PROTOCOL = 'google-generative-ai'
+const GEMINI_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
+const MODALITIES = new Set(['text', 'image'])
+const CRED_BATCH_SIZE = 64
 const MAX_MODELS = 500
 // pi-ai guesses compatibility from the endpoint hostname and treats any unrecognized
 // gateway as OpenAI's own server (sending the `developer` role, `store: false`, and
@@ -52,11 +50,127 @@ const COMPLETIONS_PROVIDERS = new Set([
 ])
 const catalogProtocol = id => (RESPONSES_PROVIDERS.has(id) ? 'openai-responses' : COMPLETIONS_PROVIDERS.has(id) ? 'openai-completions' : undefined)
 
+const isRecord = value => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+function schemaAt(schema, target) {
+  const refs = schema?.refs
+  if (typeof target === 'number' || typeof target === 'string') return refs?.[String(target)]
+  return target
+}
+
+function schemaNodeAt(schema, path) {
+  let node = schemaAt(schema, schema?.uid ?? schema)
+  for (const segment of path) {
+    if (!node || typeof node !== 'object') return undefined
+    if (node.type === 'object' && node.dict) {
+      node = schemaAt(schema, node.dict[segment])
+    } else if (node.type === 'dict' || node.type === 'array') {
+      node = schemaAt(schema, node.inner)
+    } else {
+      return undefined
+    }
+  }
+  return node
+}
+
+function protocolsOf(section) {
+  const schema = section?.schema
+  const api = schemaNodeAt(schema, ['providers', '_probe', 'api'])
+  const fromSchema = api?.list?.map(item => schemaAt(schema, item)?.value).filter(item => typeof item === 'string' && item !== '')
+  return Array.isArray(fromSchema) && fromSchema.length > 0 ? fromSchema : PROTOCOLS
+}
+
+function reasoningLevelsOf(section) {
+  const schema = section?.schema
+  const node = schemaNodeAt(schema, ['providers', '_probe', 'models', '0', 'reasoningEfforts'])
+  const branches = Array.isArray(node?.list) ? node.list.map(item => schemaAt(schema, item)) : []
+  const dictBranch = branches.find(branch => branch?.type === 'dict')
+  const keyUnion = schemaAt(schema, dictBranch?.sKey)
+  const fromSchema = keyUnion?.list?.map(item => schemaAt(schema, item)?.value).filter(item => typeof item === 'string' && item !== '')
+  return Array.isArray(fromSchema) && fromSchema.length > 0 ? fromSchema : DEFAULT_REASONING_LEVELS
+}
+
+function readPath(obj, path) {
+  let cursor = obj
+  for (const key of path) {
+    if (!isRecord(cursor)) return undefined
+    cursor = cursor[key]
+  }
+  return cursor
+}
+
+function numberMeta(node, inheritedValue) {
+  const meta = node?.meta ?? {}
+  return {
+    ...(inheritedValue !== undefined ? { default: inheritedValue } : meta.default !== undefined ? { default: meta.default } : {}),
+    ...(typeof meta.min === 'number' ? { min: meta.min } : {}),
+    ...(typeof meta.max === 'number' ? { max: meta.max } : {}),
+    ...(typeof meta.step === 'number' ? { step: meta.step } : {}),
+  }
+}
+
+function retryDefaultsOf(section, settingsPath, basePolicy) {
+  const schema = section?.schema
+  const node = schemaNodeAt(schema, [...settingsPath, 'retryPolicy'])
+  if (!node || !Array.isArray(node.list)) return undefined
+  const modes = []
+  const branches = {}
+  for (const rawBranch of node.list) {
+    const branch = schemaAt(schema, rawBranch)
+    if (!branch?.dict) continue
+    const modeNode = schemaAt(schema, branch.dict.mode)
+    const mode = typeof modeNode?.value === 'string' ? modeNode.value : undefined
+    if (!mode) continue
+    modes.push(mode)
+    const fields = {}
+    for (const [key, rawField] of Object.entries(branch.dict)) {
+      if (key === 'mode') continue
+      const field = schemaAt(schema, rawField)
+      if (!field) continue
+      if (field.type === 'number') {
+        fields[key] = { type: 'number', ...numberMeta(field, readPath(basePolicy, [key])) }
+      } else if (field.type === 'array') {
+        const inner = schemaAt(schema, field.inner)
+        const choices = (inner?.list ?? [])
+          .map(item => schemaAt(schema, item))
+          .filter(item => item?.type === 'const' && typeof item.value === 'string')
+          .map(item => item.value)
+        const inherited = readPath(basePolicy, [key])
+        const defaultCodes = Array.isArray(inherited) ? inherited : (Array.isArray(field.meta?.default) ? field.meta.default : [])
+        fields[key] = { type: 'codes', choices, default: [...defaultCodes] }
+      } else if (field.type === 'object' && field.dict) {
+        const nested = {}
+        for (const [subKey, rawSub] of Object.entries(field.dict)) {
+          const sub = schemaAt(schema, rawSub)
+          if (sub?.type === 'number') {
+            nested[subKey] = { type: 'number', ...numberMeta(sub, readPath(basePolicy, [key, subKey])) }
+          }
+        }
+        fields[key] = { type: 'object', fields: nested }
+      }
+    }
+    branches[mode] = fields
+  }
+  if (modes.length === 0) return undefined
+  const storedMode = isRecord(basePolicy) && typeof basePolicy.mode === 'string' && modes.includes(basePolicy.mode)
+    ? basePolicy.mode
+    : modes[0]
+  return { modes, defaultMode: storedMode, branches }
+}
+
+function schemaDefaultModelsOf(section, settingsPath) {
+  const node = schemaNodeAt(section?.schema, [...settingsPath, 'models'])
+  return Array.isArray(node?.meta?.default) ? structuredClone(node.meta.default) : []
+}
+
 // The reference DSH's own Models page derives for a route's key, so a provider added
 // here and one added there read the same key.
 export const keyRefFor = provider => `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
+const refused = message => Object.assign(new Error(message), { code: 'bot/refused' })
+const stale = message => Object.assign(new Error(message), { code: 'bot/stale' })
+const readOnlyErr = message => Object.assign(new Error(message), { code: 'bot/read-only' })
 
 // What an HTTP header can carry, like DSH's own key check: a pasted `NAME=value` line
 // or a quoted value would be stored as the key and refused by the provider.
@@ -69,11 +183,14 @@ export function checkKey(value) {
   return key
 }
 
-function checkEndpoint(value) {
+function checkEndpoint(value, { strictDeepSeek = false } = {}) {
   const text = typeof value === 'string' ? value.trim() : ''
   let url
   try { url = new URL(text) } catch { throw invalid('Enter the endpoint as an http or https address') }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw invalid('Enter the endpoint as an http or https address')
+  if (strictDeepSeek && (url.username || url.password || url.search || url.hash)) {
+    throw invalid('DeepSeek base URL must be an http or https root without credentials, query, or fragment')
+  }
   return text
 }
 
@@ -85,7 +202,7 @@ function lookupKnownModel(known, rawId) {
   return known.get(id) ?? known.get(bare) ?? (bare.startsWith('kimi-') ? known.get(bare.slice(5)) : known.get(`kimi-${bare}`))
 }
 
-const THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+const THINKING_LEVELS = new Set(DEFAULT_REASONING_LEVELS)
 
 // DSH's llm-pi-ai schema accepts `false` (explicit non-reasoning) or a dict of
 // pi-ai thinking levels with at least one level beyond `off`.
@@ -99,6 +216,49 @@ function normalizeReasoningEfforts(raw) {
     else if (typeof wire === 'string' && wire.trim() !== '') mapped[level] = wire.trim()
   }
   return Object.keys(mapped).some(level => level !== 'off') ? mapped : undefined
+}
+
+function validateConfigReasoningEfforts(raw, { protocol } = {}) {
+  if (raw === undefined) return undefined
+  if (raw === false) return false
+  if (!isRecord(raw)) throw invalid('Reasoning levels must be a mapping of level to API value')
+  const geminiOnly = protocol === GEMINI_PROTOCOL
+  const entries = Object.entries(raw)
+  const out = {}
+  for (const [level, wire] of entries) {
+    if (!THINKING_LEVELS.has(level)) throw invalid(`Unsupported reasoning level "${level}"`)
+    if (geminiOnly && (!GEMINI_LEVELS.has(level) || wire !== level)) {
+      throw invalid('Gemini supports only minimal, low, medium, and high with default API values')
+    }
+    if (wire === null) {
+      if (level !== 'off') throw invalid(`Reasoning level "${level}" requires an API value`)
+      out[level] = null
+    } else if (typeof wire === 'string' && wire.trim() !== '') {
+      out[level] = wire.trim()
+    } else {
+      throw invalid(`Reasoning level "${level}" requires an API value`)
+    }
+  }
+  if (!Object.keys(out).some(level => level !== 'off')) {
+    throw invalid('Add at least one reasoning level besides Off')
+  }
+  return out
+}
+
+function validateModalities(raw, { required = false } = {}) {
+  if (raw === undefined) return required ? ['text'] : undefined
+  if (!Array.isArray(raw)) throw invalid('Input types must be a list of modalities')
+  const seen = new Set()
+  const out = []
+  for (const item of raw) {
+    if (typeof item !== 'string' || !MODALITIES.has(item)) throw invalid(`Unsupported input type "${String(item)}"`)
+    if (!seen.has(item)) { seen.add(item); out.push(item) }
+  }
+  if (out.length === 0) {
+    if (required) throw invalid('Select at least one input type')
+    return undefined
+  }
+  return out
 }
 
 function openaiReasoningEfforts(info) {
@@ -157,6 +317,80 @@ function modelEntry(model, known) {
   }
 }
 
+function cleanEditableModel(raw, { family, protocol }) {
+  if (!isRecord(raw)) throw invalid('Every model must be an object')
+  const id = typeof raw.id === 'string' ? raw.id.trim() : ''
+  if (id === '') throw invalid('Every model needs an id')
+  const next = {}
+  // Preserve unknown/advanced fields (e.g. compat, description, systemPromptUpdate, toolUpdate)
+  // while normalizing and validating every curated field.
+  for (const [k, v] of Object.entries(raw)) {
+    if (v !== undefined) next[k] = structuredClone(v)
+  }
+  next.id = id
+  if (raw.name !== undefined) {
+    if (typeof raw.name !== 'string') throw invalid(`Model "${id}" name must be text`)
+    const trimmed = raw.name.trim()
+    if (trimmed === '') delete next.name
+    else next.name = trimmed
+  }
+  if (raw.contextWindow !== undefined) {
+    if (typeof raw.contextWindow !== 'number' || !Number.isInteger(raw.contextWindow) || raw.contextWindow <= 0) {
+      throw invalid(`Model "${id}" context window must be a positive integer`)
+    }
+    next.contextWindow = raw.contextWindow
+  }
+  if (raw.maxTokens !== undefined) {
+    if (typeof raw.maxTokens !== 'number' || !Number.isInteger(raw.maxTokens) || raw.maxTokens <= 0) {
+      throw invalid(`Model "${id}" max output tokens must be a positive integer`)
+    }
+    next.maxTokens = raw.maxTokens
+  }
+  if (family === 'deepseek') {
+    delete next.input
+    delete next.reasoningEfforts
+    const modalities = validateModalities(raw.inputModalities ?? raw.input, { required: true })
+    next.inputModalities = modalities
+    if (!modalities.includes('image')) {
+      delete next.imagePixelBudget
+      delete next.imageMaxBytes
+    }
+  } else {
+    delete next.inputModalities
+    const input = validateModalities(raw.input ?? raw.inputModalities, { required: false })
+    if (input === undefined) delete next.input
+    else next.input = input
+    if (Object.hasOwn(raw, 'reasoningEfforts') && raw.reasoningEfforts !== undefined) {
+      next.reasoningEfforts = validateConfigReasoningEfforts(raw.reasoningEfforts, { protocol })
+    } else {
+      delete next.reasoningEfforts
+    }
+  }
+  return next
+}
+
+function validateRetryPolicyConfig(raw, provider) {
+  if (!isRecord(raw)) throw invalid('Retry policy must be an object')
+  try {
+    resolveRetryPolicy(raw, `provider "${provider}" retryPolicy`)
+  } catch (error) {
+    throw invalid(error instanceof Error ? error.message : String(error))
+  }
+  const clean = { mode: raw.mode }
+  if (raw.mode === 'normal') {
+    if (raw.maxRetries !== undefined) clean.maxRetries = raw.maxRetries
+    if (raw.retryableCodes !== undefined) clean.retryableCodes = [...raw.retryableCodes]
+  }
+  if (isRecord(raw.backoff)) {
+    const backoff = {}
+    if (raw.backoff.initialDelayMs !== undefined) backoff.initialDelayMs = raw.backoff.initialDelayMs
+    if (raw.backoff.maxDelayMs !== undefined) backoff.maxDelayMs = raw.backoff.maxDelayMs
+    if (raw.backoff.jitterRatio !== undefined) backoff.jitterRatio = raw.backoff.jitterRatio
+    if (Object.keys(backoff).length > 0) clean.backoff = backoff
+  }
+  return clean
+}
+
 function compatForRoute(id, profile) {
   if (typeof profile !== 'object' || profile === null) return undefined
   const api = typeof profile.api === 'string'
@@ -167,6 +401,12 @@ function compatForRoute(id, profile) {
   const current = typeof profile.compat === 'object' && profile.compat !== null ? profile.compat : {}
   if (Object.keys(defaults).every(key => current[key] !== undefined)) return undefined
   return { ...defaults, ...current }
+}
+
+function familyOf(ns) {
+  if (ns === DEEPSEEK) return 'deepseek'
+  if (ns === PI_AI) return 'pi-ai'
+  return 'unknown'
 }
 
 export function install(rt) {
@@ -182,10 +422,41 @@ export function install(rt) {
     if (found === undefined) throw invalid('This DSH cannot set up model providers')
     return found
   }
+  const assertWritable = (settings) => {
+    const ro = rt.readOnly?.()
+    if (ro !== undefined) throw readOnlyErr(ro)
+    if (settings.writable === false) throw refused('Settings are read-only in this profile')
+  }
   const sections = settings => new Map(settings.describe({ redactSecrets: true }).map(section => [section.ns, section]))
   const profileOf = (entry, map, layer = 'value') => entry.settingsPath.reduce((value, key) => value?.[key], map.get(entry.settingsNs)?.[layer])
   const refOf = profile => (typeof profile?.apiKeyEnv === 'string' && profile.apiKeyEnv !== '' ? profile.apiKeyEnv : undefined)
   const entryOf = provider => ctx.llm.listConfigurableProviders().find(entry => entry.provider === provider)
+
+  async function describeCredentialsMap(credentials, refs) {
+    const unique = [...new Set(refs.filter(ref => typeof ref === 'string' && ref !== ''))]
+    const out = new Map()
+    for (let i = 0; i < unique.length; i += CRED_BATCH_SIZE) {
+      const slice = unique.slice(i, i + CRED_BATCH_SIZE)
+      const pairs = await Promise.all(slice.map(async (ref) => {
+        const info = await credentials.describe(ref).catch(() => undefined)
+        return [ref, info]
+      }))
+      for (const [ref, info] of pairs) {
+        if (info !== undefined) out.set(ref, info)
+      }
+    }
+    return out
+  }
+
+  function projectCred(info) {
+    if (!info) return undefined
+    return {
+      configured: info.configured === true,
+      writable: info.writable !== false,
+      ...(info.source !== undefined ? { source: info.source } : {}),
+      ...(info.masked !== undefined ? { masked: info.masked } : {}),
+    }
+  }
 
   let knownCache
   async function knownCatalogModels() {
@@ -219,7 +490,7 @@ export function install(rt) {
   let repairing = Promise.resolve()
   async function ensureCustomCompat() {
     const found = seams()
-    if (found === undefined) return
+    if (found === undefined || found.settings.writable === false || rt.readOnly?.() !== undefined) return
     const section = sections(found.settings).get(PI_AI)
     const userProviders = section?.user?.providers
     if (!userProviders || typeof userProviders !== 'object') return
@@ -275,18 +546,67 @@ export function install(rt) {
     if (found === undefined) return { available: false }
     const map = sections(found.settings)
     const catalog = await rt.catalog({ fresh: true })
+    const configurable = ctx.llm.listConfigurableProviders()
+    const writable = found.settings.writable !== false && rt.readOnly?.() === undefined
+
+    const refsToDescribe = []
+    for (const entry of configurable) {
+      if (entry.provider === 'deepseek-account' || entry.provider === CHATGPT_PROVIDER) continue
+      const profile = profileOf(entry, map)
+      const ref = refOf(profile)
+      if (ref !== undefined) {
+        refsToDescribe.push(ref)
+      } else {
+        refsToDescribe.push(keyRefFor(entry.provider))
+        for (const envRef of entry.nativeAuth?.env ?? []) refsToDescribe.push(envRef)
+      }
+    }
+    const credMap = await describeCredentialsMap(found.credentials, refsToDescribe)
+
     const providers = []
     const addable = []
-    for (const entry of ctx.llm.listConfigurableProviders()) {
+    for (const entry of configurable) {
       const profile = profileOf(entry, map)
       if (entry.settingsNs === PI_AI && profile === undefined) {
-        if (entry.declared !== true) addable.push({ id: entry.provider, name: entry.displayName })
+        if (entry.declared !== true) {
+          const derived = projectCred(credMap.get(keyRefFor(entry.provider)))
+          const nativeRefs = entry.nativeAuth?.env ?? []
+          const checks = {}
+          for (const ref of nativeRefs) {
+            const c = projectCred(credMap.get(ref))
+            if (c) checks[ref] = c
+          }
+          const hasRichMeta = entry.defaultBaseURL !== undefined
+            || (Array.isArray(entry.baseURLEnv) && entry.baseURLEnv.length > 0)
+            || entry.nativeAuth !== undefined
+            || derived?.configured === true
+            || derived?.source !== undefined
+          addable.push({
+            id: entry.provider,
+            name: entry.displayName,
+            ...(hasRichMeta ? {
+              ...(entry.defaultBaseURL !== undefined ? { defaultBaseURL: entry.defaultBaseURL } : {}),
+              ...(Array.isArray(entry.baseURLEnv) && entry.baseURLEnv.length > 0 ? { baseURLEnv: [...entry.baseURLEnv] } : {}),
+              ...(entry.nativeAuth !== undefined ? { nativeAuth: { env: [...(entry.nativeAuth.env ?? [])], oauth: Boolean(entry.nativeAuth.oauth) } } : {}),
+              ...(Object.keys(checks).length > 0 ? { credentialChecks: checks } : {}),
+              ...(derived?.configured === true || derived?.source !== undefined ? { derivedCredential: derived } : {}),
+            } : {}),
+          })
+        }
         continue
       }
       const ref = refOf(profile)
       const models = catalog.filter(model => model.provider === entry.provider).map(model => ({ id: model.id, ref: model.ref, name: model.name }))
       if (ref === undefined && models.length === 0 && entry.error === undefined) continue
-      const info = ref === undefined ? undefined : await found.credentials.describe(ref).catch(() => undefined)
+      const info = ref === undefined ? undefined : credMap.get(ref)
+      const section = map.get(entry.settingsNs)
+      const userProfile = profileOf(entry, map, 'user')
+      const baseProfile = profileOf(entry, map, 'base')
+      const family = familyOf(entry.settingsNs)
+      const isAccount = entry.provider === 'deepseek-account'
+      const isChatGPT = entry.provider === CHATGPT_PROVIDER
+      const editable = !isAccount && !isChatGPT && (family === 'deepseek' || family === 'pi-ai')
+
       // A route can be refreshed when DSH's pi-ai discovery can list its endpoint and
       // the route has a user layer to write the new model list into. Native and
       // subscription routes (other settings namespaces, or base-only routes) have no
@@ -294,28 +614,92 @@ export function install(rt) {
       const listable = entry.settingsNs === PI_AI && profile !== undefined
         && typeof profile.baseURL === 'string' && profile.baseURL !== ''
         && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
-      const refreshable = listable && profileOf(entry, map, 'user') !== undefined
+      const refreshable = listable && userProfile !== undefined
       const declared = (Array.isArray(profile?.models) ? profile.models : []).map(model => {
         const id = typeof model === 'string' ? model : model?.id
         if (typeof id !== 'string' || id.trim() === '') return undefined
         return { id, ref: `${entry.provider}/${id}`, name: typeof model?.name === 'string' && model.name.trim() !== '' ? model.name : id }
       }).filter(Boolean)
+
+      const modelsOverridden = isRecord(userProfile) && Object.hasOwn(userProfile, 'models')
+      const rawDefaultModels = Array.isArray(baseProfile?.models)
+        ? baseProfile.models
+        : family === 'deepseek'
+          ? schemaDefaultModelsOf(section, entry.settingsPath)
+          : []
+      const rawEditableModels = modelsOverridden
+        ? (Array.isArray(userProfile.models) ? userProfile.models : [])
+        : rawDefaultModels
+      const cloneModelItem = item => (isRecord(item) ? structuredClone(item) : (typeof item === 'string' ? { id: item } : {}))
+      const editableModels = rawEditableModels.map(cloneModelItem)
+      const defaultModels = rawDefaultModels.map(cloneModelItem)
+
+      const credentialChecks = {}
+      const checkRefs = ref !== undefined ? [ref] : (entry.nativeAuth?.env ?? [])
+      for (const checkRef of checkRefs) {
+        const projected = projectCred(credMap.get(checkRef))
+        if (projected) credentialChecks[checkRef] = projected
+      }
+      const keyObj = ref === undefined
+        ? null
+        : {
+            configured: info?.configured === true,
+            writable: !isChatGPT && info?.writable !== false,
+            ...(info?.source !== undefined ? { source: info.source } : {}),
+            ...(info?.masked !== undefined ? { masked: info.masked } : {}),
+          }
+      const retryDefaults = editable ? retryDefaultsOf(section, entry.settingsPath, baseProfile?.retryPolicy) : undefined
       providers.push({
         id: entry.provider,
-        ...(entry.provider === CHATGPT_PROVIDER ? { auth: 'chatgpt' } : {}),
+        ...(isChatGPT ? { auth: 'chatgpt' } : {}),
         name: entry.displayName,
         models,
         declaredModels: declared,
         refreshable,
-        key: ref === undefined ? null : { configured: info?.configured === true, writable: entry.provider !== CHATGPT_PROVIDER && info?.writable !== false },
-        removable: entry.provider !== CHATGPT_PROVIDER && entry.settingsNs === PI_AI && profileOf(entry, map, 'user') !== undefined && profileOf(entry, map, 'base') === undefined,
+        key: keyObj,
+        removable: !isChatGPT && entry.settingsNs === PI_AI && userProfile !== undefined && baseProfile === undefined,
         custom: entry.declared === true,
         ...(entry.error ? { error: entry.error } : {}),
+        settingsNs: entry.settingsNs,
+        family,
+        editable,
+        ...(section?.revision !== undefined ? { revision: section.revision } : {}),
+        ...(typeof userProfile?.displayName === 'string' ? { displayName: userProfile.displayName } : {}),
+        ...(typeof baseProfile?.displayName === 'string' ? { baseDisplayName: baseProfile.displayName } : {}),
+        ...(typeof userProfile?.baseURL === 'string' ? { baseURL: userProfile.baseURL } : {}),
+        ...(typeof profile?.baseURL === 'string' ? { effectiveBaseURL: profile.baseURL } : entry.defaultBaseURL !== undefined ? { effectiveBaseURL: entry.defaultBaseURL } : {}),
+        ...(entry.defaultBaseURL !== undefined ? { defaultBaseURL: entry.defaultBaseURL } : {}),
+        ...(Array.isArray(entry.baseURLEnv) && entry.baseURLEnv.length > 0 ? { baseURLEnv: [...entry.baseURLEnv] } : {}),
+        ...(typeof profile?.api === 'string' ? { api: profile.api } : {}),
+        ...(ref !== undefined ? { apiKeyEnv: ref } : {}),
+        ...(refOf(baseProfile) !== undefined ? { baseApiKeyEnv: refOf(baseProfile) } : {}),
+        ...(entry.nativeAuth !== undefined ? { nativeAuth: { env: [...(entry.nativeAuth.env ?? [])], oauth: Boolean(entry.nativeAuth.oauth) } } : {}),
+        ...(Object.keys(credentialChecks).length > 0 ? { credentialChecks } : {}),
+        modelsOverridden,
+        editableModels,
+        ...(defaultModels.length > 0 ? { defaultModels } : {}),
+        ...(typeof profile?.defaultContextWindow === 'number' ? { defaultContextWindow: profile.defaultContextWindow } : {}),
+        ...(family === 'deepseek' && typeof profile?.maxTokens === 'number' ? { defaultMaxTokens: profile.maxTokens }
+          : typeof profile?.defaultMaxTokens === 'number' ? { defaultMaxTokens: profile.defaultMaxTokens } : {}),
+        ...(Array.isArray(profile?.defaultInput) ? { defaultInput: [...profile.defaultInput] } : {}),
+        ...(isRecord(userProfile?.retryPolicy) ? { retryPolicy: structuredClone(userProfile.retryPolicy) } : {}),
+        ...(retryDefaults !== undefined ? { retryDefaults } : {}),
       })
     }
     // The ones that come with the setup first, then the added ones as DSH lists them.
     providers.sort((a, b) => Number(a.removable) - Number(b.removable))
-    return { available: true, providers, addable, protocols: protocolsOf(map.get(PI_AI)), revision: map.get(PI_AI)?.revision }
+    const piSection = map.get(PI_AI)
+    const revisions = Object.fromEntries([...map.entries()].map(([ns, sec]) => [ns, sec.revision]))
+    return {
+      available: true,
+      writable,
+      providers,
+      addable,
+      protocols: protocolsOf(piSection),
+      reasoningLevels: reasoningLevelsOf(piSection),
+      revisions,
+      revision: piSection?.revision,
+    }
   }
 
   async function writableRef(provider) {
@@ -329,14 +713,161 @@ export function install(rt) {
   // A key is only ever written; nothing here reads one back.
   async function setProviderKey(provider, value) {
     if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in and sign-out to manage this connection, not an API key.')
+    const { settings, credentials } = usable()
+    assertWritable(settings)
     const key = checkKey(value)
-    await usable().credentials.set(await writableRef(provider), key)
+    await credentials.set(await writableRef(provider), key)
     rt.dropCatalog()
   }
 
   async function clearProviderKey(provider) {
-    await usable().credentials.unset(await writableRef(provider))
+    const { settings, credentials } = usable()
+    assertWritable(settings)
+    await credentials.unset(await writableRef(provider))
     rt.dropCatalog()
+  }
+
+  // Full provider profile edit (models, capacities, input types, reasoning efforts,
+  // base URL, display name, protocol, retry policy, reset defaults, API key).
+  // Writes only minimal path ops against the owning DSH namespace with revision fencing.
+  async function saveProviderConfig(body) {
+    await repairing
+    const { settings, credentials } = usable()
+    assertWritable(settings)
+    const provider = String(body?.provider ?? '').trim()
+    if (provider === '') throw invalid('Choose a provider')
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in and sign-out to manage this connection.')
+    if (provider === 'deepseek-account') throw invalid('DeepSeek account settings cannot be edited here')
+    const map = sections(settings)
+    const entry = entryOf(provider)
+    if (entry === undefined) throw invalid(`No editable provider ${provider}`)
+    const family = familyOf(entry.settingsNs)
+    if (family !== 'deepseek' && family !== 'pi-ai') throw invalid(`${provider} cannot be edited here`)
+    const section = map.get(entry.settingsNs)
+    if (section === undefined) throw invalid(`Settings namespace ${entry.settingsNs} is not available`)
+    if (body.revision !== undefined && body.revision !== null && body.revision !== section.revision) {
+      throw stale('The provider settings changed elsewhere; reload and try again')
+    }
+
+    const base = [...entry.settingsPath]
+    const effective = profileOf(entry, map, 'value')
+    const userProfile = profileOf(entry, map, 'user')
+    const baseProfile = profileOf(entry, map, 'base')
+    const protocols = family === 'pi-ai' ? protocolsOf(section) : []
+    const ops = []
+
+    const ownsIdentity = family === 'pi-ai' && entry.declared === true
+    if (Object.hasOwn(body, 'displayName') && ownsIdentity) {
+      const name = typeof body.displayName === 'string' ? body.displayName.trim() : ''
+      if (name === '') {
+        if (isRecord(userProfile) && Object.hasOwn(userProfile, 'displayName')) {
+          ops.push({ op: 'unset', path: [...base, 'displayName'] })
+        }
+      } else {
+        ops.push({ op: 'set', path: [...base, 'displayName'], value: name.slice(0, 80) })
+      }
+    }
+
+    if (Object.hasOwn(body, 'baseURL')) {
+      const urlText = typeof body.baseURL === 'string' ? body.baseURL.trim() : ''
+      if (urlText === '') {
+        if (isRecord(userProfile) && Object.hasOwn(userProfile, 'baseURL')) {
+          ops.push({ op: 'unset', path: [...base, 'baseURL'] })
+        }
+      } else {
+        const checked = checkEndpoint(urlText, { strictDeepSeek: family === 'deepseek' })
+        ops.push({ op: 'set', path: [...base, 'baseURL'], value: checked })
+      }
+    }
+
+    let nextApi = typeof effective?.api === 'string' ? effective.api : undefined
+    if (Object.hasOwn(body, 'api') && ownsIdentity) {
+      const api = typeof body.api === 'string' ? body.api.trim() : ''
+      if (api === '') {
+        throw invalid('Choose a protocol')
+      }
+      if (!protocols.includes(api)) {
+        throw invalid(`The protocol must be one of ${protocols.join(', ')}`)
+      }
+      if (api !== userProfile?.api) {
+        ops.push({ op: 'set', path: [...base, 'api'], value: api })
+        const nextCompat = CUSTOM_COMPAT[api]
+        if (nextCompat !== undefined) {
+          ops.push({ op: 'set', path: [...base, 'compat'], value: { ...nextCompat } })
+        } else if (isRecord(userProfile) && Object.hasOwn(userProfile, 'compat')) {
+          ops.push({ op: 'unset', path: [...base, 'compat'] })
+        }
+      }
+      nextApi = api
+    }
+
+    if (body.resetModels === true) {
+      if (isRecord(userProfile) && Object.hasOwn(userProfile, 'models')) {
+        ops.push({ op: 'unset', path: [...base, 'models'] })
+      }
+    } else if (Object.hasOwn(body, 'models')) {
+      if (!Array.isArray(body.models)) throw invalid('Models must be a list')
+      if (body.models.length > MAX_MODELS) throw invalid(`At most ${MAX_MODELS} models can be kept`)
+      if (ownsIdentity && body.models.length === 0) throw invalid('Add at least one model')
+      const cleaned = body.models.map(item => cleanEditableModel(item, { family, protocol: nextApi }))
+      if (new Set(cleaned.map(m => m.id)).size !== cleaned.length) {
+        throw invalid('Two models have the same id')
+      }
+      ops.push({ op: 'set', path: [...base, 'models'], value: cleaned })
+    }
+
+    if (body.resetRetryPolicy === true || (Object.hasOwn(body, 'retryPolicy') && body.retryPolicy === null)) {
+      if (isRecord(userProfile) && Object.hasOwn(userProfile, 'retryPolicy')) {
+        ops.push({ op: 'unset', path: [...base, 'retryPolicy'] })
+      }
+    } else if (Object.hasOwn(body, 'retryPolicy') && body.retryPolicy !== undefined) {
+      const validated = validateRetryPolicyConfig(body.retryPolicy, provider)
+      ops.push({ op: 'set', path: [...base, 'retryPolicy'], value: validated })
+    }
+
+    const derivedRef = keyRefFor(provider)
+    const namedRef = refOf(effective)
+    const targetRef = namedRef ?? derivedRef
+    const newKey = typeof body.key === 'string' && body.key.trim() !== '' ? checkKey(body.key) : undefined
+    const removeKey = body.removeKey === true && newKey === undefined
+
+    if (removeKey) {
+      if (namedRef === undefined) throw invalid(`${provider} has no saved API key to remove`)
+      const info = await credentials.describe(namedRef)
+      if (info.writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
+      await credentials.unset(namedRef)
+      if (family === 'pi-ai' && entry.nativeAuth !== undefined && refOf(userProfile) === derivedRef && refOf(baseProfile) === undefined) {
+        ops.push({ op: 'unset', path: [...base, 'apiKeyEnv'] })
+      }
+    }
+
+    if (newKey !== undefined) {
+      const info = await credentials.describe(targetRef)
+      if (info.writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
+      if (family === 'pi-ai' && refOf(userProfile) === undefined && refOf(baseProfile) === undefined) {
+        ops.push({ op: 'set', path: [...base, 'apiKeyEnv'], value: targetRef })
+      }
+    } else if (family === 'pi-ai' && nextApi === GEMINI_PROTOCOL && namedRef === undefined && !removeKey) {
+      throw invalid('Google Gemini requires an API key')
+    }
+
+    if (ops.length > 0) {
+      try {
+        await settings.mutate(entry.settingsNs, ops, body.revision ?? section.revision)
+      } catch (error) {
+        if (error?.code === 'SETTINGS_CONFLICT') {
+          throw stale('The provider settings changed elsewhere; reload and try again')
+        }
+        throw error
+      }
+    }
+
+    if (newKey !== undefined) {
+      await credentials.set(targetRef, newKey)
+    }
+
+    rt.dropCatalog()
+    return providersView()
   }
 
   // `provider` from DSH's directory, or a route the user declares (`custom`) for an
@@ -345,6 +876,7 @@ export function install(rt) {
   async function addProvider(body) {
     await repairing
     const { settings, credentials } = usable()
+    assertWritable(settings)
     const provider = String(body.provider ?? '').trim()
     if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in to add this connection.')
     const custom = body.custom === true
@@ -432,6 +964,7 @@ export function install(rt) {
   // choice is not touched here.
   async function saveProviderModels(body) {
     const { settings } = usable()
+    assertWritable(settings)
     const provider = String(body.provider ?? '').trim()
     if (provider === '') throw invalid('Choose a provider')
     const map = sections(settings)
@@ -493,6 +1026,7 @@ export function install(rt) {
     if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-out to disconnect this connection; its model route is retained.')
     await repairing
     const { settings, credentials } = usable()
+    assertWritable(settings)
     const map = sections(settings)
     const entry = entryOf(provider)
     if (entry === undefined || entry.settingsNs !== PI_AI || profileOf(entry, map) === undefined) throw invalid(`${provider} is not set up`)
@@ -508,5 +1042,8 @@ export function install(rt) {
     return providersView()
   }
 
-  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, saveProviderModels, removeProvider })
+  Object.assign(rt, {
+    keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey,
+    addProvider, discoverModels, saveProviderModels, saveProviderConfig, removeProvider,
+  })
 }

@@ -11,6 +11,14 @@ import { ProviderLogo, matchProviderId } from './provider-logos.js'
 import { SelectMenu } from './select-menu.js'
 import { hostText, t } from './i18n.js'
 import { ChatGPTSettings } from './chatgpt-settings.js'
+import { ModelListEditor } from './model-list-editor.js'
+import {
+  normalizeModelDrafts,
+  protocolNeedsKey,
+  protocolReasoningLevels,
+  validateBaseUrl,
+  validateModelRows,
+} from './provider-model-utils.js'
 
 const PROTOCOL_NAMES = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -129,6 +137,20 @@ export function fallbacksFor(provider, draft, roster) {
   return { switching, failed, local }
 }
 
+function modelEditorImpact(provider, nextModels, resetModels, roster) {
+  if (resetModels) return { switching: [], failed: [], local: [] }
+  const nextIds = new Set(nextModels.map(m => (typeof m?.id === 'string' ? m.id.trim() : '')).filter(Boolean))
+  const existing = Array.isArray(provider.models) ? provider.models : []
+  const rows = [
+    ...nextModels.map(m => {
+      const id = typeof m?.id === 'string' ? m.id.trim() : ''
+      return id ? { id, model: m, existing: existing.some(e => e.id === id), returned: true, selected: true } : null
+    }).filter(Boolean),
+    ...existing.filter(m => !nextIds.has(m.id)).map(m => ({ id: m.id, model: m, existing: true, returned: false, selected: false })),
+  ]
+  return fallbacksFor(provider, { rows }, roster)
+}
+
 export function ProvidersPage({ actions, run, roster, Section, advanced = null }) {
   const [view, setView] = useState(null)
   const [open, setOpen] = useState(null)
@@ -138,15 +160,32 @@ export function ProvidersPage({ actions, run, roster, Section, advanced = null }
   useEffect(() => { void apply(actions.providers()) }, [])
   if (view === null) return null
   if (!view.available) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot set up model providers.'))
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'provider-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
+  const readOnly = view.writable === false || roster?.readOnly === true
+  const addBtn = adding ? null : h('button', {
+    type: 'button',
+    className: 'bt-soft bt-soft-sm bt-with-icon',
+    'data-tour': 'provider-add',
+    disabled: readOnly,
+    onClick: () => setAdding(true),
+  }, h(PlusIcon), t('Add a provider'))
   return [
+    readOnly ? h('div', { key: 'ro', className: 'bt-set-hint bt-provider-ro', role: 'status' }, t('Model provider settings are read-only in this window.')) : null,
     h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn, tour: 'provider-list' },
       view.providers.map(provider => h(ProviderRow, {
-        key: provider.id, provider, apply, actions, roster, revision: view.revision,
+        key: provider.id,
+        provider,
+        apply,
+        actions,
+        roster,
+        revision: view.revision,
+        protocols: view.protocols,
+        reasoningLevels: view.reasoningLevels,
+        readOnly,
         chatgptProvider: view.providers.find(entry => entry.auth === 'chatgpt'),
-        open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
+        open: open === provider.id,
+        onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
-      adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
+      adding && !readOnly ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
     advanced ? h('div', { key: 'advanced', className: 'bt-set-card', 'data-tour': 'provider-advanced' },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-advanced', onClick: advanced },
@@ -160,7 +199,226 @@ function keyState(key) {
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
-export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle, chatgptProvider }) {
+export function ProviderConfigEditor({
+  provider, protocols = [], reasoningLevels = [], readOnly, apply, actions, roster, onOpenRefresh, refreshing, canRefresh,
+}) {
+  const family = provider.family
+  const ownsIdentity = family === 'pi-ai' && provider.custom === true
+  const initialDisplayName = provider.displayName ?? ''
+  const initialBaseURL = provider.baseURL ?? ''
+  const initialApi = provider.api ?? ''
+  const initialModels = normalizeModelDrafts(provider.editableModels)
+
+  const [displayName, setDisplayName] = useState(initialDisplayName)
+  const [baseURL, setBaseURL] = useState(initialBaseURL)
+  const [api, setApi] = useState(initialApi)
+  const [models, setModels] = useState(initialModels)
+  const [modelsEdited, setModelsEdited] = useState(false)
+  const [resetModels, setResetModels] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [savedNotice, setSavedNotice] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [confirmImpact, setConfirmImpact] = useState(false)
+
+  // Reset local draft whenever the server revision advances (after save or external reload).
+  useEffect(() => {
+    setDisplayName(provider.displayName ?? '')
+    setBaseURL(provider.baseURL ?? '')
+    setApi(provider.api ?? '')
+    setModels(normalizeModelDrafts(provider.editableModels))
+    setModelsEdited(false)
+    setResetModels(false)
+    setSaveError('')
+    setConfirmImpact(false)
+  }, [provider.revision, provider.id])
+
+  const effectiveApi = ownsIdentity ? (api || provider.api) : provider.api
+  const allowReasoning = family === 'pi-ai' && (provider.custom === true || models.some(m => m?.reasoningEfforts !== undefined))
+  const reasoning = allowReasoning
+    ? protocolReasoningLevels(effectiveApi, reasoningLevels)
+    : { levels: [], levelsOnly: false }
+
+  const baseUrlError = validateBaseUrl(baseURL, { strictDeepSeek: family === 'deepseek' })
+  const modelsToValidate = resetModels ? [] : models
+  const modelError = (!resetModels && (modelsEdited || (reasoning.levelsOnly && models.length > 0)))
+    ? validateModelRows(modelsToValidate, {
+        reasoningLevels: reasoning.levels,
+        reasoningLevelsOnly: reasoning.levelsOnly,
+        requireNonEmpty: ownsIdentity,
+      })
+    : undefined
+  const protocolKeyMissing = family === 'pi-ai' && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv
+
+  const displayNameChanged = ownsIdentity && displayName.trim() !== initialDisplayName.trim()
+  const baseURLChanged = baseURL.trim() !== initialBaseURL.trim()
+  const apiChanged = ownsIdentity && api !== initialApi && api !== ''
+  const modelsChanged = resetModels || (modelsEdited && JSON.stringify(models) !== JSON.stringify(initialModels))
+  const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged
+  const invalid = Boolean(baseUrlError || modelError || protocolKeyMissing)
+  const disabled = readOnly || saving
+
+  const impact = modelsChanged ? modelEditorImpact(provider, models, resetModels, roster) : { switching: [], failed: [], local: [] }
+  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0
+
+  const discard = () => {
+    setDisplayName(initialDisplayName)
+    setBaseURL(initialBaseURL)
+    setApi(initialApi)
+    setModels(initialModels)
+    setModelsEdited(false)
+    setResetModels(false)
+    setSaveError('')
+    setSavedNotice(false)
+    setConfirmImpact(false)
+  }
+
+  const save = () => {
+    if (disabled || !dirty || invalid || typeof actions.saveProviderConfig !== 'function') return
+    if (hasImpact && !confirmImpact) {
+      setConfirmImpact(true)
+      return
+    }
+    const payload = {
+      provider: provider.id,
+      ...(provider.revision !== undefined ? { revision: provider.revision } : {}),
+    }
+    if (displayNameChanged) payload.displayName = displayName.trim() === '' ? null : displayName.trim()
+    if (baseURLChanged) payload.baseURL = baseURL.trim() === '' ? null : baseURL.trim()
+    if (apiChanged) payload.api = api
+    if (resetModels) payload.resetModels = true
+    else if (modelsChanged) payload.models = models
+
+    setSaving(true)
+    setSaveError('')
+    setSavedNotice(false)
+    void translated(actions.saveProviderConfig(payload))
+      .then((next) => {
+        if (next?.providers) return apply(Promise.resolve(next))
+        return true
+      })
+      .then((ok) => {
+        if (ok === false) return
+        setModelsEdited(false)
+        setResetModels(false)
+        setConfirmImpact(false)
+        setSavedNotice(true)
+        void actions.refreshModels?.()
+      })
+      .catch((error) => {
+        setSaveError(error?.message ?? String(error))
+      })
+      .finally(() => setSaving(false))
+  }
+
+  const effectiveOverridden = resetModels ? false : (modelsEdited ? true : provider.modelsOverridden)
+  const refreshBtn = canRefresh
+    ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: disabled || refreshing,
+        'aria-busy': refreshing ? true : undefined,
+        onClick: onOpenRefresh,
+      }, refreshing ? t('Refreshing…') : t('Refresh models'))
+    : null
+
+  return h('div', { className: 'bt-provider-config' },
+    ownsIdentity ? h('div', { className: 'bt-provider-pair' },
+      h('label', { className: 'bt-model-field' },
+        h('span', { className: 'bt-model-field-label' }, t('Display name')),
+        h('input', {
+          className: 'bt-input',
+          type: 'text',
+          value: displayName,
+          placeholder: provider.baseDisplayName ?? provider.id,
+          'aria-label': t('Display name'),
+          disabled,
+          spellCheck: false,
+          autoComplete: 'off',
+          onChange: (event) => { setDisplayName(event.target.value); setSavedNotice(false) },
+        })),
+      h('div', { className: 'bt-model-field' },
+        h('span', { className: 'bt-model-field-label' }, t('Protocol')),
+        h(SelectMenu, {
+          'aria-label': t('Protocol'),
+          value: api,
+          disabled,
+          placeholder: t('Select protocol'),
+          options: (protocols.length > 0 ? protocols : Object.keys(PROTOCOL_NAMES)).map(choice => ({
+            value: choice,
+            label: PROTOCOL_NAMES[choice] ?? choice,
+          })),
+          onChange: (value) => { setApi(value); setSavedNotice(false) },
+        }))) : null,
+    h('label', { className: 'bt-model-field' },
+      h('span', { className: 'bt-model-field-label' }, t('Base URL')),
+      h('input', {
+        className: 'bt-input',
+        type: 'text',
+        value: baseURL,
+        placeholder: provider.effectiveBaseURL ?? provider.defaultBaseURL ?? ENDPOINT_HINTS[effectiveApi] ?? 'https://api.deepseek.com/anthropic',
+        'aria-label': t('Base URL'),
+        'aria-invalid': baseUrlError ? true : undefined,
+        disabled,
+        spellCheck: false,
+        autoComplete: 'off',
+        onChange: (event) => { setBaseURL(event.target.value); setSavedNotice(false) },
+      })),
+    baseUrlError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t(baseUrlError)) : null,
+    protocolKeyMissing ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, t('Google Gemini requires an API key')) : null,
+    h(ModelListEditor, {
+      models,
+      family,
+      overridden: effectiveOverridden,
+      defaultContextWindow: provider.defaultContextWindow,
+      defaultMaxTokens: provider.defaultMaxTokens,
+      defaultInput: provider.defaultInput,
+      reasoningLevels: reasoning.levels,
+      reasoningLevelsOnly: reasoning.levelsOnly,
+      disabled,
+      onChange: (next) => {
+        setResetModels(false)
+        setModelsEdited(true)
+        setModels(next)
+        setConfirmImpact(false)
+        setSavedNotice(false)
+      },
+      onReset: () => {
+        setResetModels(true)
+        setModels(normalizeModelDrafts(provider.defaultModels))
+        setModelsEdited(false)
+        setConfirmImpact(false)
+        setSavedNotice(false)
+      },
+      extraActions: refreshBtn,
+    }),
+    modelError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' },
+      modelError.index >= 0
+        ? t('Model {index}: {error}', { index: modelError.index + 1, error: t(modelError.key) })
+        : t(modelError.key)) : null,
+    impact.switching.map(bot => h('div', { key: `switch-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
+      t('{name} will switch to {model} on its next turn.', { name: bot.name, model: bot.target.name ?? bot.target.ref }))),
+    impact.failed.map(bot => h('div', { key: `fail-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
+      t('{name} has no model to fall back to; its next turn will fail.', { name: bot.name }))),
+    saveError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, saveError) : null,
+    h('div', { className: 'bt-secret-row-actions bt-provider-form-bar' },
+      savedNotice && !dirty ? h('span', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Saved.')) : null,
+      h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: disabled || !dirty,
+        onClick: discard,
+      }, t('Discard')),
+      h('button', {
+        type: 'button',
+        className: 'bt-send bt-soft-sm',
+        disabled: disabled || !dirty || invalid,
+        onClick: save,
+      }, saving ? t('Saving…') : (confirmImpact && hasImpact ? t('Save anyway') : t('Save')))))
+}
+
+export function ProviderRow({
+  provider, apply, actions, roster, revision, protocols, reasoningLevels, readOnly = false, open, onToggle, chatgptProvider,
+}) {
   const [confirm, setConfirm] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState('')
@@ -177,7 +435,8 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
   const state = isChatGPT ? null : keyState(provider.key)
   const shown = provider.models.slice(0, SHOWN_MODELS)
   const hint = provider.error ?? (provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length }))
-  const canRefresh = provider.refreshable === true && !isChatGPT
+  const canRefresh = provider.refreshable === true && !isChatGPT && !readOnly
+  const hasFullEditor = !isChatGPT && provider.editable === true && (provider.family === 'deepseek' || provider.family === 'pi-ai') && typeof actions.saveProviderConfig === 'function'
   const refresh = () => {
     if (!canRefresh || refreshing) return
     setRefreshing(true)
@@ -219,27 +478,40 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       void actions.refreshModels?.()
     })
   }
-  const modelsBlock = (provider.models.length > 0 || canRefresh)
-    ? h('div', { className: 'bt-secret-edit-block' },
-        h('div', { className: 'bt-provider-models-head' },
-          h('span', { className: 'bt-secret-edit-label' }, t('Models')),
-          canRefresh
-            ? h('button', {
-                type: 'button', className: 'bt-soft bt-soft-sm', disabled: refreshing,
-                'aria-busy': refreshing ? true : undefined, onClick: refresh,
-              }, refreshing ? t('Refreshing…') : t('Refresh models'))
-            : null),
-        draft !== null
-          ? h(ModelDraft, { provider, draft, roster, onToggle: toggle, onSave: save, onCancel: () => { setDraft(null); setConfirmRemove(false) }, confirmRemove })
-          : [
-              provider.models.length > 0
-                ? h('div', { className: 'bt-provider-models' },
-                    shown.map(model => h('span', { key: model.ref, className: 'bt-tag', title: model.ref }, model.name)),
-                    provider.models.length > shown.length ? h('span', { className: 'bt-set-hint' }, t('and {count} more', { count: provider.models.length - shown.length })) : null)
-                : h('div', { className: 'bt-set-hint' }, t('No models')),
-              refreshError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, refreshError) : null,
-            ])
-    : null
+  const modelsBlock = hasFullEditor && draft === null
+    ? h(ProviderConfigEditor, {
+        provider,
+        protocols,
+        reasoningLevels,
+        readOnly,
+        apply,
+        actions,
+        roster,
+        canRefresh,
+        refreshing,
+        onOpenRefresh: refresh,
+      })
+    : (provider.models.length > 0 || canRefresh)
+      ? h('div', { className: 'bt-secret-edit-block' },
+          h('div', { className: 'bt-provider-models-head' },
+            h('span', { className: 'bt-secret-edit-label' }, t('Models')),
+            canRefresh
+              ? h('button', {
+                  type: 'button', className: 'bt-soft bt-soft-sm', disabled: refreshing,
+                  'aria-busy': refreshing ? true : undefined, onClick: refresh,
+                }, refreshing ? t('Refreshing…') : t('Refresh models'))
+              : null),
+          draft !== null
+            ? h(ModelDraft, { provider, draft, roster, onToggle: toggle, onSave: save, onCancel: () => { setDraft(null); setConfirmRemove(false) }, confirmRemove })
+            : [
+                provider.models.length > 0
+                  ? h('div', { className: 'bt-provider-models' },
+                      shown.map(model => h('span', { key: model.ref, className: 'bt-tag', title: model.ref }, model.name)),
+                      provider.models.length > shown.length ? h('span', { className: 'bt-set-hint' }, t('and {count} more', { count: provider.models.length - shown.length })) : null)
+                  : h('div', { className: 'bt-set-hint' }, t('No models')),
+                refreshError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, refreshError) : null,
+              ])
+      : null
   const logoId = matchProviderId({ provider: provider.id, providerName: provider.name, model: provider.models?.[0]?.ref, name: provider.models?.[0]?.name })
   const logo = logoId ? h(ProviderLogo, { provider: provider.id, providerName: provider.name, model: provider.models?.[0]?.ref, name: provider.models?.[0]?.name, size: 18 }) : null
   const monogram = (String(provider.name || provider.id).match(/[\p{L}\p{N}]/u)?.[0] ?? '?').toUpperCase()
@@ -254,19 +526,20 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
         state ? h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1]) : null,
         h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': open || undefined }, h(ChevronDownIcon)))),
     open ? h('div', { className: 'bt-secret-edit' },
-      !isChatGPT && provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
+      !isChatGPT && provider.key?.writable ? h(KeyEditor, { provider, apply, actions, disabled: readOnly }) : null,
       !isChatGPT && provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
       (provider.id === 'openai' || isChatGPT) && actions.chatgpt
         ? h(ChatGPTSettings, { actions, apply, provider: isChatGPT ? provider : chatgptProvider }) : null,
       isChatGPT ? null : modelsBlock,
+      refreshError && hasFullEditor && draft === null ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, refreshError) : null,
       !isChatGPT && provider.removable ? h('div', { className: 'bt-secret-row-actions' },
         confirm
           ? [
               h('span', { key: 'q', className: 'bt-set-hint' }, t('Remove {name}? Bots on its models need another model.', { name: provider.name })),
               h('button', { key: 'no', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setConfirm(false) }, t('Keep')),
-              h('button', { key: 'yes', type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => apply(actions.removeProvider(provider.id)) }, t('Remove')),
+              h('button', { key: 'yes', type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled: readOnly, onClick: () => apply(actions.removeProvider(provider.id)) }, t('Remove')),
             ]
-          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => setConfirm(true) }, h(TrashIcon), t('Remove provider'))) : null) : null)
+          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled: readOnly, onClick: () => setConfirm(true) }, h(TrashIcon), t('Remove provider'))) : null) : null)
 }
 
 function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
@@ -323,10 +596,10 @@ export function UsedBy({ bots, size = 20, max = 4 }) {
 }
 
 // `compact`: the one-line form Overview shows, without the heading or the remove button.
-export function KeyEditor({ provider, apply, actions, compact = false }) {
+export function KeyEditor({ provider, apply, actions, compact = false, disabled = false }) {
   const [value, setValue] = useState('')
   const [saved, setSaved] = useState(false)
-  const ready = value.trim() !== ''
+  const ready = !disabled && value.trim() !== ''
   const save = () => {
     if (!ready) return
     void apply(actions.setProviderKey(provider.id, value)).then((ok) => { if (ok) { setValue(''); setSaved(true) } })
@@ -335,15 +608,15 @@ export function KeyEditor({ provider, apply, actions, compact = false }) {
   const label = t('{provider} API key', { provider: provider.name })
   if (compact) {
     return h('div', { className: 'bt-secret-inline bt-key-compact' },
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label })),
+      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label, disabled })),
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save')))
   }
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, provider.key.configured ? t('Replace the API key') : t('API key')),
     h('div', { className: 'bt-secret-inline' },
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label })),
+      h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value, onChange: edit, onEnter: save, label, disabled })),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: save }, t('Save')),
-      provider.key.configured ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => apply(actions.setProviderKey(provider.id, null)) }, t('Remove key')) : null),
+      provider.key.configured ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled, onClick: () => apply(actions.setProviderKey(provider.id, null)) }, t('Remove key')) : null),
     saved ? h('div', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Saved.')) : null)
 }
 
@@ -448,6 +721,7 @@ function FormActions({ onCancel, onAdd, ready }) {
 
 export const PROVIDERS_CSS = `
 .bt-provider .bt-secret-summary{gap:12px}
+.bt-provider-ro{margin:0 0 10px}
 .bt-provider-logo{flex:none;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink);font-size:13px;font-weight:600;line-height:1}
 .bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3)}
 .bt-chatgpt{padding:12px;border:1px solid var(--bt-line);border-radius:12px;min-width:0}
@@ -474,7 +748,7 @@ export const PROVIDERS_CSS = `
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-pair .bt-sel{height:36px}
-.bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .bt-provider-missing{color:var(--bt-ink-3)}
 .bt-provider-draft{display:flex;flex-direction:column;gap:8px}
 .bt-provider-draft-group{display:flex;flex-direction:column;gap:6px}
@@ -485,7 +759,35 @@ export const PROVIDERS_CSS = `
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
-@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
-@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
+.bt-provider-config{display:flex;flex-direction:column;gap:12px;padding-top:4px;border-top:.5px solid var(--bt-line)}
+.bt-provider-form-bar{justify-content:flex-end;align-items:center;gap:8px;padding-top:4px}
+.bt-model-editor{display:flex;flex-direction:column;gap:8px}
+.bt-model-editor-title{display:inline-flex;align-items:center;gap:8px}
+.bt-model-editor-actions{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bt-model-list{display:flex;flex-direction:column;gap:6px}
+.bt-model-row{display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-main);transition:border-color .12s ease,opacity .12s ease}
+.bt-model-row[data-dragging]{opacity:.5}
+.bt-model-row[data-drop-target=before]{border-top:2px solid var(--bt-accent)}
+.bt-model-row[data-drop-target=after]{border-bottom:2px solid var(--bt-accent)}
+.bt-model-row-main{display:flex;align-items:center;gap:6px}
+.bt-model-order{display:inline-flex;align-items:center;gap:2px;flex:none;cursor:grab}
+.bt-model-step-btn{width:28px;height:28px}
+.bt-model-id-input{flex:1 1 auto;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;height:32px}
+.bt-model-row-danger{color:var(--bt-ink-2)}
+.bt-model-row-danger:hover:not(:disabled){color:var(--bt-danger);background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
+.bt-model-row-detail{display:flex;flex-direction:column;gap:10px;padding:8px 4px 2px;border-top:.5px solid var(--bt-line)}
+.bt-model-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.bt-model-field-label{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-model-cap-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bt-model-checks{display:flex;flex-wrap:wrap;gap:6px}
+.bt-model-mod-btn{padding:0 10px}
+.bt-model-reasoning{display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:.5px solid var(--bt-line)}
+.bt-model-reasoning-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-model-reasoning-row{display:grid;grid-template-columns:minmax(96px,130px) 1fr 28px;gap:6px;align-items:center}
+.bt-model-reasoning-cols{margin-bottom:-2px}
+.bt-model-effort-val{height:32px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.bt-model-add-level,.bt-model-add-btn{align-self:flex-start}
+@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}.bt-provider-pair,.bt-model-cap-grid{grid-template-columns:1fr}}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}.bt-provider-pair,.bt-model-cap-grid{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `

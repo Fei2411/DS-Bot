@@ -71,6 +71,8 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   'release-notes-claim',
   // Enables the host's DSH schedule plugin via pluginManager; engine plugin changes stay on this computer.
   'schedule-enable',
+  // Full model provider configuration edits stay on this computer (never remote phone/browser/API/MCP).
+  'provider-config-save',
 ])
 
 // The only computer-prefixed endpoints a paired phone may use. Every other computer-*
