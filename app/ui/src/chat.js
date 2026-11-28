@@ -11,11 +11,11 @@ import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-prim
 import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PaperclipIcon, PlusIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PaperclipIcon, PlusIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
 import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
-import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
+import { reducedMotion, stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
 import { hasEscapeLayer } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
 import { mergeRescuedDraft, readRescuedForChat } from '../../../ds-bot/src/client/question-draft.js'
@@ -24,8 +24,10 @@ import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { TextSelectionAction, quoteMarkdown } from '../../../ds-bot/src/client/text-annotation.js'
 import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
+import { WorkPauseDock } from '../../../ds-bot/src/client/work-pause-card.js'
 import { ApprovalDock } from './approval-dock.js'
 import { ClassicControls } from './classic-controls.js'
 import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
@@ -329,7 +331,7 @@ function useRoomChat(roomId, part, feed, keep, onUserMatch) {
   useEffect(() => {
     if (!active || !feed) return undefined
     return feed.on((event, data) => {
-      if (event === 'hello') { if (ready.current) void loadRef.current(undefined, undefined, true); return }
+      if (event === 'hello') { if (data?.resumed !== true && ready.current) void loadRef.current(undefined, undefined, true); return }
       if (event === 'room' && data?.roomId === roomId) void loadRef.current(undefined, undefined, true)
     })
   }, [active, feed, roomId])
@@ -460,7 +462,7 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
   const place = useMemo(() => {
     if (!shown || !buttonRef.current?.getBoundingClientRect) return null
     const rect = buttonRef.current.getBoundingClientRect()
-    const cardTop = buttonRef.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top
+    const cardTop = buttonRef.current.closest?.('[data-bt-composer]')?.getBoundingClientRect?.().top
     const anchorTop = Number.isFinite(cardTop) ? Math.min(rect.top, cardTop) : rect.top
     return { left: rect.left, bottom: viewBottom() - anchorTop + 8 }
   }, [shown, open, tick])
@@ -509,7 +511,7 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
     canTerminal ? h('button', { type: 'button', role: 'menuitem', onClick: openTerminal }, h(TerminalIcon), h('span', { className: 'bt-menu-label' }, t('Terminal'))) : null), document.body) : null)
 }
 
-function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
+function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, insertQuoteRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
   const roster = useRoster(value => value)
   const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
   const sessionQueue = (useSessionQueues ?? NO_OBJ_HOOK)(map => map?.[sessionId] ?? EMPTY_LIST)
@@ -574,6 +576,17 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   textRef.current = text
   const noteDraftEdit = useCallback(() => { draftEditSeqRef.current += 1 }, [])
   const inputActions = useInput(field, textRef, setText, setCaret, noteDraftEdit)
+  useEffect(() => {
+    if (!insertQuoteRef) return undefined
+    insertQuoteRef.current = (raw) => {
+      const quoted = quoteMarkdown(String(raw ?? ''))
+      if (quoted === '') return false
+      const existing = textRef.current ?? ''
+      const prefix = existing === '' ? '' : existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n'
+      return inputActions.insertText(`${prefix}${quoted}\n\n`, { start: existing.length, end: existing.length })
+    }
+    return () => { insertQuoteRef.current = undefined }
+  }, [insertQuoteRef, inputActions])
   const enterToSend = sendsOnEnter(roster.prefs)
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
 
@@ -661,8 +674,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       return undefined
     }
     refreshClassicControlsRef.current()
-    const offFeed = feed?.on?.((event) => {
-      if (event === 'live' || event === 'revision' || event === 'hello') refreshClassicControlsRef.current()
+    const offFeed = feed?.on?.((event, data) => {
+      if (event === 'live' || event === 'revision' || (event === 'hello' && data?.resumed !== true)) refreshClassicControlsRef.current()
     })
     return () => { offFeed?.() }
   }, [isAgentChat, sessionId, feed])
@@ -1344,7 +1357,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       disabled,
       placeholder: effectivePlaceholder,
       'aria-label': effectivePlaceholder,
-      'data-composer-input': '',
+      'data-bt-composer-input': '',
       onChange: (event) => {
         draftEditSeqRef.current += 1
         setText(event.target.value)
@@ -1479,7 +1492,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     }) : null,
     h('div', {
       className: 'dsb-composer',
-      'data-composer-card': '',
+      'data-bt-composer': '',
       'data-multiline': (text.includes('\n') || attachments.length > 0) || undefined,
       'data-running': (running && typeof onStop === 'function') || undefined,
       onMouseDown: (event) => {
@@ -1518,18 +1531,200 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         trailingControls)))
 }
 
-function PendingUserRows({ items, sessionId, classic = false }) {
+const SELECTION_SESSION_STATE = Object.freeze({ removed: false, subagent: null })
+const useSelectionSession = selector => selector(SELECTION_SESSION_STATE)
+const selectionHostT = key => (key === 'quote.add' ? t('Quote') : t(key))
+
+function selectionElementOf(node) {
+  if (!node) return null
+  return node.nodeType === 1 ? node : node.parentElement ?? null
+}
+
+function TextSelectionOverlay({ sessionId, containerRef, insertQuoteRef, disabled, actions, useRoster }) {
+  const [selection, setSelection] = useState(null)
+  const [box, setBox] = useState(null)
+  const hostRef = useRef(null)
+  const seqRef = useRef(0)
+
+  const dismiss = useCallback(() => {
+    setSelection(null)
+    setBox(null)
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    try { window.getSelection?.()?.removeAllRanges?.() } catch { /* ignore */ }
+  }, [])
+
+  const readText = useCallback(() => {
+    const raw = window.getSelection?.()?.toString?.() ?? ''
+    if (raw.trim() !== '') return raw.trim()
+    return selection?.text ?? null
+  }, [selection])
+
+  const inputActions = useMemo(() => ({
+    insertQuote: (raw) => {
+      if (typeof insertQuoteRef?.current !== 'function') return false
+      return insertQuoteRef.current(raw) === true
+    },
+  }), [insertQuoteRef])
+
+  const place = useCallback((rect) => {
+    if (!rect || typeof window === 'undefined') return null
+    const pad = 12
+    const vw = window.innerWidth || 1280
+    const vh = window.innerHeight || 800
+    const measuredW = hostRef.current?.offsetWidth || 160
+    const measuredH = hostRef.current?.offsetHeight || 36
+    const centerX = rect.left + rect.width / 2
+    const left = Math.max(pad, Math.min(vw - measuredW - pad, Math.round(centerX - measuredW / 2)))
+    const preferTop = Math.round(rect.top - measuredH - 8)
+    const top = preferTop >= pad ? preferTop : Math.max(pad, Math.min(vh - measuredH - pad, Math.round(rect.bottom + 8)))
+    return { left, top }
+  }, [])
+
+  const interactingRef = useRef(false)
+  const hasSelection = selection !== null
+
+  useEffect(() => {
+    interactingRef.current = false
+    dismiss()
+  }, [sessionId, disabled, dismiss])
+
+  useEffect(() => {
+    if (disabled || typeof document === 'undefined' || typeof window === 'undefined') return undefined
+    const isInHost = (node) => Boolean(hostRef.current && node && hostRef.current.contains(node))
+    const capture = (event) => {
+      if (isInHost(event?.target) || isInHost(document.activeElement) || interactingRef.current) return
+      const container = containerRef.current
+      const sel = window.getSelection?.()
+      if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) {
+        dismiss()
+        return
+      }
+      const text = sel.toString().trim()
+      if (text === '') {
+        dismiss()
+        return
+      }
+      const range = sel.getRangeAt(0)
+      const anchorEl = selectionElementOf(range.startContainer)
+      const focusEl = selectionElementOf(range.endContainer)
+      if (!anchorEl || !focusEl || !container.contains(anchorEl) || !container.contains(focusEl)) {
+        dismiss()
+        return
+      }
+      if (!anchorEl.closest?.('[data-text-interaction-source]') || !focusEl.closest?.('[data-text-interaction-source]')) {
+        dismiss()
+        return
+      }
+      const rect = range.getBoundingClientRect()
+      if (!rect || (rect.width === 0 && rect.height === 0)) {
+        dismiss()
+        return
+      }
+      const nextRect = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+      setSelection((prev) => {
+        if (prev && prev.text === text && Math.abs(prev.rect.top - nextRect.top) < 2 && Math.abs(prev.rect.left - nextRect.left) < 2) {
+          return prev
+        }
+        seqRef.current += 1
+        return { key: seqRef.current, text, rect: nextRect }
+      })
+    }
+    document.addEventListener('mouseup', capture)
+    document.addEventListener('keyup', capture)
+    return () => {
+      document.removeEventListener('mouseup', capture)
+      document.removeEventListener('keyup', capture)
+    }
+  }, [disabled, containerRef, dismiss])
+
+  useEffect(() => {
+    if (!hasSelection || disabled || typeof document === 'undefined' || typeof window === 'undefined') {
+      interactingRef.current = false
+      return undefined
+    }
+    const isInHost = (node) => Boolean(hostRef.current && node && hostRef.current.contains(node))
+    const onPointerDown = (event) => {
+      if (isInHost(event.target)) {
+        interactingRef.current = true
+        return
+      }
+      interactingRef.current = false
+      setSelection(prev => (prev ? null : prev))
+      setBox(prev => (prev ? null : prev))
+    }
+    const onFocusIn = (event) => {
+      if (isInHost(event.target)) interactingRef.current = true
+    }
+    const onSelectionChange = () => {
+      if (interactingRef.current || isInHost(document.activeElement)) return
+      const sel = window.getSelection?.()
+      if (!sel || sel.isCollapsed || sel.toString().trim() === '') dismiss()
+    }
+    const onScroll = () => {
+      if (interactingRef.current || isInHost(document.activeElement)) return
+      dismiss()
+    }
+    const scroller = containerRef.current
+    document.addEventListener('selectionchange', onSelectionChange)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    scroller?.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('focusin', onFocusIn, true)
+      scroller?.removeEventListener('scroll', onScroll)
+    }
+  }, [hasSelection, disabled, containerRef, dismiss])
+
+  useLayoutEffect(() => {
+    if (!selection) { setBox(null); return undefined }
+    const reposition = () => setBox(place(selection.rect))
+    reposition()
+    window.addEventListener('resize', reposition)
+    return () => window.removeEventListener('resize', reposition)
+  }, [selection, place])
+
+  if (!selection || disabled || typeof document === 'undefined' || !document.body) return null
+  const style = box ? { left: `${box.left}px`, top: `${box.top}px` } : { left: `${Math.max(12, Math.round(selection.rect.left))}px`, top: `${Math.max(12, Math.round(selection.rect.top - 44))}px`, visibility: 'hidden' }
+  return createPortal(
+    h('div', { ref: hostRef, className: 'dsb-selection-host', style },
+      h(TextSelectionAction, {
+        key: selection.key,
+        sessionId,
+        dismiss,
+        readText,
+        clearSelection,
+        inputActions,
+        useSession: useSelectionSession,
+        useRoster,
+        actions,
+        t: selectionHostT,
+      })),
+    document.body,
+  )
+}
+
+function PendingUserRows({ items, sessionId, classic = false, reconnecting = false }) {
   if (!items || items.length === 0) return null
+  const statusLabel = reconnecting ? t('Waiting to confirm…') : t('Sending…')
+  const meta = h('div', { className: 'dsb-pending-meta', 'data-reconnecting': reconnecting || undefined },
+    h('span', { className: 'dsb-pending-dot', 'aria-hidden': true }),
+    h('span', null, statusLabel))
   if (classic) {
     return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
       h('div', { className: 'dsb-dsh-user-stack' },
         entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null,
+        meta))))
   }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null,
+      meta))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
@@ -1557,10 +1752,15 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const dragDepth = useRef(0)
   const addFilesRef = useRef(undefined)
   const withdrawRef = useRef(undefined)
+  const insertQuoteRef = useRef(undefined)
   const pendingRef = useRef(undefined)
   pendingRef.current = pending
+  const chatRef = useRef(null)
+  const composerRootRef = useRef(null)
   const scroller = useRef(null)
   const follow = useRef(true)
+  const smoothScrollRef = useRef(null)
+  const [following, setFollowing] = useState(true)
   const keep = useRef(null)
   const seenQueuedIdsRef = useRef(new Set())
 
@@ -1568,6 +1768,8 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     sendGen.current += 1
     keep.current = null
     follow.current = true
+    smoothScrollRef.current = null
+    setFollowing(true)
     setSubagentStack([])
     seenQueuedIdsRef.current = new Set()
     setPending((list) => {
@@ -1629,20 +1831,24 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const openSubagent = useCallback((entry) => {
     if (!entry?.sessionId || !entry?.parentSessionId) return
     follow.current = true
+    setFollowing(true)
     keep.current = null
     setSubagentStack(prev => (prev.at(-1)?.sessionId === entry.sessionId ? prev : [...prev, entry]))
   }, [])
   const popSubagent = useCallback(() => {
     follow.current = true
+    setFollowing(true)
     keep.current = null
     setSubagentStack(prev => prev.slice(0, -1))
   }, [])
   const selectSubagentDepth = useCallback((depth) => {
     follow.current = true
+    setFollowing(true)
     keep.current = null
     setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
   }, [])
 
+  const viewedUpdatedAt = useSessions(list => list.byId[viewedSessionId]?.updatedAt)
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
   const dmChat = useSessionFollow({
     sessionId: viewedSessionId,
@@ -1651,6 +1857,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     enabled: !isRoom && Boolean(viewedSessionId),
     feed,
     readOnly: Boolean(roster.readOnly),
+    readOnlyUpdatedAt: roster.readOnly ? viewedUpdatedAt : undefined,
     onUserMessage: viewingSubagent ? undefined : onSessionUser,
     keep,
   })
@@ -1680,17 +1887,64 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       node.scrollTop = node.scrollHeight - keep.current
       keep.current = null
     } else if (follow.current) node.scrollTop = node.scrollHeight
+    if (!follow.current && node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX) {
+      follow.current = true
+      setFollowing(true)
+    }
   }, [contentRevision, pending, running, question])
+
+  useEffect(() => {
+    const root = composerRootRef.current
+    const chatEl = chatRef.current
+    if (!root || !chatEl) return undefined
+    const writeHeight = () => {
+      const hPx = Math.round(root.getBoundingClientRect?.().height ?? root.offsetHeight ?? 0)
+      if (hPx > 0) chatEl.style.setProperty('--bt-composer-h', `${hPx}px`)
+    }
+    writeHeight()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(writeHeight)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [])
 
   const onScroll = () => {
     const node = scroller.current
     if (!node) return
-    follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
+    const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
+    if (atBottom) {
+      smoothScrollRef.current = null
+    } else if (smoothScrollRef.current !== null) {
+      // Keep following during an in-flight smooth scroll to bottom unless the user scrolls back up.
+      if (node.scrollTop < smoothScrollRef.current.lastTop - 2 || Date.now() > smoothScrollRef.current.until) {
+        smoothScrollRef.current = null
+      } else {
+        smoothScrollRef.current.lastTop = node.scrollTop
+        return
+      }
+    }
+    follow.current = atBottom
+    setFollowing(prev => (prev === atBottom ? prev : atBottom))
+  }
+
+  const scrollToBottom = () => {
+    follow.current = true
+    setFollowing(true)
+    const node = scroller.current
+    if (!node) return
+    if (typeof node.scrollTo === 'function' && !reducedMotion()) {
+      smoothScrollRef.current = { lastTop: node.scrollTop, until: Date.now() + 1500 }
+      node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
+    } else {
+      smoothScrollRef.current = null
+      node.scrollTop = node.scrollHeight
+    }
   }
 
   // Shown at once: the message can arrive on the follow/feed before the request returns.
   const send = async (text, items = []) => {
     follow.current = true
+    setFollowing(true)
     const myGen = sendGen.current
     const pendingAttachments = items.map(item => (item.isImage
       ? { type: 'image', attachment: { name: item.name, previewUrl: item.previewUrl } }
@@ -1712,7 +1966,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       time: Date.now(),
     }
     setPending(list => [...list, entry])
-    actions.noteSent(activeSessionId)
+    const cancelSent = actions.noteSent(activeSessionId, { requestId: entry.requestId, text: entry.text, time: entry.time })
     try {
       const { images: imageIds, files: fileIds } = await stageAttachmentItems(items, actions)
       if (imageIds.length > 0 || fileIds.length > 0) {
@@ -1725,6 +1979,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       entry.settled = true
       if (entry.removed) revokeEntryUrls(entry)
     } catch (error) {
+      if (typeof cancelSent === 'function') cancelSent()
       if (sendGen.current === myGen) {
         entry.removed = true
         setPending(list => list.filter(item => item !== entry))
@@ -1752,7 +2007,9 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const sessionNotice = !isRoom && (dmChat.terminalError || dmChat.failed)
     ? h('div', { className: 'dsb-session-error', role: 'alert' },
-      h('span', null, dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
+      h('span', null, dmChat.terminalError?.code === 'bot/stream-overflow'
+        ? t('Live updates paused: message too large')
+        : dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
     : null
 
@@ -1769,6 +2026,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const useBrowserHolds = hooks.useBrowserHolds ?? NO_OBJ_HOOK
   const useBrowserTabs = hooks.useBrowserTabs ?? NO_OBJ_HOOK
   const useBrowserPages = hooks.useBrowserPages ?? NO_OBJ_HOOK
+  const feedDisconnected = hooks.useConnection ? hooks.useConnection(state => state.status !== 'connected') : false
 
   // Once an optimistic message lands in the live Queue Dock, drop its faded pending bubble
   // from the transcript so queued messages are never shown twice. Track seen queue item IDs
@@ -1888,6 +2146,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   )
 
   return h('div', {
+    ref: chatRef,
     className: isClassic ? 'dsb-chat dsb-classic-chat' : 'dsb-chat',
     'data-classic': isClassic ? '' : undefined,
     'data-dragging': dragging || undefined,
@@ -1905,12 +2164,12 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     onBack: popSubagent,
     onSelectDepth: selectSubagentDepth,
   }) : null,
-  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-bt-scroll': '', 'data-bt-following-tail': following ? 'true' : 'false', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
     !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
     h('div', { className: 'dsb-column' },
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
-      h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+      h('div', { className: 'dsb-flow', 'data-bt-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
         !isRoom && dmChat.historyReloaded ? h('div', { key: 'history-reloaded', className: 'bt-time-sep', role: 'separator' }, t('Conversation history was reloaded')) : null,
         isRoom
           ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
@@ -1938,12 +2197,22 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             useComputer,
             thinkingAt: dmChat.thinkingAt,
             hasMore: dmChat.hasMore,
+            quietSeq: dmChat.quietSeq,
+            reloadEpoch: dmChat.reloadEpoch,
             registry,
           }),
-        !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic }) : null,
+        !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic, reconnecting: feedDisconnected }) : null,
         // The Bot views' activity row (from the header pill) draws itself in here.
-        !viewingSubagent ? h('div', { 'data-chat-running': '' }) : null))),
-  h('div', { className: 'dsb-composer-root' },
+        !viewingSubagent ? h('div', { 'data-bt-running': '' }) : null))),
+  !following && !viewingSubagent ? h('button', {
+    type: 'button',
+    className: 'bt-to-bottom',
+    'data-bt-to-bottom': '',
+    'aria-label': t('Back to bottom'),
+    title: t('Back to bottom'),
+    onClick: scrollToBottom,
+  }, h(ArrowDownIcon)) : null,
+  h('div', { ref: composerRootRef, className: 'dsb-composer-root' },
     !viewingSubagent ? h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
     !viewingSubagent ? h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     !viewingSubagent ? h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
@@ -1951,6 +2220,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     !isRoom && !viewingSubagent ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
     !isRoom && !viewingSubagent ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
     !isRoom && !viewingSubagent ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(WorkPauseDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, actions }) : null,
     !isRoom && !viewingSubagent ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
     !isRoom && !viewingSubagent ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
     !isRoom && !viewingSubagent ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
@@ -1980,6 +2250,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
         onStop,
         addFilesRef,
         withdrawRef,
+        insertQuoteRef,
         actions,
         feed,
         useUi: hooks.useUi,
@@ -1988,5 +2259,13 @@ export function Chat({ sessionId, team, registry, classic = false }) {
         useSessions: hooks.useSessions,
         useSessionQueues,
         useRescuedDrafts: hooks.useRescuedDrafts,
-      })))
+      })),
+  !viewingSubagent && !readOnly ? h(TextSelectionOverlay, {
+    sessionId: activeSessionId,
+    containerRef: scroller,
+    insertQuoteRef,
+    disabled: locked,
+    actions,
+    useRoster: hooks.useRoster,
+  }) : null)
 }

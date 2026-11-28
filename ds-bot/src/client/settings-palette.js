@@ -45,10 +45,28 @@ export const SEARCH_ENTRIES = [
 ]
 
 const DSH_KEYWORDS = {
-  account: 'account profile login sign in sync 账户 账号 登录 个人资料',
+  account: 'account profile login sign in sync billing balance top up 账户 账号 登录 个人资料 余额 账单 充值',
   plugins: 'plugins web search shell bash agent loop extension 插件 网页搜索 命令执行 运行 扩展',
-  'agent-presets': 'agent presets persona prompt template 预设 角色 提示词 模板',
-  'archived-sessions': 'archived sessions history chats archive 归档 会话 历史 聊天',
+  'agent-presets': 'agent presets persona prompt template standard ptc minimal creator 预设 角色 提示词 模板 标准 模式',
+  'archived-sessions': 'archived sessions history chats archive restore 归档 会话 历史 聊天 恢复',
+}
+
+// Engine sub-pages hosted under merged DSH sections (`plugins` / `models`), indexed in ⌘K search.
+const ENGINE_PLUGIN_SEARCH_ENTRIES = [
+  { id: 'engine:plugins', label: 'Engine plugins', page: 'plugins', target: 'dsh', icon: 'plugins', keywords: 'engine plugins bundles extensions install 引擎插件 插件 扩展 安装' },
+  { id: 'engine:web-search', label: 'Web search', page: 'plugins', target: 'dsh:web-search', icon: 'browser', keywords: 'web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费' },
+  { id: 'engine:shell', label: 'Shell', page: 'plugins', target: 'dsh:shell', icon: 'local-agents', keywords: 'shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时' },
+  { id: 'engine:agent-loop', label: 'Agent loop', page: 'plugins', target: 'dsh:agent-loop', icon: 'models', keywords: 'agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用' },
+  { id: 'engine:subagent', label: 'Subagents', page: 'plugins', target: 'dsh:subagent', icon: 'bot-models', surfaceMode: 'agent', keywords: 'subagents subagent max depth active models 子代理 子智能体 深度' },
+]
+
+const ENGINE_MODELS_SEARCH_ENTRY = {
+  id: 'engine:models',
+  label: 'Advanced settings',
+  page: 'models',
+  target: 'advanced',
+  icon: 'models',
+  keywords: 'advanced settings engine models provider config 高级设置 引擎 模型 配置',
 }
 const QUICK_IDS = ['general', 'appearance', 'models', 'bots', 'plugins', 'connectors', 'usage']
 const matches = (haystack, tokens) => tokens.every(token => haystack.includes(token))
@@ -76,10 +94,37 @@ function quickHits({ roster, pageAvailable = () => true, hasSurface = false }) {
 
 // The hits for one query, in the order the list shows them: settings (title hits before
 // keyword-only hits), Bots, group chats, then models with the batch switch beside each one.
-export function searchHits(query, { roster, extra = [], pageAvailable = () => true, hasSurface = false }) {
+export function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () => true, hasSurface = false }) {
   const raw = query.trim().toLowerCase()
   const tokens = raw.split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return []
+  const dshSections = dsh?.sections ?? []
+  const hasDshPlugins = dshSections.some(row => row?.id === 'plugins')
+  const hasDshModels = dshSections.some(row => row?.id === 'models')
+  const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow)
+  const surfaceMode = dsh?.surfaceMode ?? 'bot'
+  const engineEntries = [
+    ...(hasDshPlugins && pageAvailable('plugins')
+      ? ENGINE_PLUGIN_SEARCH_ENTRIES
+        .filter(entry => (entry.target === 'dsh' || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode))
+        .map(entry => ({
+          ...entry,
+          kind: 'setting',
+          title: t(entry.label),
+          meta: t('Engine'),
+          haystack: `${entry.label} ${t(entry.label)} dsh engine ${t('Engine')} ${entry.keywords}`.toLowerCase(),
+        }))
+      : []),
+    ...(hasDshModels && pageAvailable('models')
+      ? [{
+        ...ENGINE_MODELS_SEARCH_ENTRY,
+        kind: 'setting',
+        title: t(ENGINE_MODELS_SEARCH_ENTRY.label),
+        meta: t('Engine'),
+        haystack: `${ENGINE_MODELS_SEARCH_ENTRY.label} ${t(ENGINE_MODELS_SEARCH_ENTRY.label)} dsh engine ${t('Engine')} ${ENGINE_MODELS_SEARCH_ENTRY.keywords}`.toLowerCase(),
+      }]
+      : []),
+  ]
   const settings = [
     ...SEARCH_ENTRIES.filter(entry => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map(entry => ({
       ...entry,
@@ -92,6 +137,7 @@ export function searchHits(query, { roster, extra = [], pageAvailable = () => tr
       id: `dsh:${row.id}`, kind: 'setting', title: row.label, meta: t('Engine'), page: 'dsh', dshId: row.id, dshRow: row,
       haystack: `${row.label} ${row.id} dsh engine ${t('Engine')} ${DSH_KEYWORDS[row.id] ?? ''}`.toLowerCase(),
     })),
+    ...engineEntries,
   ].filter(entry => matches(entry.haystack, tokens))
     .sort((a, b) => scoreSetting(b, raw, tokens) - scoreSetting(a, raw, tokens))
   const bots = (roster.bots ?? []).map(bot => ({
@@ -136,8 +182,8 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
   }, [])
   const empty = query.trim() === ''
   const hits = useMemo(
-    () => (empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, pageAvailable, hasSurface })),
-    [empty, query, roster, extra, hasSurface],
+    () => (empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, dsh, pageAvailable, hasSurface })),
+    [empty, query, roster, extra, dsh, hasSurface],
   )
   useEffect(() => { setIndex(0) }, [query])
   useEffect(() => { inputRef.current?.focus?.({ preventScroll: true }) }, [])

@@ -19,7 +19,7 @@ import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
-import { chatRoom, dshCollapsed } from './frame-watch.js'
+import { chatRoom, dshCollapsed } from './chat-room.js'
 import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { InboxEntry, waitLineOf, waitsOf } from './inbox.js'
 
@@ -1025,7 +1025,7 @@ export function TeamSidebar(props) {
       retryScope.current = { wide, collapsed: frameSnap.collapsed }
       collapseRetries.current = 0
     }
-    const collapsed = dshCollapsed() ?? !wide
+    const collapsed = dshCollapsed() ?? (props.useFrame ? frameSnap.collapsed : !wide)
     const prev = dsh.current
     const viewport = window.innerWidth
     dsh.current = { collapsed, viewport }
@@ -1375,7 +1375,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
-      [t('Scheduled tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      [t('Scheduled tasks'), ClockIcon, () => (typeof actions.selectPanel === 'function' ? actions.selectPanel('schedules') : actions.openSettings('schedules'))],
       [t('Settings'), GearIcon, () => actions.openSettings('overview')],
     ].filter(Boolean),
     typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
@@ -1396,7 +1396,14 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
           index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
           group.map(([label, Icon, run, hint, stay]) => h('button', {
             key: label, type: 'button', role: 'menuitem',
-            onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
+            onClick: () => {
+              if (stay !== true) setOpen(false)
+              try {
+                void Promise.resolve(run()).catch(error => actions.reportError?.(error, 'menu'))
+              } catch (error) {
+                actions.reportError?.(error, 'menu')
+              }
+            },
           }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
 }
 
@@ -1639,10 +1646,6 @@ export const SIDEBAR_CSS = `
 .bt-rail .bt-row{position:relative}
 .bt-rail .bt-pin{position:absolute;top:1px;left:calc(50% + 14px)}
 .bt-side .bt-read-only{margin:4px 8px 6px;padding:8px 10px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:1.45;text-align:left}
-[class*="_footArea"]:has(.bt-foot-account){grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px}
-[class*="_footArea"]>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;order:1;display:inline-flex}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"]{grid-column:3}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"] button[class*="_trigger"] [class*="_label"]{display:none!important}
 
 /* The update cloud springs in when a newer DS Bot shows up; its arrow drops in a
    loop while the install runs. */

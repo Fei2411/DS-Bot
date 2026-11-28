@@ -69,16 +69,16 @@ export function appearanceCss({ appearance, theme, background, pictureUrl = () =
   // `--bt-mono`) into what DS Bot draws, also where no DSH stylesheet sets DSH's (the desktop
   // app's own window). A font the device does not have falls through to the system font.
   if (look.uiFont) {
-    vars.push(`--dsh-font-family-text:${fontStack(look.uiFont)}`, `--bt-font:${fontStack(look.uiFont)},${SYSTEM_UI}`)
+    vars.push(`--bt-reply-font:${fontStack(look.uiFont)}`, `--bt-font:${fontStack(look.uiFont)},${SYSTEM_UI}`)
     rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`)
   }
   if (look.codeFont) {
-    vars.push(`--dsh-font-family-code:${fontStack(look.codeFont)}`, `--bt-mono:${fontStack(look.codeFont)},${SYSTEM_CODE}`)
+    vars.push(`--bt-mono:${fontStack(look.codeFont)},${SYSTEM_CODE}`)
     rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`)
   }
   if (fonts) {
-    if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`, `--dsh-content-font-size:${look.fontSize}px`)
-    if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`)
+    if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`, `--bt-content-fs:${look.fontSize}px`)
+    if (look.lineHeight) rules.push(`html body .bt-md,html body .md_markdown{line-height:${look.lineHeight}}`)
   }
   if (look.density !== undefined) rules.push(scoped(DENSITY[look.density], 'html body'))
   const { shown, paint } = painted({ appearance, background, pictureUrl, safe })

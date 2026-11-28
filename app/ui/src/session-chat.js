@@ -7,7 +7,7 @@
 import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
-import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
+import { Bubbles, EarlierParts, NewDivider, PartLine, ThinkingRow, ToolCell, isBotTool, unseenSince } from '../../../ds-bot/src/client/cells.js'
 import { ChangesCard } from '../../../ds-bot/src/client/changes-card.js'
 import { MarkdownText, fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
@@ -43,7 +43,12 @@ function useUiLanguage() {
     const service = getAppLocale()
     return typeof service?.subscribe === 'function' ? service.subscribe(notify) : NO_LOCALE
   }, [])
-  const snapshot = useCallback(() => getAppLocale()?.getLocale?.().active ?? 'en', [])
+  const snapshot = useCallback(() => {
+    const svc = getAppLocale()
+    const active = svc?.getLocale?.().active ?? 'en'
+    const revision = svc?.getSnapshot?.().revision ?? 0
+    return `${active}:${revision}`
+  }, [])
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 import { GenericToolCard, ToolCallCard } from './tool-card.js'
@@ -146,7 +151,7 @@ function reasoningStartFrom(log, existing, now) {
  * Follows one Bot's current Session via `api/bot/session` and pages older records
  * via `session-page`, keeping `SessionLog` in sync across reconnects and read-only updates.
  */
-export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readOnly, onUserMessage, keep, openFollow = openSessionFollow }) {
+export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readOnly, readOnlyUpdatedAt, onUserMessage, keep, openFollow = openSessionFollow }) {
   const [state, setState] = useState(() => ({
     log: emptyLog(),
     thinkingAt: {},
@@ -156,14 +161,18 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     pageFailed: false,
     terminalError: null,
     historyReloaded: false,
+    quietSeq: -1,
+    reloadEpoch: 0,
   }))
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
   const genRef = useRef(0)
+  const gapGenRef = useRef(0)
   const pagingRef = useRef(false)
   const openedRef = useRef(false)
   const resyncRef = useRef(false)
   const seenUserSeqsRef = useRef(new Set())
+  const readOnlyUpdatedAtRef = useRef(readOnlyUpdatedAt)
   const onUserRef = useRef(onUserMessage)
   onUserRef.current = onUserMessage
   const openFollowRef = useRef(openFollow)
@@ -171,14 +180,85 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
 
   useEffect(() => {
     const myGen = ++genRef.current
+    gapGenRef.current += 1
     pagingRef.current = false
     openedRef.current = false
     resyncRef.current = false
     seenUserSeqsRef.current = new Set()
+    readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
     const fresh = emptyLog()
     logRef.current = fresh
-    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false })
+    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false, quietSeq: -1, reloadEpoch: 0 })
     if (!enabled || !sessionId) return undefined
+
+    const fillGap = async (myGapGen, prevLastSeq, openingFirstSeq, snapshotCursor, snapshotHasMore) => {
+      const isCurrent = () => genRef.current === myGen && gapGenRef.current === myGapGen
+      const fallbackToOpening = () => {
+        if (!isCurrent()) return
+        const cur = logRef.current
+        const kept = cur.events.filter(ev => ev.seq >= openingFirstSeq)
+        const replaced = { ...cur, events: kept, hasMore: snapshotHasMore, revision: cur.revision + 1 }
+        logRef.current = replaced
+        setState(current => ({
+          ...current,
+          log: replaced,
+          historyReloaded: true,
+          pageFailed: false,
+          reloadEpoch: current.reloadEpoch + 1,
+          quietSeq: Number.isFinite(replaced.cursor) ? Math.max(0, replaced.cursor) : current.quietSeq,
+        }))
+      }
+      const pages = []
+      let beforeSeq = openingFirstSeq
+      let bridged = false
+      try {
+        for (;;) {
+          const page = await call('session-page', {
+            sessionId,
+            ...(parent ? { parent } : {}),
+            ...(mode ? { mode } : {}),
+            beforeSeq,
+            throughSeq: snapshotCursor,
+            maxMessages: PAGE_SIZE,
+          })
+          if (!isCurrent()) return
+          const events = (page?.records ?? []).map(record => record.event).filter(ev => Number.isSafeInteger(ev?.seq))
+          if (events.length === 0) break
+          pages.unshift(events)
+          const oldest = events[0].seq
+          if (oldest >= beforeSeq) break
+          if (oldest <= prevLastSeq + 1) {
+            bridged = true
+            break
+          }
+          if (!page?.hasMore) break
+          beforeSeq = oldest
+        }
+      } catch {
+        // Never leave a permanent silent hole in the middle of the transcript when gap paging fails.
+        fallbackToOpening()
+        return
+      }
+      if (!isCurrent()) return
+      if (bridged) {
+        const cur = logRef.current
+        const gapEvents = pages.flat().filter(ev => ev.seq > prevLastSeq && ev.seq < openingFirstSeq)
+        for (const userEv of collectUserEvents(gapEvents)) {
+          if (seenUserSeqsRef.current.has(userEv.seq)) continue
+          seenUserSeqsRef.current.add(userEv.seq)
+          const summary = userSummaryOf(userEv)
+          onUserRef.current?.(summary.text, userEv.time, false, summary)
+        }
+        const head = cur.events.filter(ev => ev.seq <= prevLastSeq)
+        const tail = cur.events.filter(ev => ev.seq >= openingFirstSeq)
+        const spliced = { ...cur, events: [...head, ...gapEvents, ...tail], revision: cur.revision + 1 }
+        logRef.current = spliced
+        setState(current => ({ ...current, log: spliced, pageFailed: false, quietSeq: Math.max(current.quietSeq, openingFirstSeq - 1) }))
+      } else {
+        // The durable log genuinely no longer reaches the earlier prefix; fall back cleanly.
+        fallbackToOpening()
+      }
+    }
 
     const handle = openFollowRef.current({
       sessionId,
@@ -189,9 +269,41 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
+        if (data?.type === 'snapshot') gapGenRef.current += 1
         const resyncing = data?.type === 'snapshot' && resyncRef.current
-        const next = applyFrame(resyncing ? emptyLog() : logRef.current, data)
-        if (resyncing) resyncRef.current = false
+        let next
+        let reloaded = false
+        if (resyncing) {
+          resyncRef.current = false
+          const prev = logRef.current
+          const opening = Array.isArray(data.records) ? data.records.map(record => record.event) : []
+          const prevLastSeq = prev.events.length > 0 ? prev.events.at(-1).seq : undefined
+          const openingFirstSeq = opening.length > 0 ? opening[0].seq : undefined
+          const sameSession = prev.header?.id !== undefined && prev.header.id === data.header?.id
+          const rewound = Number.isSafeInteger(data.cursor) && data.cursor < prev.cursor
+          if (!sameSession || rewound) {
+            next = applyFrame(emptyLog(), data)
+            reloaded = true
+          } else if (opening.length === 0 || prevLastSeq === undefined || prevLastSeq >= openingFirstSeq - 1) {
+            next = applyFrame(prev, data)
+          } else {
+            // Preserve already-loaded earlier pages across a forward stale gap and page in only the gap.
+            const myGapGen = gapGenRef.current
+            const freshSnap = applyFrame(emptyLog(), data)
+            next = {
+              log: {
+                ...freshSnap.log,
+                events: [...prev.events, ...opening],
+                hasMore: prev.hasMore,
+                revision: prev.revision + 1,
+              },
+              reopen: false,
+            }
+            void fillGap(myGapGen, prevLastSeq, openingFirstSeq, data.cursor, data.hasMore === true)
+          }
+        } else {
+          next = applyFrame(logRef.current, data)
+        }
         logRef.current = next.log
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
         // matching historical duplicates or dropping messages on a gap-reopen frame.
@@ -213,6 +325,8 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
           }
         }
         const now = Date.now()
+        const isSnapshot = data?.type === 'snapshot'
+        const nextCursor = Number.isFinite(next.log.cursor) ? next.log.cursor : -1
         setState(current => ({
           ...current,
           log: next.log,
@@ -220,18 +334,24 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
           loading: false,
           failed: false,
           terminalError: null,
-          historyReloaded: current.historyReloaded || resyncing,
+          historyReloaded: current.historyReloaded || reloaded,
+          reloadEpoch: reloaded ? current.reloadEpoch + 1 : current.reloadEpoch,
+          quietSeq: reloaded ? Math.max(0, nextCursor) : (isSnapshot ? Math.max(current.quietSeq, nextCursor) : current.quietSeq),
         }))
         if (next.reopen) followRef.current?.reopen()
       } else if (event === 'error') {
         if (data?.code === 'bot/stale' && !resyncRef.current) {
           // The durable log no longer reaches this window's cursor. Reopen once without
-          // `after`; the fresh opening replaces the rows instead of looping on that cursor.
+          // `after` and keep any already-loaded earlier pages by paging only the missing gap.
           resyncRef.current = true
           followRef.current?.reopen()
           return
         }
-        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid' || data?.code === 'bot/stale'
+        const terminal = data?.code === 'bot/not-found'
+          || data?.code === 'bot/refused'
+          || data?.code === 'bot/invalid'
+          || data?.code === 'bot/stale'
+          || data?.code === 'bot/stream-overflow'
         setState(current => ({
           ...current,
           loading: false,
@@ -245,19 +365,30 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     followRef.current = handle
     return () => {
       if (genRef.current === myGen) genRef.current += 1
+      gapGenRef.current += 1
       handle.close()
       if (followRef.current === handle) followRef.current = null
     }
   }, [sessionId, parent, mode, enabled])
 
   // Read-only windows only receive the opening snapshot from DSH (host/session-follow.js):
-  // reopen when the team live feed reports a revision or reconnects.
+  // reopen when the team live feed reports a revision/unresumed reconnect, or when the
+  // catalog reports a newer updatedAt for this same segment written by another process.
   useEffect(() => {
     if (!enabled || !sessionId || !feed) return undefined
-    return feed.on((event) => {
-      if (readOnly && (event === 'revision' || event === 'hello')) followRef.current?.reopen()
+    return feed.on((event, data) => {
+      if (readOnly && (event === 'revision' || (event === 'hello' && data?.resumed !== true))) followRef.current?.reopen()
     })
   }, [enabled, sessionId, parent, mode, feed, readOnly])
+
+  useEffect(() => {
+    const prev = readOnlyUpdatedAtRef.current
+    readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
+    if (!enabled || !readOnly || !sessionId) return
+    if (Number.isFinite(readOnlyUpdatedAt) && Number.isFinite(prev) && readOnlyUpdatedAt > prev) {
+      followRef.current?.reopen()
+    }
+  }, [enabled, readOnly, sessionId, readOnlyUpdatedAt])
 
   const loadEarlier = useCallback(async (scroller) => {
     if (!enabled || !sessionId || pagingRef.current) return
@@ -306,6 +437,8 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     pageFailed: state.pageFailed,
     terminalError: state.terminalError,
     historyReloaded: state.historyReloaded,
+    quietSeq: state.quietSeq,
+    reloadEpoch: state.reloadEpoch,
     hasMore: pageBefore(state.log) !== undefined,
     thinkingAt: state.thinkingAt,
     loadEarlier,
@@ -447,7 +580,7 @@ const UserRow = memo(function UserRow({ row, sessionId, parent, mode, ancestors,
     return h('div', {
       ref: container,
       className: 'dsb-dsh-user',
-      'data-chat-flow-kind': 'user',
+      'data-bt-flow-kind': 'user',
       'data-open': toolsOpen || undefined,
     },
     h('div', { className: 'dsb-dsh-user-stack' },
@@ -572,7 +705,7 @@ const AssistantRow = memo(function AssistantRow({
       }) : null,
       hasTexts ? h('div', {
         className: 'dsb-dsh-asst',
-        'data-chat-flow-kind': 'assistant',
+        'data-bt-flow-kind': 'assistant',
         'data-streaming': row.streaming ? '' : undefined,
       },
       h('div', {
@@ -687,8 +820,8 @@ const SessionToolRow = memo(function SessionToolRow({
     const callId = row.block?.callId || row.callId || ''
     return h('div', {
       className: 'dsb-tool-wrap',
-      'data-chat-anchor-key': callId ? `call:${callId}` : undefined,
-      'data-chat-call-id': callId || undefined,
+      'data-bt-anchor-key': callId ? `call:${callId}` : undefined,
+      'data-bt-call-id': callId || undefined,
     }, h(ToolCell, {
       node: {
         key: callId || row.key,
@@ -789,10 +922,16 @@ const DeliverablesRow = memo(function DeliverablesRow({ row, sessionId, onOpenFi
 })
 
 function turnFactsSignature(facts) {
-  if (!facts?.turns) return ''
+  if (!facts?.turns && !Array.isArray(facts?.userMessages)) return ''
   const parts = [`open:${facts.openTurn ?? ''}`]
-  for (const entry of facts.turns.values()) {
-    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}`)
+  for (const entry of facts.turns?.values() ?? []) {
+    const replyLen = facts.closingReplies?.get(entry.turn)?.length ?? 0
+    parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}:${replyLen}`)
+  }
+  const users = Array.isArray(facts.userMessages) ? facts.userMessages : []
+  if (users.length > 0) {
+    const lastUser = users[users.length - 1]
+    parts.push(`users:${users.length}:${lastUser?.seq ?? ''}:${lastUser?.time ?? ''}`)
   }
   return parts.join('|')
 }
@@ -838,7 +977,7 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 const EMPTY_SPEAKERS = new Set()
 
 function renderTranscriptRows({
-  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
+  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts, firstUnreadKey = null,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
   resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -933,17 +1072,61 @@ function renderTranscriptRows({
       fallback: renderDefault,
     })
 
-    return pause
-      ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
-      : [node]
+    const showNew = firstUnreadKey !== null && row.key === firstUnreadKey
+    if (!pause && !showNew) return [node]
+    const out = []
+    if (showNew) out.push(h(NewDivider, { key: `${row.key}:new` }))
+    if (pause) out.push(h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
+    out.push(node)
+    return out
   })
+}
+
+// Advances the tail-reply watermark for a DM session. Prepended historical pages
+// (`loadEarlier`), gap-fill backfills (`fillGap`), resync/reconnect snapshots, and
+// full reloads (`historyReloaded` / rewound cursor) advance or reset the watermark
+// with 0 new arrivals; only newly appended live tail assistant replies increment the pill.
+export function advanceReplyWatermark(state, sessionId, ready, rows, options = {}) {
+  if (!sessionId || !ready) return { next: state, added: 0 }
+  const cursor = Number.isFinite(options?.cursor) ? options.cursor : -1
+  const floorSeq = Number.isFinite(options?.floorSeq) ? options.floorSeq : -1
+  const reloadEpoch = Number.isFinite(options?.reloadEpoch) ? options.reloadEpoch : 0
+  const sameSession = state?.sessionId === sessionId
+  const current = sameSession
+    ? state
+    : { sessionId, maxSeq: null, reloadEpoch }
+  let highestRowSeq = 0
+  for (const row of rows) {
+    if (row.kind === 'assistant' && row.texts.length > 0 && Number.isFinite(row.seq) && row.seq > highestRowSeq) {
+      highestRowSeq = row.seq
+    }
+  }
+  const rewound = current.maxSeq !== null && cursor >= 0 && cursor < current.maxSeq
+  const reloaded = sameSession && reloadEpoch !== (current.reloadEpoch ?? 0)
+  if (current.maxSeq === null || ((rewound || reloaded) && floorSeq < 0)) {
+    const baseline = Math.max(0, highestRowSeq, cursor, floorSeq)
+    return { next: { sessionId, maxSeq: baseline, reloadEpoch }, added: 0 }
+  }
+  let maxSeq = (rewound || reloaded) ? Math.max(0, floorSeq) : Math.max(current.maxSeq, floorSeq)
+  let added = 0
+  for (const row of rows) {
+    if (row.kind === 'assistant' && row.texts.length > 0 && Number.isFinite(row.seq) && row.seq > maxSeq) {
+      added += 1
+      maxSeq = row.seq
+    }
+  }
+  if (cursor > maxSeq) maxSeq = cursor
+  if (maxSeq === current.maxSeq && reloadEpoch === (current.reloadEpoch ?? 0)) {
+    return { next: current, added }
+  }
+  return { next: { sessionId, maxSeq, reloadEpoch }, added }
 }
 
 export function SessionTranscript({
   log, sessionId, parent, mode, ancestors, bot, roster, actions, classic = false, feed, readOnly = false, onOpenSubagent,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
-  thinkingAt, hasMore = false, registry = defaultSlots,
+  thinkingAt, hasMore = false, quietSeq = -1, reloadEpoch = 0, registry = defaultSlots,
 }) {
   // The memoized rows read `t()` at render time, so the language travels as a prop:
   // a switch re-renders them in the new language, and a stream chunk never changes it.
@@ -1126,8 +1309,40 @@ export function SessionTranscript({
       computerShot,
     }
   }, [actions, loadImage])
+  const visit = resolvedUseUi(state => state?.visits?.[sessionId])
+  const firstUnreadKey = useMemo(() => {
+    if (classic || typeof visit?.seen !== 'number') return null
+    for (const list of [rowParts.committed, rowParts.live]) {
+      for (const row of list) {
+        if (row.kind === 'part-start' || row.kind === 'compaction' || row.kind === 'turn-tail') continue
+        if (row.kind === 'tool' && !hasBotToolInTree(row.block)) continue
+        if (row.kind === 'assistant' && row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+        if (unseenSince(visit, row.time)) return row.key
+      }
+    }
+    return null
+  }, [classic, visit?.seen, visit?.entered, rowParts.committed, rowParts.live, showThinking])
+  useEffect(() => {
+    if (classic || !sessionId || typeof actions?.noteTurnTime !== 'function') return
+    for (const row of rowParts.committed) {
+      if (row.kind === 'part-start' || row.kind === 'compaction' || row.kind === 'turn-tail') continue
+      if (Number.isFinite(row.time)) actions.noteTurnTime(sessionId, row.turn ?? row.key, 'first', row.time)
+    }
+  }, [classic, sessionId, rowParts.committed, actions])
+  const tailReplyRef = useRef({ sessionId: null, maxSeq: null, reloadEpoch: 0 })
+  useEffect(() => {
+    if (classic || !sessionId || typeof actions?.noteReplyArrival !== 'function') return
+    const { next, added } = advanceReplyWatermark(tailReplyRef.current, sessionId, log?.header !== null, rowParts.committed, {
+      cursor: log?.cursor,
+      floorSeq: quietSeq,
+      reloadEpoch,
+    })
+    tailReplyRef.current = next
+    if (added > 0) actions.noteReplyArrival(sessionId, added)
+  }, [classic, sessionId, log?.header, log?.cursor, quietSeq, reloadEpoch, rowParts.committed, actions])
+
   const rowProps = {
-    canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    canLoadEarlierParts, firstUnreadKey, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
@@ -1146,7 +1361,7 @@ export function SessionTranscript({
     thinkingAt: undefined,
     rows: rowParts.committed,
   }), [
-    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
+    rowParts.committed, canLoadEarlierParts, firstUnreadKey, sessionId, bot, roster, actions, toolActions, classic,
     useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,

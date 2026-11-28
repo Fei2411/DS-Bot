@@ -132,7 +132,7 @@ test('consecutive group messages from the same Bot chain together, and cards or 
   const node = (classes, botId, turn = {}) => ({
     dataset: botId ? { botId } : {},
     classList: { contains: name => classes.includes(name) },
-    closest: sel => (sel === '[data-chat-group-key]' ? turn : null),
+    closest: sel => (sel === '[data-bt-group-key]' ? turn : null),
   })
   const t1 = { dataset: {} }, t2 = { dataset: {} }, t3 = { dataset: {} }, t4 = { dataset: {} }
   const m1 = node(['bt-group-msg'], 'a', t1)

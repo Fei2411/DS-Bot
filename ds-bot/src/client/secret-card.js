@@ -640,10 +640,6 @@ export const SECRET_CSS = `
 .bt-secret-seg{position:relative;z-index:1;height:28px;padding:0 14px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:color .16s ease}
 .bt-secret-seg[aria-checked=true]{color:var(--bt-ink);font-weight:500}
 .bt-secret-seg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-/* A key card asks the user to act, so the process group carrying it stays open in every
-   work-details mode (same override as .bt-group-replies in styles.js). */
-[data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
-[data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 .bt-secret-ok{display:flex;align-items:center;gap:4px;margin-top:6px;animation:bt-secret-in .22s cubic-bezier(.22,1,.36,1)}
 .bt-secret-ok svg{width:13px;height:13px;color:var(--bt-green)}
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}

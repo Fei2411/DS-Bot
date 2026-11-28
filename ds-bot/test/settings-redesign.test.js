@@ -758,7 +758,7 @@ test('SettingsTour replays from step 0 without unmounting, ends when search open
     const fallbackTree = drawStandalone({ mode: 'schedules', nonce: 2 })
     const schedLayer = findAll(fallbackTree, n => n.props?.className === 'bt-tour-layer')[0]
     assert.equal(schedLayer.props['data-tour-step'], 'open-plugins')
-    assert.equal(schedLayer.props['aria-label'], 'Turn on Automation tasks in DSH')
+    assert.equal(schedLayer.props['aria-label'], 'Turn on scheduled tasks')
     assert.equal(findAll(fallbackTree, n => n.props?.className === 'bt-tour-spot').length, 1)
     harness.unmount()
   })
@@ -1240,4 +1240,178 @@ test('search names a model by provider when two share a name, and offers no swit
   assert.deepEqual(titles, ['Switch Bots to DeepSeek Chat · Router…'])
   const local = [{ id: 'l', name: 'L', model: 'local-codex-cli/default' }]
   assert.equal(searchHits('deepseek chat', { roster: { bots: local, rooms: [], models } }).filter(hit => hit.kind === 'action').length, 0)
+})
+
+test('searchHits indexes Engine settings subpages when DSH plugins/models sections exist and respects surfaceMode', async () => {
+  const code = await loadBundle("export { searchHits } from './src/client/settings-palette.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => makeStatefulReact().React)
+  const { searchHits } = mod.exports
+  const roster = { bots: [], rooms: [], models: [] }
+  const dshBot = {
+    ownWindow: true,
+    pluginSubTarget: true,
+    surfaceMode: 'bot',
+    sections: [
+      { id: 'account', label: 'Account' },
+      { id: 'plugins', label: 'Plugins' },
+      { id: 'agent-presets', label: 'Agent presets' },
+    ],
+  }
+  const extra = dshBot.sections.filter(s => s.id !== 'plugins')
+
+  const loopHits = searchHits('agent loop', { roster, extra, dsh: dshBot })
+  assert.ok(loopHits.some(h => h.page === 'plugins' && h.target === 'dsh:agent-loop'), 'Agent loop indexed in settings search')
+
+  const shellHits = searchHits('shell', { roster, extra, dsh: dshBot })
+  assert.ok(shellHits.some(h => h.page === 'plugins' && h.target === 'dsh:shell'), 'Shell indexed in settings search')
+
+  const webHits = searchHits('web search', { roster, extra, dsh: dshBot })
+  assert.ok(webHits.some(h => h.page === 'plugins' && h.target === 'dsh:web-search'), 'Web search indexed in settings search')
+
+  const engPlugHits = searchHits('engine plugins', { roster, extra, dsh: dshBot })
+  assert.ok(engPlugHits.some(h => h.page === 'plugins' && h.target === 'dsh'), 'Engine plugins indexed in settings search')
+
+  const subBotHits = searchHits('subagents', { roster, extra, dsh: dshBot })
+  assert.equal(subBotHits.some(h => h.target === 'dsh:subagent'), false, 'Subagents hidden in Bot mode search')
+
+  // Native DSH Web surface (no ownWindow / pluginSubTarget) keeps Engine plugins root but omits unsupported detail links.
+  const dshNativeWeb = { sections: dshBot.sections }
+  assert.ok(searchHits('engine plugins', { roster, extra, dsh: dshNativeWeb }).some(h => h.page === 'plugins' && h.target === 'dsh'))
+  assert.equal(searchHits('shell', { roster, extra, dsh: dshNativeWeb }).some(h => h.target === 'dsh:shell'), false)
+  assert.equal(searchHits('agent loop', { roster, extra, dsh: dshNativeWeb }).some(h => h.target === 'dsh:agent-loop'), false)
+
+  const dshAgent = { ...dshBot, surfaceMode: 'agent', sections: [...dshBot.sections, { id: 'models', label: 'Models' }] }
+  const subAgentHits = searchHits('subagents', { roster, extra, dsh: dshAgent })
+  assert.ok(subAgentHits.some(h => h.page === 'plugins' && h.target === 'dsh:subagent'), 'Subagents indexed in Classic Agent mode search')
+
+  const advModelsHits = searchHits('advanced settings', { roster, extra, dsh: dshAgent })
+  assert.ok(advModelsHits.some(h => h.page === 'models' && h.target === 'advanced'), 'Advanced models indexed when dsh models section exists')
+
+  // Respects pageAvailable('plugins') === false symmetrically with models.
+  assert.equal(
+    searchHits('engine plugins', { roster, extra, dsh: dshBot, pageAvailable: p => p !== 'plugins' }).some(h => h.page === 'plugins'),
+    false,
+    'engine plugin hits respect pageAvailable("plugins")',
+  )
+})
+
+test('PrivacyPage displays Saved confirmation when session log upload succeeds and clears stale Saved on subsequent failure', async () => {
+  const code = await loadBundle("export { PrivacyPage } from './src/client/privacy-page.js'")
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => harness.React)
+  const { PrivacyPage } = mod.exports
+
+  let current = { usage: false, errors: false, noticeAccepted: true, dshSessionLog: false, dshFeedbackTelemetry: false, anonId: 'a1', anonMonth: '2026-11', recentSent: [] }
+  let failNext = false
+  const errors = []
+  const actions = {
+    telemetryStatus: async () => current,
+    telemetryUpdate: async (patch) => {
+      if (failNext) throw new Error('write failed')
+      current = { ...current, ...patch }
+      return current
+    },
+  }
+  const run = p => Promise.resolve(p).catch(err => { errors.push(err.message) })
+  const Section = ({ title, children }) => harness.React.createElement('section', null, title, ...(children ?? []))
+  const Row = ({ label, children }) => harness.React.createElement('div', null, label, ...(children ?? []))
+  const draw = () => harness.render(harness.React.createElement(PrivacyPage, { actions, run, Section, Row }))
+
+  draw()
+  await new Promise(r => setTimeout(r, 0))
+  let tree = draw()
+  const logSwitch = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Upload Session Log to DeepSeek API')[0]
+  assert.ok(logSwitch)
+  logSwitch.props.onClick()
+  await new Promise(r => setTimeout(r, 0))
+  tree = draw()
+  assert.ok(findAll(tree, n => n.props?.role === 'status' && textOf(n).includes('Saved')).length === 1, 'shows Saved status after toggling session log upload')
+
+  failNext = true
+  findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Upload Session Log to DeepSeek API')[0].props.onClick()
+  await new Promise(r => setTimeout(r, 0))
+  tree = draw()
+  assert.deepEqual(errors, ['write failed'])
+  assert.equal(findAll(tree, n => n.props?.role === 'status' && textOf(n).includes('Saved')).length, 0, 'clears stale Saved status when next save fails')
+  harness.unmount()
+})
+
+test('SettingsDialog passes dsh?.ownWindow to PluginsPage so plugin fallback without dsh keeps all DSH bundles visible while desktop hides disabled ones', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const prevApp = globalThis.dsBotApp
+    delete globalThis.dsBotApp
+    try {
+      const pluginsView = {
+        managerAvailable: true,
+        slots: { browser: { active: null, desired: null, status: 'idle', choices: [] } },
+        catalog: { offline: false, sources: [], errors: [] },
+        plugins: [
+          {
+            id: 'dsh:@deepseek-ai/dsh-experimental-inspector-profile',
+            name: 'Developer tools',
+            description: 'Web inspector',
+            category: 'dev',
+            slot: null,
+            kind: 'dsh',
+            installed: true,
+            enabled: false,
+            active: false,
+            status: 'inactive',
+            packageName: '@deepseek-ai/dsh-experimental-inspector-profile',
+          },
+          {
+            id: 'dsh:@deepseek-ai/dsh-experimental-liveshare',
+            name: 'Live share',
+            description: 'Active liveshare',
+            category: 'tools',
+            slot: null,
+            kind: 'dsh',
+            installed: true,
+            enabled: true,
+            active: true,
+            status: 'ready',
+            packageName: '@deepseek-ai/dsh-experimental-liveshare',
+          },
+        ],
+      }
+      const mountDialog = async (dsh) => {
+        const harness = makeStatefulReact()
+        const mod = { exports: {} }
+        new Function('module', 'exports', 'require', code)(mod, mod.exports, () => harness.React)
+        const { SettingsDialog } = mod.exports
+        const actions = {
+          openSettings: () => {},
+          closeSettings: () => {},
+          providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+          folders: () => Promise.resolve({ team: '/work' }),
+          pluginsList: () => Promise.resolve(pluginsView),
+        }
+        const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+          page: 'plugins', id: null, roster: baseRoster, actions, dsh, useUpdate: sel => sel({}),
+        }))
+        draw()
+        await new Promise(r => setTimeout(r, 0))
+        const tree = draw()
+        const out = textOf(tree)
+        harness.unmount()
+        return out
+      }
+
+      // Plugin fallback (dsh === undefined, no globalThis.dsBotApp): disabled DSH Web bundle stays visible.
+      const fallbackText = await mountDialog(undefined)
+      assert.match(fallbackText, /Developer tools/, 'plugin fallback with dsh=undefined must keep disabled DSH bundles visible')
+      assert.match(fallbackText, /Live share/)
+
+      // Desktop (dsh.ownWindow === true): disabled desktop-unsupported bundle is hidden, enabled one stays visible.
+      const desktopText = await mountDialog({ ownWindow: true, sections: [], renderSlot: () => null })
+      assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides disabled desktop-unsupported bundles')
+      assert.match(desktopText, /Live share/, 'desktop keeps already-enabled bundles visible')
+    } finally {
+      if (prevApp === undefined) delete globalThis.dsBotApp
+      else globalThis.dsBotApp = prevApp
+    }
+  })
 })
