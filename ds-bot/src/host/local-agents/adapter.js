@@ -120,7 +120,7 @@ const RESUME_RETRIED = Symbol('resume retried')
 
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
-  //        saveRecord, dropRecord, presetFor(sessionId), requireModeFor(sessionId), toolsFor(options), signInHint(route),
+  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
   //        usedModels(route)}
   constructor(deps) {
     super()
@@ -344,7 +344,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       // A CLI takes its model and permission mode when its session opens. A
       // changed secret set also requires replacing the Codex process, even mid-turn.
       if (isDeepStrictEqual(live.secrets, resolveSecrets()) && isDeepStrictEqual(live.spec?.env ?? {}, spec.env ?? {})) {
-        if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
+        // An open ACP session that never took a mode the Session now requires is
+        // reopened, so the turn fails there instead of running in the CLI's own mode.
+        const unmoded = live.spec.kind === 'acp' && live.engineSession !== undefined
+          && live.engineSession.modePreset !== preset && this.deps.requireModeFor?.(sessionId) === true
+        if (unmoded) {
+          if (live.state !== 'idle') await Promise.resolve(this.stopTurn(live, 'the permission mode could not be applied')).catch(() => {})
+        } else if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
       } else {
         if (live.pending.size > 0 || live.orphanedPending?.size > 0) {
           orphanedPending = new Map([

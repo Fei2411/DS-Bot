@@ -194,12 +194,13 @@ async function bootWithoutBot(t, { approval, preset, spec, catalogDefault, args 
   await mountAgentLoopTestDependencies(ctx)
   t.after(() => ctx.fiber.dispose())
   if (approval !== undefined) ctx.provide('approval', approval)
+  const presets = { preset, spec }
   if (preset !== undefined) {
     ctx.provide('permissionPresets', {
-      current: () => preset,
+      current: () => presets.preset,
       resolve: name => {
-        if (spec instanceof Error) throw spec
-        return spec ?? { sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' }
+        if (presets.spec instanceof Error) throw presets.spec
+        return presets.spec ?? { sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' }
       },
       catalog: () => ({ options: [], defaultPreset: 'workspace-write' }),
     })
@@ -216,7 +217,7 @@ async function bootWithoutBot(t, { approval, preset, spec, catalogDefault, args 
   installLocalAgents(rt, { probeSignIn: async () => ({ signedIn: true }), probeVersion: async () => '1.0.0' })
   await mountAgentLoopTestHarness(ctx)
   const agent = await ctx.agentLoop.create(SessionId('plain'), { provider: 'local-acp-fake', model: 'default' })
-  return { ctx, agent }
+  return { ctx, agent, presets }
 }
 
 test('a Session with no Bot on a local route asks for the CLI permission prompt (#2466)', async (t) => {
@@ -308,4 +309,19 @@ test('a Session with no Bot does not start its turn when the CLI refuses the rea
   const calls = existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : ''
   assert.doesNotMatch(calls, /session\/prompt/)
   assert.match(calls, /session\/close/)
+})
+
+test('a Session with no Bot whose open CLI never took read-only stops when its preset becomes unreadable (#2466)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-refuse-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const recordPath = join(dir, 'calls.jsonl')
+  const { ctx, agent, presets } = await bootWithoutBot(t, { preset: 'read-only', args: ['--refuse-modes', '--record', recordPath] })
+  send(agent, 'hello')
+  await waitForIdle(ctx, agent)
+  presets.spec = new Error('custom knobs resolve to no preset')
+  send(agent, 'hello again')
+  await waitForIdle(ctx, agent)
+  const end = agent.session.snapshotEvents().filter(event => event.type === 'turn/end').at(-1)
+  assert.equal(end?.data.reason.error?.code, 'LOCAL_AGENT_MODE')
+  assert.equal(readFileSync(recordPath, 'utf8').match(/session\/prompt/g)?.length, 1)
 })

@@ -556,7 +556,8 @@ export class AcpEngine {
       // The preset maps to a mode only once the agent has listed its own.
       const mode = acpMode(preset, session.modes, this.engine.modes)
       const strict = openArgs.requireMode === true
-      const applied = mode !== undefined && await this.setOption(session, 'mode', mode, { strict }).then(() => true, () => false)
+      const applied = mode !== undefined && await this.setOption(session, 'mode', mode, { strict: true }).then(() => true, () => false)
+      session.modePreset = applied ? preset : undefined
       // A required mode the agent does not take fails the turn: its own mode may
       // allow more than the Session does.
       if (strict && !applied) {
