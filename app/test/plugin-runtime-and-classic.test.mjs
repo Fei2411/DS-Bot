@@ -265,7 +265,7 @@ test('plugin slot registrations are scoped and unsupported slots allow settings 
   const { mod } = loadMod()
   const slots = mod.createSlotRegistry()
   const runtime = mod.createPluginRuntime({ slots })
-  const View = () => null
+  const View = ({ message, surfaceMode } = {}) => ({ type: 'view', props: { children: [message, surfaceMode] } })
   runtime.provide('slots', slots)
   const unload = runtime.use({ id: 'sidebar-plugin', inject: ['slots'] }, (ctx) => {
     const service = ctx.get('slots')
@@ -278,7 +278,12 @@ test('plugin slot registrations are scoped and unsupported slots allow settings 
     assert.equal(ctx.slots.spec('sidebar.panellist').kind, 'list')
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'view' }, View))
     ctx.slots.inject('plugins.tab', () => assert.fail('unsupported slot fired'))
-    ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'view' }, View))
+    ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section',
+      id: 'view',
+      label: 'Plugin settings',
+      inject: () => ({ message: 'Injected content' }),
+    }, View))
     assert.equal(service.list('settings.section').length, 1)
     assert.equal(service.resolve('settings.section'), View)
     assert.equal(service.resolveEntry('settings.section').component, View)
@@ -287,9 +292,21 @@ test('plugin slot registrations are scoped and unsupported slots allow settings 
   assert.equal(runtime.getSnapshot()[0].status, 'active')
   assert.equal(slots.entries('sidebar.panellist')[0].pluginId, 'sidebar-plugin')
   assert.equal(slots.entries('settings.section')[0].component, View)
+  const Settings = () => {
+    const bridge = mod.useDshSettingsBridge(slots, { runtime, surfaceMode: 'agent' })
+    return {
+      type: 'settings',
+      props: { children: [bridge.sections[0]?.label, bridge.renderSlot('settings.section', {}, { only: 'view' })] },
+    }
+  }
+  const settings = renderTree(Settings)
+  assert.equal(settings.props.children[0], 'Plugin settings')
+  const [view] = findAll(settings, node => node.type === 'view')
+  assert.deepEqual(view.props.children, ['Injected content', 'agent'])
   unload()
   assert.equal(slots.entries('sidebar.panellist').length, 0)
   assert.equal(slots.entries('settings.section').length, 0)
+  assert.deepEqual(renderTree(Settings).props.children, [undefined, null])
 
   runtime.use({ id: 'broken-sidebar' }, (ctx) => {
     ctx.slots.inject('sidebar.panellist', function* () {
