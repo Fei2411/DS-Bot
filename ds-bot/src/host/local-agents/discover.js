@@ -6,6 +6,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, isAbsolute, join, posix, win32 } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { isInjectedGitConfigEnvKey } from '../git-config-env.js'
 
 // The CLI signs in by itself; an API key or another agent's backend variable in
 // our environment would shadow that or leak, so neither reaches the child.
@@ -38,7 +39,7 @@ function setCaseInsensitiveEnv(env, name, value) {
 
 export function isDroppedEnvKey(key) {
   const upper = String(key ?? '').toUpperCase()
-  return /^GIT_CONFIG_(?:COUNT|PARAMETERS|(?:KEY|VALUE)_\d+)$/.test(upper)
+  return isInjectedGitConfigEnvKey(upper)
     || DROP_EXACT.has(upper)
     || DROP_PREFIX.some(prefix => upper.startsWith(prefix))
 }

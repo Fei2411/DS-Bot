@@ -245,7 +245,13 @@ export function startSnapshot(state, now) {
   if (state.hint !== undefined) snapshot.hint = { ...state.hint }
   if (state.place !== undefined) snapshot.place = { ...state.place }
   if (state.card !== undefined) snapshot.card = { ...state.card }
-  if (state.failure !== undefined) snapshot.failure = { reason: state.failure.reason, log: [...state.failure.log] }
+  if (state.failure !== undefined) {
+    snapshot.failure = {
+      reason: state.failure.reason,
+      ...(state.failure.running ? { running: true } : {}),
+      log: [...state.failure.log],
+    }
+  }
   if (state.landing !== undefined) snapshot.landing = { ...state.landing }
   if (state.update !== undefined) snapshot.update = { ...state.update }
   return snapshot
@@ -664,20 +670,41 @@ export class StartWindow {
    */
   fail(error, kind = 'later') {
     const showing = this.#revealed
+    const engineRan = showing || this.#engineUp
+    const reason = failureReason(error, { program: this.#o.program })
     // The page's hand-off empties it for the growth and cannot be undone there: a fresh page
     // draws the failure.
     const emptied = !showing && this.#open() && this.#state.view === 'handoff'
     if (showing) {
+      this.#clearPendingReveal()
       this.#destroy()
       const main = this.#o.mainWindow()
-      if (main !== undefined && !main.isDestroyed()) main.hide()
+      if (main !== undefined && !main.isDestroyed()) this.#unlay(main)
     }
     if (!this.#open()) this.open(showing || this.#state === undefined ? kind : this.#state.start)
     this.#cancelHandoff()
     this.#holdsOff()
     this.#clear('teamView')
     this.#clear('fallback')
-    this.#update({ view: 'failed', failure: { reason: failureReason(error, { program: this.#o.program }), log: this.#o.log.tail(FAILURE_LINES) } })
+    this.#engineUp = false
+    let done
+    if (engineRan) {
+      if (['permission', 'space', 'missing'].includes(reason)) {
+        done = []
+      } else {
+        const kept = (this.#state?.done ?? []).filter(phase => phase !== 'engine' && phase !== 'team')
+        done = showing && kept.length === 0 ? ['data'] : kept
+      }
+    }
+    this.#update({
+      view: 'failed',
+      ...(done !== undefined ? { done } : {}),
+      failure: {
+        reason,
+        ...(engineRan ? { running: true } : {}),
+        log: this.#o.log.tail(FAILURE_LINES),
+      },
+    })
     if (emptied) this.#window.webContents.reload()
   }
 
