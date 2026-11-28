@@ -29,6 +29,7 @@ import { ComputerToolView, isComputerToolName } from './browser-computer-tool-vi
 import { ClassicFeedbackActions, ClassicFeedbackDialog, useSessionFeedback } from './classic-feedback.js'
 import { ImageLightbox } from './image-lightbox.js'
 import { getAppLocale } from './locale.js'
+import { MarkdownImageSession } from './markdown-image.js'
 import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 import { resolveSubagentCatalog } from './subagent-job-tool-views.js'
@@ -870,7 +871,7 @@ const AssistantRow = memo(function AssistantRow({
       textInteractionSource: !row.streaming,
       ...(row.thinkingLive ? { at: liveAt } : { ms: row.reasoningMs }),
     }) : null,
-    hasTexts ? h(Bubbles, {
+    hasTexts ? h(MarkdownImageSession.Provider, { value: sessionId }, h(Bubbles, {
       texts: row.texts,
       roster,
       selfId,
@@ -884,7 +885,7 @@ const AssistantRow = memo(function AssistantRow({
       fold: FOLD_HUGE,
       time: flat || row.streaming ? undefined : row.time,
       textInteractionSource: !row.streaming,
-    }) : null)
+    })) : null)
 })
 
 const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
@@ -1099,6 +1100,10 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 
 const EMPTY_SPEAKERS = new Set()
 
+function wrapEarlierBotReply(reply, sessionId, key) {
+  return h(MarkdownImageSession.Provider, { value: sessionId, key }, reply)
+}
+
 function renderTranscriptRows({
   rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts, firstUnreadKey = null,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
@@ -1117,7 +1122,7 @@ function renderTranscriptRows({
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText, wrapBotReply: classic ? undefined : wrapEarlierBotReply })
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
@@ -1517,7 +1522,7 @@ export function SessionTranscript({
   }) : null
 
   return [
-    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText })] : []),
+    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText, wrapBotReply: classic ? undefined : wrapEarlierBotReply })] : []),
     ...projected,
     ...(feedbackDialog ? [feedbackDialog] : []),
   ]

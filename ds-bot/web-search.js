@@ -535,11 +535,14 @@ export function resolveConfig(config = {}) {
   }
 }
 
-const errorDetail = (text) => {
+const readHttpError = (text) => {
   try {
     const parsed = JSON.parse(text)
-    return str(typeof parsed?.error === 'string' ? parsed.error : parsed?.error?.message ?? parsed?.message ?? parsed?.msg) ?? ''
-  } catch { return '' }
+    return {
+      detail: str(typeof parsed?.error === 'string' ? parsed.error : parsed?.error?.message ?? parsed?.message ?? parsed?.msg),
+      code: parsed?.error?.code,
+    }
+  } catch { return {} }
 }
 
 const MAX_SEARCH_RESPONSE_BYTES = 10 * 1024 * 1024
@@ -641,8 +644,13 @@ export function createAutoSearchProvider(deps, config = {}) {
       clearTimeout(timer)
     }
     if (!response.ok) {
-      const detail = errorDetail(text)
-      return { reason: `HTTP ${response.status}${detail ? `: ${clip(detail, 200)}` : ''}`, skip: STATUS_OUTCOMES[response.status] }
+      const { status } = response
+      const { detail, code } = readHttpError(text)
+      const reason = `HTTP ${status}${detail ? `: ${clip(detail, 200)}` : ''}`
+      if ((status === 404 || status === 405) && Array.isArray(call.body?.tools) && call.body.tools.length > 0 && code === 'model_not_found') {
+        return { reason: `search tool request rejected (model_not_found, ${reason})`, skip: 'rejected' }
+      }
+      return { reason, skip: STATUS_OUTCOMES[status] }
     }
     let body
     try { body = JSON.parse(text) } catch { return { reason: 'answered with a body that is not JSON', skip: 'ignored' } }

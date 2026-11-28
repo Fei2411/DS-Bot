@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import fs, { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
@@ -1131,6 +1133,79 @@ test('handoffs.js persists long results in coordDb, clears whole cache on adopt,
   }
   assert.equal(existsSync(orphanPath), false, 'unreferenced orphan result file must be pruned')
   assert.equal(existsSync(retainedPath), true, 'referenced coordDb result file must be retained')
+})
+
+test('handoffs.js startup pruning cannot remove a retried result using stale references', { timeout: 10_000 }, async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-handoffs-retry-')
+  const resultsDir = join(home, 'handoff-results')
+  const firstPath = join(resultsDir, 'first-orphan.txt')
+  const retriedPath = join(resultsDir, 'w-retry.txt')
+  const lastPath = join(resultsDir, 'last-orphan.txt')
+  mkdirSync(resultsDir, { recursive: true })
+  for (const path of [firstPath, retriedPath, lastPath]) writeFileSync(path, 'left behind by crashed host')
+
+  const ctx = fakeContext()
+  const adoptListeners = new Set()
+  const rt = {
+    ctx,
+    home,
+    state: seedState(),
+    readOnly: () => undefined,
+    load: async () => {},
+    onAdopted: fn => { adoptListeners.add(fn); return () => adoptListeners.delete(fn) },
+    botOf: id => rt.state.bots[id],
+    chatOf: id => rt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    warn() {},
+  }
+  installCoordDb(rt)
+  installHandoffs(rt)
+  t.after(() => ctx.dispose())
+  assert.ok(rt.openWork('parent-retry', { from: 'a', to: 'a' }))
+  assert.ok(rt.openWork('w-retry', { from: 'a', to: 'b', parent: 'parent-retry' }))
+
+  const result = 'retried result '.repeat(2_000)
+  const settled = Promise.withResolvers()
+  const pruned = Promise.withResolvers()
+  const afterDelete = (path) => {
+    if (path === firstPath) {
+      // An async prune yields here; a prune that keeps its snapshot current does not.
+      queueMicrotask(() => {
+        try {
+          rt.closeWork('w-retry', 'Writer', result)
+          settled.resolve()
+        } catch (error) {
+          settled.reject(error)
+        }
+      })
+    }
+    if (path === lastPath) pruned.resolve()
+  }
+  const { readdir, rm } = fsp
+  const unlink = unlinkSync
+  const scan = t.mock.method(fsp, 'readdir', (path, ...args) => path === resultsDir
+    ? Promise.resolve(['first-orphan.txt', 'w-retry.txt', 'last-orphan.txt'])
+    : readdir(path, ...args))
+  const asyncDelete = t.mock.method(fsp, 'rm', async (path, ...args) => {
+    await rm(path, ...args)
+    afterDelete(path)
+  })
+  const syncDelete = t.mock.method(fs, 'unlinkSync', (path) => {
+    unlink(path)
+    afterDelete(path)
+  })
+  syncBuiltinESMExports()
+  t.after(() => {
+    scan.mock.restore()
+    asyncDelete.mock.restore()
+    syncDelete.mock.restore()
+    syncBuiltinESMExports()
+  })
+
+  await Promise.all([settled.promise, pruned.promise])
+  assert.equal(rt.coordDb.getWork('w-retry').resultRef, 'w-retry.txt')
+  for (const fn of adoptListeners) fn()
+  assert.ok(rt.answerText('parent-retry', '', 'Chief').includes(result), 'the committed result remains readable from disk')
 })
 
 test('handoffs.js startup orphan sweep preserves live unsaved results and finishes on load failure or without ctx.effect', async (t) => {

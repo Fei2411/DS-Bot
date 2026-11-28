@@ -35,7 +35,7 @@ const seed = () => ({
 
 // A host over the plugin's own folder. Starting the same folder again is a restart:
 // the first host is closed before the second one starts.
-async function startHost(home, team) {
+async function startHost(home, team, configure) {
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext()
   const agents = new Map()
@@ -92,6 +92,7 @@ async function startHost(home, team) {
     return register(options)
   }
   rt = createRuntime(ctx, { home })
+  configure?.(rt)
   let seq = 0
   const emit = (id, type, data) => {
     if (type === 'turn/start') agentOf(id).status = 'running'
@@ -125,7 +126,7 @@ function bench(t) {
     for (const host of hosts.reverse()) await host.stop()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   })
-  return { home, start: async team => { const host = await startHost(home, team); hosts.push(host); return host } }
+  return { home, start: async (team, configure) => { const host = await startHost(home, team, configure); hosts.push(host); return host } }
 }
 
 const textBlock = content => [{ type: 'text', text: content }]
@@ -273,7 +274,16 @@ test('a result inside a result survives a restart too', async (t) => {
 
   // The host restarts before the Tester answers.
   await first.stop()
-  const second = await start()
+  // Both work settlements can finish while the startup sweep is still pending.
+  const startupSweep = Promise.withResolvers()
+  t.after(() => startupSweep.resolve())
+  const second = await start(undefined, (runtime) => {
+    const adoptLiveWork = runtime.adoptLiveWork
+    runtime.adoptLiveWork = async options => {
+      await adoptLiveWork(options)
+      await startupSweep.promise
+    }
+  })
   const again = turnTaker(second.agents, second.emit)
   again.open('c', fromEditor)
   again.end('c', 'the review is done')
@@ -281,7 +291,7 @@ test('a result inside a result survives a restart too', async (t) => {
   const toWriter = callsOf(second.agents, 'b')[0][1]
   assert.ok(textOf(toWriter.content).includes(LONG), 'the result inside the result goes up')
   // The old copy goes only after the replacement state has been saved.
-  await settled(() => keptIn(home).length === 1 && keptIn(home)[0] === `${testerId}.txt`)
+  await second.rt.waitForResultPrunes()
   assert.deepEqual(keptIn(home), [`${testerId}.txt`])
 
   // The Writer picks that up and answers the Chief.
@@ -292,7 +302,7 @@ test('a result inside a result survives a restart too', async (t) => {
   const toChief = textOf(callsOf(second.agents, 'a')[0][1].content)
   assert.ok(toChief.includes(LONG), 'the result inside the result is still there')
   assert.ok(toChief.includes('the review is done'))
-  await settled(() => keptIn(home).length === 0)
+  await second.rt.waitForResultPrunes()
   assert.deepEqual(keptIn(home), [])
 })
 

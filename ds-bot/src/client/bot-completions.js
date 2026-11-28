@@ -10,6 +10,7 @@ export function watchBotCompletions({ roster, sessions, statuses, unread, ui, on
     const statusMap = statuses?.getSnapshot()
     const uiSnap = ui?.getSnapshot?.()
     const inboxOpen = uiSnap?.inbox === true
+    const covered = inboxOpen || uiSnap?.chatCovered === true
     const rawTarget = typeof uiSnap?.inboxTarget === 'string' && uiSnap.inboxTarget !== '' ? uiSnap.inboxTarget : null
     if (inboxOpen) {
       lastTarget = null
@@ -26,7 +27,7 @@ export function watchBotCompletions({ roster, sessions, statuses, unread, ui, on
       const id = currentPart(bot)
       parts.add(id)
       const row = list.byId[id]
-      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen && (pendingTarget === null || pendingTarget === id)
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !covered && (pendingTarget === null || pendingTarget === id)
       const status = statusMap?.get(id)
       const hidden = team.exchangeTurns?.[id] ?? []
       const outline = turnOutlineOf(list, id)

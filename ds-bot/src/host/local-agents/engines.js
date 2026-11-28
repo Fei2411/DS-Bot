@@ -76,7 +76,17 @@ const CLIS = {
   'gemini-cli': { name: 'Gemini CLI', kind: 'acp', command: 'gemini', args: ['--acp'], version: ['--version'], signIn: 'gemini', signedIn: { file: ['.gemini', 'oauth_creds.json'] } },
   'antigravity': {
     name: 'Antigravity', kind: 'acp', command: 'agy', args: ['acp'], version: ['--version'], signIn: 'agy acp --login',
-    signedIn: { macKeychain: { service: 'gemini', account: 'antigravity' } },
+    // macOS stores credentials in Keychain by default; Windows, Linux, and
+    // file-backed setups write ~/.gemini/antigravity-acp/acp_token.json.
+    signedIn: {
+      macKeychain: { service: 'gemini', account: 'antigravity' },
+      fallback: {
+        platformFile: {
+          default: { path: ['.gemini', 'antigravity-acp', 'acp_token.json'] },
+          stringGroups: [[['refresh_token']]],
+        },
+      },
+    },
     // `agy models` lists the same concrete model ids the ACP session advertises in
     // models.availableModels. The ACP reply can be a partial snapshot while the CLI
     // is still fetching its catalog (#2145), so the probe merges both sources.
