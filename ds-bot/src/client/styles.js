@@ -374,6 +374,21 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* Full-window modal layers and opening covers sit directly under body, which frameless hosts
+   mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
+   regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
+   child place the top drag strip on that child's ::before (after the scrim, before the dialog)
+   while scrim-less layers use their own ::before. Dialog cards stay after the strip as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px)))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(40px - var(--dsh-frame-chrome-top,0px)))}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:var(--dsh-windows-titlebar-height,40px);padding-top:max(16px,var(--bt-modal-drag-h))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:40px;padding-top:max(16px,var(--bt-modal-drag-h))}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)[data-leaving]>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is([role=dialog],[role=alertdialog]){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-tour-layer{-webkit-app-region:initial;app-region:initial}
+:is(.bt-set-palette,.bt-tour-card){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-opening>.bt-opening-card{position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 /* On macOS a side panel reaches the window's top edge, where the window drag strip is.
    Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
    that strip: it drags where no chip or button covers it, and controls stay no-drag. The
@@ -1487,7 +1502,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
    narrow viewports keep full-screen heights. */
 .bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
 .bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
+@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem-layer[data-leaving] .bt-mem::before{-webkit-app-region:initial;app-region:initial}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li svg{animation:none}}
 
 .bt-thumb{position:absolute;left:0;top:0;z-index:0;pointer-events:none;transition:opacity .14s ease}
@@ -1554,6 +1569,13 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
 @media (max-width:768px){
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-settings::before{-webkit-app-region:initial;app-region:initial}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-close{top:calc(14px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-layer{padding-top:calc(12px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-set-palette-scrim::before{-webkit-app-region:initial;app-region:initial}
   .bt-settings-rail{display:none}
   .bt-ov-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:0;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-3);font:inherit;font-size:15px;text-align:left;cursor:pointer}
   .bt-ov-search svg{width:16px;height:16px}
