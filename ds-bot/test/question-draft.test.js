@@ -67,6 +67,8 @@ function loadHarness(localStorage = memoryStorage()) {
   }
   const react = {
     Fragment: 'fragment',
+    createContext: value => ({ _current: value, Provider: ({ children }) => children }),
+    useContext: ctx => ctx._current,
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     useState: (initial) => {
       const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial }))

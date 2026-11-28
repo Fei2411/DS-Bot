@@ -6,6 +6,7 @@ import { build } from 'esbuild'
 
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 
 const stubs = {
   'cells.js': `
@@ -13,6 +14,8 @@ const stubs = {
     export const ThinkingRow = ({ text }) => ({ type: 'thinking', props: { text, children: [text] } })
     export const EarlierParts = () => null
     export const PartLine = () => null
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = () => null
     export const Elapsed = () => null
@@ -44,7 +47,7 @@ const entryCode = `
   export { forgetKeptFiles } from '../ds-bot/src/client/draft-keep.js'
   export { STORAGE } from '../ds-bot/src/client/storage.js'
   export { PASTE_LIMIT } from '../ds-bot/src/client/paste-card.js'
-  export { installLocale } from '../ds-bot/src/client/i18n.js'
+  export { ensureLocale, installLocale } from '../ds-bot/src/client/i18n.js'
   export { createLocale } from './ui/src/locale.js'
   export { mentionSpans } from '../ds-bot/src/shared/mentions.js'
 `
@@ -66,6 +69,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'chunk2-stub' }
@@ -205,6 +209,7 @@ const {
   forgetKeptFiles,
   STORAGE,
   PASTE_LIMIT,
+  ensureLocale,
   installLocale,
   createLocale,
   mentionSpans,
@@ -298,7 +303,7 @@ test('activeComposerTrigger and applyTriggerText parse @ mentions and leading / 
   assert.equal(applyTriggerText('Ask @Wr, please', beforeComma, '@Writer ').text, 'Ask @Writer , please')
 })
 
-test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / slash commands', () => {
+test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / slash commands', async () => {
   const ran = []
   const roster = {
     ready: true,
@@ -329,6 +334,7 @@ test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / 
   // emit canonical "@everyone " so `mentionSpans` routes to every member while Chinese keeps "@所有人 ".
   const roomMentions = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
   assert.deepEqual(plain(roomMentions.map(i => i.title)), ['Chief', 'Writer', 'Everyone'])
+  await ensureLocale('fr')
   const stopFr = installLocale(createLocale('fr'))
   try {
     const frRoom = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
@@ -338,6 +344,7 @@ test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / 
   } finally {
     stopFr()
   }
+  await ensureLocale('zh')
   const stopZh = installLocale(createLocale('zh'))
   try {
     const zhRoom = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
@@ -525,6 +532,13 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
     assert.equal(facts.openTurn, 2)
     assert.deepEqual(plain(facts.turns.get(1)), { turn: 1, status: 'closed', start: { seq: 1, time: 1000 }, end: { seq: 4, time: 1020 } })
     assert.deepEqual(plain(facts.turns.get(2)), { turn: 2, status: 'open', start: { seq: 5, time: 2000 } })
+    assert.deepEqual(plain(facts.userMessages), [])
+
+    const withUserFacts = extractTurnFacts([
+      { seq: 0, time: 990, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Generate Q4 report' }] } },
+      ...log.events,
+    ], { roster: { exchangeTurns: { b1: [99] } }, sessionId: 'b1' })
+    assert.deepEqual(plain(withUserFacts.userMessages), [{ seq: 0, text: 'Generate Q4 report', time: 990 }])
 
     // Hidden internal exchange turns are excluded so learning proposals never strand on a hidden turn.
     const hiddenFacts = extractTurnFacts([
@@ -648,7 +662,7 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
   const first = mount(Chat, { sessionId: 'b1', team })
   try {
     let tree = first.render()
-    const ta = all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] !== undefined)[0]
+    const ta = all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] !== undefined)[0]
     ta.props.onChange({ target: { value: 'draft text', selectionStart: 10 } })
     const longText = 'x'.repeat(PASTE_LIMIT + 50)
     let prevented = false

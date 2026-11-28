@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { chromium } from 'playwright-core'
 import { allThemes, themeCss } from '../../src/client/themes.js'
+import { DSH_CONVERSATION_CSS, DSH_SHELL_CSS, dshThemeCss } from '../../src/client/styles-dsh.js'
+import { CONVERSATION_CSS, SHELL_CSS } from '../../src/client/styles.js'
+import { PASTE_CSS } from '../../src/client/paste-card.js'
+import { QUEUE_CSS } from '../../src/client/queue-dock.js'
 import { FONT_DIR } from '../../src/host/fonts.js'
 import { REPLY_FAMILY } from '../../src/shared/reply-fonts.js'
 
@@ -52,7 +56,7 @@ async function launchBrowser() {
   }
 }
 
-test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown styles', async (t) => {
+test('Fei draws Bot replies in its bundled serif under DSH\'s own Markdown styles', async (t) => {
   assert.ok(markdown && tableScroll, 'DSH Markdown classes found')
   let browser
   try {
@@ -69,7 +73,7 @@ test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown s
     const fontRequests = []
     await tab.route('http://dsbot.test/**', async (route) => {
       const { pathname } = new URL(route.request().url())
-      if (pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: page(themeCss(allThemes().celadon)) })
+      if (pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: page(themeCss(allThemes().fei) + dshThemeCss(allThemes().fei)) })
       if (pathname.startsWith('/api/bot/fonts/')) {
         const file = pathname.slice('/api/bot/fonts/'.length)
         fontRequests.push(file)
@@ -105,6 +109,65 @@ test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown s
       return getComputedStyle(document.getElementById('p')).fontFamily
     })
     assert.ok(custom.startsWith('"Reader Font"'), custom)
+  } finally {
+    await browser.close()
+  }
+})
+
+test('plugin CSS bridges body- and container-scoped --dsh-* tokens onto --bt-* without fallback lock-in', async (t) => {
+  let browser
+  try {
+    browser = await launchBrowser()
+  } catch (error) {
+    if (!process.env.CI && /not found|doesn't exist|not installed/i.test(error.message)) {
+      t.skip('Chromium or Chrome is required for the CSS variable bridge check')
+      return
+    }
+    throw error
+  }
+  try {
+    const tab = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+    const sheet = [SHELL_CSS, DSH_SHELL_CSS, CONVERSATION_CSS, DSH_CONVERSATION_CSS, PASTE_CSS, QUEUE_CSS].join('\n')
+    await tab.setContent(`<!doctype html><html><head><style>${sheet}</style><style>
+      .dsh_body{--dsh-chat-content-width:960px;--dsh-composer-card-max-width:992px;--dsh-composer-side-clearance:16px;--dsh-composer-dock-inset:8px}
+      .dsh_composerStack{--dsh-composer-stack-gap:6px}
+      .dsh_flowItem{--dsh-chat-flow-gap:16px}
+    </style></head>
+    <body style="--dsh-content-font-size:18px;--dsh-font-family-code:'JetBrains Mono',monospace">
+      <div class="dsh_body">
+        <div data-chat-flow>
+          <div class="dsh_flowItem"><div class="bt-bubble" id="bubble">Hello</div></div>
+        </div>
+        <div class="dsh_composerStack">
+          <div class="bt-paste-dock" id="paste"></div>
+          <div class="bt-queue-dock" id="queue"></div>
+        </div>
+      </div>
+    </body></html>`)
+    const actual = await tab.evaluate(() => {
+      const bubble = document.getElementById('bubble')
+      const paste = document.getElementById('paste')
+      const queue = document.getElementById('queue')
+      const cs = el => getComputedStyle(el)
+      return {
+        bubbleFontSize: cs(bubble).fontSize,
+        bubbleMono: cs(bubble).getPropertyValue('--bt-mono').trim(),
+        flowGap: cs(bubble).getPropertyValue('--bt-flow-gap').trim(),
+        pasteMaxW: cs(paste).getPropertyValue('--bt-composer-max-w').trim(),
+        pasteSide: cs(paste).getPropertyValue('--bt-composer-side').trim(),
+        pasteGap: cs(paste).getPropertyValue('--bt-composer-gap').trim(),
+        queueMaxW: cs(queue).getPropertyValue('--bt-composer-max-w').trim(),
+        queueInset: cs(queue).getPropertyValue('--bt-composer-dock-inset').trim(),
+      }
+    })
+    assert.equal(actual.bubbleFontSize, '18px', 'body --dsh-content-font-size must reach .bt-bubble')
+    assert.match(actual.bubbleMono, /JetBrains Mono/, 'body --dsh-font-family-code must not be shadowed by SHELL_CSS --bt-mono')
+    assert.equal(actual.flowGap, '16px', 'container --dsh-chat-flow-gap must reach --bt-flow-gap')
+    assert.equal(actual.pasteMaxW, '992px', 'container --dsh-composer-card-max-width must reach .bt-paste-dock')
+    assert.equal(actual.pasteSide, '16px', 'container --dsh-composer-side-clearance must reach .bt-paste-dock')
+    assert.equal(actual.pasteGap, '6px', '.composerStack --dsh-composer-stack-gap must reach --bt-composer-gap')
+    assert.equal(actual.queueMaxW, '992px', 'container --dsh-composer-card-max-width must reach .bt-queue-dock')
+    assert.equal(actual.queueInset, '8px', 'container --dsh-composer-dock-inset must reach .bt-queue-dock')
   } finally {
     await browser.close()
   }

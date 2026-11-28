@@ -3,18 +3,101 @@ import { createServer } from 'node:http'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
-const OMIT = ['background', 'conversation', 'max_output_tokens', 'max_tool_calls', 'metadata', 'moderation', 'multi_agent', 'prompt', 'prompt_cache_retention', 'safety_identifier', 'temperature', 'top_logprobs', 'top_p', 'truncation', 'user', 'previous_response_id']
+const OMIT = ['background', 'conversation', 'max_output_tokens', 'max_tool_calls', 'metadata', 'moderation', 'multi_agent', 'prompt', 'prompt_cache_options', 'prompt_cache_retention', 'safety_identifier', 'temperature', 'top_logprobs', 'top_p', 'truncation', 'user', 'previous_response_id']
 const STATES = new Set(['unsupported', 'signed-out', 'signing-in', 'connected', 'plan-usage-off', 'needs-sign-in', 'temporarily-unavailable'])
 const invalid = () => Object.assign(new Error('Invalid ChatGPT request.'), { status: 400 })
 const TOOL_NAMESPACE = 'ds_bot'
+const ENCRYPTED_REASONING = 'reasoning.encrypted_content'
+const AFFINITY_HEADERS = ['session-id', 'x-client-request-id']
+const VALID_HEADER_VALUE = /^[\x21-\x7E]{1,256}$/
 const localTool = item => ['function', 'custom'].includes(item?.type)
 const toolCall = item => ['function_call', 'custom_tool_call'].includes(item?.type)
 
+// Conservative fallback when /v1/models has not reported reasoning support yet.
+// Excludes chat-only and media variants because non-reasoning models reject encrypted reasoning.
+function isKnownReasoningModel(rawId) {
+  const id = typeof rawId === 'string' ? rawId.trim().toLowerCase() : ''
+  if (id === '' || /(?:^|-)(?:chat|audio|realtime|image|search|transcribe|tts|embed)(?:$|-)/.test(id)) return false
+  return /^gpt-(?:5(?:$|[.-])|[6-9](?:$|[.-])|daybreak(?:$|-))/.test(id)
+    || /^(?:o1|o3|o4)(?:$|-)/.test(id)
+}
+
+function shouldIncludeEncryptedReasoning(body, reasoningModel) {
+  const reasoning = body.reasoning
+  if (reasoning !== undefined && reasoning !== null) {
+    if (typeof reasoning !== 'object' || Array.isArray(reasoning)) return false
+    return typeof reasoning.effort !== 'string' || reasoning.effort.trim().toLowerCase() !== 'none'
+  }
+  if (typeof reasoningModel === 'boolean') return reasoningModel
+  return isKnownReasoningModel(body.model)
+}
+
+function namespaceTools(rawTools) {
+  if (!Array.isArray(rawTools)) throw invalid()
+  const tools = rawTools.filter(localTool)
+  const nextTools = rawTools.filter(tool => !localTool(tool))
+  if (tools.length) {
+    const existing = nextTools.findIndex(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE)
+    if (existing < 0) nextTools.push({ type: 'namespace', name: TOOL_NAMESPACE, description: 'DS Bot tools.', tools })
+    else {
+      const namespace = nextTools[existing]
+      if (!Array.isArray(namespace.tools)) throw invalid()
+      nextTools[existing] = { ...namespace, tools: [...namespace.tools, ...tools] }
+    }
+  }
+  return nextTools
+}
+
+function normalizeInputItem(item) {
+  // Keep system prompts inside `input` as `developer` messages instead of hoisting them
+  // to top-level `instructions`, which GPT-6.2+ appends uncached on every request.
+  if (item?.role === 'system' && (item.type === undefined || item.type === 'message')) {
+    if (typeof item.content === 'string') return { ...item, role: 'developer' }
+    if (Array.isArray(item.content) && item.content.every(part => ['text', 'input_text'].includes(part?.type) && typeof part.text === 'string')) {
+      return {
+        ...item,
+        role: 'developer',
+        content: item.content.map(part => (part.type === 'input_text' ? part : { ...part, type: 'input_text' })),
+      }
+    }
+    throw invalid()
+  }
+  if (toolCall(item) && item.namespace == null) return { ...item, namespace: TOOL_NAMESPACE }
+  if ((item?.type === 'additional_tools' || item?.type === 'tool_search_output') && item.tools !== undefined) {
+    return { ...item, tools: namespaceTools(item.tools) }
+  }
+  return item
+}
+
+function affinityHeaders(reqHeaders, parsedBody) {
+  const forwarded = {}
+  for (const name of AFFINITY_HEADERS) {
+    const raw = reqHeaders?.[name]
+    const value = typeof raw === 'string' ? raw.trim() : ''
+    if (VALID_HEADER_VALUE.test(value)) forwarded[name] = value
+  }
+  if (!forwarded['session-id'] && typeof parsedBody?.prompt_cache_key === 'string') {
+    const key = parsedBody.prompt_cache_key.trim()
+    if (VALID_HEADER_VALUE.test(key)) forwarded['session-id'] = key
+  }
+  return forwarded
+}
+
 function plainCall(item) {
-  if (!toolCall(item) || item.namespace !== TOOL_NAMESPACE) return item
-  const next = { ...item }
-  delete next.namespace
-  return next
+  if (toolCall(item) && item.namespace === TOOL_NAMESPACE) {
+    const next = { ...item }
+    delete next.namespace
+    return next
+  }
+  if ((item?.type === 'additional_tools' || item?.type === 'tool_search_output')
+    && Array.isArray(item.tools)
+    && item.tools.some(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools))) {
+    return {
+      ...item,
+      tools: item.tools.flatMap(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools) ? tool.tools : [tool]),
+    }
+  }
+  return item
 }
 
 function plainEvent(frame) {
@@ -86,37 +169,21 @@ async function* plainEvents(source) {
   if (pending) yield plainEvent(pending)
 }
 
-export function previewRequest(body) {
+export function previewRequest(body, { reasoningModel } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw invalid()
   const next = { ...body, store: false, stream: true }
   for (const key of OMIT) delete next[key]
   const input = typeof body.input === 'string' ? [{ role: 'user', content: body.input }] : body.input
   if (!Array.isArray(input) || (body.instructions !== undefined && typeof body.instructions !== 'string')) throw invalid()
-  const instructions = body.instructions ? [body.instructions] : []
-  next.input = input.filter(item => {
-    if (item?.role !== 'system' || (item.type !== undefined && item.type !== 'message')) return true
-    if (typeof item.content === 'string') instructions.push(item.content)
-    else if (Array.isArray(item.content) && item.content.every(part => ['text', 'input_text'].includes(part?.type) && typeof part.text === 'string')) {
-      instructions.push(item.content.map(part => part.text).join('\n'))
-    } else throw invalid()
-    return false
-  })
-  next.input = next.input.map(item => toolCall(item) && item.namespace == null ? { ...item, namespace: TOOL_NAMESPACE } : item)
+  if (body.include !== undefined && (!Array.isArray(body.include) || body.include.some(entry => typeof entry !== 'string'))) throw invalid()
+  next.input = input.map(normalizeInputItem)
   if (body.tools !== undefined) {
-    if (!Array.isArray(body.tools)) throw invalid()
-    const tools = body.tools.filter(localTool)
-    next.tools = body.tools.filter(tool => !localTool(tool))
-    if (tools.length) {
-      const existing = next.tools.findIndex(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE)
-      if (existing < 0) next.tools.push({ type: 'namespace', name: TOOL_NAMESPACE, description: 'DS Bot tools.', tools })
-      else {
-        const namespace = next.tools[existing]
-        if (!Array.isArray(namespace.tools)) throw invalid()
-        next.tools[existing] = { ...namespace, tools: [...namespace.tools, ...tools] }
-      }
-    }
+    next.tools = namespaceTools(body.tools)
   }
-  if (instructions.length) next.instructions = instructions.join('\n\n')
+  if (shouldIncludeEncryptedReasoning(body, reasoningModel)) {
+    const include = body.include ?? []
+    if (!include.includes(ENCRYPTED_REASONING)) next.include = [...include, ENCRYPTED_REASONING]
+  }
   return next
 }
 
@@ -163,10 +230,19 @@ export async function createChatGPTRelay({ signIn, fetch: fetcher = globalThis.f
         }
         chunks.push(chunk)
       }
+      let parsed
       let body
-      try { body = JSON.stringify(previewRequest(JSON.parse(Buffer.concat(chunks).toString('utf8')))) } catch { throw invalid() }
+      try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        const reasoningModel = typeof parsed?.model === 'string' ? signIn.isReasoningModel?.(parsed.model) : undefined
+        body = JSON.stringify(previewRequest(parsed, { reasoningModel }))
+      } catch { throw invalid() }
+      const headers = {
+        'content-type': 'application/json',
+        ...affinityHeaders(req.headers, parsed),
+      }
       const forward = async () => fetcher(responsesUrl, {
-        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${await signIn.getAccessToken()}` },
+        method: 'POST', headers: { ...headers, authorization: `Bearer ${await signIn.getAccessToken()}` },
         body, redirect: 'manual', signal: controller.signal,
       })
       let upstream = await forward()

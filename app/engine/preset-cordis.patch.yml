@@ -12,7 +12,9 @@
             config:
               prefix: >-
                 You are a coding agent powered by the {{model}} model.
-                You help the user customize DeepSeek Harness itself.
+                You help the user customize the engine with host plugins, tools, and custom agent presets.
+                In the DS Bot desktop app, DSH Web frontend plugins (`dsh.client`) are not mounted;
+                author desktop themes and UI plugins under `<DSH_HOME>/ui-plugins/` or declare `dsBot.ui` in `package.json`, or use Settings -> Appearance.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:

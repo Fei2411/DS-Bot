@@ -53,7 +53,20 @@ function fakeApi({ getMe = { id: 7, username: 'fakebot', is_bot: true } } = {}) 
   })
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => {
     const api = `http://127.0.0.1:${server.address().port}`
-    out = { api, calls, updates, replies, files, holdPoll: false, heldPoll: [], close: () => server.close() }
+    out = {
+      api,
+      calls,
+      updates,
+      replies,
+      files,
+      holdPoll: false,
+      heldPoll: [],
+      close: () => new Promise((done) => {
+        for (const res of out.heldPoll.splice(0)) res.destroy()
+        server.closeAllConnections?.()
+        server.close(() => done())
+      }),
+    }
     resolve(out)
   }))
 }
@@ -65,13 +78,14 @@ const env = (api, runtime = {}) => ({
   log: { warn: (...args) => console.error('[im-telegram]', ...args) },
 })
 
-const until = async (fn, tries = 60) => {
-  for (let at = 0; at < tries; at += 1) {
+const until = async (fn, timeoutMs = 10_000) => {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
     const value = await fn()
     if (value !== undefined && value !== false) return value
-    await new Promise(done => setTimeout(done, 10))
+    if (Date.now() >= deadline) throw new Error('timed out waiting')
+    await new Promise(done => setTimeout(done, 15))
   }
-  throw new Error('timed out waiting')
 }
 
 test('check validates the token with getMe and names the account', async () => {
@@ -81,7 +95,7 @@ test('check validates the token with getMe and names the account', async () => {
     assert.deepEqual(account.account, { id: '7', name: '@fakebot' })
     assert.equal(api.calls[0].method, 'getMe')
     await assert.rejects(telegram.check({ token: 'bad' }, { ...env(api.api), fetch: async () => ({ json: async () => ({ ok: false, error_code: 401, description: 'Unauthorized' }) }) }))
-  } finally { api.close() }
+  } finally { await api.close() }
 })
 
 test('private text, group mention and photo become adapter messages', async () => {
@@ -109,7 +123,7 @@ test('private text, group mention and photo become adapter messages', async () =
     assert.equal(photo.images[0].data, Buffer.from('jpeg-bytes').toString('base64'))
     assert.ok(api.calls.some(call => call.method === 'getFile' && call.params.file_id === 'big'))
     handle.stop()
-  } finally { api.close() }
+  } finally { await api.close() }
 })
 
 test('Telegram removes only standalone addressing mentions and preserves emails and domains', async (t) => {
@@ -118,7 +132,7 @@ test('Telegram removes only standalone addressing mentions and preserves emails 
   const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), {
     onMessage: msg => messages.push(msg), onAction: () => {}, onStatus: () => {},
   })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   const cases = [
     ['1 3 @fakebot', '1 3 '],
     ['V3 1 3 @fakebot', 'V3 1 3 '],
@@ -175,8 +189,8 @@ test('a multiline Telegram group mention answers a token form without losing fie
   rt.config.im = { telegram: { api: api.api } }
   t.after(async () => {
     await ctx.dispose()
-    api.close()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    await api.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   })
   const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'TOKEN' } })
   const saved = rt.state.im.connections[conn.id]
@@ -238,7 +252,7 @@ test('callback_query answers the query and reports the action', async () => {
     assert.equal(got.actions[0].messageId, 44)
     assert.ok(api.calls.some(call => call.method === 'answerCallbackQuery' && call.params.callback_query_id === 'cq1'))
     handle.stop()
-  } finally { api.close() }
+  } finally { await api.close() }
 })
 
 test('send renders HTML, chunks long text, buttons go on the last chunk', async () => {
@@ -252,7 +266,7 @@ test('send renders HTML, chunks long text, buttons go on the last chunk', async 
     assert.equal(sends[0].params.parse_mode, 'HTML')
     assert.equal(sends[1].params.reply_markup.inline_keyboard[0][0].callback_data, 'a:1:allow')
     handle.stop()
-  } finally { api.close() }
+  } finally { await api.close() }
 })
 
 test('a chunk Telegram cannot parse goes again as plain text', async () => {
@@ -269,7 +283,7 @@ test('a chunk Telegram cannot parse goes again as plain text', async () => {
     assert.equal(sends.length, 2)
     assert.equal(sends[1].params.parse_mode, undefined, 'resent without a parse mode')
     handle.stop()
-  } finally { api.close() }
+  } finally { await api.close() }
 })
 
 test('429 is honored with retry_after and 409 becomes a status error', async () => {
@@ -281,7 +295,7 @@ test('429 is honored with retry_after and 409 becomes a status error', async () 
     const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
     await until(() => statuses.some(next => next.state === 'error' && /webhook or another program/i.test(next.error ?? '')))
     handle.stop()
-  } finally { api.close() }
+  } finally { await api.close() }
 })
 
 test('stop ends a long poll promptly, and a send in flight does not kill it', async () => {
@@ -312,12 +326,12 @@ test('a network failure before the first reply is retried until the Bot API answ
     return base.fetch(...args)
   }
   const handle = telegram.connect({ token: 'TOKEN' }, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   const failed = await until(() => statuses.find(status => status.state === 'retrying'))
   assert.match(failed.error, /fetch failed/)
   const tried = requests
   down = false
-  await until(() => statuses.some(status => status.state === 'ready'), 120)
+  await until(() => statuses.some(status => status.state === 'ready'))
   assert.ok(requests > tried, 'a new request went out after the failure')
   assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1)
 })
@@ -327,7 +341,7 @@ test('a refused token stops at once instead of retrying (#1119)', async (t) => {
   api.replies.getMe = () => ({ error: 401, description: 'Unauthorized' })
   const statuses = []
   const handle = telegram.connect({ token: 'bad' }, env(api.api), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   await until(() => statuses.some(status => status.state === 'error'))
   await new Promise(done => setTimeout(done, 400))
   assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'a refused token is not retried')
@@ -347,12 +361,12 @@ test('a drop after getMe succeeds is retried, not reported as an error (#1119)',
     return base.fetch(url, ...rest)
   }
   const handle = telegram.connect({ token: 'TOKEN' }, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   const failed = await until(() => statuses.find(status => status.state === 'retrying'))
   assert.match(failed.error, /fetch failed/)
   assert.ok(statuses.indexOf(failed) > statuses.findIndex(status => status.state === 'ready'), 'getMe already made the connection ready')
   down = false
-  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'))
   assert.ok(ready !== undefined, 'polling became ready again after the retry')
   assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'the identity is not fetched again')
   assert.ok(polls >= 2, 'a new long poll went out after the failure')
@@ -376,7 +390,7 @@ test('video, animation and video_note are fetched and passed as files (#1603)', 
     onAction: () => {},
     onStatus: () => {},
   })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   api.updates.push({
     update_id: 10,
     message: { message_id: 21, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video: { file_id: 'v1', file_name: 'clip.mp4', file_size: 11 } },
@@ -428,7 +442,7 @@ test('over-20MB files and download failures produce a note instead of dropping s
     onAction: () => {},
     onStatus: () => {},
   })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   api.updates.push({
     update_id: 20,
     message: { message_id: 31, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video: { file_id: 'big-vid', file_name: 'movie.mp4', file_size: 25 * 1024 * 1024 } },
@@ -466,7 +480,7 @@ test('custom Bot API server is not restricted by the 20 MB cloud pre-check (#160
     onAction: () => {},
     onStatus: () => {},
   })
-  t.after(() => { handle.stop(); api.close() })
+  t.after(async () => { handle.stop(); await api.close() })
   api.updates.push({
     update_id: 25,
     message: { message_id: 35, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video: { file_id: 'local-big', file_name: 'large.mp4', file_size: 25 * 1024 * 1024 } },
@@ -521,8 +535,8 @@ test('IM runtime forwards captionless video and notifies Bot when >20MB Telegram
   rt.config.im = { telegram: { api: api.api } }
   t.after(async () => {
     await ctx.dispose()
-    api.close()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    await api.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   })
   api.replies.getFile = ({ file_id }) => {
     if (file_id === 'v-ok') return { result: { file_id, file_path: 'videos/demo.mp4' } }

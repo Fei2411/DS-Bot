@@ -137,7 +137,9 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null
     h(Section, { key: 'links', title: t('Links') },
       onStartTour ? h(Row, { label: t('Settings guide') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: onStartTour }, h(CompassIcon), t('Start'))) : null,
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
-      update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
+      typeof actions.openReleaseNotes === 'function'
+        ? h(Row, { label: t('Release notes') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openReleaseNotes({ current: update.current ?? null, notesUrl: update.notesUrl ?? null }) }, t('Open')))
+        : update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
       inlineFeedback ? null : h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
   ]
 }

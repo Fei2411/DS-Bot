@@ -131,17 +131,36 @@ const AGENT_MEDIA = new Set(['image', 'file-download', 'markdown-image'])
 const BROWSER_DENIED = { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
-function remoteState(state, { browser = false } = {}) {
+export function remoteState(state, { browser = false } = {}) {
   if (!state || typeof state !== 'object') return state
   let next = state
+  if (Object.hasOwn(next, 'userQuestions') || Object.hasOwn(next, 'sessionQueues')) {
+    next = { ...next }
+    delete next.userQuestions
+    delete next.sessionQueues
+  }
   if (next.phone && Object.hasOwn(next.phone, 'pairing')) {
     const phone = { ...next.phone }
     delete phone.pairing
     next = { ...next, phone }
   }
-  if (browser && Array.isArray(next.work?.approvals)) {
-    const approvals = next.work.approvals.filter(entry => entry?.botId !== undefined)
-    if (approvals.length !== next.work.approvals.length) {
+  if (Array.isArray(next.work?.approvals)) {
+    let changed = false
+    const approvals = []
+    for (const entry of next.work.approvals) {
+      if (browser && entry?.botId === undefined) {
+        changed = true
+        continue
+      }
+      if (entry && Object.hasOwn(entry, 'alwaysAllow')) {
+        const { alwaysAllow: _, ...rest } = entry
+        approvals.push(rest)
+        changed = true
+      } else {
+        approvals.push(entry)
+      }
+    }
+    if (changed) {
       next = { ...next, work: { ...next.work, approvals } }
     }
   }
@@ -278,7 +297,7 @@ export function install(rt) {
     const wantFeed = running !== null && (readyCount > 0 || hasPushDevices())
     if (wantFeed && feedUntap === null) {
       feedUntap = rt.feedTap((event, payload) => {
-        if (event === 'terminal' || event === 'terminal-exit') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
         if (readyCount > 0) {
           if (event === 'live') {
             running.emit(event, remoteState(payload, { browser: true }), (targetDeviceId) => {
@@ -335,14 +354,28 @@ export function install(rt) {
     const id = String(payload?.id ?? '')
     if (id === '') return false
     const entry = rt.approvalById?.(id) ?? rt.approvalsView?.()?.find(item => item.id === id)
-    return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined)
+    return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined || rt.agentOf?.(entry.ownerSessionId) !== undefined)
   }
-  const agentAccessError = (device, endpoint, payload) =>
-    device.kind !== 'phone'
-    && ((AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined)
-      || agentApprovalDenied(endpoint, payload))
-      ? BROWSER_DENIED
-      : undefined
+  const hasParentArg = payload => payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== ''
+  const agentAccessError = (device, endpoint, payload) => {
+    if (endpoint === 'approval-answer' && payload?.choice === 'always') {
+      return { code: 'bot/refused', message: 'Always allow is available on the computer', details: {} }
+    }
+    if (endpoint === 'image' && hasParentArg(payload)) {
+      return device.kind !== 'phone'
+        ? BROWSER_DENIED
+        : { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
+    }
+    if (device.kind !== 'phone'
+      && ((AGENT_MEDIA.has(endpoint) && (
+        rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined
+        || rt.agentOf?.(String(payload?.parent ?? '')) !== undefined
+      ))
+        || agentApprovalDenied(endpoint, payload))) {
+      return BROWSER_DENIED
+    }
+    return undefined
+  }
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
     // Fail closed if the calling device is missing, unknown, or was revoked.

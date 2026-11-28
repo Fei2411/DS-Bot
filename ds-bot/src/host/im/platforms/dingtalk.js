@@ -66,37 +66,46 @@ export default {
       data: JSON.stringify(data),
     })
 
+    const stoppedError = () => Object.assign(new Error('stopped'), { stopped: true })
+
     const markdown = async (chat, text) => {
       const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
       let messageId
-      for (const chunk of chunks) {
-        const hook = sessionWebhooks.get(chat.key)
-        if (hook !== undefined && hook.until > Date.now()) {
-          const response = await env.fetch(hook.url, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ msgtype: 'markdown', markdown: { title: chunk.slice(0, 30), text: chunk } }),
-          })
-          const body = await response.json().catch(() => ({}))
-          if (body.errcode !== 0) throw Object.assign(new Error(String(body.errmsg ?? 'DingTalk refused the reply')), { permanent: true })
-          messageId = String(body.processQueryKey ?? messageId ?? '')
-          continue
+      try {
+        for (const chunk of chunks) {
+          if (stopped || stopping.signal.aborted) throw stoppedError()
+          const hook = sessionWebhooks.get(chat.key)
+          if (hook !== undefined && hook.until > Date.now()) {
+            const response = await env.fetch(hook.url, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ msgtype: 'markdown', markdown: { title: chunk.slice(0, 30), text: chunk } }),
+              signal: stopping.signal,
+            })
+            const body = await response.json().catch(() => ({}))
+            if (body.errcode !== 0) throw Object.assign(new Error(String(body.errmsg ?? 'DingTalk refused the reply')), { permanent: true })
+            messageId = String(body.processQueryKey ?? messageId ?? '')
+            continue
+          }
+          if (chat.kind === 'direct') {
+            const answer = await robot(env, await ensureToken(stopping.signal), clientId, '/v1.0/robot/oToMessages/batchSend', {
+              robotCode: clientId, userIds: [chat.key],
+              msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: chunk.slice(0, 30), text: chunk }),
+            }, stopping.signal)
+            messageId = String(answer?.processQueryKey ?? messageId ?? '')
+          } else {
+            const answer = await robot(env, await ensureToken(stopping.signal), clientId, '/v1.0/robot/groupMessages/send', {
+              robotCode: clientId, openConversationId: chat.key,
+              msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: chunk.slice(0, 30), text: chunk }),
+            }, stopping.signal)
+            messageId = String(answer?.processQueryKey ?? messageId ?? '')
+          }
         }
-        if (chat.kind === 'direct') {
-          const answer = await robot(env, await ensureToken(), clientId, '/v1.0/robot/oToMessages/batchSend', {
-            robotCode: clientId, userIds: [chat.key],
-            msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: chunk.slice(0, 30), text: chunk }),
-          })
-          messageId = String(answer?.processQueryKey ?? messageId ?? '')
-        } else {
-          const answer = await robot(env, await ensureToken(), clientId, '/v1.0/robot/groupMessages/send', {
-            robotCode: clientId, openConversationId: chat.key,
-            msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: chunk.slice(0, 30), text: chunk }),
-          })
-          messageId = String(answer?.processQueryKey ?? messageId ?? '')
-        }
+        return { messageId }
+      } catch (error) {
+        if (stopped || stopping.signal.aborted) throw stoppedError()
+        throw error
       }
-      return { messageId }
     }
 
     const downloadCodeBytes = async (downloadCode, limit, robotCode = clientId) => {
@@ -333,31 +342,38 @@ export default {
         if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
         const form = new FormData()
         form.append('media', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
-        const upResp = await env.fetch(`${oapiBase(env)}/media/upload?access_token=${encodeURIComponent(await ensureToken())}&type=image`, {
-          method: 'POST',
-          body: form,
-          signal: AbortSignal.timeout(30_000),
-        })
-        const upJson = await upResp.json().catch(() => ({}))
-        const mediaId = String(upJson?.media_id ?? '')
-        if (!upResp.ok || (upJson.errcode !== undefined && upJson.errcode !== 0) || mediaId === '') {
-          // Clear cached token on expired/invalid access_token codes so retry fetches a fresh one.
-          if ([40014, 42001].includes(Number(upJson.errcode))) { token = undefined; tokenExpiresAt = 0 }
-          const error = new Error(String(upJson.errmsg ?? `DingTalk image upload answered ${upResp.status}`))
-          error.status = upResp.status
-          if (upResp.status === 429) error.retryAfter = Number(upResp.headers.get('retry-after'))
-          error.permanent = upResp.status >= 400 && upResp.status < 500 && upResp.status !== 429
+        const sendSignal = mediaSignal(stopping.signal, 30_000)
+        try {
+          if (stopped || stopping.signal.aborted) throw stoppedError()
+          const upResp = await env.fetch(`${oapiBase(env)}/media/upload?access_token=${encodeURIComponent(await ensureToken(sendSignal))}&type=image`, {
+            method: 'POST',
+            body: form,
+            signal: sendSignal,
+          })
+          const upJson = await upResp.json().catch(() => ({}))
+          const mediaId = String(upJson?.media_id ?? '')
+          if (!upResp.ok || (upJson.errcode !== undefined && upJson.errcode !== 0) || mediaId === '') {
+            // Clear cached token on expired/invalid access_token codes so retry fetches a fresh one.
+            if ([40014, 42001].includes(Number(upJson.errcode))) { token = undefined; tokenExpiresAt = 0 }
+            const error = new Error(String(upJson.errmsg ?? `DingTalk image upload answered ${upResp.status}`))
+            error.status = upResp.status
+            if (upResp.status === 429) error.retryAfter = Number(upResp.headers.get('retry-after'))
+            error.permanent = upResp.status >= 400 && upResp.status < 500 && upResp.status !== 429
+            throw error
+          }
+          const msgParam = JSON.stringify({ photoURL: mediaId })
+          const answer = chat.kind === 'direct'
+            ? await robot(env, await ensureToken(stopping.signal), clientId, '/v1.0/robot/oToMessages/batchSend', {
+              robotCode: clientId, userIds: [chat.key], msgKey: 'sampleImageMsg', msgParam,
+            }, stopping.signal)
+            : await robot(env, await ensureToken(stopping.signal), clientId, '/v1.0/robot/groupMessages/send', {
+              robotCode: clientId, openConversationId: chat.key, msgKey: 'sampleImageMsg', msgParam,
+            }, stopping.signal)
+          return { messageId: String(answer?.processQueryKey ?? '') }
+        } catch (error) {
+          if (stopped || stopping.signal.aborted) throw stoppedError()
           throw error
         }
-        const msgParam = JSON.stringify({ photoURL: mediaId })
-        const answer = chat.kind === 'direct'
-          ? await robot(env, await ensureToken(), clientId, '/v1.0/robot/oToMessages/batchSend', {
-            robotCode: clientId, userIds: [chat.key], msgKey: 'sampleImageMsg', msgParam,
-          })
-          : await robot(env, await ensureToken(), clientId, '/v1.0/robot/groupMessages/send', {
-            robotCode: clientId, openConversationId: chat.key, msgKey: 'sampleImageMsg', msgParam,
-          })
-        return { messageId: String(answer?.processQueryKey ?? '') }
       },
       stop: () => {
         stopped = true

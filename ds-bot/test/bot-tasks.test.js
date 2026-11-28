@@ -275,6 +275,11 @@ test('pruning a task moved from the first Bot chat archives the old Session, not
   const [task] = bot.tasks
   assert.equal(task.sessionId, firstChat)
   assert.notEqual(newChat, firstChat)
+  assert.equal(task.forkedPrefixSessionId, firstChat)
+  assert.equal(env.rt.taskOwners.get(firstChat)?.preservePrefix, true)
+  assert.equal(bot.cacheAffinitySessionId, newChat)
+  assert.equal(bot.cacheAffinityId, firstChat)
+  assert.equal(env.rt.cacheAffinityOf(newChat), firstChat)
   bot.tasks.push(...settledTasks(50))
 
   assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: task.id })).ok, true)
@@ -368,7 +373,11 @@ test('a host with an unusable write lock keeps reports and pending archives for 
     patch.mock.restore()
     syncBuiltinESMExports()
   }
-  t.after(env.stop)
+  let reopened
+  t.after(async () => {
+    await reopened?.ctx.dispose()
+    await env.stop()
+  })
   const dir = join(env.home, 'task-reports')
   mkdirSync(dir)
   for (const task of team.bots.a.tasks) writeFileSync(join(dir, task.reportFile), 'Task report')
@@ -383,8 +392,7 @@ test('a host with an unusable write lock keeps reports and pending archives for 
   assert.equal(existsSync(join(dir, 'old-task-1.txt')), true)
 
   await env.ctx.dispose()
-  const reopened = await startEnv({ existingHome: env.home })
-  t.after(reopened.stop)
+  reopened = await startEnv({ existingHome: env.home })
   await reopened.rt.reconcileTasksAfterRestart()
   assert.deepEqual(reopened.archivedSessions.map(({ sid }) => sid), ['old-session-0', 'old-session-1'])
   assert.deepEqual(JSON.parse(readFileSync(reopened.rt.statePath, 'utf8')).retiredTasks, [])
@@ -552,6 +560,10 @@ test('task_start forks foreground chat, delivers via rt.deliver, and settles com
   const task = bot.tasks[0]
   assert.equal(task.status, 'running')
   assert.equal(env.rt.taskOwners.get(task.sessionId)?.taskId, task.id)
+  assert.equal(env.rt.taskOwners.get(task.sessionId)?.preservePrefix, true)
+  assert.equal(task.forkedPrefixSessionId, task.sessionId)
+  assert.equal(task.cacheAffinityId, 'dm-a')
+  assert.equal(env.rt.cacheAffinityOf(task.sessionId), 'dm-a')
   assert.equal(env.rt.chatOwners.get(task.sessionId), 'a')
   assert.equal(env.deliveries.length, 1)
   assert.equal(env.deliveries[0].role, 'task')
@@ -566,6 +578,7 @@ test('task_start forks foreground chat, delivers via rt.deliver, and settles com
   assert.equal(task.status, 'completed')
   assert.equal(env.rt.taskOwners.has(task.sessionId), false, 'settled task must leave taskOwners')
   assert.equal(env.rt.chatOwners.has(task.sessionId), false, 'settled task must leave chatOwners')
+  assert.equal(env.rt.cacheAffinityOf(task.sessionId), undefined, 'settled task must leave cacheAffinityRoots')
   assert.equal(env.rt.pastOwners.get(task.sessionId)?.botId, 'a')
   assert.equal(ownChatSessions(bot).includes(task.sessionId), false, 'settled task must leave ownChatSessions')
 
@@ -679,13 +692,15 @@ test('turn/end state machine ignores disposed, switched/blocked, HANDOFF_ACK, ru
   assert.equal(task.status, 'waiting_work')
   assert.equal(env.deliveries.filter(d => d.role === 'task-report').length, 0)
 
-  // 6. Once outgoing work closes, the final turn completes and reports once.
+  // 6. Once outgoing work closes, the final turn consumes the wake and completes once.
   env.rt.closeWork('w-out-1', 'Helper', 'looks good')
+  await waitFor(() => (env.agentMap.get(newSid)?.followups?.length ?? 0) >= 1)
+  const wakeMsg = env.agentMap.get(newSid).followups.at(-1)
   await env.emit(newSid, 'turn/start', { turn: 4 })
+  await env.emit(newSid, 'user/message', { turn: 4, content: wakeMsg.content, source: wakeMsg.source })
   await env.emit(newSid, 'assistant/message', { turn: 4, message: { role: 'assistant', content: [{ type: 'text', text: 'Final verified answer.' }] } })
   await env.emit(newSid, 'turn/end', { turn: 4, reason: { kind: 'completed' } })
-  await waitFor(() => env.deliveries.some(d => d.role === 'task-report'))
-  assert.equal(task.status, 'completed')
+  await waitFor(() => task.status === 'completed' && env.deliveries.some(d => d.role === 'task-report'))
   assert.equal(env.deliveries.filter(d => d.role === 'task-report').length, 1)
   assert.match(env.deliveries.find(d => d.role === 'task-report').text, /Final verified answer\./)
 })
@@ -772,8 +787,11 @@ test('handoff tree holds parent work until background task settles and wakes for
   const report = env.deliveries.find(d => d.role === 'task-report')
   assert.equal(report.work, 'w-parent', 'task report must carry parentWork to wake the Bot on the original handoff')
   assert.equal(report.replyTo, task.workId, 'task report must carry replyTo=task.workId so turns.js calls takenWork')
-  assert.equal(env.rt.state.works['w-parent'].results.length, 1)
-  assert.match(env.rt.state.works['w-parent'].results[0].text, /PR is solid\./)
+  const parentCalls = env.rt.coordDb.listCalls({ parentWorkId: 'w-parent' })
+  assert.equal(parentCalls.length, 1)
+  assert.equal(parentCalls[0].status, 'done')
+  assert.match(parentCalls[0].resultSummary, /PR is solid\./)
+  assert.match(env.rt.answerText('w-parent', '', 'Helper'), /PR is solid\./)
 
   // When the foreground turn reads the task-report message, takenWork clears the wait on w-parent.
   await env.emit('dm-b', 'user/message', {
@@ -1257,24 +1275,26 @@ test('spawnBotHandoffTask never forks busy foreground session, passes delegation
   assert.equal(task.startSeq, 0)
   assert.deepEqual(task.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }], 'bot-handoff must not leak live foreground user chat into inheritedSegments')
 
-  const delivered = env.deliveries.find(d => d.sessionId === task.sessionId && d.role === 'request')
+  const taskAgent = env.agentMap.get(task.sessionId)
+  const delivered = taskAgent.followups.find(m => m.source?.role === 'request')
   assert.ok(delivered !== undefined)
-  assert.match(delivered.text, /Run isolated contract check/)
-  assert.doesNotMatch(delivered.text, /Private foreground user chat/)
+  const deliveredText = delivered.content.map(b => b.text ?? '').join('\n')
+  assert.match(deliveredText, /Run isolated contract check/)
+  assert.doesNotMatch(deliveredText, /Private foreground user chat/)
 
   // Verify the lightweight bot-handoff task settles and returns its answer to Chief cleanly.
   await env.emit(task.sessionId, 'turn/start', { turn: 1 })
   await env.emit(task.sessionId, 'user/message', {
-    content: [{ type: 'text', text: delivered.text }],
-    source: { kind: SOURCE_KIND, role: 'request', exchangeId: task.exchangeId, senderSessionId: 'a', senderName: 'Chief' },
+    content: delivered.content,
+    source: delivered.source,
   })
   await env.emit(task.sessionId, 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Contract check passed.' }] } })
   await env.emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await waitFor(() => task.status === 'completed' && env.deliveries.some(d => d.toId === 'a' && d.role === 'reply'))
+  await waitFor(() => task.status === 'completed' && dmA.followups.some(m => m.source?.role === 'reply' && m.source?.replyTo === task.exchangeId))
 
-  const reply = env.deliveries.find(d => d.toId === 'a' && d.role === 'reply' && d.replyTo === task.exchangeId)
+  const reply = dmA.followups.find(m => m.source?.role === 'reply' && m.source?.replyTo === task.exchangeId)
   assert.ok(reply !== undefined)
-  assert.match(reply.text, /Contract check passed\./)
+  assert.match(reply.content.map(b => b.text ?? '').join('\n'), /Contract check passed\./)
 })
 
 test('task_start forks compact parents, skips fork above TASK_FORK_MAX_EVENTS with fallback summary + parent read_own_chat recall, while fg-handoff keeps forking', async (t) => {

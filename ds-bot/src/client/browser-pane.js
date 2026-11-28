@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
 import { MIN_CHAT } from './frame-layout.js'
-import { chatRoom } from './frame-watch.js'
+import { chatRoom } from './chat-room.js'
 import { SPRING_LEAD, SPRING_POP, SPRING_SHAPE, SPRING_TAP, SPRING_TRAIL, reducedMotion, spring, stepMenuFocus, useLinger, useMorph } from './motion.js'
 import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
@@ -20,7 +20,8 @@ import { FolderIcon, SideIcon, TerminalIcon } from './icons.js'
 import { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost, useCookieImportFlow } from './cookie-import-ui.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
-import { useEscape } from './overlay-hooks.js'
+import { browserPaneMode } from './browser-plugin-mode.js'
+import { ESCAPE_PRIORITY, topEscapePriority, useEscape } from './overlay-hooks.js'
 
 export { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost }
 
@@ -77,7 +78,9 @@ const widthRange = (view, room) => (view === 'browser' || view === 'workspace'
 const fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)))
 const attrValue = value => String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 // The address as the bar shows it while not editing: no scheme, no trailing slash.
-const shortAddress = url => String(url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
+const isBlankUrl = url => !url || url === 'about:blank' || String(url).startsWith('about:blank#')
+const visibleUrl = url => (isBlankUrl(url) ? '' : String(url))
+const shortAddress = url => visibleUrl(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
 
 const tabLabel = page => page.title || shortAddress(page.url) || t('New tab')
 
@@ -90,7 +93,7 @@ export function PanelMenu({ items, className, 'aria-label': label, icon: Trigger
   const wrap = useRef(null)
   const button = useRef(null)
   const pop = useRef(null)
-  useEscape(() => { setOpen(false); button.current?.focus() }, open)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useLayoutEffect(() => {
     const el = wrap.current
     const menu = pop.current
@@ -172,7 +175,8 @@ const measureTabSpot = (box, node, isStickyBot) => {
   return { left, right: box.offsetWidth - left - node.offsetWidth, boxWidth: box.offsetWidth }
 }
 
-export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+export function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids, active, sides, side, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+  const browserId = browserOwner ?? bot?.id ?? subject
   const pages = useBrowserPages(map => map)
   const wsTabs = workspace?.tabs ?? []
   const wsActive = workspace?.active ?? null
@@ -301,7 +305,7 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
     canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true,
-  }).map(key => menuItemFor(key, actions, subject))
+  }).map(key => menuItemFor(key, actions, key === 'browser' || key === 'new-tab' ? browserId : subject))
   // `data-window-drag` is the shell's window drag-row mark on macOS: base.css turns it
   // into the drag geometry, and the shell's watcher re-collects that geometry while the
   // panel slides in. The rule in styles.js declares the same row for a shell without it.
@@ -321,15 +325,15 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
         },
           h('button', {
             type: 'button', role: 'tab', 'aria-selected': on, className: 'bt-ptab bt-ptab-btn',
-            title: page.url || t('New tab'),
-            onClick: () => { actions.browserActivate(bot.id, tabId); onView('browser') },
-            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(bot.id, tabId) } },
+            title: visibleUrl(page.url) || t('New tab'),
+            onClick: () => { actions.browserActivate(browserId, tabId); onView('browser') },
+            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(browserId, tabId) } },
           },
             h(Favicon, { src: page.favicon, className: 'bt-ptab-fav' }),
             h('span', { className: 'bt-ptab-title' }, tabLabel(page))),
           h('button', {
             type: 'button', className: 'bt-ptab-x', 'aria-label': t('Close tab'), title: t('Close tab'),
-            onClick: () => { void actions.browserCloseTab(bot.id, tabId) },
+            onClick: () => { void actions.browserCloseTab(browserId, tabId) },
           }, '×'))
       }),
       sides.map((chat) => {
@@ -424,28 +428,32 @@ export function shouldCheckBrowserCover(records) {
   })
 }
 
+export { browserPaneMode }
+
 // The browser view: toolbar (back, forward, reload/stop, address) over the frame
 // the guest webview covers.
-export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold, browserSlot }) {
+  const browserId = ownerId ?? bot?.id ?? ''
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
+  const pageUrl = visibleUrl(page.url)
   const frame = useRef(null)
   const input = useRef(null)
   const importBoxRef = useRef(null)
   const [draft, setDraft] = useState(null)
   const [covered, setCovered] = useState(false)
 
-  // Cookie imports (the desktop app's bridge only): 'menu' lists browser profiles first,
+  // Cookie imports (the desktop app's bridge only, Bot browser only): 'menu' lists browser profiles first,
   // then file/paste; a card stage runs connecting / remote-debug / running / paste →
   // preview → result | error above the guest.
-  const imports = actions.browserImport
+  const imports = bot ? actions.browserImport : undefined
   const {
     flow, sources, loadingSources, lastSourceId, busy, setFlowTracked,
     openImport, pickFile, openPaste, submitPaste, pickSource, closeAndImport,
     applyImport, cancelImport, doneImport, retrySource, launchSource, openPermission,
   } = useCookieImportFlow({
     imports,
-    botId: bot.id,
-    pageUrl: page.url,
+    botId: bot?.id ?? '',
+    pageUrl,
     resetKey: tabId,
     idleFlow: null,
     onReload: () => actions.browserCommand(tabId, 'reload'),
@@ -455,7 +463,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
 
   // The guest goes on screen once the panel has landed and settled on its width,
   // and only over a page: the empty, error and import states are the panel's own.
-  const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null
+  const showGuest = landed && !leaving && !covered && Boolean(pageUrl) && !page.error && flow === null
 
   useEffect(() => {
     let raf = 0
@@ -503,7 +511,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
   // A fresh tab starts on its address bar.
   useEffect(() => {
     setDraft(null)
-    if (landed && !page.url) input.current?.focus()
+    if (landed && !pageUrl) input.current?.focus()
   }, [tabId, landed])
 
   const go = (event) => {
@@ -516,21 +524,27 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
   }
 
   const editing = draft !== null
-  useEscape(() => { setDraft(null); input.current?.blur() }, editing)
-  const secure = /^https:/i.test(page.url)
-  return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': t("{name}'s browser", { name: bot.name }) },
-    actions.browserTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
+  useEscape(() => { setDraft(null); input.current?.blur() }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION })
+  const secure = /^https:/i.test(pageUrl)
+  const paneMode = browserPaneMode(browserSlot, hold)
+  const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')
+  return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': viewLabel },
+    bot && actions.browserTakeover && paneMode.showTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
       h('span', null, hold?.by === 'user' ? t('You control this browser') : hold?.by === 'bot' ? t('The Bot handed this browser to you: {reason}', { reason: hold.reason }) : t('The Bot controls this browser')),
       hold?.by
         ? h('button', { type: 'button', onClick: () => void actions.browserGiveBack(bot.id) }, t('Give back'))
         : h('span', { className: 'bt-browser-takeover-actions' },
             h('button', { type: 'button', onClick: () => void actions.browserTakeover(bot.id) }, t('Take over')),
-            h('button', { type: 'button', onClick: () => void actions.browserStop(bot.id) }, t('Stop')))) : null,
+            h('button', { type: 'button', onClick: () => void actions.browserStop(bot.id) }, t('Stop'))))
+      : bot && paneMode.isExternal ? h('div', { className: 'bt-browser-takeover', 'data-external': '' },
+        h('span', null, t('{name} opens in an external window, not this sidebar', { name: paneMode.activeLabel })),
+        actions.openSettings ? h('button', { type: 'button', onClick: () => actions.openSettings('plugins', 'browser') }, t('Switch')) : null)
+        : null,
     h('div', { className: 'bt-browser-bar' },
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back'), title: t('Back'), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, 'back') }, h(BackIcon)),
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Forward'), title: t('Forward'), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, 'forward') }, h(ForwardIcon)),
       h('button', {
-        type: 'button', className: 'bt-icon-btn', disabled: !page.url,
+        type: 'button', className: 'bt-icon-btn', disabled: !pageUrl,
         'aria-label': page.loading ? t('Stop') : t('Reload'), title: page.loading ? t('Stop') : t('Reload'),
         onClick: () => actions.browserCommand(tabId, page.loading ? 'stop' : 'reload'),
       }, h(page.loading ? StopIcon : ReloadIcon)),
@@ -539,12 +553,13 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
         h('input', {
           ref: input, type: 'text', spellCheck: false, autoComplete: 'off', 'aria-label': t('Address'),
           placeholder: t('Search or enter address'),
-          value: editing ? draft : shortAddress(page.url),
-          onFocus: (event) => { setDraft(page.url); const target = event.target; requestAnimationFrame(() => target.select()) },
+          value: editing ? draft : shortAddress(pageUrl),
+          onFocus: (event) => { setDraft(pageUrl); const target = event.target; requestAnimationFrame(() => target.select()) },
           onBlur: () => setDraft(null),
           onChange: event => setDraft(event.target.value),
           onKeyDown: (event) => {
             if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              if (event.defaultPrevented || topEscapePriority() > ESCAPE_PRIORITY.INLINE_ACTION) return
               event.preventDefault?.()
               event.stopPropagation?.()
               event.nativeEvent?.stopPropagation?.()
@@ -555,7 +570,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
         })),
       h('button', {
         type: 'button', className: 'bt-icon-btn', 'aria-label': t('New browser tab'), title: t('New browser tab'),
-        onClick: () => actions.browserNewTab(bot.id),
+        onClick: () => actions.browserNewTab(browserId),
       }, h(PlusTabIcon)),
       imports ? h('button', {
         type: 'button', className: 'bt-icon-btn bt-import-btn', 'aria-label': t('Import cookies'), title: t('Import cookies'),
@@ -606,13 +621,23 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
         ? h('div', { className: 'bt-browser-empty' },
             h('div', { className: 'bt-browser-empty-title' }, t('This page didn’t load')),
             h('div', { className: 'bt-browser-empty-text' }, t(page.error)),
-            page.url ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => { void actions.browserNavigate(tabId, page.url) } }, t('Try again')) : null)
-        : flow === null && !page.url
+            pageUrl ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => { void actions.browserNavigate(tabId, pageUrl) } }, t('Try again')) : null)
+        : flow === null && !pageUrl
           ? h('div', { className: 'bt-browser-empty' },
-              h(BotMark, { bot, size: 48, state: 'idle', live: true }),
-              h('div', { className: 'bt-browser-empty-title' }, t("{name}'s browser", { name: bot.name })),
-              h('div', { className: 'bt-browser-empty-text' }, t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name })),
-              imports ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: openImport }, t('Import cookies')) : null)
+              bot
+                ? h(BotMark, { bot, size: 48, state: 'idle', live: true })
+                : h('span', { className: 'bt-browser-empty-icon', 'aria-hidden': true }, h(GlobeIcon)),
+              h('div', { className: 'bt-browser-empty-title' }, bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')),
+              h('div', { className: 'bt-browser-empty-text' }, bot
+                ? (paneMode.isExternal
+                  ? t('{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.', { plugin: paneMode.activeLabel, name: bot.name })
+                  : t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name }))
+                : t('Open a page beside your session. Enter an address above to get started.')),
+              bot && paneMode.isExternal
+                ? (actions.openSettings
+                    ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => actions.openSettings('plugins', 'browser') }, t('Switch browser plugin'))
+                    : null)
+                : (bot && imports ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: openImport }, t('Import cookies')) : null))
           : null))
 }
 
@@ -631,7 +656,8 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const wsTabs = workspace?.tabs ?? []
   const hasWs = wsTabs.length > 0
   const activeWsTab = wsTabs.find(tab => tab.id === workspace?.active)
-  const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow)
+  const browserOwner = bot ? bot.id : (!hasSubjectDetails && workspace?.browserId ? workspace.browserId : null)
+  const canBrowse = Boolean(browserOwner && roster.browser === true && actions.browserShow)
   const sideChats = bot ? sideChatsOf(roster, bot.id) : []
   const sideChat = sideChats.find(chat => chat?.id === pane.side)
   const taskBot = pane.task?.botId ? roster.byId?.[pane.task.botId] : undefined
@@ -643,7 +669,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
           : hasSubjectDetails ? 'details'
             : hasWs ? 'workspace'
               : 'details'
-  const tabState = useBrowserTabs(map => (bot ? (map[bot.id] ?? EMPTY_TABS) : EMPTY_TABS))
+  const tabState = useBrowserTabs(map => (browserOwner ? (map[browserOwner] ?? EMPTY_TABS) : EMPTY_TABS))
   const active = tabState.active
   const page = useBrowserPages(pages => (active ? pages[active] : null) ?? EMPTY_PAGE)
   const hold = useBrowserHolds?.(map => bot ? map[bot.id] ?? null : null) ?? null
@@ -691,7 +717,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     if (switched) chatRoom.hold(false)
   }, [view, panelWidth, leaving, overlay])
   const dragCleanup = useRef(null)
-  useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 })
+  useEscape(() => actions.closeOverlay(), !leaving, { priority: ESCAPE_PRIORITY.PANEL })
   useEffect(() => () => { dragCleanup.current?.(); chatRoom.setRight(null); chatRoom.hold(false) }, [])
   // A `room` change (window resize, the left column moving) lands at once.
   const mounted = useRef(false)
@@ -711,14 +737,16 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     return () => clearTimeout(timer)
   }, [])
 
-  // A Bot's strip restores as soon as the panel opens for it.
-  useEffect(() => { if (canBrowse) actions.browserEnsure(bot.id) }, [bot?.id, canBrowse])
-  // With the last tab closed the browser view folds back into workspace (if open) or details.
+  // A Bot's (or Classic session's) browser strip restores as soon as the panel opens for it.
+  useEffect(() => { if (canBrowse && browserOwner) actions.browserEnsure(browserOwner) }, [browserOwner, canBrowse])
+  // With the last tab closed the browser view folds back into workspace (if open), details, or closes.
   useEffect(() => {
     if (view === 'browser' && (active === null || !tabState.ids.includes(active))) {
-      actions.setPanelView(workspace !== undefined && hasWs ? 'workspace' : 'details')
+      if (workspace !== undefined && hasWs) actions.setPanelView('workspace')
+      else if (hasSubjectDetails) actions.setPanelView('details')
+      else actions.closePanel?.()
     }
-  }, [view, active, tabState.ids.length, workspace, hasWs])
+  }, [view, active, tabState.ids.length, workspace, hasWs, hasSubjectDetails])
   // A side chat closed here or in another window folds back into details too.
   useEffect(() => {
     if (pane.view === 'side' && sideChat === undefined) actions.setPanelView('details')
@@ -726,19 +754,20 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   useEffect(() => {
     if (pane.view === 'task' && taskEntry === undefined) actions.closeTask?.()
   }, [pane.view, taskEntry])
-  // In standalone desktop mode, close the panel if both subject details and workspace tabs
-  // are gone (e.g. a deleted Bot/room or closing the last workspace tab), or fold workspace
-  // back to details when workspace tabs clear.
+  // In standalone desktop mode, close the panel if subject details, workspace tabs, and
+  // browser tabs are all gone, or fold workspace back to details/browser when workspace tabs clear.
   useEffect(() => {
     if (leaving) return
-    if (workspace !== undefined && !hasSubjectDetails && !hasWs) {
+    const hasBrowser = canBrowse && (pane.view === 'browser' || tabState.ids.length > 0)
+    if (workspace !== undefined && !hasSubjectDetails && !hasWs && !hasBrowser) {
       actions.closePanel?.()
       return
     }
     if (pane.view !== 'workspace' || hasWs) return
-    if (hasSubjectDetails) actions.setPanelView('details')
+    if (canBrowse && tabState.ids.length > 0) actions.setPanelView('browser')
+    else if (hasSubjectDetails) actions.setPanelView('details')
     else actions.closePanel?.()
-  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails])
+  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails, canBrowse, tabState.ids.length])
   // The guest leaves the screen while the details view is up, and on close.
   useEffect(() => {
     if (view !== 'browser' || leaving) void actions.browserShow?.(null)
@@ -875,10 +904,10 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   }
 
   const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== undefined, wsTabs.length)
-    || (workspace !== undefined && (!hasSubjectDetails || (leaving && pane.view === 'workspace')))
+    || (workspace !== undefined && (!hasSubjectDetails || (leaving && (pane.view === 'workspace' || pane.view === 'browser'))))
   return h('aside', {
     ref: root, className: 'bt-panel', 'data-view': view,
-    'aria-label': view === 'browser' && bot ? t("{name}'s browser", { name: bot.name })
+    'aria-label': view === 'browser' ? (bot ? t("{name}'s browser", { name: bot.name }) : t('Browser'))
       : view === 'side' ? t('Side chat')
         : view === 'task' && taskEntry ? taskEntry.title
           : view === 'workspace' ? (activeWsTab?.label || t('Workspace'))
@@ -892,7 +921,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? createPortal(h('div', { className: 'bt-drag-shield', 'aria-hidden': true }), document.body) : null,
     hasStrip ? h(PanelStrip, {
-      bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry,
+      bot, roomSubject, subject: pane.id, browserOwner, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry,
       workspace, hasSubjectDetails: hasSubjectDetails || workspace === undefined,
       canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages,
     }) : null,
@@ -902,8 +931,8 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
       : null,
     view === 'workspace'
       ? (!hasWs ? h('div', { key: 'workspace-empty', className: 'bt-panel-view bt-panel-workspace' }) : null)
-      : view === 'browser' && bot
-        ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
+      : view === 'browser' && browserOwner
+        ? h(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold, browserSlot: roster.plugins?.slots?.browser })
         : view === 'side' && sideChat
           ? h('div', { key: `side:${sideChat.id}`, className: 'bt-panel-view' }, h(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions }))
           : view === 'task' && taskEntry && taskBot
@@ -966,9 +995,12 @@ export const BROWSER_CSS = `
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
+.bt-browser-takeover>span{min-width:0;overflow-wrap:anywhere}
 .bt-browser-takeover[data-held]{background:var(--bt-active)}
-.bt-browser-takeover-actions{display:flex;gap:6px}
-.bt-browser-takeover button{border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer}
+.bt-browser-takeover-actions{display:flex;gap:6px;flex:none}
+.bt-browser-takeover button{flex:none;white-space:nowrap;min-height:28px;border:1px solid var(--bt-line-2);border-radius:8px;padding:4px 10px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer;transition:background-color .12s ease}
+.bt-browser-takeover button:hover{background:var(--bt-hover)}
+.bt-browser-takeover button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-browser-bar .bt-icon-btn:disabled{opacity:.35;cursor:default;background:none}
 .bt-browser-address{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:32px;margin:0 4px;padding:0 12px;border-radius:999px;background:var(--bt-hover);border:.5px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-browser-address:hover{background:var(--bt-active)}
@@ -1144,6 +1176,8 @@ export const BROWSER_CSS = `
 .bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-plain:disabled{opacity:.4;cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-item,.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
+.bt-browser-empty-icon{width:44px;height:44px;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center}
+.bt-browser-empty-icon svg{width:22px;height:22px}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}

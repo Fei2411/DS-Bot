@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { afterRound } from './relay-rows.js'
 import { fakeContext } from './fake-ctx.js'
-import { isAckLikeText, isSilentTurnText, isWorkTool, PAIR_LOOP_TTL_MS, SOURCE_KIND } from '../src/host/constants.js'
+import { isAckLikeText, isSilentTurnText, isWorkTool, SOURCE_KIND } from '../src/host/constants.js'
 import { isRelayContext, stripHeader } from '../src/client/text.js'
 import { BROWSER_ALLOWED } from '../src/shared/browser-endpoints.js'
 import { roomItems } from '../src/host/mobile.js'
@@ -98,6 +98,8 @@ async function start(seed = team()) {
   const rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data, extra) => {
+    if (type === 'turn/start') agentOf(id).status = 'running'
+    if (type === 'turn/end') agentOf(id).status = 'idle'
     if (type === 'user/message') agentOf(id).session.deriveMessages().push({ role: 'user', content: data.content, source: data.source })
     if (type === 'assistant/message') agentOf(id).session.deriveMessages().push({ ...data.message, role: 'assistant' })
     for (const listener of ctx.listeners.get('session/event') ?? []) {
@@ -143,20 +145,32 @@ test('isWorkTool excludes meta/memory tools and isSilentTurnText matches silent 
   assert.equal(isSilentTurnText('收工前请确认这个文件。'), false)
 })
 
-test('note_bot leaves silent zero-wake context via agent.inject without waking the target', async (t) => {
-  const { agents, tool, exchanges, stop } = await start()
+test('note_bot leaves silent zero-wake context via dispatchNote (SQLite note / D1 appendNote) without waking the target', async (t) => {
+  const { rt, agents, agentOf, tool, exchanges, stop } = await start()
   t.after(stop)
 
   const receipt = await tool('note_bot', { to: 'Writer', note: '全部收工了，备份已删，插件全最新。' }, 'a')
   assert.match(receipt, /Left a silent note for Writer/)
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['inject'])
-  const msg = agents.get('b').calls[0][1]
-  assert.equal(msg.source.role, 'note')
-  assert.equal(msg.source.silent, true)
-  assert.match(textOf(msg.content), /^\[Note from Chief · FYI only, no reply needed\]/)
+  // On 0.2.2-rc.5 fallback (no native appendNote), target is never woken and the note lives in SQLite inbox(kind='note').
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0)
+  const notes = rt.coordDb.listInbox('fg:b', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(notes.length, 1)
+  assert.equal(notes[0].payload.role, 'note')
+  assert.match(notes[0].payload.renderedText, /^\[Note from Chief · FYI only, no reply needed\]/)
   const log = await exchanges('a', 'b')
   assert.equal(log.length, 1)
   assert.equal(log[0].role, 'note')
+
+  // On native D1 agents with appendNote, note_bot also delivers zero-wake via appendNote.
+  const appended = []
+  const reviewer = agentOf('c')
+  reviewer.appendNote = (msg, opts) => { appended.push([msg, opts]) }
+  await tool('note_bot', { to: 'Reviewer', note: '发布已完成。' }, 'a')
+  assert.equal(reviewer.calls.length, 0)
+  assert.equal(appended.length, 1)
+  assert.equal(appended[0][0].source.role, 'note')
+  assert.equal(appended[0][0].source.silent, true)
+  assert.match(textOf(appended[0][0].content), /^\[Note from Chief · FYI only, no reply needed\]/)
 })
 
 test('a closed result cannot create another root delegation without its work reference', async (t) => {
@@ -207,6 +221,12 @@ test('different goals with real results do not hit a fixed rework limit', async 
     emit('b', 'assistant/message', assistantText(`done step ${i}`))
     emit('b', 'turn/end', { turn: i, reason: { kind: 'completed' } })
     await settled(() => (agents.get('a')?.calls.length ?? 0) >= i)
+    // Chief consumes the reply turn so fg:a releases its 1:1 active claim for the next step.
+    const reply = agents.get('a').calls.at(-1)[1]
+    emit('a', 'turn/start', { turn: i })
+    emit('a', 'user/message', { content: reply.content, source: reply.source })
+    emit('a', 'assistant/message', assistantText('[PASS]'))
+    emit('a', 'turn/end', { turn: i, reason: { kind: 'completed' } })
   }
 
   const r5 = await tool('delegate_work', { to: 'Writer', goal: 'fix step 5' }, 'a')
@@ -275,8 +295,8 @@ test('ask_back suspends work without closing, answer_work resumes it, and closed
   await assert.rejects(() => tool('answer_work', { work_id: 'W1', answer: '收到' }, 'a'), /already closed/)
 })
 
-test('cancel_work and stop_bot cancel silently via agent.inject without waking the target or echoing back', async (t) => {
-  const { agents, emit, tool, stop } = await start()
+test('cancel_work and stop_bot cancel silently via dispatchNote without waking the target or echoing back', async (t) => {
+  const { rt, agents, emit, tool, stop } = await start()
   t.after(stop)
 
   await tool('delegate_work', { to: 'Writer', goal: 'update sidebar' }, 'a')
@@ -286,29 +306,31 @@ test('cancel_work and stop_bot cancel silently via agent.inject without waking t
 
   const out = await tool('cancel_work', { target: 'Writer', reason: '手机端边栏不用改了' }, 'a')
   assert.match(out, /Cancelled #W1 silently/)
-  // While Writer's turn is still ending, cancel is issued and the silent notice is buffered
-  // (never injected into a running agent, which would trigger an extra DSH step).
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'cancel'])
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup', 'cancel'])
 
-  // When Writer's cancelled turn emits aborted turn/end, the silent notice flushes via
-  // agent.inject() without waking Writer, and Chief is NOT woken with an echo.
+  // Silent cancellation note is recorded in SQLite fg:b inbox(kind='note') with wake=false;
+  // when Writer's cancelled turn ends, neither Writer nor Chief is woken.
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
-  await settled(() => agents.get('b').calls.length >= 3)
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'cancel', 'inject'])
-  assert.equal(agents.get('b').calls[2][1].source.role, 'cancelled')
-  assert.equal(agents.get('b').calls[2][1].source.silent, true)
+  await delay(30)
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup', 'cancel'])
+  const cancelNotes = rt.coordDb.listInbox('fg:b', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(cancelNotes.length, 1)
+  assert.equal(cancelNotes[0].payload.role, 'cancelled')
+  assert.match(cancelNotes[0].payload.renderedText, /手机端边栏不用改了/)
   assert.equal(agents.get('a')?.calls.length ?? 0, 0)
 
-  // stop_bot also stops without waking the stopped Bot to reply, flushing once idle.
+  // stop_bot also stops without waking the stopped Bot to reply, recording a silent stopped note.
   emit('c', 'turn/start', { turn: 1 })
   const stopped = await tool('stop_bot', { bot: 'Reviewer', reason: '别动备份' }, 'a')
   assert.match(stopped, /not woken to reply/)
   assert.deepEqual(agents.get('c').calls.map(([kind]) => kind), ['cancel'])
   emit('c', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
-  await settled(() => agents.get('c').calls.length >= 2)
-  assert.deepEqual(agents.get('c').calls.map(([kind]) => kind), ['cancel', 'inject'])
-  assert.equal(agents.get('c').calls[1][1].source.role, 'stopped')
-  assert.equal(agents.get('c').calls[1][1].source.silent, true)
+  await delay(30)
+  assert.deepEqual(agents.get('c').calls.map(([kind]) => kind), ['cancel'])
+  const stopNotes = rt.coordDb.listInbox('fg:c', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(stopNotes.length, 1)
+  assert.equal(stopNotes[0].payload.role, 'stopped')
+  assert.match(stopNotes[0].payload.renderedText, /别动备份/)
 })
 
 test('silent stubs like （静默。）/（收工。）/（完。） on Bot-triggered own-chat turns are hidden; user turns stay visible', async (t) => {
@@ -381,32 +403,32 @@ test('nested ask_back tree keeps parent waiting, pauses on 2nd zero-work ask_bac
   const ansMsg1 = agents.get('c').calls[1][1]
   assert.equal(ansMsg1.source.role, 'answer')
 
-  // Reviewer calls ask_back #2 STILL with 0 work tools -> pauses at ask_back_limit!
+  // Reviewer calls ask_back #2 cleanly (v2 has no hardcoded ask_back round limit);
+  // pausing on stagnation/user pause holds delivery until resume-work.
   emit('c', 'turn/start', { turn: 2 })
   emit('c', 'user/message', { content: ansMsg1.content, source: ansMsg1.source })
   const ask2 = await tool('ask_back', { question: '那目录路径是 /var 还是 /opt？' }, 'c')
-  assert.match(ask2, /^Paused your question on work #W2 for the user/)
-  emit('c', 'assistant/message', assistantText('paused for user'))
+  assert.match(ask2, /Sent your question on work #W2 to Writer/)
+  emit('c', 'assistant/message', assistantText('waiting for path'))
   emit('c', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  assert.equal(agents.get('b').calls.length, 2, 'Writer must NOT be woken while #W2 is paused')
-
-  const paused = (await call('state', {})).value.work.paused
-  assert.equal(paused.length, 1)
-  assert.equal(paused[0].ref, 'W2')
-  assert.equal(paused[0].reason, 'ask_back_limit')
-
-  // User clicks Continue on the pause card -> delivers ask_back #2 to Writer.
-  assert.equal((await call('resume-work', { id: paused[0].id })).ok, true)
   await settled(() => agents.get('b').calls.length >= 3)
   const askMsg2 = agents.get('b').calls[2][1]
   assert.equal(askMsg2.source.role, 'ask_back')
   assert.match(textOf(askMsg2.content), /\/var 还是 \/opt/)
+
+  // Pause W2 explicitly via stagnation/pauseWork -> shows in paused view and resumes via resume-work.
+  rt.pauseWork(req2.source.exchangeId, { reason: 'no_progress', detail: { kind: 'ask_back', question: '那目录路径是 /var 还是 /opt？' } })
+  const paused = (await call('state', {})).value.work.paused
+  assert.equal(paused.length, 1)
+  assert.equal(paused[0].ref, 'W2')
+  assert.equal((await call('resume-work', { id: paused[0].id })).ok, true)
 
   // Writer answers #2, Reviewer finishes #W2, Writer finishes #W1 -> Chief receives combined answer!
   emit('b', 'turn/start', { turn: 3 })
   emit('b', 'user/message', { content: askMsg2.content, source: askMsg2.source })
   await tool('answer_work', { answer: '查 /var/backups。' }, 'b')
   emit('b', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await settled(() => agents.get('c').calls.length >= 3)
   const ansMsg2 = agents.get('c').calls[2][1]
 
   emit('c', 'turn/start', { turn: 3 })
@@ -427,7 +449,7 @@ test('nested ask_back tree keeps parent waiting, pauses on 2nd zero-work ask_bac
   const finalToChief = textOf(agents.get('a').calls[0][1].content)
   assert.match(finalToChief, /宿主机备份核对完成/)
   assert.match(finalToChief, /\/var\/backups 已清空/)
-  assert.deepEqual(Object.keys(rt.state.works ?? {}), [])
+  assert.equal(rt.coordDb.listWorks({ activeOnly: true }).filter(w => w.kind !== 'foreground' && w.originKind !== 'request_dedup').length, 0)
 })
 
 test('a group answer returns once; mentioning the worker while reporting a result does not call it', async (t) => {
@@ -460,11 +482,12 @@ test('a group answer returns once; mentioning the worker while reporting a resul
     return tool('group_relay', {}, 'r1', { callId, signal: ac.signal }).then(v => afterRound(rt, 'r1', v))
   }
 
-  // Case A: legitimate 1-hop Q&A (User -> Chief -> Writer -> Chief -> User) with 0 tools completes without pausing!
+  // Case A: legitimate 1-hop Q&A (User -> Chief -> delegate_work(Writer) -> Chief -> User) with 0 tools completes without pausing!
   const qaPromise = runRound('c1', { content: textBlock('@Chief 问下 Writer 配置在哪'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 1)
   begin('ga')
-  finish('ga', '@Writer 配置在哪？')
+  await tool('delegate_work', { to: 'Writer', goal: '配置在哪？' }, 'ga')
+  finish('ga', '[PASS]')
   await settled(() => agentOf('gb').calls.length === 1)
   begin('gb')
   finish('gb', '@Chief 在 /etc/app.conf')
@@ -475,11 +498,12 @@ test('a group answer returns once; mentioning the worker while reporting a resul
   assert.equal(qa.replies.filter(r => r.kind === 'paused').length, 0, '1-hop Q&A must NOT pause')
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
 
-  // Even if both Bots use another tool, their receipt cannot turn back into a request.
+  // Even if both Bots use another tool, mentioning @Writer in a reporting reply is display-only (visible) and never wakes Writer.
   const cyclePromise = runRound('c2', { content: textBlock('@Chief 核对一下'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 3)
   begin('ga')
-  finish('ga', '@Writer 核对一下')
+  await tool('delegate_work', { to: 'Writer', goal: '核对一下' }, 'ga')
+  finish('ga', '[PASS]')
   await settled(() => agentOf('gb').calls.length === 2)
   begin('gb')
   emit('gb', 'tool/call', { callId: 'mem1', name: 'bot_remember', arguments: '{}' })
@@ -495,7 +519,7 @@ test('a group answer returns once; mentioning the worker while reporting a resul
   assert.equal(cycle.replies.filter(r => r.kind === 'paused').length, 0)
   assert.equal(agentOf('gb').calls.length, 2)
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
-  assert.equal(rt.state.rooms.r1.log.at(-1).route.kind, 'note')
+  assert.equal(rt.state.rooms.r1.log.at(-1).route.kind, 'visible')
   assert.equal(rt.state.rooms.r1.paused, undefined)
 })
 
@@ -525,30 +549,44 @@ test('part-switch forward preserves zero-wake agent.inject for silent notes and 
   assert.equal(byId['ex-req'], 'followup', 'normal work request must forward via followup (waking)')
 })
 
-test('P0 #1: note_bot on a running Bot buffers silently until idle (never injects mid-turn, never enters unreadOf)', async (t) => {
-  const { rt, agentOf, emit, tool, stop } = await start()
+test('P0 #1: note_bot on a running Bot stores silently in SQLite inbox without waking mid-turn or polluting unreadOf, and attaches on next waking pre-step', async (t) => {
+  const { rt, ctx, agentOf, emit, tool, stop } = await start()
   t.after(stop)
 
   const writer = agentOf('b')
-  writer.status = 'running'
-  let resolveIdle
-  writer.whenIdle = () => new Promise((resolve) => { resolveIdle = resolve })
   emit('b', 'turn/start', { turn: 1 })
 
   await tool('note_bot', { to: 'Writer', note: '宿主机备份已清空，供下次参考' }, 'a')
-  // Must NOT inject while Writer is running (would trigger extra DSH step) and must NOT pollute unreadOf.
+  // Must NOT wake or inject while Writer is running and must NOT pollute unreadOf (includeNotes: false).
+  assert.equal(writer.calls.length, 0)
+  assert.deepEqual(rt.unreadOf('b'), [])
+  const stored = rt.coordDb.listInbox('fg:b', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(stored.length, 1)
+  assert.equal(stored[0].payload.role, 'note')
+  assert.match(stored[0].payload.renderedText, /宿主机备份已清空/)
+
+  // Finishing Turn 1 does not wake Writer either.
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
   assert.equal(writer.calls.length, 0)
   assert.deepEqual(rt.unreadOf('b'), [])
 
-  // Once Writer finishes its turn and becomes idle, the buffered silent note flushes via inject.
-  writer.status = 'idle'
-  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  resolveIdle?.()
-  await settled(() => writer.calls.length === 1)
-  assert.equal(writer.calls[0][0], 'inject')
-  assert.equal(writer.calls[0][1].source.role, 'note')
-  assert.equal(writer.calls[0][1].source.silent, true)
-  assert.deepEqual(rt.unreadOf('b'), [])
+  // On Writer's next waking turn (0.2.2-rc.5 fallback), agent/pre-step prepends the unread note silently.
+  const waking = [{ role: 'user', content: textBlock('next task'), source: { kind: 'user' } }]
+  const chain = ctx.listeners.get('agent/pre-step') ?? []
+  const run = index => (index < chain.length
+    ? chain[index]({ agent: writer, step: 1, messages: waking, signal: AbortSignal.timeout(5000) }, () => run(index + 1))
+    : Promise.resolve({ kind: 'enter', messages: waking }))
+  const decision = await run(0)
+  const noteMsgs = decision.messages.filter(m => m.source?.role === 'note')
+  assert.equal(noteMsgs.length, 1)
+  assert.equal(decision.messages[0].source.role, 'note')
+  assert.equal(decision.messages[0].source.silent, true)
+  assert.match(textOf(decision.messages[0].content), /宿主机备份已清空/)
+  // Still unread until user/message commits.
+  assert.equal(rt.coordDb.listInbox('fg:b', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
+  emit('b', 'user/message', { content: decision.messages[0].content, source: decision.messages[0].source })
+  assert.equal(rt.coordDb.listInbox('fg:b', { unreadOnly: true }).filter(m => m.kind === 'note').length, 0)
 })
 
 test('P0 #2: bot-handoff background task stays waiting_work on ask_back and receives answer_work in its task session', async (t) => {
@@ -566,7 +604,7 @@ test('P0 #2: bot-handoff background task stays waiting_work on ask_back and rece
   assert.ok(task, 'bot-handoff task created')
   const work = rt.resolveWork('W1')?.work
   assert.equal(work?.toSession, task.sessionId)
-  assert.equal(work?.toTaskId, task.id)
+  assert.equal(work?.apiMeta?.taskId, task.id)
 
   // Task runs and calls ask_back, then its turn ends cleanly.
   const req = agentOf(task.sessionId).calls[0][1]
@@ -592,20 +630,38 @@ test('P0 #2: bot-handoff background task stays waiting_work on ask_back and rece
   assert.match(textOf(taskAnswer[1].content), /\[Work #W1 · Chief answered your question/)
 })
 
-test('P0 #4: concurrent resumePausedWork dispatches once, cancel_work/stop_bot wake waiting parent, and mid-turn ask_back defers cleanly', async (t) => {
+test('P0 #4: concurrent resumePausedWork dispatches once, cancel_work/stop_bot wake waiting parent, and cancelled joined request is not re-delivered', async (t) => {
   const { rt, agentOf, emit, tool, stop } = await start()
   t.after(stop)
 
   // 1) Concurrent resumePausedWork dispatches only once.
-  rt.openWork('w-paused', {
-    from: 'a', to: 'b', goal: 'run once', state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'run once', when: 'now', bounces: 2, at: Date.now() },
+  rt.openCall({
+    workId: 'w-paused',
+    callerBotId: 'a',
+    calleeBotId: 'b',
+    title: 'run once',
+    initialMessage: {
+      dedupKey: 'call:w-paused:request',
+      payload: { role: 'request', text: 'run once', exchangeId: 'w-paused' },
+    },
   })
+  rt.pauseWork('w-paused', { reason: 'no_progress', detail: { kind: 'delegate', text: 'run once' } })
   const [r1, r2] = await Promise.all([rt.resumePausedWork('w-paused'), rt.resumePausedWork('w-paused')])
   assert.deepEqual([r1, r2].sort(), [false, true])
+  await settled(() => agentOf('b').calls.some(([, m]) => m.source?.exchangeId === 'w-paused'))
   assert.equal(agentOf('b').calls.filter(([, m]) => m.source?.exchangeId === 'w-paused').length, 1)
+  // Settle w-paused so session 'b' releases its 1:1 active claim for subpart 2.
+  const pausedMsg = agentOf('b').calls.at(-1)[1]
+  emit('b', 'turn/start', { turn: 99 })
+  emit('b', 'user/message', { content: pausedMsg.content, source: pausedMsg.source })
+  emit('b', 'turn/end', { turn: 99, reason: { kind: 'completed' } })
+  await settled(() => agentOf('a').calls.length >= 1)
+  const pausedRep = agentOf('a').calls.at(-1)[1]
+  emit('a', 'turn/start', { turn: 99 })
+  emit('a', 'user/message', { content: pausedRep.content, source: pausedRep.source })
+  emit('a', 'turn/end', { turn: 99, reason: { kind: 'completed' } })
 
-  // 2) Cancel child work #W2 via cancel_work wakes waiting parent #W1 on Writer.
+  // 2) Cancel child work #W3 via cancel_work wakes waiting parent #W2 on Writer.
   await tool('delegate_work', { to: 'Writer', goal: 'parent task' }, 'a')
   const parentReq = agentOf('b').calls.at(-1)[1]
   emit('b', 'turn/start', { turn: 1 })
@@ -617,31 +673,37 @@ test('P0 #4: concurrent resumePausedWork dispatches once, cancel_work/stop_bot w
   // Chief (Main Bot) cancels Reviewer's child work while Writer is idle waiting for it.
   const writerBefore = agentOf('b').calls.length
   await tool('cancel_work', { target: childRef, reason: 'skip reviewer step' }, 'a')
+  await settled(() => agentOf('b').calls.length === writerBefore + 1)
   assert.equal(agentOf('b').calls.length, writerBefore + 1, 'waiting parent Writer must be woken when child is cancelled')
   const parentWake = agentOf('b').calls.at(-1)[1]
-  assert.equal(parentWake.source.work, parentReq.source.exchangeId)
-  assert.match(textOf(parentWake.content), /cancelled by Chief/)
+  assert.equal(parentWake.source.coordWorkId, parentReq.source.exchangeId)
   assert.deepEqual(rt.unreadOf('c'), [], 'cancelled child work must be cleared from unreadOf')
+  // Finish parent work on Writer and consume its reply on Chief so sessions 'b' and 'a' release their 1:1 claims.
+  const aCallsBeforeW2 = agentOf('a').calls.length
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: parentWake.content, source: parentWake.source })
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settled(() => agentOf('a').calls.length > aCallsBeforeW2)
+  const w2Rep = agentOf('a').calls.at(-1)[1]
+  emit('a', 'turn/start', { turn: 100 })
+  emit('a', 'user/message', { content: w2Rep.content, source: w2Rep.source })
+  emit('a', 'turn/end', { turn: 100, reason: { kind: 'completed' } })
 
-  // 3) Mid-turn top-level ask_back on a busy caller defers to a follow-up turn with askWork + workRef preserved.
+  // 3) Top-level ask_back queues via followup with askWork + workRef preserved.
   await tool('delegate_work', { to: 'Reviewer', goal: 'check config' }, 'a')
   const topReq = agentOf('c').calls.at(-1)[1]
   const topWorkId = topReq.source.exchangeId
   const topWorkRef = topReq.source.workRef
-  // Chief is busy in a user turn when Reviewer calls ask_back.
-  emit('a', 'turn/start', { turn: 10 })
-  emit('a', 'user/message', { content: textBlock('用户正在和 Chief 聊别的'), source: { kind: 'user' } })
   emit('c', 'turn/start', { turn: 10 })
   emit('c', 'user/message', { content: topReq.content, source: topReq.source })
+  const aBeforeAsk = agentOf('a').calls.length
   await tool('ask_back', { question: '确认端口号？' }, 'c')
-  const askMsg = agentOf('a').calls.at(-1)[1]
-  emit('a', 'user/message', { content: askMsg.content, source: askMsg.source })
-  emit('a', 'turn/end', { turn: 10, reason: { kind: 'completed' } })
-  await settled(() => agentOf('a').calls.some(([, m]) => m.source?.role === 'ask_back' && m.source?.deferred === true))
-  const deferredAsk = agentOf('a').calls.find(([, m]) => m.source?.role === 'ask_back' && m.source?.deferred === true)[1]
-  assert.equal(deferredAsk.source.askWork, topWorkId)
-  assert.equal(deferredAsk.source.workRef, topWorkRef)
-  assert.match(textOf(deferredAsk.content), new RegExp(`\\[Work #${topWorkRef} · Reviewer asked during your last task`))
+  await settled(() => agentOf('a').calls.length > aBeforeAsk)
+  const [askKind, askMsg] = agentOf('a').calls.at(-1)
+  assert.equal(askKind, 'followup')
+  assert.equal(askMsg.source.role, 'ask_back')
+  assert.equal(askMsg.source.askWork, topWorkId)
+  assert.equal(askMsg.source.workRef, topWorkRef)
 
   // 4) Cancelled joined request is NOT re-delivered as deferred at turn/end.
   emit('c', 'turn/end', { turn: 10, reason: { kind: 'completed' } })
@@ -688,11 +750,13 @@ test('P0 #5 & P1 #1: group fan-out completes without pause, alreadyPaused holds 
     return tool('group_relay', {}, 'r1', { callId, signal: ac.signal }).then(v => afterRound(rt, 'r1', v))
   }
 
-  // Parallel fan-out: User -> Chief -> @Writer @Reviewer -> both answer @Chief (0 tools) -> Chief answers user.
+  // Parallel fan-out: User -> Chief -> delegate_work(Writer) & delegate_work(Reviewer) -> both answer -> Chief answers user.
   const fanoutPromise = runRound('f1', { content: textBlock('@Chief 让 Writer 和 Reviewer 各自说下结论'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 1)
   begin('ga')
-  finish('ga', '@Writer @Reviewer 各自给下结论')
+  await tool('delegate_work', { to: 'Writer', goal: '给出文案部分结论' }, 'ga')
+  await tool('delegate_work', { to: 'Reviewer', goal: '给出运维部分结论' }, 'ga')
+  finish('ga', '[PASS]')
   await settled(() => agentOf('gb').calls.length === 1 && agentOf('gc').calls.length === 1)
   begin('gb')
   finish('gb', '@Chief 我这边文案部分 OK')
@@ -705,17 +769,19 @@ test('P0 #5 & P1 #1: group fan-out completes without pause, alreadyPaused holds 
   assert.equal(fanout.replies.filter(r => r.kind === 'paused').length, 0, 'parallel fan-out must NOT false-pause')
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
 
-  // Already-paused room holds even non-ack byBot calls instead of leaking them.
-  rt.state.rooms.r1.idlePaused = { from: 'a', count: 2, noticed: true }
-  const heldRoundPromise = runRound('f2', { content: textBlock('@Writer 顺便问一句'), source: { kind: 'bot', role: 'post', senderSessionId: 'a', senderName: 'Chief', roomId: 'r1' } })
-  await settled(() => agentOf('gb').calls.length === 2)
-  begin('gb')
-  finish('gb', '@Reviewer 帮我看一下接口文档第三节细节')
-  await heldRoundPromise
-  assert.equal(agentOf('gc').calls.length, 1, 'non-ack byBot call in already-paused room must be held, not leaked')
-  assert.ok(rt.state.rooms.r1.paused?.some(p => p.id === 'c'))
-
-  // resumedPause event is hidden in displayItems and never logged as a User line in joinRound.
+  // Paused room_work in SQLite resumes cleanly via resume-room-pause and resumedPause stays invisible in displayItems.
+  rt.coordDb.createWork({
+    workId: 'rw_paused_c',
+    botId: 'c',
+    kind: 'room_work',
+    logicalAddress: 'room:r1:c',
+    status: 'waiting',
+    priority: 'interactive',
+    roomId: 'r1',
+    originKind: 'group',
+    meta: { kind: 'room_call', callerBotId: 'b' },
+  })
+  rt.coordDb.pauseWork('rw_paused_c', { reason: 'no_progress' })
   const resumeRes = await call('resume-room-pause', { roomId: 'r1' })
   assert.equal(resumeRes.ok, true)
   const resumeMsg = agentOf('r1').calls.at(-1)[1]
@@ -792,40 +858,37 @@ test('P0 #6, P0 #7, P0 #8: privacy guards, show_view non-hiding, and prototype k
   assert.equal(Object.hasOwn(rt.state.closedWorks ?? {}, 'constructor'), false)
 })
 
-test('P1 #2, P1 #3, P1 #5: deliver_to user loop guard, substantive pure-LLM 2-step flow, TTL, client HEADER/RELAY_ROLES, BROWSER_ALLOWED', async (t) => {
-  const { rt, emit, tool, stop } = await start()
+test('P1 #2, P1 #3, P1 #5: hard-signal stagnation pause/resume, client HEADER/RELAY_ROLES, BROWSER_ALLOWED, and silent displayItems hiding', async (t) => {
+  const { rt, stop } = await start()
   t.after(stop)
 
-  // Distinct sections of text are progress even without a tool call.
-  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete first draft of section one with detailed technical rationale and examples.' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Please expand section two with migration steps and edge cases.' }), { ok: true })
-  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the expanded section two draft covering all migration steps.' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now refine section three with rollout checklists.' }), { ok: true })
-  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete section three rollout checklist.' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now translate section four into concise release notes.' }), { ok: true })
-  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the translated section four release note draft.' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now review section five appendix.' }), { ok: true })
+  // Hard-signal progress check: distinct output digests continue indefinitely without pausing.
+  const { workId } = rt.openCall({ workId: 'w-prog', callerBotId: 'a', calleeBotId: 'b', title: 'Draft sections' })
+  for (let i = 1; i <= 5; i += 1) {
+    const check = rt.recordWorkProgress({
+      workId,
+      unresolvedKey: 'draft-doc',
+      outputDigest: `section-${i}-sha`,
+    })
+    assert.equal(check.progressed, true)
+    assert.equal(check.stagnant, false)
+    assert.equal(check.paused, false)
+  }
 
-  // True ack-like or reciprocal alternating zero-work ping-pong still pauses immediately at 2 (idle_loop).
-  rt.resetPairLoop('a', 'b')
-  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete first draft of section one.' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: '收到，谢谢！' }), { pause: 'idle_loop', bounces: 2 })
-  assert.deepEqual(rt.checkPairLoop('b', 'a', { callerWorked: false, text: 'Please review the attached section outline.' }), { pause: 'idle_loop', bounces: 2 })
-  rt.resetPairLoop('a', 'b')
-  rt.noteWorkCompleted('a', 'b', { worked: false, text: '收到，已收工。' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Please translate section two into Japanese.' }), { pause: 'idle_loop', bounces: 2 })
+  // Repeated identical digests on the same unresolved step pause ONLY this causal chain at threshold.
+  const p1 = rt.recordWorkProgress({ workId, unresolvedKey: 'same-err', outputDigest: 'same', errorSignature: 'E1', threshold: 3 })
+  assert.equal(p1.paused, false)
+  const p2 = rt.recordWorkProgress({ workId, unresolvedKey: 'same-err', outputDigest: 'same', errorSignature: 'E1', threshold: 3 })
+  assert.equal(p2.paused, false)
+  const p3 = rt.recordWorkProgress({ workId, unresolvedKey: 'same-err', outputDigest: 'same', errorSignature: 'E1', threshold: 3 })
+  assert.equal(p3.stagnant, true)
+  assert.equal(p3.paused, true)
+  assert.equal(rt.workStateOf(workId), 'paused')
+  assert.equal(rt.pausedWorksView().some(p => p.id === workId), true)
 
-  // Expired pairLoops entry (> PAIR_LOOP_TTL_MS) resets cleanly.
-  rt.state.pairLoops['a:b'].lastAt = Date.now() - PAIR_LOOP_TTL_MS - 1000
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Fresh task after 15 minutes' }), { ok: true })
-
-  // deliver_to: 'user' reciprocal ping-pong pauses immediately on bounce back and preserves toUser: true.
-  rt.resetPairLoop('a', 'b')
-  await tool('delegate_work', { to: 'Writer', goal: 'Tell the user status A', deliver_to: 'user' }, 'a')
-  const bounced = await tool('delegate_work', { to: 'Chief', goal: 'Tell the user status B', deliver_to: 'user' }, 'b')
-  assert.match(bounced, /Paused work/)
-  const pausedWork = Object.values(rt.state.works).find(w => w.state === 'paused')
-  assert.equal(pausedWork?.paused?.toUser, true)
+  // Resuming resets stagnation cleanly.
+  assert.equal(rt.resumeWork(workId).resumed, true)
+  assert.equal(rt.pausedWorksView().some(p => p.id === workId), false)
 
   // Client HEADER stripping, RELAY_ROLES, BROWSER_ALLOWED, and displayItems silent hiding parity.
   assert.equal(stripHeader('[Work #W1 completed by Writer · closed]\n实际结果'), '实际结果')
@@ -843,12 +906,10 @@ test('P1 #2, P1 #3, P1 #5: deliver_to user loop guard, substantive pure-LLM 2-st
     { type: 'user/message', seq: 3, time: 3, data: { content: textBlock('[Stopped by Chief · no reply needed]\nstop'), source: { kind: SOURCE_KIND, role: 'stopped', silent: true, senderSessionId: 'a', senderName: 'Chief' } } },
   ])
   assert.deepEqual(silentItems, [], 'silent note/cancelled/stopped must stay hidden in displayItems just like live TriggerCell')
-  void emit
 })
 
 test('P0 #3: reload reconciliation keeps need_input work open instead of prematurely closing it, and skips cancelled works', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-reload-callret-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
   const seed = team()
   seed.works = {
     'w-need': { ref: 'W1', state: 'need_input', from: 'a', to: 'b', question: '哪台机器？', rounds: 1, worked: false, open: [], results: [], at: Date.now() },
@@ -912,18 +973,12 @@ test('P0 #3: reload reconciliation keeps need_input work open instead of prematu
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {}, messageProjections: [], get: id => agentOf(id).session },
   })
-  const origSetTimeout = globalThis.setTimeout
-  // Trigger resumeAll immediately instead of waiting RESUME_DELAY_MS (3000ms).
-  let resumeFn
-  globalThis.setTimeout = (fn, ms, ...rest) => {
-    if (ms === 3000) { resumeFn = fn; return { unref() {} } }
-    return origSetTimeout(fn, ms, ...rest)
-  }
   const rt = createRuntime(ctx, { home })
-  globalThis.setTimeout = origSetTimeout
-  t.after(async () => { await ctx.dispose() })
-  assert.ok(typeof resumeFn === 'function', 'resumeAll scheduled')
-  await resumeFn()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await rt.adoptLiveWork()
   await delay(50)
 
   // Work #W1 in need_input MUST still be open (NOT prematurely closed with "等待 Chief 回复中"!),
@@ -965,13 +1020,16 @@ test('re-review fixes: linear-time isAckLikeText, no duplicate deferred ask_back
   const dupDeferredAsk = agentOf('a').calls.slice(aCallsBeforeEnd).filter(([, m]) => m.source?.role === 'ask_back' && m.source?.deferred === true)
   assert.equal(dupDeferredAsk.length, 0, 'already-answered ask_back must NOT re-deliver as deferred at turn/end')
 
-  // 2b) Same-work answer steered into Writer's active turn must NOT re-deliver as deferred at turn/end.
+  // 2b) Writer's ask_back Turn 1 yields and ends; scheduler dispatches Chief's answer onto Turn 2 without duplicating it.
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => agentOf('b').calls.some(([, m]) => m.source?.role === 'answer'))
   const ansMsg = agentOf('b').calls.at(-1)[1]
   assert.equal(ansMsg.source.role, 'answer')
+  emit('b', 'turn/start', { turn: 2 })
   emit('b', 'user/message', { content: ansMsg.content, source: ansMsg.source })
   emit('b', 'assistant/message', assistantText('发布说明已按公开变更整理完毕。'))
   const bCallsBeforeEnd = agentOf('b').calls.length
-  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   await delay(30)
   const dupDeferredAns = agentOf('b').calls.slice(bCallsBeforeEnd).filter(([, m]) => m.source?.role === 'answer' && m.source?.deferred === true)
   assert.equal(dupDeferredAns.length, 0, 'same-work answer already consumed in turn must NOT re-deliver as deferred')
@@ -1021,15 +1079,26 @@ test('soak findings: resumeRoomPause signals Continue to woken member, and super
   const { rt, agentOf, emit, stop } = await start()
   t.after(stop)
 
-  // 1) resumeRoomPause adds explicit Continue note to parked entries so woken member knows user clicked Continue.
+  // 1) resumeRoomPause resumes paused SQLite room_work entries and posts a hidden resumedPause relay notice.
   const room = await rt.createRoom({ name: 'CycleGroup', members: ['a', 'b'], admin: 'a', greet: false })
-  room.idlePaused = { from: 'b', count: 2, noticed: true }
-  room.paused = [{ id: 'a', name: 'Chief', note: 'Writer mentioned you', by: 'b', idle: true }]
+  rt.coordDb.createWork({
+    workId: 'rw_cycle_a',
+    botId: 'a',
+    kind: 'room_work',
+    logicalAddress: `room:${room.id}:a`,
+    status: 'waiting',
+    priority: 'interactive',
+    roomId: room.id,
+    originKind: 'group',
+    meta: { kind: 'room_call', callerBotId: 'b' },
+  })
+  rt.coordDb.pauseWork('rw_cycle_a', { reason: 'no_progress' })
   const resumed = await rt.resumeRoomPause(room.id)
   assert.equal(resumed, true)
-  assert.equal(room.idlePaused, undefined)
-  assert.equal(room.paused[0].idle, false)
-  assert.match(room.paused[0].note, /Writer mentioned you; the user clicked Continue after a pause/)
+  assert.equal(rt.coordDb.getWork('rw_cycle_a').status, 'running')
+  const resumeMsg = agentOf(room.id).calls.at(-1)[1]
+  assert.equal(resumeMsg.source.resumedPause, true)
+  assert.deepEqual(resumeMsg.source.resumedWorkIds, ['rw_cycle_a'])
 
   // 2) Coalescing waiterless `role: 'room'` calls respects `(roomId, askedBy)` batch ownership:
   //    - Repeated waiterless calls from the same `askedBy` coalesce to the newest one.
@@ -1080,20 +1149,25 @@ test('soak findings: resumeRoomPause signals Continue to woken member, and super
   assert.equal(deferredIds.includes('ex-direct-req'), true, 'Bot-to-Bot work request must never be coalesced with room calls')
 })
 
-test('text-only translations continue beyond four sections while repeated no-progress and ping-pong still pause', async (t) => {
+test('text-only translations continue beyond four sections while hard-signal stagnation pauses only that chain', async (t) => {
   const { rt, agents, emit, tool, call, stop } = await start()
   t.after(stop)
 
-  // 4 consecutive same-direction pure-LLM delegations (0 work tools, non-ack call & reply) succeed without false idle_loop.
+  // 4 consecutive same-direction pure-LLM delegations (0 work tools) succeed without false pause.
   for (let i = 1; i <= 4; i += 1) {
     const out = await tool('delegate_work', { to: 'Writer', goal: `Translate section ${i} of the architecture document and preserve technical terms.` }, 'a')
-    assert.match(out, new RegExp(`^Delegated work #W${i} to Writer`), `section ${i} must not falsely pause as idle_loop`)
+    assert.match(out, new RegExp(`^Delegated work #W${i} to Writer`), `section ${i} must not falsely pause`)
     const req = agents.get('b').calls.at(-1)[1]
     emit('b', 'turn/start', { turn: i })
     emit('b', 'user/message', { content: req.content, source: req.source })
     emit('b', 'assistant/message', assistantText(`Completed translation of section ${i} with glossary alignment and formatting notes.`))
     emit('b', 'turn/end', { turn: i, reason: { kind: 'completed' } })
     await settled(() => (agents.get('a')?.calls.length ?? 0) >= i)
+    const rep = agents.get('a').calls.at(-1)[1]
+    emit('a', 'turn/start', { turn: i })
+    emit('a', 'user/message', { content: rep.content, source: rep.source })
+    emit('a', 'assistant/message', assistantText('[PASS]'))
+    emit('a', 'turn/end', { turn: i, reason: { kind: 'completed' } })
   }
 
   // Distinct section 5 continues cleanly without a fixed 4-turn cutoff.
@@ -1103,23 +1177,18 @@ test('text-only translations continue beyond four sections while repeated no-pro
   assert.equal(paused.length, 0)
   assert.equal((await call('cancel-work', { id: 'W5' })).ok, true)
 
-  // Reciprocal alternating zero-work ping-pong (A -> B then B -> A) still pauses immediately at 2 as idle_loop.
-  rt.resetPairLoop('a', 'b')
-  const aToB = await tool('delegate_work', { to: 'Writer', goal: 'Draft the release summary for review.' }, 'a')
-  assert.match(aToB, /^Delegated work #W6 to Writer/)
-  const req6 = agents.get('b').calls.at(-1)[1]
-  emit('b', 'turn/start', { turn: 10 })
-  emit('b', 'user/message', { content: req6.content, source: req6.source })
-  emit('b', 'assistant/message', assistantText('Here is the drafted release summary ready for your feedback.'))
-  emit('b', 'turn/end', { turn: 10, reason: { kind: 'completed' } })
-  await settled(() => (agents.get('a')?.calls.length ?? 0) >= 5)
-
-  const bToA = await tool('delegate_work', { to: 'Chief', goal: 'Please double-check my drafted release summary.' }, 'b')
-  assert.match(bToA, /^Paused work #W7 before waking Chief/)
+  // Hard-signal stagnation (repeated unchanged digest on the same unresolved step) pauses this chain cleanly.
+  const r6 = await tool('delegate_work', { to: 'Writer', goal: 'Fix stalled build error.' }, 'a')
+  assert.match(r6, /^Delegated work #W6 to Writer/)
+  const w6 = rt.resolveWork('W6').id
+  rt.recordWorkProgress({ workId: w6, unresolvedKey: 'build-err', outputDigest: 'same-err', errorSignature: 'E_STALL', threshold: 3 })
+  rt.recordWorkProgress({ workId: w6, unresolvedKey: 'build-err', outputDigest: 'same-err', errorSignature: 'E_STALL', threshold: 3 })
+  const stalled = rt.recordWorkProgress({ workId: w6, unresolvedKey: 'build-err', outputDigest: 'same-err', errorSignature: 'E_STALL', threshold: 3 })
+  assert.equal(stalled.stagnant, true)
+  assert.equal(stalled.paused, true)
   paused = (await call('state', {})).value.work.paused
   assert.equal(paused.length, 1)
-  assert.equal(paused[0].reason, 'idle_loop')
-  assert.equal(paused[0].bounces, 2)
+  assert.equal(paused[0].ref, 'W6')
 })
 
 test('STEER_CUT during a private reply turn preserves userInput, ordinary user turns allow historical follow_up_to, and ref-less late replies never deadlock', async (t) => {

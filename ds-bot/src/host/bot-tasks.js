@@ -15,7 +15,7 @@ import { buildFallbackContext } from './context-pack.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
-import { activeTasksOf, addressedSession, isActiveTask, retiredTaskSessionIds, returnAddress, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
+import { activeTasksOf, foregroundAddress, isActiveTask, retiredTaskSessionIds, roomMemberAddress, taskAddress, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
 import { output } from './tools.js'
 import { answerSender, cutOffText, turnFailure } from './turns.js'
 
@@ -72,6 +72,10 @@ const safeFileName = id => `${String(id).replace(/[^A-Za-z0-9_-]/g, '_')}.txt`
 
 export function install(rt) {
   const { ctx, state } = rt
+  const hasCoordDb = () => rt.coordDb != null && !rt.coordDb.isClosed?.()
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (hasCoordDb() ? rt.coordDb : null))
+  const writableCoordDb = () => hasCoordDb() && rt.coordDb.readonly !== true && rt.readOnly?.() === undefined
+  const taskWorkIdOf = task => task?.workId ?? (task?.origin === 'bot-handoff' && task?.exchangeId ? task.exchangeId : (task?.id ? taskAddress(task.id) : undefined))
   const reportsDir = join(rt.home, 'task-reports')
   const settling = new Set()
   const delivering = new Set()
@@ -475,7 +479,7 @@ export function install(rt) {
   }
 
   const cleanPrunedSession = (id) => {
-    for (const entries of [state.closedCards, state.exchangeTurns, state.questions, state.views, state.switching]) {
+    for (const entries of [state.closedCards, state.closedCardSeqs, state.exchangeTurns, state.questions, state.views, state.switching]) {
       if (entries !== undefined) delete entries[id]
     }
     forgetTaskSession(id)
@@ -660,6 +664,17 @@ export function install(rt) {
       if (work?.from !== bot.id || work.fromPart === undefined) continue
       const thread = threadOfPart(bot, work.fromPart)
       if (thread?.thread === 'task' && thread.taskId === task.id) return true
+    }
+    const db = existingCoordDb()
+    if (db !== null) {
+      const workId = taskWorkIdOf(task)
+      if (workId !== undefined) {
+        try {
+          if (db.listWaits({ workId, status: 'open', limit: 10 }).some(w => w.kind === 'call' || w.kind === 'ask')) {
+            return true
+          }
+        } catch { /* best-effort */ }
+      }
     }
     return false
   }
@@ -847,7 +862,6 @@ export function install(rt) {
       const wantsReport = task.origin !== 'bot-handoff' && task.origin !== 'api' && (notifyForeground || parentWork !== undefined)
       let reportAddress
       let reportPayload
-      let reportObligationId
       if (wantsReport) {
         let canDeliverReport = true
         if (task.roomId !== undefined) {
@@ -876,7 +890,6 @@ export function install(rt) {
             body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
           }
           const exchangeId = `task-report:${task.id}`
-          reportObligationId = exchangeId
           reportPayload = {
             toId: bot.id,
             address: reportAddress,
@@ -893,7 +906,8 @@ export function install(rt) {
       }
 
       let handoffPlan
-      if (task.origin === 'bot-handoff' && settleWork && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
+      if (task.origin === 'bot-handoff' && settleWork && task.exchangeId !== undefined
+        && !rt.isPendingAttachWork?.(task.exchangeId) && rt.ownsWork?.(bot.id, task.exchangeId)) {
         const asker = rt.workAsker?.(task.exchangeId)
         if (asker !== undefined) {
           const answerText = outcome === 'completed'
@@ -906,96 +920,46 @@ export function install(rt) {
           const long = outcome === 'completed' && answerText.length > MESSAGE_INLINE_MAX
             ? await rt.attachLong?.(answerText, `Answer from ${bot.name}.txt`).catch(() => undefined)
             : undefined
-          const toId = asker.senderSessionId
-          const rawAddress = returnAddress(rt.botOf(toId), asker.senderPart, asker.senderRoomId)
-          const resolvedTarget = addressedSession(rt, toId, rawAddress)
-          const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
-          const workBeforeClose = Object.hasOwn(rt.state?.works ?? {}, task.exchangeId) ? rt.state.works[task.exchangeId] : undefined
-          const workRef = asker.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(task.exchangeId)
-          const workWorked = workBeforeClose?.worked === true
-          const replyImOrigin = rt.workImOrigin?.(task.exchangeId)
-          const eligibleImOrigin = replyImOrigin !== undefined && !(asker.senderRoomId !== undefined && resolvedTarget === undefined)
-            ? replyImOrigin
-            : undefined
-          const replyExchangeId = `reply:${task.exchangeId}`
-          const obligationId = `peer-result:${task.exchangeId}`
-          const payload = {
-            fromId: bot.id,
-            fromName: bot.name,
-            toId,
-            ...(resolvedTarget ? { sessionId: resolvedTarget } : {}),
-            text: long?.text ?? answerText,
-            ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
-            role: 'reply',
-            replyTo: task.exchangeId,
-            exchangeId: replyExchangeId,
-            address,
-            ...(workBeforeClose?.parent !== undefined ? { work: workBeforeClose.parent } : {}),
-            ...(workRef ? { workRef } : {}),
-          }
           handoffPlan = {
             asker,
             answerText,
             long,
             aborted: outcome !== 'completed',
-            obligation: {
-              id: obligationId,
-              kind: 'peer_result',
-              ownerId: task.id,
-              botId: toId,
-              address,
-              payload,
-              deliveryId: replyExchangeId,
-            },
-            snapshot: {
-              handoffExchangeId: task.exchangeId,
-              handoffBotName: bot.name,
-              handoffResult: answerText,
-              handoffWorked: workWorked,
-              ...(eligibleImOrigin !== undefined ? { handoffImOrigin: eligibleImOrigin } : {}),
-            },
           }
         }
       }
 
-      const terminalObligation = handoffPlan?.obligation ?? (reportPayload !== undefined ? {
-        id: reportObligationId,
-        kind: 'task_report',
-        ownerId: task.id,
-        botId: bot.id,
-        address: reportAddress,
-        payload: reportPayload,
-        deliveryId: reportPayload.exchangeId,
-      } : undefined)
-
-      // Single SQLite transaction: cancel any unsent `role: 'task'` start delivery,
-      // record the terminal task snapshot until `state.json` persists it, AND
-      // durably record any owed foreground/group/peer report before saving `state.json`.
-      rt.coordination?.commitTaskTerminal?.({
-        taskId: task.id,
-        terminalSnapshot: {
-          botId: bot.id,
-          status: task.status,
-          updatedAt: task.updatedAt,
-          endedAt: task.endedAt,
-          ...(task.error !== undefined ? { error: task.error } : {}),
-          ...(task.summary !== undefined ? { summary: task.summary } : {}),
-          ...(task.reportFile !== undefined ? { reportFile: task.reportFile } : {}),
-          ...(task.workId !== undefined ? { workId: task.workId, workTitle: task.title, workResult: workResultSummary } : {}),
-          ...(handoffPlan?.snapshot ?? {}),
-        },
-        ...(terminalObligation !== undefined ? { obligation: terminalObligation } : {}),
-      })
-      rt.forgetTaskStartDeliveries?.(task.id)
-
-      await rt.save()
-      if (handoffPlan === undefined) {
+      // Single-source-of-truth SQLite settlement: transition the task work in `coordination.sqlite`
+      // before saving `state.json` or emitting foreground/peer replies.
+      // When a `bot-handoff` task is answering its asking Bot via `answerSender` below,
+      // `answerSender` closes the work in `coordDb` atomically (`deliverDirect: true`) so
+      // `closedWorkOf` is not prematurely marked cancelled before `answerSender` runs.
+      const coordWorkId = taskWorkIdOf(task)
+      if (writableCoordDb() && coordWorkId !== undefined && handoffPlan === undefined && !rt.isPendingAttachWork?.(coordWorkId)) {
         try {
-          rt.coordination?.clearTerminalMarker?.('task', task.id)
+          const dbWork = rt.coordDb.getWork(coordWorkId)
+          if (dbWork !== undefined && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
+            const coordOutcome = outcome === 'completed' ? 'done' : outcome === 'failed' ? 'failed' : 'stopped'
+            const res = rt.coordDb.settleWork({
+              workId: coordWorkId,
+              outcome: coordOutcome,
+              summary: workResultSummary ?? task.summary ?? fullText.slice(0, SUMMARY_MAX),
+              resultRef: task.reportFile,
+              ...(task.error !== undefined ? { error: { code: outcome, message: task.error } } : {}),
+              by: bot.id,
+              force: true,
+            })
+            if (res?.settled) {
+              rt.emitWorkSettled?.({ outcome: coordOutcome, ...res })
+            }
+          }
         } catch (error) {
-          rt.warn?.('ds-bot: clearing task terminal marker %s failed: %s', task.id, error)
+          rt.warn?.('ds-bot: settling coordDb work %s failed: %s', coordWorkId, error?.message ?? error)
         }
       }
+      rt.forgetWorkDeliveries?.(coordWorkId ?? task.id)
+
+      await rt.save()
       settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),
@@ -1019,15 +983,9 @@ export function install(rt) {
             handoffPlan.asker,
             handoffPlan.answerText,
             handoffPlan.long,
-            { ...(handoffPlan.aborted ? { aborted: true } : {}), obligationId: handoffPlan.obligation.id },
+            { ...(handoffPlan.aborted ? { aborted: true } : {}) },
           )
-          void rt.save().then(() => {
-            try {
-              rt.coordination?.clearTerminalMarker?.('task', task.id)
-            } catch (error) {
-              rt.warn?.('ds-bot: clearing task terminal marker %s failed: %s', task.id, error)
-            }
-          }, () => {})
+          void rt.save().catch(() => {})
         }
         return
       }
@@ -1037,12 +995,10 @@ export function install(rt) {
       if (task.roomId !== undefined) {
         const room = rt.roomOf(task.roomId)
         if (room === undefined || !room.members.includes(bot.id)) {
-          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
           return
         }
         targetSession = room.sessions?.[bot.id]
         if (targetSession === undefined) {
-          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
           await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
           return
         }
@@ -1058,12 +1014,9 @@ export function install(rt) {
         await rt.deliver({
           ...reportPayload,
           sessionId: targetSession,
+          logicalAddress: task.roomId !== undefined ? roomMemberAddress(task.roomId, bot.id) : foregroundAddress(bot.id),
         })
-        rt.coordination?.markObligation?.(reportObligationId, 'settled')
       } catch (error) {
-        if (error?.code === 'bot/unresolved-return') {
-          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
-        }
         if (task.roomId !== undefined) {
           await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
         }
@@ -1185,23 +1138,62 @@ export function install(rt) {
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
+    const deliveryKey = `task:${id}:${randomBytes(6).toString('hex')}`
+    if (writableCoordDb()) {
+      const coordWorkId = taskWorkId ?? taskAddress(id)
+      try {
+        rt.coordDb.transaction(() => {
+          if (rt.coordDb.getWork(coordWorkId) === undefined) {
+            rt.coordDb.createWork({
+              workId: coordWorkId,
+              botId: bot.id,
+              kind: 'task',
+              logicalAddress: taskAddress(id),
+              status: 'running',
+              priority: 'background',
+              parentWorkId: parentWork && rt.coordDb.getWork(parentWork) ? parentWork : undefined,
+              roomId: room?.id,
+              title: name,
+              originKind: api ? 'api' : (room !== undefined ? 'room' : 'task'),
+              imOrigin,
+              sessionId,
+              workspaceDir: resolvedDir,
+              apiMeta: { taskId: id, origin: api ? 'api' : 'task' },
+            })
+          } else {
+            rt.coordDb.rebindSession(coordWorkId, sessionId)
+          }
+          rt.coordDb.recordDirectDeliveryAttempt({
+            workId: coordWorkId,
+            idempotencyKey: deliveryKey,
+            sessionId,
+          })
+        })
+      } catch (error) {
+        rt.warn?.('ds-bot: registering task work %s in coordDb failed: %s', coordWorkId, error?.message ?? error)
+      }
+    }
     if (room !== undefined) rt.workRoomTurn?.(fromSessionId, 'task')
 
     const contextNote = forked ? '' : (fallbackContext ?? fallbackContextSummary(fromSessionId))
     const localNote = isLocal ? '\nNote: You are running in a separate local CLI session that does not share in-memory state with the foreground chat.' : ''
     const dirNote = resolvedDir ? `\nWorking directory: ${resolvedDir}` : ''
     const reportDest = room !== undefined ? `your session in group "${room.name}"` : 'your own chat'
-    const prompt = `${detail}${dirNote}${localNote}${contextNote}\n\nDo this work here. The user does not chat directly in this task session; do not call ask_user, show_view, request_secret, or task_* tools. When you finish, your final reply is sent back to ${reportDest}, so make it complete and self-contained.`
+    const disabledTools = room !== undefined
+      ? 'ask_user, show_view, request_secret, prepare_ds_bot_issue, schedule_create, schedule_edit, browser_handoff, delegate_work, or task_*'
+      : 'ask_user, show_view, request_secret, prepare_ds_bot_issue, schedule_create, schedule_edit, browser_handoff, or task_*'
+    const prompt = `${detail}${dirNote}${localNote}${contextNote}\n\nDo this work here. The user does not chat directly in this task session; do not call ${disabledTools} tools. When you finish, your final reply is sent back to ${reportDest}, so make it complete and self-contained.`
 
     try {
       await rt.deliver({
         toId: bot.id,
         sessionId,
-        address: { taskId: id },
+        logicalAddress: taskAddress(id),
         text: prompt,
         role: 'task',
         note: `"${name}" (${id})`,
         taskId: id,
+        idempotencyKey: deliveryKey,
         recordExchange: false,
       })
     } catch (error) {
@@ -1264,15 +1256,50 @@ export function install(rt) {
       if (!isActiveTask(task) || settling.has(task.id)) {
         throw Object.assign(new Error(`Task "${task.title}" is ${task.status} and cannot receive messages.`), { code: 'bot/invalid' })
       }
+      const deliveryKey = `task-send:${task.id}:${randomBytes(6).toString('hex')}`
+      let reviseWorkId
+      let reviseSeq
+      if (writableCoordDb()) {
+        const coordWorkId = taskWorkIdOf(task)
+        if (coordWorkId !== undefined && rt.coordDb.getWork(coordWorkId) !== undefined) {
+          try {
+            rt.coordDb.transaction(() => {
+              rt.coordDb.rebindSession(coordWorkId, task.sessionId)
+              const recv = rt.coordDb.receiveMessage({
+                workId: coordWorkId,
+                kind: 'revise',
+                bodyPreview: oneLine(text, 200),
+                payload: { text: String(text ?? ''), role, note },
+                dshIdempotencyKey: deliveryKey,
+                wake: false,
+              })
+              reviseWorkId = coordWorkId
+              reviseSeq = recv?.message?.seq
+              const dbWork = rt.coordDb.getWork(coordWorkId)
+              if (dbWork && dbWork.status !== 'paused' && dbWork.status !== 'needs_verification' && dbWork.status !== 'stopping') {
+                rt.coordDb.recordDirectDeliveryAttempt({
+                  workId: coordWorkId,
+                  idempotencyKey: deliveryKey,
+                  sessionId: task.sessionId,
+                })
+              }
+            })
+          } catch { /* best-effort */ }
+        }
+      }
       await rt.deliver({
         toId: bot.id,
         sessionId: task.sessionId,
+        logicalAddress: taskAddress(task.id),
         text: String(text ?? ''),
         role,
         note: note ?? `"${task.title}" (${task.id})`,
         taskId: task.id,
+        idempotencyKey: deliveryKey,
         steer,
         recordExchange: false,
+        ...(reviseWorkId ? { coordWorkId: reviseWorkId } : {}),
+        ...(Number.isInteger(reviseSeq) ? { coordExactSeq: reviseSeq } : {}),
       })
       return { botId: bot.id, taskId: task.id, sessionId: task.sessionId }
     } finally {
@@ -1336,7 +1363,7 @@ export function install(rt) {
       .trim()
     const failure = reason?.kind === 'error' ? turnFailure(reason.error) : undefined
     if (reason?.kind !== 'error' && reason?.kind !== 'aborted') {
-      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      const agent = ctx.get?.('agents')?.get?.(sessionId) ?? await rt.resolveAgent?.(sessionId)?.catch?.(() => undefined)
       // A child work can already be closed while its reply still waits for replay.
       if (hasWakingInboxInput(agent) || rt.unreadOf?.(sessionId)?.length > 0) return false
     }
@@ -1356,6 +1383,8 @@ export function install(rt) {
   async function reconcileTasksAfterRestart(keepSessions = new Set()) {
     if (rt.readOnly?.() !== undefined) return
     const keep = keepSessions instanceof Set ? keepSessions : new Set(Object.keys(keepSessions ?? {}))
+    const db = existingCoordDb()
+    if (db === null && rt.coordDbError?.() != null) return
     for (const bot of Object.values(state.bots)) {
       for (const task of activeTasksOf(bot)) {
         const sid = task.sessionId
@@ -1364,6 +1393,39 @@ export function install(rt) {
         if (state.switching?.[sid] !== undefined || rt.isSwitchingPart?.(sid)) continue
         if ((rt.runningJobs?.(sid)?.length ?? 0) > 0) continue
         if ((rt.unreadOf?.(sid)?.length ?? 0) > 0) continue
+        // Respect D2 crash-reconciled SQLite work status before touching cold/corrupt sessions
+        // so `needs_verification`, `paused`, `queued`, `waiting`, and already-settled works are
+        // never clobbered into `interrupted` / `stopped`.
+        const coordWorkId = taskWorkIdOf(task)
+        const dbWork = db !== null && coordWorkId !== undefined ? db.getWork(coordWorkId) : undefined
+        if (dbWork !== undefined) {
+          if (dbWork.status === 'needs_verification' || dbWork.status === 'paused' || dbWork.status === 'waiting') {
+            if (task.status !== 'waiting_work') {
+              task.status = 'waiting_work'
+              task.updatedAt = Date.now()
+              await rt.save()
+            }
+            continue
+          }
+          if (dbWork.status === 'queued') {
+            const hasQueuedInbox = db.listInbox(coordWorkId, { unreadOnly: true, includeNotes: false, limit: 1 }).length > 0
+            if (hasQueuedInbox) continue
+          }
+          if (dbWork.status === 'done' || dbWork.status === 'failed' || dbWork.status === 'stopped') {
+            await settleTask(
+              bot,
+              task,
+              dbWork.status === 'done' ? 'completed' : dbWork.status,
+              {
+                text: dbWork.resultSummary ?? '',
+                error: dbWork.error?.message,
+                notifyForeground: true,
+                settleWork: false,
+              },
+            )
+            continue
+          }
+        }
         const agent = await rt.resolveAgent(sid).catch(() => undefined)
         if (agent?.status === 'running' || hasWakingInboxInput(agent)) continue
         if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)) {
@@ -2063,7 +2125,7 @@ export function install(rt) {
     }
   }
 
-  // Shared cold-session reader provided by `coordination.js` (`sessionQuery` / `sessionController`).
+  // Shared cold-session reader provided by `dsh-adapter.js` (`sessionQuery` / `sessionController`).
   const readColdSessionEvents = (sid, signal) => rt.readSessionEvidence(sid, signal)
 
   const findLiveAdmittedSession = (requestId, ownerKey) => {
@@ -2850,6 +2912,7 @@ export function install(rt) {
         }
       }
       const inherited = slimSegments(bot)
+      const cacheRoot = rt.cacheAffinityOf?.(oldSid) ?? oldSid
       const task = {
         id: newId(),
         title,
@@ -2858,6 +2921,8 @@ export function install(rt) {
         sessionId: oldSid,
         segments: [],
         startSeq,
+        forkedPrefixSessionId: oldSid,
+        ...(cacheRoot !== oldSid ? { cacheAffinityId: cacheRoot } : {}),
         ...(inherited.length > 0 ? { inheritedSegments: inherited } : {}),
         origin,
         status: rt.waitsForApproval?.(oldSid) ? 'waiting_approval' : 'running',
@@ -2868,9 +2933,17 @@ export function install(rt) {
       }
       ;(bot.tasks ??= []).push(task)
       bot.sessionId = newSid
+      if (forked) {
+        bot.cacheAffinitySessionId = newSid
+        bot.cacheAffinityId = cacheRoot
+        rt.setCacheAffinity?.(newSid, cacheRoot)
+      } else {
+        delete bot.cacheAffinitySessionId
+        delete bot.cacheAffinityId
+      }
       foregroundEpochs.set(bot.id, (foregroundEpochs.get(bot.id) ?? 0) + 1)
       rt.chatOwners.set(newSid, bot.id)
-      rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id })
+      rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id, preservePrefix: true })
       rt.moveSilentNotes?.(oldSid, newSid)
       if (isBotHandoff && activeWork !== undefined) {
         rt.setWorkTargetSession?.(activeWork, oldSid, task.id)
@@ -2907,9 +2980,49 @@ export function install(rt) {
           }
           if (Object.keys(carriedCards).length > 0) (state.closedCards ??= {})[newSid] = carriedCards
         }
+        const oldClosedSeqs = rt.own(state.closedCardSeqs, oldSid)
+        if (oldClosedSeqs && typeof oldClosedSeqs === 'object') {
+          const carriedSeqs = {}
+          for (const [key, outcome] of Object.entries(oldClosedSeqs)) {
+            const at = key.lastIndexOf('@')
+            const callId = at > 0 ? key.slice(0, at) : key
+            if (!hasEventBounds || inheritedCallIds.has(callId)) carriedSeqs[key] = outcome
+          }
+          if (Object.keys(carriedSeqs).length > 0) (state.closedCardSeqs ??= {})[newSid] = carriedSeqs
+        }
       }
       record.committed = true
       record.newSid = newSid
+      if (writableCoordDb()) {
+        try {
+          rt.coordDb.transaction(() => {
+            const fg = rt.coordDb.getForegroundWork(bot.id)
+            if (fg !== undefined) rt.coordDb.rebindSession(fg.workId, newSid)
+            const movedWorkId = origin === 'bot-handoff' && activeWork !== undefined ? activeWork : taskAddress(task.id)
+            if (rt.coordDb.getWork(movedWorkId) !== undefined) {
+              rt.coordDb.rebindSession(movedWorkId, oldSid)
+              rt.coordDb.updateApiMeta?.(movedWorkId, { taskId: task.id, origin })
+            } else {
+              rt.coordDb.createWork({
+                workId: movedWorkId,
+                botId: bot.id,
+                kind: 'task',
+                logicalAddress: taskAddress(task.id),
+                status: 'running',
+                priority: 'background',
+                title: task.title,
+                originKind: origin,
+                imOrigin: task.imOrigin,
+                sessionId: oldSid,
+                workspaceDir: task.workDir,
+                apiMeta: { taskId: task.id, origin },
+              })
+            }
+          })
+        } catch (error) {
+          rt.warn?.('ds-bot: syncing foreground handoff %s to coordDb failed: %s', task.id, error?.message ?? error)
+        }
+      }
       // Clear live IM origin on the moved background session so it never streams raw lines
       // directly to IM; `task.imOrigin` handles approvals and the final `task-report`.
       rt.clearImOrigin?.(oldSid)
@@ -3287,7 +3400,7 @@ export function install(rt) {
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer
   // Bot request while the target Bot's foreground chat is busy, without switching the
   // user's visible foreground session or interrupting desktop drafts/IME.
-  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, follows, text, files = [], length, exchangeId, reuseWork = false }) {
+  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, follows, text, files = [], length, exchangeId, reuseWork = false, deliver = true }) {
     const id = newId()
     const now = Date.now()
     const title = oneLine(`From ${fromBot.name}: ${text}`, TITLE_MAX)
@@ -3305,36 +3418,48 @@ export function install(rt) {
       updatedAt: now,
     }
     const { sessionId, task } = await rt.openTaskPart(target, fromSessionId, baseTask, { fork: false })
-    const prevWork = reuseWork ? rt.resolveWork?.(exchangeId)?.work : undefined
+    const alreadyInCoord = writableCoordDb() && rt.coordDb.getWork(exchangeId) !== undefined
+    const effectiveReuse = reuseWork || alreadyInCoord
+    const prevWork = effectiveReuse ? rt.resolveWork?.(exchangeId)?.work : undefined
     const prevToSession = prevWork?.toSession
     const prevToTaskId = prevWork?.toTaskId
-    const opened = reuseWork
+    const opened = effectiveReuse
       ? (rt.setWorkTargetSession?.(exchangeId, sessionId, task.id), rt.resolveWork?.(exchangeId)?.work)
       : rt.openWork?.(exchangeId, { from: fromBot.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), toSession: sessionId, toTaskId: task.id, goal: text })
     const workRef = opened?.ref ?? rt.workRefOf?.(exchangeId)
-    try {
-      await rt.deliver({
-        fromId: fromBot.id,
-        toId: target.id,
-        sessionId,
-        ...(fromPart ? { fromPart } : {}),
-        text,
-        files,
-        ...(length === undefined ? {} : { length }),
-        role: 'request',
-        ...(follows ? { follows } : {}),
-        steer: false,
-        exchangeId,
-        ...(workRef ? { workRef } : {}),
-      })
-    } catch (error) {
-      if (error?.delivered !== true) {
-        rt.forgetDelivery?.(exchangeId)
-        if (reuseWork) rt.setWorkTargetSession?.(exchangeId, prevToSession ?? null, prevToTaskId ?? null)
-        else rt.dropWork?.(exchangeId)
-        await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false, settleWork: false })
+    if (deliver) {
+      try {
+        await rt.deliver({
+          fromId: fromBot.id,
+          toId: target.id,
+          sessionId,
+          ...(fromPart ? { fromPart } : {}),
+          text,
+          files,
+          ...(length === undefined ? {} : { length }),
+          role: 'request',
+          ...(follows ? { follows } : {}),
+          steer: false,
+          exchangeId,
+          ...(workRef ? { workRef } : {}),
+        })
+      } catch (error) {
+        if (error?.delivered !== true) {
+          rt.forgetDelivery?.(exchangeId)
+          if (effectiveReuse) rt.setWorkTargetSession?.(exchangeId, prevToSession ?? null, prevToTaskId ?? null)
+          else rt.dropWork?.(exchangeId)
+          await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false, settleWork: false })
+        }
+        throw error
       }
-      throw error
+    }
+    if (writableCoordDb() && rt.coordDb.getWork(exchangeId) !== undefined) {
+      try {
+        rt.coordDb.transaction(() => {
+          rt.coordDb.rebindSession(exchangeId, sessionId)
+          rt.coordDb.updateApiMeta?.(exchangeId, { taskId: task.id, origin: 'bot-handoff' })
+        })
+      } catch { /* best-effort */ }
     }
     emitTaskEvent('task.started', target, task, { origin: 'bot-handoff' })
     return { ...task, sessionId }
@@ -3463,7 +3588,12 @@ export function install(rt) {
   })
 
   ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
-    if (message?.source?.kind !== 'user' || movingHandoffInputs.has(message.id)
+    const src = message?.source
+    if (src?.kind === SOURCE_KIND && src.role === 'post') {
+      rt.roomRelayDiscarded?.(src, agent?.id ?? agent?.session?.id)
+      return
+    }
+    if (src?.kind !== 'user' || movingHandoffInputs.has(message.id)
       || rt.isMovingInboxMessage?.(message.id) || !Array.isArray(state.pendingHandoffInputs)) return
     const owner = transferOwnerKey(logicalOwnerOf(agent?.id ?? agent?.session?.id))
     if (owner === undefined) return
@@ -3538,8 +3668,8 @@ export function install(rt) {
     if (said === HANDOFF_ACK || delivering.has(task.id)) return
     const currentLive = rt.live.get(task.sessionId)
     if (currentLive?.turn !== undefined || currentLive?.retrying === true) return
-    const currentAgent = ctx.get('agents')?.get(task.sessionId)
-    if (hasWakingInboxInput(currentAgent)) return
+    const currentAgent = ctx.get?.('agents')?.get?.(task.sessionId)
+    if (hasWakingInboxInput(currentAgent) || (currentLive?.joined?.length ?? 0) > 0 || rt.hasPendingHandback?.(task.sessionId) === true) return
     if (hasPendingTaskUnread(task.sessionId)) {
       const logged = new Set((currentAgent?.session?.snapshotEvents?.() ?? [])
         .filter(e => e.type === 'user/message' && e.data?.source?.role === 'request')
@@ -3564,6 +3694,12 @@ export function install(rt) {
     if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)
       || (task.origin === 'bot-handoff' && rt.waitsWork?.(task.exchangeId))
       || (task.origin === 'bot-handoff' && task.exchangeId !== undefined && currentLive?.lastAskedBackWork === task.exchangeId)) {
+      if (writableCoordDb()) {
+        const coordWorkId = taskWorkIdOf(task)
+        if (coordWorkId !== undefined) {
+          try { rt.coordDb.parkWaiting(coordWorkId) } catch { /* best-effort */ }
+        }
+      }
       if (task.status !== 'waiting_work') {
         task.status = 'waiting_work'
         task.updatedAt = Date.now()

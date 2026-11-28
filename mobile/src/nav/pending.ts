@@ -208,9 +208,7 @@ export function computerAsksForChat(
   team: TeamState | null,
   target: { bot?: Bot; room?: Room },
 ): { id: string; botId: string; botName: string; appName?: string; roomId?: string }[] {
-  const asks = (team as {
-    computerLive?: { asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }> }
-  } | null)?.computerLive?.asks ?? {}
+  const asks = team?.computerLive?.asks ?? {}
   const names = new Map((Array.isArray(team?.bots) ? team.bots : []).map(bot => [bot.id, bot.name]))
   const list = Object.values(asks).filter(ask => {
     if (target.room !== undefined) return ask.roomId === target.room.id

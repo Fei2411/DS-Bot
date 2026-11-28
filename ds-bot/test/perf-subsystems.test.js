@@ -1509,17 +1509,17 @@ test('computer/index.js cursor-wait aborts cleanly, onBotDelete cleans maps, and
   // 2. get_window_state replaces old token:* entries for that window.
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('set-level', { botId: 'bot-b', level: 'background' })
-  rt.botOf('bot-b').computer = { apps: { 'pid:77': { name: 'Editor', grantedAt: 0 } } }
+  rt.botOf('bot-b').computer = { apps: { '/Applications/Editor.app': { name: 'Editor', path: '/Applications/Editor.app', grantedAt: 0 } } }
   const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
   const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
   const sessionId = rt.chatOf('bot-b')
   await track(
     { name: 'cua_driver_native__get_window_state', arguments: { window_id: 9 }, agent: { id: sessionId }, callId: 'w1' },
-    async () => ({ isError: false, value: { window_id: 9, pid: 77, name: 'Editor', elements: [{ element_token: 'old-tok' }] } }),
+    async () => ({ isError: false, value: { window_id: 9, pid: 77, name: 'Editor', path: '/Applications/Editor.app', elements: [{ element_token: 'old-tok' }] } }),
   )
   await track(
     { name: 'cua_driver_native__get_window_state', arguments: { window_id: 9 }, agent: { id: sessionId }, callId: 'w2' },
-    async () => ({ isError: false, value: { window_id: 9, pid: 77, name: 'Editor', elements: [{ element_token: 'new-tok' }] } }),
+    async () => ({ isError: false, value: { window_id: 9, pid: 77, name: 'Editor', path: '/Applications/Editor.app', elements: [{ element_token: 'new-tok' }] } }),
   )
   const staleGate = await gate({ name: 'cua_driver_native__click', arguments: { element_token: 'old-tok' }, agent: { id: sessionId }, callId: 'c1' }, async () => 'ok')
   assert.equal(staleGate.kind, 'deny')

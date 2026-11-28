@@ -47,10 +47,10 @@ class FakeWebContentsView {
 const { outputFiles } = await build({
   stdin: {
     contents: `
-      export { ShortcutsDialog, matchGlobalShortcut } from './ui/src/shortcuts.js'
+      export { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal } from './ui/src/shortcuts.js'
       export { ShortcutsPage } from '../ds-bot/src/client/shortcuts-page.js'
       export { createShortcutStore } from '../ds-bot/src/client/shortcuts-model.js'
-      export { settingsOwnsKeyboard } from '../ds-bot/src/client/overlay-hooks.js'
+      export { ESCAPE_PRIORITY, settingsOwnsKeyboard, useEscape } from '../ds-bot/src/client/overlay-hooks.js'
     `,
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
     loader: 'js',
@@ -65,6 +65,8 @@ const { outputFiles } = await build({
 
 function loadUi() {
   const winListeners = new Map()
+  const docCaptureListeners = new Map()
+  const docBubbleListeners = new Map()
   const portalTargets = []
   let active = null
   const createElement = (type, props, ...children) => ({ type, props: { ...(props ?? {}), children: children.flat(Infinity) } })
@@ -121,6 +123,15 @@ function loadUi() {
     body: { tagName: 'BODY' },
     documentElement: { tagName: 'HTML' },
     activeElement: null,
+    addEventListener(type, fn, capture) {
+      const bucket = capture ? docCaptureListeners : docBubbleListeners
+      if (!bucket.has(type)) bucket.set(type, new Set())
+      bucket.get(type).add(fn)
+    },
+    removeEventListener(type, fn, capture) {
+      const bucket = capture ? docCaptureListeners : docBubbleListeners
+      bucket.get(type)?.delete(fn)
+    },
   }
   const sandbox = {
     console,
@@ -187,23 +198,24 @@ function loadUi() {
     if (Array.isArray(node)) return node.map(textOf).join(' ')
     return textOf(node.props?.children)
   }
-  return { exports: sandbox.module.exports, mount, all, textOf, winListeners }
+  return { exports: sandbox.module.exports, mount, all, textOf, winListeners, docCaptureListeners, docBubbleListeners }
 }
 
 test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts and return focus safely', async () => {
-  const whitelist = [
-    { id: 'browser', code: 'KeyB', mod: true, ctrl: false, alt: false, shift: false },
-    { id: 'switch-surface', code: 'KeyM', mod: true, ctrl: false, alt: false, shift: true },
-    { id: 'terminal', code: 'Backquote', mod: false, ctrl: true, alt: false, shift: false },
-  ]
-  // Exact matching across darwin and win32, guarding keyUp, IME, and auto-repeat.
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB' }, whitelist, 'darwin'), 'browser')
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'KeyB' }, whitelist, 'win32'), 'browser')
+  const { exports } = loadUi()
+  const store = exports.createShortcutStore({ storage: null, mac: true })
+  const whitelist = store.activeBindings()
+  // Exact matching across darwin and win32 using real store defaults (browser on Mod+Shift+B),
+  // guarding keyUp, IME, auto-repeat, and passing plain Mod+B through to web pages.
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyB' }, whitelist, 'darwin'), 'browser')
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, shift: true, code: 'KeyB' }, whitelist, 'win32'), 'browser')
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB' }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'KeyB' }, whitelist, 'win32'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyM' }, whitelist, 'darwin'), 'switch-surface')
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'Backquote' }, whitelist, 'darwin'), 'terminal')
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB', isAutoRepeat: true }, whitelist, 'darwin'), null)
-  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyB', isComposing: true }, whitelist, 'darwin'), null)
-  assert.equal(matchForwardedShortcut({ type: 'keyUp', meta: true, code: 'KeyB' }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyB', isAutoRepeat: true }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, shift: true, code: 'KeyB', isComposing: true }, whitelist, 'darwin'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyUp', meta: true, shift: true, code: 'KeyB' }, whitelist, 'darwin'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyC' }, whitelist, 'darwin'), null)
   // On Windows/Linux, Ctrl+Alt on non-function keys is reserved for AltGr character entry across all layouts,
   // while Ctrl+Alt+F-keys, macOS Option dead keys, and macOS Cmd/Ctrl+Alt shortcuts still match consistently.
@@ -252,12 +264,13 @@ test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts a
   try {
     const entry = views.create(BOT, { url: 'https://example.com' })
     let prevented = 0
-    entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, code: 'KeyB' })
+    entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, shift: true, code: 'KeyB' })
     assert.deepEqual(received, ['browser'])
     assert.equal(prevented, 1)
     assert.equal(focusedMain, 1)
 
-    // Ordinary page typing or unmatched shortcut must NOT be prevented or steal focus.
+    // Plain Mod+B (e.g., Bold in web editors) and ordinary page shortcuts must NOT be prevented or steal focus.
+    entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, code: 'KeyB' })
     entry.view.webContents.emit('before-input-event', { preventDefault() { prevented += 1 } }, { type: 'keyDown', meta: true, code: 'KeyC' })
     assert.equal(prevented, 1)
     assert.equal(focusedMain, 1)
@@ -369,6 +382,173 @@ test('ShortcutsDialog and ShortcutsPage filter by capability, honor IME/conflict
   } finally {
     pageInst.unmount()
   }
+
+  // Upgrade-suppressed default on ShortcutsPage: browser has no Customized dot, offers Reset->Replace
+  // conflict alert, and auto-restores to Mod+Shift+B when the conflicting shortcut (`details`) is reset.
+  const upgradeBag = new Map([[
+    'ds-bot.shortcuts.v1',
+    JSON.stringify({ mac: { details: { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true } } }),
+  ]])
+  const upgradeStore = exports.createShortcutStore({
+    mac: true,
+    storage: {
+      getItem: k => (upgradeBag.has(k) ? upgradeBag.get(k) : null),
+      setItem: (k, v) => { upgradeBag.set(k, v) },
+    },
+  })
+  const upgradePage = mount(exports.ShortcutsPage, {
+    roster: { prefs: { enterToSend: true }, browser: true },
+    actions: { setSurface() {}, openBrowser() {}, openInbox() {} },
+    Section,
+    Row,
+    store: upgradeStore,
+  })
+  try {
+    let tree = upgradePage.render()
+    const browserRow = all(tree, n => n.props?.['data-shortcut-row'] === 'browser')[0]
+    assert.equal(all(browserRow, n => n.props?.className === 'bt-sc-dot').length, 0)
+    assert.match(textOf(browserRow), /Not set/)
+    const browserReset = all(browserRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-sc-reset'))[0]
+    assert.ok(browserReset, 'suppressed row still exposes Reset to reclaim via conflict prompt')
+    browserReset.props.onClick()
+    tree = upgradePage.render()
+    assert.match(textOf(tree), /Already used by/)
+
+    const detailsRow = all(tree, n => n.props?.['data-shortcut-row'] === 'details')[0]
+    const detailsReset = all(detailsRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-sc-reset'))[0]
+    assert.ok(detailsReset)
+    detailsReset.props.onClick()
+    tree = upgradePage.render()
+    assert.deepEqual({ ...upgradeStore.bindingOf('browser') }, { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+    assert.doesNotMatch(textOf(tree), /Reset all/)
+  } finally {
+    upgradePage.unmount()
+  }
+})
+
+test('Shared Escape stack closes ShortcutsDialog before SettingsTour and SettingsDialog in strict priority order', () => {
+  const { exports, mount, winListeners, docCaptureListeners, docBubbleListeners } = loadUi()
+  const storageMap = new Map()
+  const store = exports.createShortcutStore({
+    mac: true,
+    storage: {
+      getItem: k => (storageMap.has(k) ? storageMap.get(k) : null),
+      setItem: (k, v) => { storageMap.set(k, v) },
+    },
+  })
+
+  const closedOrder = []
+  let openState = {
+    settings: true,
+    tour: true,
+    shortcuts: true,
+    modal: true,
+    select: true,
+    lightbox: true,
+  }
+
+  function StackHost() {
+    exports.useEscape(() => { closedOrder.push('settings'); openState = { ...openState, settings: false } }, openState.settings, { priority: exports.ESCAPE_PRIORITY.DIALOG })
+    exports.useEscape(() => { closedOrder.push('tour'); openState = { ...openState, tour: false } }, openState.tour, { priority: exports.ESCAPE_PRIORITY.TOUR })
+    exports.useEscape(() => { closedOrder.push('modal'); openState = { ...openState, modal: false } }, openState.modal, { priority: exports.ESCAPE_PRIORITY.MODAL_CHILD })
+    exports.useEscape(() => { closedOrder.push('select'); openState = { ...openState, select: false } }, openState.select, { priority: exports.ESCAPE_PRIORITY.SELECT_MENU })
+    exports.useEscape(() => { closedOrder.push('lightbox'); openState = { ...openState, lightbox: false } }, openState.lightbox, { priority: exports.ESCAPE_PRIORITY.LIGHTBOX })
+    return { type: 'div', props: { children: [] } }
+  }
+
+  const hostInst = mount(StackHost, {})
+  const scInst = mount(exports.ShortcutsDialog, {
+    open: true,
+    enterToSend: true,
+    hasSurface: true,
+    hasBrowser: true,
+    hasInbox: false,
+    store,
+    onClose: () => { closedOrder.push('shortcuts'); openState = { ...openState, shortcuts: false } },
+  })
+  const fireEsc = () => {
+    const evt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+    for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(evt)
+    for (const fn of [...(docBubbleListeners.get('keydown') ?? [])]) fn(evt)
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(evt)
+    hostInst.render()
+    scInst.render({
+      open: openState.shortcuts,
+      enterToSend: true,
+      hasSurface: true,
+      hasBrowser: true,
+      hasInbox: false,
+      store,
+      onClose: () => { closedOrder.push('shortcuts'); openState = { ...openState, shortcuts: false } },
+    })
+    return evt
+  }
+  try {
+    hostInst.render()
+    scInst.render()
+    for (let i = 0; i < 6; i += 1) {
+      const evt = fireEsc()
+      assert.equal(evt.defaultPrevented, true)
+    }
+    assert.deepEqual(closedOrder, ['lightbox', 'select', 'modal', 'shortcuts', 'tour', 'settings'])
+  } finally {
+    scInst.unmount()
+    hostInst.unmount()
+  }
+})
+
+test('Classic mode ShortcutsDialog and ShortcutsPage omit Bot-only shortcuts and label Toggle browser', () => {
+  const { exports, mount, textOf } = loadUi()
+  const store = exports.createShortcutStore({ mac: true, storage: { getItem: () => null, setItem() {} } })
+
+  const dialogInst = mount(exports.ShortcutsDialog, {
+    open: true,
+    classic: true,
+    enterToSend: true,
+    hasSurface: true,
+    hasBrowser: true,
+    hasInbox: false,
+    hasDetails: false,
+    hasMemory: false,
+    hasGroupSearch: false,
+    store,
+    onClose: () => {},
+  })
+  try {
+    const body = textOf(dialogInst.render())
+    assert.match(body, /Toggle browser/)
+    assert.doesNotMatch(body, /Toggle Bot browser/)
+    assert.doesNotMatch(body, /Open Inbox/)
+    assert.doesNotMatch(body, /Toggle Bot details/)
+    assert.doesNotMatch(body, /Open Bot memory/)
+    assert.doesNotMatch(body, /Search messages in group/)
+    assert.doesNotMatch(body, /Mention a Bot/)
+  } finally {
+    dialogInst.unmount()
+  }
+
+  const Section = ({ title, children }) => ({ type: 'section', props: { title, children } })
+  const Row = ({ label, children }) => ({ type: 'row', props: { label, children: [label, ...(Array.isArray(children) ? children : [children])] } })
+  const pageInst = mount(exports.ShortcutsPage, {
+    roster: { prefs: { enterToSend: true }, browser: true },
+    actions: { setSurface() {}, openBrowser() {}, openInbox() {} },
+    surfaceMode: 'agent',
+    Section,
+    Row,
+    store,
+  })
+  try {
+    const body = textOf(pageInst.render())
+    assert.match(body, /Toggle browser/)
+    assert.doesNotMatch(body, /Toggle Bot browser/)
+    assert.doesNotMatch(body, /Open Inbox/)
+    assert.doesNotMatch(body, /Toggle Bot details/)
+    assert.doesNotMatch(body, /Open Bot memory/)
+    assert.doesNotMatch(body, /Search messages in group/)
+    assert.doesNotMatch(body, /Mention a Bot/)
+  } finally {
+    pageInst.unmount()
+  }
 })
 
 test('settingsOwnsKeyboard blocks Settings ⌘K while ShortcutsDialog is mounted above Settings', () => {
@@ -382,4 +562,19 @@ test('settingsOwnsKeyboard blocks Settings ⌘K while ShortcutsDialog is mounted
   assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode, shortcutsNode] }), false)
   assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode, leavingNode] }), true)
   assert.equal(settingsOwnsKeyboard({ isConnected: false }, { querySelectorAll: () => [settingsNode] }), false)
+})
+
+test('resolveActiveModal ranks releaseNotes above settings so shortcuts do not leak through to Settings', () => {
+  const { exports } = loadUi()
+  const { resolveActiveModal, matchGlobalShortcut } = exports
+  const uiSnap = { settings: { page: 'about' }, releaseNotes: { mode: 'manual', current: '0.3.10' } }
+  assert.equal(resolveActiveModal(uiSnap, null), 'dialog')
+  assert.equal(resolveActiveModal({ settings: { page: 'about' }, releaseNotes: null }, null), 'settings')
+
+  // Cmd+, (settings toggle) must be blocked when releaseNotes is open over Settings.
+  const hit = matchGlobalShortcut(
+    { metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, code: 'Comma', key: ',', defaultPrevented: false, isComposing: false },
+    { settingsOpen: true, modal: resolveActiveModal(uiSnap, null), capabilities: { surface: true, browser: true, inbox: true } },
+  )
+  assert.equal(hit, null)
 })

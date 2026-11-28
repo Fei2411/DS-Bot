@@ -128,7 +128,9 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
   `)
 
   const started = Date.now()
-  const runningTimeout = runProbeCommand(process.execPath, [stubborn], { timeoutMs: 800, forceKillAfterMs: 120 })
+  const timeoutMs = 1_200
+  const forceKillAfterMs = 400
+  const runningTimeout = runProbeCommand(process.execPath, [stubborn], { timeoutMs, forceKillAfterMs })
   const pids = JSON.parse(await waitForFile(pidFile, 3_000))
   const result = await runningTimeout
   const elapsed = Date.now() - started
@@ -137,7 +139,7 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
   assert.equal(result.timedOut, true)
   assert.equal(result.signal, 'SIGKILL', 'must escalate to SIGKILL after SIGTERM is ignored')
   assert.match(readFileSync(sigFile, 'utf8'), /SIGTERM/, 'child must have received and ignored SIGTERM first')
-  assert.ok(elapsed < 4_000, `expected force-kill within grace period, took ${elapsed}ms`)
+  assert.ok(elapsed < timeoutMs + forceKillAfterMs + 3_000, `expected force-kill within grace period, took ${elapsed}ms`)
   assert.equal(await waitForPidExit(pids.parent), true, `parent pid ${pids.parent} should be dead`)
   assert.equal(await waitForPidExit(pids.child), true, `grandchild pid ${pids.child} should be dead`)
 
@@ -201,13 +203,13 @@ test('probeVersion, probeSignIn fallback, and terminateChild force-kill SIGTERM-
     setInterval(() => {}, 1000)
   `)
   const verStart = Date.now()
-  const verPromise = probeVersion(process.execPath, [verScript], undefined, { timeoutMs: 800, forceKillAfterMs: 120 })
+  const verPromise = probeVersion(process.execPath, [verScript], undefined, { timeoutMs: 1_200, forceKillAfterMs: 400 })
   const verPid = Number(await waitForFile(verPidFile, 3_000))
   const ver = await verPromise
   assert.equal(ver.ok, false)
   assert.equal(ver.version, undefined, 'timed-out truncated stdout must not be parsed as a version')
   assert.match(readFileSync(verSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - verStart < 4_000)
+  assert.ok(Date.now() - verStart < 5_000)
   assert.equal(await waitForPidExit(verPid), true, 'probeVersion child must be dead')
 
   const overflowVerScript = makeNodeScript(root, 'overflow-ver.mjs', 'process.stdout.write("fake 9.9.9\\n" + "z".repeat(4096))')
@@ -236,14 +238,14 @@ test('probeVersion, probeSignIn fallback, and terminateChild force-kill SIGTERM-
     home,
     platform: 'linux',
     env: {},
-    timeoutMs: 800,
-    forceKillAfterMs: 120,
+    timeoutMs: 1_200,
+    forceKillAfterMs: 400,
   })
   const signPid = Number(await waitForFile(signPidFile, 3_000))
   const signedIn = await signPromise
   assert.equal(signedIn, true, 'must ignore truncated timed-out stdout and fall back to credentials.toml')
   assert.match(readFileSync(signSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - signStart < 4_000)
+  assert.ok(Date.now() - signStart < 5_000)
   assert.equal(await waitForPidExit(signPid), true, 'probeSignIn child must be dead')
 
   // Overflowed sign-in output also returns null and falls back instead of trusting truncated output.

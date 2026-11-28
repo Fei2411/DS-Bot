@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DICTIONARY } from '../src/client/i18n.js'
+import { ZH } from '../src/client/locales/zh.js'
 import { failureLabel, knownFailure } from '../src/client/diagnostics.js'
 
 test('credential and account failures have short words, in both languages', () => {
@@ -10,10 +10,12 @@ test('credential and account failures have short words, in both languages', () =
     ACCOUNT_SIGN_IN_REQUIRED: 'The DeepSeek account needs a sign-in',
     ACCOUNT_SIGNED_OUT: 'The DeepSeek account is signed out',
     ACCOUNT_TOKEN_INVALID: 'The DeepSeek account sign-in has expired',
+    TURN_PAUSED_LOOP: 'Paused to prevent a repeating loop',
+    TURN_PAUSED_SWITCH_LIMIT: 'Paused after repeated automatic part switches',
   }
   for (const [code, label] of Object.entries(labels)) {
     assert.equal(failureLabel(code, 'llm-deepseek: no API key for provider route'), label)
-    assert.ok(Object.hasOwn(DICTIONARY.zh, label), label)
+    assert.ok(Object.hasOwn(ZH, label), label)
   }
 })
 

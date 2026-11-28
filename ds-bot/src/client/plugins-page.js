@@ -8,6 +8,8 @@ import { Switch } from './bot-settings.js'
 import { writeClipboard } from './dsh-primitives.js'
 import { BotAvatar } from './mark.js'
 import { ExtensionsClusterMark, PluginMark, browserMetaFor } from './plugin-marks.js'
+import { isExternalBrowserPlugin } from './browser-plugin-mode.js'
+import { isBlockedEngineBundle } from '../shared/engine-bundles.js'
 import {
   CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon,
   PlusIcon, SearchIcon, SpinnerIcon, TrashIcon,
@@ -46,27 +48,12 @@ const SLOT_CHOICES = [
 // (safe across POSIX shells, PowerShell, and Windows Command Prompt).
 const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
-// Internal DSH profiles, experimental engine bundles, and subagent/agent-team bundles
-// belong only to Engine plugins (or are disallowed in DS Bot) and must never leak into
-// DS Bot's Plugins catalog or Discover section.
-const HIDDEN_ENGINE_BUNDLES = new Set([
-  'dsbot-engine',
-  '@deepseek-ai/dsh-acp-app',
-  '@deepseek-ai/dsh-headless',
-  '@deepseek-ai/dsh-sdk-app',
-  '@deepseek-ai/dsh-sdk-minimal',
-  '@deepseek-ai/dsh-experimental-agent-team-profile',
-  '@deepseek-ai/dsh-experimental-ralph-bundle',
-  '@deepseek-ai/dsh-experimental-terminal-bundle',
-  '@deepseek-ai/dsh-experimental-tool-worktree',
-])
-
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false
-  if (plugin.sourceId === 'installed' && !plugin.installed) return true
+  if (plugin.sourceId === 'installed' && !plugin.installed && !plugin.error && !plugin.enabled) return true
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? '').startsWith('dsh:') ? String(plugin.id).slice(4) : '')).trim()
   if (!pkg) return false
-  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith('@deepseek-ai/dsh-subagent-')
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active || plugin.error) })
 }
 
 function safeExternalUrl(raw) {
@@ -345,6 +332,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const desc = localizedField(plugin, 'description') || plugin.description || ''
   const isActive = Boolean(plugin.slot ? (plugin.active && plugin.desired !== false) : (plugin.installed && plugin.enabled))
+  const externalBrowser = isExternalBrowserPlugin(plugin)
   const fresh = useJustActivated(isActive)
   const subtitle = plugin.error
     ? hostText(plugin.error)
@@ -371,6 +359,8 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   h('span', { className: 'bt-plg-text' },
     h('span', { className: 'bt-plg-name' },
       h('span', { className: 'bt-plg-label' }, name),
+      externalBrowser && !plugin.killed && !plugin.consentRequired && plugin.status !== 'unverifiable'
+        ? h('span', { className: 'bt-tag' }, t('External window')) : null,
       plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== 'unverifiable'
         ? h('span', { className: 'bt-tag' }, t('Added')) : null,
       plugin.killed ? h('span', { className: 'bt-tag', 'data-tone': 'error' }, t('Stopped')) : null,
@@ -397,7 +387,8 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
   ].filter(Boolean).join(' · ')
 
   const hasDetailRows = Boolean(
-    plugin.packageName
+    plugin.slot === 'browser'
+    || plugin.packageName
     || (plugin.installSpec && plugin.installSpec !== plugin.packageName)
     || plugin.mcp?.url
     || plugin.mcp?.command
@@ -449,6 +440,10 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
       : null,
     hasDetailRows
       ? h(Section, { title: t('Details') },
+        plugin.slot === 'browser'
+          ? h(Row, { label: t('Browser window') },
+            h('span', { className: 'bt-chip' }, isExternalBrowserPlugin(plugin) ? t('External window') : t('Sidebar browser')))
+          : null,
         plugin.packageName ? h(Row, { label: t('Package') }, h('code', { className: 'bt-plg-code' }, plugin.packageName)) : null,
         plugin.installSpec && plugin.installSpec !== plugin.packageName ? h(Row, { label: t('Source') }, h('code', { className: 'bt-plg-code' }, plugin.installSpec)) : null,
         plugin.mcp?.url ? h(Row, { label: t('URL') }, h('code', { className: 'bt-plg-code' }, plugin.mcp.url)) : null,
@@ -602,7 +597,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
               'aria-label': t('Package or repository'),
               disabled,
               value: spec,
-              placeholder: 'dsh-ego-browser / github:owner/repo / /path/to/plugin',
+              placeholder: 'my-dsh-plugin / github:owner/repo / /path/to/plugin',
               onChange: e => setSpec(e.target.value),
             }))
           : [
@@ -634,7 +629,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             'aria-label': t('Tool prefixes'),
             disabled,
             value: prefixes,
-            placeholder: 'ego_, browser_',
+            placeholder: 'my_tool_, browser_',
             onChange: e => setPrefixes(e.target.value),
           })),
         h('div', { className: 'bt-browser-form-foot' },
@@ -665,7 +660,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     h(ChevronRightIcon))
 }
 
-export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null }) {
+export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -808,8 +803,8 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   }
 
   const plugins = useMemo(
-    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p)),
-    [view],
+    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow],
   )
   const bots = roster?.bots ?? []
   const browserSlot = view?.slots?.browser

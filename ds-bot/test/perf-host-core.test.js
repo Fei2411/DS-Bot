@@ -13,6 +13,7 @@ import { install as installBtw } from '../src/host/btw.js'
 import { install as installCapabilities } from '../src/host/capabilities.js'
 import { install as installChannel } from '../src/host/channel.js'
 import { install as installChatIndex } from '../src/host/chat-index.js'
+import { install as installCoordDb } from '../src/host/coordination-db.js'
 import { install as installDelivery } from '../src/host/delivery.js'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
@@ -394,10 +395,23 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   assert.equal(envVars.DSH_SECRET_API_TOKEN, 'super-secret-value-12345')
   t.mock.timers.tick(5_500)
   t.mock.timers.reset()
-  await new Promise(resolve => setTimeout(resolve, 30))
+  let persistedSecrets
+  const persistDeadline = Date.now() + 2000
+  while (Date.now() < persistDeadline) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
+      if (typeof parsed.secrets?.[0]?.lastUsedAt === 'number') {
+        persistedSecrets = parsed
+        break
+      }
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(typeof persistedSecrets?.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
+  // Wait a timer turn after rename visibility so libuv delivers replaceFile's completion
+  // and persist() records seenStamp before read-only onStoreSync checks fileStamp().
+  await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(saveCalls, savesAfterSet, 'noteUsed timer firing must persist secrets.json without calling rt.save()')
-  const persistedSecrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
-  assert.equal(typeof persistedSecrets.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
 
   // Unchanged objects/arrays in redactDeep return identical reference (zero allocation).
   const redact = redactor([{ name: 'API_TOKEN', value: 'super-secret-value-12345' }])
@@ -429,7 +443,10 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   }
   writeFileSync(join(home, 'secrets.json'), JSON.stringify(updatedPayload))
   rt.onStoreSync()
-  await new Promise(resolve => setTimeout(resolve, 25))
+  const reloadDeadline = Date.now() + 2000
+  while (secretsChangedCalls === changedBeforePoll && Date.now() < reloadDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(secretsChangedCalls, changedBeforePoll + 1, 'modified secrets.json must trigger reload on read-only onStoreSync')
   assert.ok(rt.secretsView().some(item => item.name === 'EXTRA_KEY'))
 })
@@ -508,6 +525,7 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
       sessionQuery: { listSessions: async () => { listCalls += 1; return [] } },
     },
   })
+  let journalChatReads = 0
   const rt = {
     ctx,
     home,
@@ -516,7 +534,7 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
     load: async () => {},
     readOnly: () => undefined,
     cachedCatalog: () => [],
-    chatOf: id => id,
+    chatOf: id => { journalChatReads += 1; return id },
     chatOwners: new Map([['a', 'a']]),
     groupOwners: new Map(),
     roomOwners: new Map(),
@@ -543,13 +561,21 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
   }
   const msgs1 = rt.tagUsage([], { sessionId: 'a', kind: 'memory' })
   assert.equal(await drain(onStream({ sessionId: 'a', messages: msgs1, provider: 'deepseek', model: 'deepseek-chat' }, () => makeStream())), 1)
-  await new Promise(resolve => setTimeout(resolve, 20))
+  // Opening usage.sqlite (WAL + schema creation) runs asynchronously behind noteSession();
+  // wait until journal() actually populates the revision-keyed cache before sending msgs2.
+  const journalDeadline = Date.now() + 5000
+  while (journalChatReads === 0 && Date.now() < journalDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(journalChatReads > 0, 'first noteSession must open the ledger and journal session owners')
   const loadsAfterFirst = loadCalls
+  const journalReadsAfterFirst = journalChatReads
 
   const msgs2 = rt.tagUsage([], { sessionId: 'a', kind: 'memory' })
   assert.equal(await drain(onStream({ sessionId: 'a', messages: msgs2, provider: 'deepseek', model: 'deepseek-chat' }, () => makeStream())), 1)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(loadCalls, loadsAfterFirst, 'second noteSession at same revision hits fast-path journaled cache')
+  assert.equal(journalChatReads, journalReadsAfterFirst, 'second noteSession at same revision skips liveOwners/book.owners scan')
 
   const view = await rt.usageView({ range: '7d' })
   assert.equal(view.rows.reduce((sum, row) => sum + row[8], 0), 2)
@@ -843,8 +869,11 @@ test('memory-review.js does not cancel pending review timer on agent/disposed', 
   onDisposed({ agent: { id: 'a' } })
   assert.equal(rt.memoryReviews(), 1, 'agent/disposed must NOT cancel pending memory review timer')
 
-  // Wait for timer to fire and run the review.
-  await new Promise(resolve => setTimeout(resolve, 90))
+  // Wait for the timer's asynchronous transcript read and review call to finish.
+  const reviewDeadline = Date.now() + 2000
+  while ((partLinesCalls === 0 || llmCalls === 0) && Date.now() < reviewDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(partLinesCalls >= 1, true, 'final turn memory review actually executed after agent/disposed')
   assert.equal(llmCalls >= 1, true, 'review LLM call ran after agent/disposed')
 })
@@ -1055,81 +1084,260 @@ test('api/index.js recovers after EADDRINUSE and awaits stop on ctx.dispose', as
   await new Promise(resolve => probe.close(resolve))
 })
 
-test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and drops/retains result files based on onSaved', async (t) => {
+test('handoffs.js persists long results in coordDb, clears whole cache on adopt, and prunes orphan result files', async (t) => {
   const home = tempDir(t, 'ds-bot-perf-handoffs-')
   const ctx = fakeContext()
   const adoptListeners = new Set()
-  const savedListeners = new Set()
-  let persistOnSave = true
   const rt = {
     ctx,
     home,
+    state: seedState({ revision: 2 }),
+    readOnly: () => undefined,
+    load: async () => {},
+    onAdopted: fn => { adoptListeners.add(fn); return () => adoptListeners.delete(fn) },
+    botOf: id => rt.state.bots[id],
+    chatOf: id => rt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => { rt.state.revision += 1 },
+    warn() {},
+  }
+  installCoordDb(rt)
+  installHandoffs(rt)
+  t.after(() => ctx.dispose())
+
+  // 1. closeWork writes long result text to handoff-results/ and records resultRef in coordDb.
+  const longText = 'x'.repeat(25_000)
+  const parent = rt.openWork('parent-retain', { from: 'a', to: 'a' })
+  assert.ok(parent)
+  const child = rt.openWork('w-retain', { from: 'a', to: 'b', parent: 'parent-retain' })
+  assert.ok(child)
+  rt.closeWork('w-retain', 'Writer', longText)
+  const savedWork = rt.coordDb.getWork('w-retain')
+  assert.ok(savedWork?.resultRef, 'long result file reference saved in coordDb')
+  const retainedPath = join(home, 'handoff-results', savedWork.resultRef)
+  assert.equal(existsSync(retainedPath), true, 'long result file written to disk')
+
+  // 2. onAdopted clears in-memory `whole` cache; answerText still reads full text from disk.
+  for (const fn of adoptListeners) fn()
+  assert.equal(rt.answerText('parent-retain', '', 'Chief').includes(longText), true)
+
+  // 3. Unreferenced orphan result files are pruned on startup sweep while referenced ones stay.
+  const orphanPath = join(home, 'handoff-results', 'orphan-unused.txt')
+  writeFileSync(orphanPath, 'stale orphan result')
+  const deadline = Date.now() + 3000
+  while (existsSync(orphanPath) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(existsSync(orphanPath), false, 'unreferenced orphan result file must be pruned')
+  assert.equal(existsSync(retainedPath), true, 'referenced coordDb result file must be retained')
+})
+
+test('handoffs.js startup orphan sweep preserves live unsaved results and finishes on load failure or without ctx.effect', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-handoffs-sweep-')
+  const resultsDir = join(home, 'handoff-results')
+  mkdirSync(resultsDir, { recursive: true })
+  const stalePath = join(resultsDir, 'stale-crash.txt')
+  writeFileSync(stalePath, 'left behind by crashed host', 'utf8')
+
+  const ctx = fakeContext()
+  const workSettledListeners = new Set()
+  let releaseLoad
+  const loadGate = new Promise(resolve => { releaseLoad = resolve })
+  const rt = {
+    ctx,
+    home,
+    state: seedState({ revision: 2 }),
+    readOnly: () => undefined,
+    load: () => loadGate,
+    onWorkSettled: fn => { workSettledListeners.add(fn); return () => workSettledListeners.delete(fn) },
+    botOf: id => rt.state.bots[id],
+    chatOf: id => rt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+  }
+  installCoordDb(rt)
+  installHandoffs(rt)
+  t.after(() => ctx.dispose())
+
+  // Write a live result file before startupSweep finishes (not yet referenced in coordDb).
+  const longText = 'r'.repeat(25_000)
+  const liveFile = rt.keepResultFile('w-live-pre-sweep', longText)
+  assert.ok(liveFile, 'keepResultFile returns filename')
+  const livePath = join(resultsDir, liveFile)
+  assert.equal(existsSync(livePath), true, 'live result written before startup sweep')
+
+  // An intermediate work-settled prune before the startup sweep finishes must NOT end
+  // startup-sweep protection or delete live files written before or after that settled event.
+  for (const fn of workSettledListeners) fn({ work: { workId: 'w-other' }, outcome: 'done', settledCalls: [] })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const liveFile2 = rt.keepResultFile('w-live-after-settled', longText)
+  assert.ok(liveFile2, 'second keepResultFile returns filename')
+  const livePath2 = join(resultsDir, liveFile2)
+  assert.equal(existsSync(livePath), true, 'intermediate settled prune must not delete live file 1')
+  assert.equal(existsSync(livePath2), true, 'live file 2 written before startup sweep finishes')
+
+  // Release startup load so pruneOrphanResultFiles() runs now.
+  releaseLoad()
+  const sweepDeadline = Date.now() + 3000
+  while (existsSync(stalePath) && Date.now() < sweepDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(existsSync(stalePath), false, 'startup orphan sweep removes genuine prior-crash orphan')
+  assert.equal(existsSync(livePath), true, 'startup orphan sweep must not delete live file 1 created before sweep finished')
+  assert.equal(existsSync(livePath2), true, 'startup orphan sweep must not delete live file 2 created after intermediate settled prune')
+
+  // Disposing the host while a settled-work prune is in flight must NEVER delete live result files on disk.
+  const liveFile3 = rt.keepResultFile('w-live-before-dispose', longText)
+  const livePath3 = join(resultsDir, liveFile3)
+  for (const fn of workSettledListeners) fn({ work: { workId: 'w-dispose-race' }, outcome: 'done', settledCalls: [] })
+  await ctx.dispose()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(existsSync(livePath3), true, 'in-flight pruneOrphanResultFiles after ctx.dispose() must not unlink live result files')
+
+  // Legacy migration regression: a result file referenced via `work.meta.legacyResults[*].file`
+  // must survive startup orphan pruning and remain readable via `answerText()`.
+  const legacyHome = tempDir(t, 'ds-bot-perf-handoffs-legacy-')
+  const legacyResultsDir = join(legacyHome, 'handoff-results')
+  mkdirSync(legacyResultsDir, { recursive: true })
+  const legacyBody = 'L'.repeat(5_000)
+  const legacyFile = 'w-legacy-child.txt'
+  const legacyFilePath = join(legacyResultsDir, legacyFile)
+  const legacyStalePath = join(legacyResultsDir, 'w-legacy-orphan.txt')
+  writeFileSync(legacyFilePath, legacyBody)
+  writeFileSync(legacyStalePath, 'orphan')
+  const legacyCtx = fakeContext()
+  const legacyRt = {
+    ctx: legacyCtx,
+    home: legacyHome,
     state: seedState({
-      revision: 2,
-      pairLoops: {
-        'a:b': { idleBounces: 2, lastAt: 1 }, // expired
+      revision: 3,
+      bots: {
+        b1: { id: 'b1', name: 'Chief', sessionId: 'dm-b1', createdAt: 1 },
+        b2: { id: 'b2', name: 'Writer', sessionId: 'dm-b2', createdAt: 2 },
       },
     }),
     readOnly: () => undefined,
     load: async () => {},
-    onSaved: fn => { savedListeners.add(fn); return () => savedListeners.delete(fn) },
-    onAdopted: fn => { adoptListeners.add(fn); return () => adoptListeners.delete(fn) },
-    botOf: id => rt.state.bots[id],
+    botOf: id => legacyRt.state.bots[id],
+    chatOf: id => legacyRt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
     own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
-    save: async () => {
-      if (persistOnSave) {
-        rt.state.revision += 1
-        for (const fn of savedListeners) fn()
-      }
-    },
+    save: async () => {},
     warn() {},
   }
-  installHandoffs(rt)
-  t.after(() => ctx.dispose())
-
-  // Sweeps expired pairLoops entry on write.
-  rt.noteWorkCompleted('b', 'c', { worked: false, id: 'w1', text: 'hello' })
-  assert.equal(rt.state.pairLoops['a:b'], undefined, 'expired pairLoops entry was swept')
-  assert.ok(rt.state.pairLoops['b:c'])
-
-  // 1. closeWork stores long result on disk; dropWork when save() does NOT fire onSaved
-  // MUST retain the result file on disk.
-  const longText = 'x'.repeat(25_000)
-  rt.openWork('parent-retain', { from: 'user', to: 'a' })
-  rt.openWork('w-retain', { from: 'a', to: 'b', parent: 'parent-retain' })
-  rt.closeWork('w-retain', 'Writer', longText)
-  await new Promise(resolve => setTimeout(resolve, 20))
-  const retainedFile = rt.state.works['parent-retain'].results[0].file
-  const retainedPath = join(home, 'handoff-results', retainedFile)
-  assert.equal(existsSync(retainedPath), true, 'long result file written to disk')
-
-  // onAdopted clears `whole` cache; answerText still reads full text from disk.
-  for (const fn of adoptListeners) fn()
-  assert.equal(rt.answerText('parent-retain', '', 'Chief').includes(longText), true)
-
-  persistOnSave = false
-  rt.dropWork('parent-retain')
-  await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(existsSync(retainedPath), true, 'result file must be retained when onSaved did not fire')
-
-  // 2. When save() fires onSaved, closing/dropping parent deletes result file on disk
-  // WITHOUT needing state.json to exist on disk!
-  persistOnSave = true
-  rt.openWork('parent-drop', { from: 'user', to: 'a' })
-  rt.openWork('w-drop', { from: 'a', to: 'b', parent: 'parent-drop' })
-  rt.closeWork('w-drop', 'Writer', longText)
-  await new Promise(resolve => setTimeout(resolve, 20))
-  const droppedFile = rt.state.works['parent-drop'].results[0].file
-  const droppedPath = join(home, 'handoff-results', droppedFile)
-  assert.equal(existsSync(droppedPath), true, 'second long result file written to disk')
-  assert.equal(existsSync(join(home, 'state.json')), false, 'state.json does not exist on disk')
-
-  rt.closeWork('parent-drop', 'Chief', 'all done')
-  const deadline = Date.now() + 3000
-  while (existsSync(droppedPath) && Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, 20))
+  installCoordDb(legacyRt)
+  legacyRt.coordDb.importLegacyState({
+    state: {
+      bots: legacyRt.state.bots,
+      works: {
+        'w-legacy-parent': {
+          from: 'b1',
+          to: 'b2',
+          state: 'open',
+          open: [],
+          results: [{ id: 'w-legacy-child', name: 'Tester', text: legacyBody.slice(0, 2000), file: legacyFile, length: legacyBody.length }],
+          at: 1000,
+        },
+      },
+    },
+  })
+  installHandoffs(legacyRt)
+  t.after(() => legacyCtx.dispose())
+  const legacyDeadline = Date.now() + 3000
+  while (existsSync(legacyStalePath) && Date.now() < legacyDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
   }
-  assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
+  assert.equal(existsSync(legacyStalePath), false, 'startup sweep still prunes unreferenced orphan file')
+  assert.equal(existsSync(legacyFilePath), true, 'startup sweep must preserve file referenced by work.meta.legacyResults')
+  const legacyAnswer = legacyRt.answerText('handoff:w-legacy-parent', 'done', 'Writer')
+  assert.ok(legacyAnswer.includes(legacyBody), 'answerText restores full body from preserved legacyResults file')
+
+  // Fail-closed DB read error path: if coordDb.listWorks() throws during prune, no unhandled
+  // rejection is emitted and result files on disk are preserved untouched.
+  const errHome = tempDir(t, 'ds-bot-perf-handoffs-dberr-')
+  const errResultsDir = join(errHome, 'handoff-results')
+  mkdirSync(errResultsDir, { recursive: true })
+  const errProtectedPath = join(errResultsDir, 'w-db-err-keep.txt')
+  writeFileSync(errProtectedPath, 'must stay on db error')
+  const errCtx = fakeContext()
+  const errSettled = new Set()
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  const errRt = {
+    ctx: errCtx,
+    home: errHome,
+    state: seedState({ revision: 4 }),
+    readOnly: () => undefined,
+    load: async () => {},
+    onWorkSettled: fn => { errSettled.add(fn); return () => errSettled.delete(fn) },
+    botOf: id => errRt.state.bots[id],
+    chatOf: id => errRt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+    hasExistingCoordDb: () => true,
+    existingCoordDb: () => ({
+      isClosed: () => false,
+      listWorks: () => { throw new Error('simulated SQLITE_CORRUPT') },
+      listCalls: () => [],
+    }),
+  }
+  installHandoffs(errRt)
+  t.after(() => errCtx.dispose())
+  for (const fn of errSettled) fn({ work: { workId: 'w-err' }, outcome: 'done', settledCalls: [] })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(unhandled.length, 0, 'DB error during prune must never emit unhandledRejection')
+  assert.equal(existsSync(errProtectedPath), true, 'DB error during prune must fail closed and preserve files')
+
+  // Startup failure path: if rt.load() rejects before pruneOrphanResultFiles(), the startup
+  // chain still settles cleanly without unhandled rejection.
+  const failHome = tempDir(t, 'ds-bot-perf-handoffs-loadfail-')
+  const failCtx = fakeContext()
+  const warns = []
+  const failRt = {
+    ctx: failCtx,
+    home: failHome,
+    state: seedState({ revision: 1 }),
+    readOnly: () => undefined,
+    load: async () => { throw new Error('boom load') },
+    botOf: id => failRt.state.bots[id],
+    chatOf: id => failRt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn: (...args) => warns.push(args.join(' ')),
+  }
+  installCoordDb(failRt)
+  installHandoffs(failRt)
+  t.after(() => failCtx.dispose())
+  const warnDeadline = Date.now() + 2000
+  while (warns.length === 0 && Date.now() < warnDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(warns.length, 1, 'failed startup load is warned and finished cleanly')
+
+  // Narrow runtime without ctx.effect initializes without throwing or leaking startup tracking.
+  const narrowHome = tempDir(t, 'ds-bot-perf-handoffs-narrow-')
+  const narrowRt = {
+    home: narrowHome,
+    state: seedState({ revision: 1 }),
+    readOnly: () => undefined,
+    botOf: id => narrowRt.state.bots[id],
+    chatOf: id => narrowRt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+  }
+  installHandoffs(narrowRt)
+  const narrowFile = narrowRt.keepResultFile('w-narrow', longText)
+  assert.ok(narrowFile && existsSync(join(narrowHome, 'handoff-results', narrowFile)))
 })
 
 test('ledger.js bounds LRU, handles prepend rename TOCTOU, broken UTF-8 byte boundaries, torn recovery, and write-failure rollback', async (t) => {

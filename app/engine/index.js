@@ -10,6 +10,14 @@ import { delimiter, dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse'
 import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
+import {
+  UI_PLUGINS_API_PREFIX,
+  createUiPluginsResource,
+  discoverUiPlugins,
+  resolveUiPluginsDir,
+} from './ui-plugins.js'
+
+const APP_BOOT_MODULE = '@deepseek-ai/dsh-app-boot'
 
 export const name = 'dsbot-engine'
 export const inject = ['webServer', 'connection']
@@ -129,7 +137,7 @@ function sanitizePathname(decodedPath) {
  * the Host launch token is traded for the session cookie; static assets are
  * strictly confined inside `distDir` (including `realpath` checks outside asar).
  */
-export function createUiResource({ distDir, authorizeIndex }) {
+export function createUiResource({ distDir, authorizeIndex, uiPluginsResource = null }) {
   const distRoot = resolve(distDir)
   const distRootPrefix = withSep(distRoot)
   const distIndex = join(distRoot, 'index.html')
@@ -145,6 +153,13 @@ export function createUiResource({ distDir, authorizeIndex }) {
   }
 
   return async (request, peer) => {
+    if (uiPluginsResource !== null) {
+      let rawPathname = ''
+      try { rawPathname = new URL(request.url).pathname } catch { /* handled below */ }
+      if (rawPathname === UI_PLUGINS_API_PREFIX || rawPathname.startsWith(`${UI_PLUGINS_API_PREFIX}/`)) {
+        return await uiPluginsResource(request, peer)
+      }
+    }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response(null, { status: 405, headers: { ...SECURITY_HEADERS, allow: 'GET, HEAD' } })
     }
@@ -234,6 +249,74 @@ export function apply(ctx, config) {
     })
     return allowed ? undefined : new Response(body, { status, headers })
   }
-  const resource = createUiResource({ distDir, authorizeIndex })
+  let cachedUiSnapshot = null
+  let appBootPromise = null
+  const loadAppBoot = () => {
+    appBootPromise ??= (async () => {
+      try {
+        const loader = ctx.get?.('loader')
+        if (typeof loader?.import === 'function') {
+          const exports = await loader.import(APP_BOOT_MODULE)
+          return loader.unwrapExports?.(exports) ?? exports?.default ?? exports
+        }
+        return await import(APP_BOOT_MODULE)
+      } catch {
+        return null
+      }
+    })()
+    return appBootPromise
+  }
+
+  const getUiSnapshot = async ({ refresh = false } = {}) => {
+    if (!refresh && cachedUiSnapshot !== null) return cachedUiSnapshot
+    const profileContext = ctx.get?.('profileContext') ?? null
+    const uiPluginsDir = typeof config?.uiPluginsDir === 'string' && config.uiPluginsDir.trim() !== ''
+      ? resolve(config.uiPluginsDir.trim())
+      : resolveUiPluginsDir(profileContext, process.env.DSH_HOME ?? '')
+    const pm = ctx.get?.('pluginManager') ?? null
+    let bundles = []
+    if (typeof pm?.listBundles === 'function') {
+      try { bundles = await pm.listBundles() } catch { bundles = [] }
+    }
+    const appBoot = profileContext?.installAnchor && profileContext?.dir ? await loadAppBoot() : null
+    const resolveBundleDir = typeof appBoot?.resolveBundleDir === 'function' && profileContext?.installAnchor && profileContext?.dir
+      ? (pkgName) => {
+        try {
+          const dir = appBoot.resolveBundleDir('dsh', pkgName, profileContext.installAnchor, profileContext.dir)
+          return typeof dir === 'string' && dir !== '' ? dir : null
+        } catch {
+          return null
+        }
+      }
+      : null
+    cachedUiSnapshot = await discoverUiPlugins({ uiPluginsDir, bundles, resolveBundleDir })
+    return cachedUiSnapshot
+  }
+
+  const authorizeUiPlugins = (request) => {
+    const admission = typeof ctx.connection.admit === 'function'
+      ? ctx.connection.admit(request)
+      : { rejection: 401 }
+    if ('rejection' in admission) {
+      return new Response(admission.rejection === 403 ? 'forbidden' : 'unauthorized', {
+        status: admission.rejection,
+        headers: SECURITY_HEADERS,
+      })
+    }
+    if (admission.peer?.principal?.kind !== 'owner') {
+      return new Response('forbidden', { status: 403, headers: SECURITY_HEADERS })
+    }
+    return undefined
+  }
+
+  const uiPluginsResource = createUiPluginsResource({
+    getSnapshot: getUiSnapshot,
+    authorizeRequest: authorizeUiPlugins,
+  })
+  ctx.effect(
+    () => ctx.webServer.register({ kind: 'prefix', path: UI_PLUGINS_API_PREFIX, resource: uiPluginsResource }),
+    'dsbot-engine: ui plugins route',
+  )
+  const resource = createUiResource({ distDir, authorizeIndex, uiPluginsResource })
   ctx.effect(() => ctx.webServer.registerFallback({ resource }), 'dsbot-engine: ui dist fallback')
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { foldCalls, sqliteLedger } from '../src/host/usage.js'
+import { foldCalls, install as installUsage, sqliteLedger } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
 
 const header = (provider, model) => ({ type: 'request/header', data: { header: { config: { provider, model } }, reason: 'change' } })
@@ -600,4 +600,186 @@ test('SQLite v5 call_slots triggers and usageView accurately sum, replace, and d
   assert.equal(cliRow[5], 3_000_000)
   assert.equal(cliRow[7], 6_000)
   assert.equal(cliRow[8], 19)
+})
+
+test('usage ledger does not open or leak usage.sqlite while or after disposing', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-usage-dispose-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const ctx = fakeContext()
+  ctx.sessionController = { list: async () => ({ items: [] }), page: async () => ({ records: [], hasMore: false }), projections: async () => null }
+  const rt = {
+    ctx,
+    home,
+    state: { revision: 1, bots: {}, rooms: {}, agents: {} },
+    load: async () => {},
+    hasLoaded: () => true,
+    chatOf: id => id,
+    roomOf: () => undefined,
+    botOf: () => undefined,
+    own: () => undefined,
+    cachedCatalog: () => [],
+    warn: (...args) => assert.fail(`unexpected warn: ${args.join(' ')}`),
+  }
+  installUsage(rt)
+  // recordUsage() invokes openLedger() synchronously so `opening` is genuinely in flight when dispose() runs.
+  rt.recordUsage({ sessionId: 'b', kind: 'chat', provider: 'deepseek', model: 'v4', usage: usage(10, 5) })
+  const viewInFlight = rt.usageView({ timeZone: 'UTC' })
+  await ctx.dispose()
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  await viewInFlight
+  // Post-dispose calls must fall back cleanly without recreating home or usage.sqlite.
+  rt.recordUsage({ sessionId: 'b', kind: 'chat', provider: 'deepseek', model: 'v4', usage: usage(20, 10) })
+  const after = await rt.usageView({ timeZone: 'UTC' })
+  assert.deepEqual(after.rows, [])
+  assert.equal(existsSync(join(home, 'usage.sqlite')), false)
+  assert.equal(existsSync(home), false)
+})
+
+test('usage scan aborting on dispose never touches closed ledger or warns, and active metered streams flush before close', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-usage-scan-dispose-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let releasePage
+  const ctx = fakeContext()
+  ctx.sessionController = {
+    list: async () => ({ items: [{ sessionId: 's-slow', projections: { kind: 'sequenced', asOfSeq: 1 } }] }),
+    projections: async () => ({ asOfSeq: 1 }),
+    page: async (_req, signal) => new Promise((resolve, reject) => {
+      releasePage = () => resolve({ records: [{ event: header('deepseek', 'v4') }, { event: message(1, 0, usage(50, 5), HOUR) }], hasMore: false })
+      signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), { once: true })
+    }),
+  }
+  const rt = {
+    ctx,
+    home,
+    state: { revision: 1, bots: {}, rooms: {}, agents: {} },
+    load: async () => {},
+    hasLoaded: () => true,
+    chatOf: id => id,
+    roomOf: () => undefined,
+    botOf: () => undefined,
+    own: () => undefined,
+    cachedCatalog: () => [],
+    warn: (...args) => assert.fail(`unexpected warn during dispose: ${args.join(' ')}`),
+  }
+  installUsage(rt)
+  // Start a metered auxiliary stream (e.g. image reading) and receive its usage chunk before finalization.
+  const meter = ctx.listeners.get('llm/stream').at(-1)
+  let releaseStream
+  const stream = meter(
+    { sessionId: 'b1', purpose: 'image', provider: 'deepseek', model: 'v4-vision', messages: [] },
+    async function* () {
+      yield { type: 'usage', usage: usage(600, 20) }
+      await new Promise(resolve => { releaseStream = resolve })
+    },
+  )
+  // Kick off usageView() so openLedger() opens usage.sqlite and scan() blocks inside sessionController.page().
+  const scanning = rt.usageView({ timeZone: 'UTC' })
+  const firstChunk = await stream.next()
+  assert.equal(firstChunk.value.type, 'usage')
+  const streamDone = stream.next()
+  while (releasePage === undefined || releaseStream === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  // Disposing must flush the active meter's 600 tokens before closing SQLite and abort scan() without warning.
+  await ctx.dispose()
+  releasePage()
+  releaseStream()
+  await streamDone
+  await scanning
+
+  // Reopen usage.sqlite directly and verify the 600 tokens from the active metered stream survived unload.
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(join(home, 'usage.sqlite'))
+  try {
+    const row = db.prepare("SELECT input, output FROM calls WHERE kind = 'image'").get()
+    assert.deepEqual({ input: row?.input, output: row?.output }, { input: 600, output: 20 })
+  } finally {
+    db.close()
+  }
+})
+
+test('usage incrementally syncs a session on turn/end into usage.sqlite without waiting for usageView', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-usage-turn-sync-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const ctx = fakeContext()
+  t.after(() => ctx.dispose())
+  let pageCalls = 0
+  ctx.sessionController = {
+    list: async () => ({ items: [] }),
+    projections: async ({ sessionId }) => (sessionId === 's-live' ? { asOfSeq: 1 } : null),
+    page: async ({ address }) => {
+      pageCalls += 1
+      assert.equal(address.sessionId, 's-live')
+      return {
+        records: [
+          { event: { ...header('openai-chatgpt', 'gpt-6.2-sol'), seq: 0 } },
+          { event: { ...message(1, 0, { inputTokens: 10_000, cacheReadTokens: 9_800, outputTokens: 120 }, HOUR), seq: 1 } },
+        ],
+        hasMore: false,
+      }
+    },
+  }
+  const rt = {
+    ctx,
+    home,
+    config: { usageTurnSyncDelayMs: 0 },
+    state: { revision: 1, bots: { b1: { id: 'b1', name: 'Chief', sessionId: 's-live' } }, rooms: {}, agents: {} },
+    load: async () => {},
+    hasLoaded: () => true,
+    readOnly: () => undefined,
+    chatOf: id => (id === 'b1' ? 's-live' : id),
+    roomOf: () => undefined,
+    botOf: id => (id === 'b1' ? rt.state.bots.b1 : undefined),
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    cachedCatalog: () => [],
+    warn: (...args) => assert.fail(`unexpected warn: ${args.join(' ')}`),
+  }
+  installUsage(rt)
+  const onEvent = ctx.listeners.get('session/event').at(-1)
+  assert.equal(typeof onEvent, 'function')
+  // Subagent turn/end must be skipped without calling projections/page on a root address.
+  onEvent({ id: 's-sub', origin: 'subagent' }, { type: 'turn/end' })
+  // Two rapid turn/end events coalesce into one incremental sync.
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  const deadline = Date.now() + 2000
+  while (pageCalls === 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(pageCalls, 1)
+
+  // A turn/end arriving while a sync is in flight queues a follow-up sync instead of dropping.
+  let releaseSecondPage
+  let inFlightCalls = 0
+  ctx.sessionController.projections = async () => ({ asOfSeq: inFlightCalls === 0 ? 2 : 3 })
+  ctx.sessionController.page = async ({ throughSeq }) => {
+    inFlightCalls += 1
+    if (inFlightCalls === 1) {
+      await new Promise(resolve => { releaseSecondPage = resolve })
+      return { records: [{ event: { ...message(2, 0, { inputTokens: 1000, cacheReadTokens: 900, outputTokens: 20 }, HOUR), seq: 2 } }], hasMore: false }
+    }
+    assert.equal(throughSeq, 3)
+    return { records: [{ event: { ...message(3, 0, { inputTokens: 2000, cacheReadTokens: 1900, outputTokens: 30 }, HOUR), seq: 3 } }], hasMore: false }
+  }
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  while (releaseSecondPage === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  releaseSecondPage()
+  const deadline2 = Date.now() + 2000
+  while (inFlightCalls < 2 && Date.now() < deadline2) await new Promise(resolve => setTimeout(resolve, 10))
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(inFlightCalls, 2)
+
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(join(home, 'usage.sqlite'))
+  try {
+    const rows = db.prepare("SELECT session, provider, model, kind, input, cache_read, output FROM calls WHERE kind = 'turn' ORDER BY key").all()
+    assert.equal(rows.length, 3)
+    assert.deepEqual(
+      { session: rows[0]?.session, provider: rows[0]?.provider, model: rows[0]?.model, kind: rows[0]?.kind, input: rows[0]?.input, cache_read: rows[0]?.cache_read, output: rows[0]?.output },
+      { session: 's-live', provider: 'openai-chatgpt', model: 'gpt-6.2-sol', kind: 'turn', input: 10_000, cache_read: 9_800, output: 120 },
+    )
+    assert.equal(rows[2]?.input, 2000)
+    const owner = db.prepare('SELECT owner, name FROM owners WHERE session = ?').get('s-live')
+    assert.deepEqual({ owner: owner?.owner, name: owner?.name }, { owner: 'b1', name: 'Chief' })
+  } finally {
+    db.close()
+  }
 })

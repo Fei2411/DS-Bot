@@ -1,10 +1,14 @@
 // Bridges UI plugin slot registrations (`settings.section`, `settings.section.icon`,
 // `settings.general.item`, `settings.action`) into `SettingsDialog`'s `dsh` prop, and
 // registers the built-in Engine settings pages and Language control through the plugin runtime.
-import { Suspense, createElement as h, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, createElement as h, useEffect, useMemo, useState } from 'react'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
+import { bustImportUrl } from './import-url.js'
 import { LANGUAGE_OPTIONS, getAppLocale } from './locale.js'
+import { pluginRuntime, usePlugins } from './plugin-runtime.js'
+import { createRetryableLazy } from './retryable-lazy.js'
+export { createRetryableLazy }
 import {
   SETTINGS_GENERAL_ITEM_SLOT,
   SETTINGS_SECTION_SLOT,
@@ -16,20 +20,55 @@ import {
 export const SETTINGS_SECTION_ICON_SLOT = 'settings.section.icon'
 export const SETTINGS_ACTION_SLOT = 'settings.action'
 
-const loadEngineSettings = () => import('./engine-settings.js')
+let lastFailedEngineChunkUrl = null
 
-const LazyAccountSection = lazy(() => loadEngineSettings().then(mod => ({ default: mod.AccountSettingsPage })))
-const LazyPluginsSection = lazy(() => loadEngineSettings().then(mod => ({ default: mod.PluginsSettingsPage })))
-const LazyAgentPresetsSection = lazy(() => loadEngineSettings().then(mod => ({ default: mod.AgentPresetsSettingsPage })))
-const LazyArchivedSessionsSection = lazy(() => loadEngineSettings().then(mod => ({ default: mod.ArchivedSessionsPage })))
-const LazySessionLogItem = lazy(() => loadEngineSettings().then(mod => ({ default: mod.SessionLogGeneralItem })))
+function findEngineChunkUrl(error) {
+  const fromMessage = /https?:\/\/[^\s'")]+\/engine-settings[^?\s'")#]*\.js/i.exec(String(error?.message ?? error ?? ''))?.[0]
+  if (fromMessage) return fromMessage
+  try {
+    const entries = globalThis.performance?.getEntriesByType?.('resource') ?? []
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const name = String(entries[i]?.name ?? '')
+      if (/\/engine-settings(?:-[^/?#]+)?\.js(?:$|[?#])/i.test(name)) return name
+    }
+  } catch {
+    // Ignore restricted performance API environments.
+  }
+  return null
+}
+
+function defaultLoadEngineSettings(attempt = 0) {
+  if (attempt > 0) {
+    const chunkUrl = lastFailedEngineChunkUrl || findEngineChunkUrl(null)
+    if (chunkUrl) {
+      const busted = bustImportUrl(chunkUrl, attempt)
+      return import(/* @vite-ignore */ busted).catch((err) => {
+        lastFailedEngineChunkUrl = findEngineChunkUrl(err) || chunkUrl
+        throw err
+      })
+    }
+  }
+  return import('./engine-settings.js').catch((err) => {
+    lastFailedEngineChunkUrl = findEngineChunkUrl(err) || lastFailedEngineChunkUrl
+    throw err
+  })
+}
 
 const LazyFallback = () => h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
 
-function renderSlotComponent(Component, props, slotName, isLazy = true) {
+function renderSlotComponent(entry, props, slotName, isLazy = true) {
+  const Component = entry.component
   const child = h(Component, props)
-  return h(SlotErrorBoundary, { slotName, resetKey: slotName },
-    isLazy ? h(Suspense, { fallback: h(LazyFallback) }, child) : child)
+  return h(SlotErrorBoundary, {
+    slotName,
+    resetKey: slotName,
+    pluginId: entry.pluginId,
+    runtime: entry.runtime,
+    onRetry: () => {
+      Component?.reset?.()
+      entry.onRetry?.()
+    },
+  }, isLazy ? h(Suspense, { fallback: h(LazyFallback) }, child) : child)
 }
 
 /**
@@ -57,16 +96,26 @@ export function LanguageGeneralItem() {
 
 /**
  * Registers the built-in Engine settings sections and General items as a UI plugin.
- * Heavy settings components are lazy-loaded only when the user opens a section.
+ * Heavy settings components are lazy-loaded only when the user opens a section, and
+ * `pages` lets the runtime defer plugin activation until Settings opens.
  */
-export function registerEngineSettingsPlugin(runtime) {
-  return runtime.use({ id: 'ds-bot.engine-settings', name: 'Engine settings' }, (ctx) => {
+export function registerEngineSettingsPlugin(runtime, { pages, loadEngineSettings = defaultLoadEngineSettings } = {}) {
+  return runtime.use({
+    id: 'ds-bot.engine-settings',
+    name: 'Engine settings',
+    ...(Array.isArray(pages) ? { pages } : {}),
+  }, (ctx) => {
+    const loadWithRetry = attempt => loadEngineSettings(attempt + (ctx.retryCount ?? 0))
+    const LazyAccountSection = createRetryableLazy(loadWithRetry, mod => mod.AccountSettingsPage)
+    const LazyPluginsSection = createRetryableLazy(loadWithRetry, mod => mod.PluginsSettingsPage)
+    const LazyAgentPresetsSection = createRetryableLazy(loadWithRetry, mod => mod.AgentPresetsSettingsPage)
+    const LazyArchivedSessionsSection = createRetryableLazy(loadWithRetry, mod => mod.ArchivedSessionsPage)
+
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'account', priority: 10, meta: { labelKey: 'Account' } }, LazyAccountSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'plugins', priority: 20, meta: { labelKey: 'Plugins' } }, LazyPluginsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'agent-presets', priority: 30, meta: { labelKey: 'Agent presets' } }, LazyAgentPresetsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'archived-sessions', priority: 40, meta: { labelKey: 'Archived sessions', surface: 'agent' } }, LazyArchivedSessionsSection)
     ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'language', priority: 1, meta: { sync: true } }, LanguageGeneralItem)
-    ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'session-log-deepseek', priority: 10 }, LazySessionLogItem)
   })
 }
 
@@ -79,6 +128,8 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
   const iconEntries = useSlotEntries(registry, SETTINGS_SECTION_ICON_SLOT)
   const itemEntries = useSlotEntries(registry, SETTINGS_GENERAL_ITEM_SLOT)
   const actionEntries = useSlotEntries(registry, SETTINGS_ACTION_SLOT)
+  const runtime = extraProps.runtime ?? pluginRuntime
+  const plugins = usePlugins(runtime)
 
   const readOnly = Boolean(extraProps.readOnly)
   const surfaceMode = extraProps.surfaceMode ?? 'bot'
@@ -90,10 +141,14 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
     void localeVersion
     const visibleSectionEntries = sectionEntries.filter(entry =>
       typeof entry.id === 'string' && entry.id !== '' && (!entry.meta?.surface || entry.meta.surface === surfaceMode))
+    const failedEnginePlugin = plugins.find(p => p.id === 'ds-bot.engine-settings' && p.status === 'error')
     const sections = visibleSectionEntries.map(entry => ({
       id: entry.id,
       label: entry.meta?.labelKey ? t(entry.meta.labelKey) : String(entry.meta?.label ?? entry.id),
     }))
+    if (failedEnginePlugin && !sections.some(s => s.id === 'plugins')) {
+      sections.push({ id: 'plugins', label: t('Plugins') })
+    }
     const items = itemEntries
       .filter(entry => typeof entry.id === 'string' && entry.id !== '')
       .map(entry => ({ id: entry.id }))
@@ -107,6 +162,8 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
 
     return {
       ownWindow: true,
+      pluginSubTarget: true,
+      surfaceMode,
       sections,
       items,
       renderSlot(name, props = {}, options = {}) {
@@ -114,14 +171,25 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
         const { only, fallback = null } = options
         if (only !== undefined) {
           const match = list.find(entry => entry.id === only)
-          if (!match) return fallback
-          const merged = { ...props, readOnly, surfaceMode, onRestoredSession, onStartPresetCreator }
-          return renderSlotComponent(match.component, merged, `${name}:${only}`, match.meta?.sync !== true)
+          if (!match) {
+            if (name === SETTINGS_SECTION_SLOT && only === 'plugins' && failedEnginePlugin) {
+              return h('div', { className: 'dsb-slot-error', role: 'alert' },
+                h('span', null, failedEnginePlugin.error || t('This view could not be shown.')),
+                h('button', {
+                  type: 'button',
+                  className: 'bt-soft bt-soft-sm',
+                  onClick: () => { runtime.retry(failedEnginePlugin.id) },
+                }, t('Retry')))
+            }
+            return fallback
+          }
+          const merged = { ...props, readOnly, surfaceMode, runtime, onRestoredSession, onStartPresetCreator }
+          return renderSlotComponent(match, merged, `${name}:${only}`, match.meta?.sync !== true)
         }
         if (list.length === 0) return fallback
         return list.map((entry, idx) => h('span', { key: entry.id ?? idx, className: 'dsb-slot-item' },
-          renderSlotComponent(entry.component, { ...props, readOnly, surfaceMode, onRestoredSession, onStartPresetCreator }, `${name}:${entry.id ?? idx}`, entry.meta?.sync !== true)))
+          renderSlotComponent(entry, { ...props, readOnly, surfaceMode, runtime, onRestoredSession, onStartPresetCreator }, `${name}:${entry.id ?? idx}`, entry.meta?.sync !== true)))
       },
     }
-  }, [sectionEntries, iconEntries, itemEntries, actionEntries, readOnly, surfaceMode, localeVersion, onRestoredSession, onStartPresetCreator])
+  }, [sectionEntries, iconEntries, itemEntries, actionEntries, plugins, runtime, readOnly, surfaceMode, localeVersion, onRestoredSession, onStartPresetCreator])
 }

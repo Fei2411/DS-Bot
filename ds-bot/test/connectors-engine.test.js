@@ -1554,3 +1554,49 @@ test('loading oauth does not load @modelcontextprotocol/client at import time', 
   `
   await execFileP(process.execPath, ['--input-type=module', '-e', script])
 })
+
+test('connector-set offFor on mail persists in mailView, preserves multiple bots, and survives rule updates', async (t) => {
+  const home = teamHome({
+    bots: {
+      ...TEAM.bots,
+      m2: { id: 'm2', sessionId: 'm2', name: 'Reviewer', role: 'Reviewer', instructions: '', createdAt: 2 },
+    },
+  })
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => fakeSession() } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+
+  assert.deepEqual(rt.mailView().offFor, [])
+  assert.deepEqual(rt.connectorsView().mail.offFor, [])
+
+  await rt.connectorEndpoint('mail-account-add', { address: addressAt('163.com'), password: 'APP-PASSWORD' })
+  assert.deepEqual(rt.mailView().offFor, [])
+
+  // Turning off mail for m1 returns updated mail.offFor so client switches stay off.
+  const view1 = await rt.connectorEndpoint('connector-set', { id: 'mail', offFor: ['m1'] })
+  assert.deepEqual(view1.mail.offFor, ['m1'])
+  assert.deepEqual(rt.mailView().offFor, ['m1'])
+  assert.deepEqual(rt.connectorsView().mail.offFor, ['m1'])
+  assert.deepEqual(rt.connectorOffFor('m1'), ['mail_'])
+  assert.deepEqual(rt.connectorOffFor('m2'), [])
+
+  // Turning off mail for m2 preserves m1 instead of overwriting from a missing mailView.offFor.
+  const view2 = await rt.connectorEndpoint('connector-set', { id: 'mail', offFor: [...view1.mail.offFor, 'm2'] })
+  assert.deepEqual(view2.mail.offFor, ['m1', 'm2'])
+  assert.deepEqual(rt.mailView().offFor, ['m1', 'm2'])
+
+  // Tool execution still refuses for off bots.
+  const search = rt.teamTools.find(d => d.name === 'mail_search')
+  assert.match(String(await search.execute({}, { agent: { id: 'm1' } })), /turned off/)
+
+  // Rule updates must not clobber mail.offFor.
+  const afterRule = await rt.connectorEndpoint('mail-rule-set', { mode: 'no-draft', botId: 'm2' })
+  assert.deepEqual(afterRule.offFor, ['m1', 'm2'])
+
+  // Turning m1 back on keeps m2 off.
+  const view3 = await rt.connectorEndpoint('connector-set', { id: 'mail', offFor: view2.mail.offFor.filter(id => id !== 'm1') })
+  assert.deepEqual(view3.mail.offFor, ['m2'])
+  assert.deepEqual(rt.connectorOffFor('m1'), [])
+  assert.deepEqual(rt.connectorOffFor('m2'), ['mail_'])
+})

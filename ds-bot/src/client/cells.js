@@ -3,11 +3,13 @@ import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
-import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, EyeIcon, HideIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { detectSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
+import { syncHostAncestors } from './chat-room.js'
 import { AskUserCell, SettledQuestion } from './questions.js'
 import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
@@ -26,6 +28,7 @@ import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
 import { PresentedFiles, ViaTag } from './user-message.js'
 import { layoutOf, thinkingShown } from './themes.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { lruGet, lruSet, memo, useRosterPick } from './memo.js'
 
 export { clockLabel }
@@ -151,9 +154,27 @@ const Bubble = memo(function Bubble({ text, index, first = true, last = true, ro
   // still invalidates memoization when `lang` changes.
   const labels = mdLabels()
   const linked = useMemo(() => (shown === '' ? '' : linkMentions(normalizeFileLinks(shown), roster.bots, selfId)), [shown, roster.bots, selfId])
+  const openFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
+  const revealFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
   const body = useMemo(
-    () => (linked === '' ? null : h(MarkdownText, { text: linked, streaming: live, labels, variant: 'compact', fileMentions: mentions })),
-    [linked, live, labels, mentions],
+    () => (linked === '' ? null : h(MarkdownText, {
+      text: linked,
+      streaming: live,
+      labels,
+      variant: 'compact',
+      fileMentions: mentions,
+      ...(openFile ? { onOpenFile: openFile } : {}),
+      ...(revealFolder ? { onRevealFolder: revealFolder } : {}),
+    })),
+    [linked, live, labels, mentions, openFile, revealFolder],
   )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
@@ -200,12 +221,11 @@ function useDismiss(open, close, refs) {
       if (refs.some(ref => ref.current?.contains(event.target))) return
       close()
     }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); close() } }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('touchstart', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown) }
   }, [open])
+  useEscape(close, open, { priority: ESCAPE_PRIORITY.MENU })
 }
 
 // The hover toolbar beside a reply bubble: Add reaction, Reply, More. `open` is
@@ -422,7 +442,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
+const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-bt-flow-kind=user], [data-bt-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
 export function syncGroupChains(flow) {
   const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)]
   for (let i = 0; i < items.length; i += 1) {
@@ -435,7 +455,8 @@ export function syncGroupChains(flow) {
     const chainNext = Boolean(botId && next?.classList.contains('bt-group-msg') && next.dataset.botId === botId)
     if (chainPrev) curr.dataset.chainPrev = ''; else delete curr.dataset.chainPrev
     if (chainNext) curr.dataset.chainNext = ''; else delete curr.dataset.chainNext
-    const turn = curr.closest('[data-chat-group-key]')
+    syncHostAncestors(curr)
+    const turn = curr.closest('[data-bt-group-key]')
     if (turn) {
       if (chainPrev) turn.dataset.btChainPrev = ''; else delete turn.dataset.btChainPrev
       if (chainNext) turn.dataset.btChainNext = ''; else delete turn.dataset.btChainNext
@@ -477,7 +498,8 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
   useLayoutEffect(() => {
     const el = ref.current
     if (!el?.closest) return undefined
-    const flow = el.closest('[data-chat-flow]')
+    syncHostAncestors(el)
+    const flow = el.closest('[data-bt-flow]')
     if (!flow) return undefined
     scheduleGroupChains(flow)
     return () => scheduleGroupChains(flow)
@@ -591,9 +613,91 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row, actions, renderUserAttachments }) {
-  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
-  const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+function MaskedUserInline({ text, spans, revealed: controlledRevealed = null, onToggle = null }) {
+  const [localRevealed, setLocalRevealed] = useState(() => new Set())
+  useEffect(() => {
+    setLocalRevealed(prev => (prev.size === 0 ? prev : new Set()))
+  }, [text])
+  const revealed = controlledRevealed instanceof Set ? controlledRevealed : localRevealed
+  const toggle = (key) => {
+    if (typeof onToggle === 'function') { onToggle(key); return }
+    setLocalRevealed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const nodes = []
+  let cursor = 0
+  for (let i = 0; i < spans.length; i += 1) {
+    const span = spans[i]
+    if (span.start > cursor) nodes.push(h(Fragment, { key: `t:${i}` }, text.slice(cursor, span.start)))
+    const isOpen = revealed.has(span.key)
+    const label = isOpen ? t('Hide secret') : t('Reveal secret')
+    nodes.push(h('span', {
+      key: `s:${span.key}:${i}`,
+      className: `dsb-secret${isOpen ? ' is-revealed' : ''}`,
+      'data-secret-masked': isOpen ? undefined : '',
+    },
+    h('span', { className: 'dsb-secret-val' }, isOpen ? span.raw : span.masked),
+    h('button', {
+      type: 'button',
+      className: 'dsb-secret-toggle',
+      'aria-pressed': isOpen,
+      'aria-label': label,
+      title: label,
+      onClick: (event) => { event.stopPropagation(); toggle(span.key) },
+    }, isOpen ? h(HideIcon) : h(EyeIcon))))
+    cursor = span.end
+  }
+  if (cursor < text.length) nodes.push(h(Fragment, { key: 't:end' }, text.slice(cursor)))
+  return h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } }, nodes)
+}
+
+function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, renderUserText, showTime = false }) {
+  const fullText = row.text ?? ''
+  const customRender = typeof renderUserText === 'function'
+    ? renderUserText
+    : (typeof actions?.renderUserText === 'function' ? actions.renderUserText : null)
+  const fullSecrets = useMemo(() => detectSecrets(fullText), [fullText])
+  // Disable markdown code-fence folding whenever credentials are present or the own-window
+  // user renderer handles the bubble, so folded fenced code can never bypass masking.
+  const { shown, folded, control, code, codeHead } = useFold(fullText, {
+    markdown: customRender === null && fullSecrets.length === 0,
+  })
+  const [revealedSecrets, setRevealedSecrets] = useState(() => new Set())
+  useEffect(() => {
+    setRevealedSecrets(prev => (prev.size === 0 ? prev : new Set()))
+  }, [fullText])
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const secretSpans = useMemo(
+    () => (fullSecrets.length > 0 ? projectSecretsToSlice(fullText, shown, fullSecrets) : []),
+    [fullText, shown, fullSecrets],
+  )
+  const body = fullText && shown !== ''
+    ? (customRender !== null
+      ? h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } },
+        customRender({
+          text: shown,
+          fullText,
+          sessionId,
+          roster,
+          actions,
+          revealedSecrets,
+          onToggleSecret: toggleSecret,
+        }))
+      : secretSpans.length > 0
+        ? h(MaskedUserInline, { text: shown, spans: secretSpans, revealed: revealedSecrets, onToggle: toggleSecret })
+        : h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }))
+    : null
   const area = foldArea(body, code, codeHead, actions)
   const hasRich = typeof renderUserAttachments === 'function' && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0)
   const attachments = hasRich ? renderUserAttachments(row) : null
@@ -601,6 +705,7 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
     ? row.fileRefs.map(file => file.name).filter(Boolean).join(', ')
     : ''
   const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
+  const hasMeta = row.via !== undefined || (showTime && Number.isFinite(row.time))
   return h('div', { className: 'bt-urow' },
     attachments,
     showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
@@ -608,7 +713,9 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
       control,
       !hasRich && row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null,
       fileNames ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, fileNames) : null) : null,
-    row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
+    hasMeta ? h('div', { className: 'bt-utime', title: Number.isFinite(row.time) ? clockLabel(row.time) : undefined },
+      row.via !== undefined ? h(ViaTag, { via: row.via }) : null,
+      Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
 // Pure helpers for EarlierParts: merging skipped/multi-page earlier responses,
@@ -648,7 +755,7 @@ export function earlierItems(pages, { cursor, loading } = {}) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-export function EarlierParts({ sessionId, roster, actions, openFile }) {
+export function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)
@@ -716,15 +823,18 @@ export function EarlierParts({ sessionId, roster, actions, openFile }) {
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))
         : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Couldn’t load earlier messages · Retry'))
           : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Load earlier')) : null),
-    h(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw }),
+    h(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
     hasContent ? h(PartLine, { time: view.startedAt }) : null)
 }
 
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
 // Bot's messages in a row are one block, and a thin line marks where a part begins.
 // `clock` adds the time separators: one above the first entry, and one after each pause.
-export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, openFile, onBtwDelete, renderUserAttachments }) {
+const NOOP_UI = () => undefined
+
+export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id
+  const visit = useUi(state => state?.visits?.[sessionId])
   const rows = []
   for (const item of items) {
     const last = rows.at(-1)
@@ -736,11 +846,20 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
       last.end = item.time
     } else rows.push(item.kind === 'bot' ? { kind: 'bot', texts: [item.text], time: item.time, end: item.time } : item)
   }
+  useEffect(() => {
+    if (!clock || typeof actions?.noteTurnTime !== 'function') return
+    rows.forEach((row, index) => {
+      if (row.kind !== 'divider' && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, 'first', row.time)
+      }
+    })
+  }, [clock, sessionId, items, actions])
   let before
+  let newShown = false
   return rows.flatMap((row, index) => {
     // Pages are prepended, so a row keeps its distance from the end.
     const key = rows.length - index
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
@@ -748,15 +867,21 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
     }
     const pause = clock && Number.isFinite(row.time) && (before === undefined || row.time - before >= SEPARATOR_GAP_MS)
     if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time
-    return pause ? [h('div', { key: `${key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), shown] : [shown]
+    const showNew = clock && !newShown && unseenSince(visit, row.time)
+    if (showNew) newShown = true
+    const out = []
+    if (showNew) out.push(h(NewDivider, { key: `${key}:new` }))
+    if (pause) out.push(h('div', { key: `${key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
+    out.push(shown)
+    return out
   })
 }
 
 // `useUi` gives a block its reactions and its Reply tool.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, actions, renderUserAttachments })
+    case 'user': return h(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -1334,9 +1459,14 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
     stacked.map(({ reply, index, texts, files, time, duration, claims, changes }, at) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
-        return h('div', { key: `user-${index}`, className: 'bt-urow' },
-          h('div', { className: 'bt-ububble', 'data-text-interaction-source': '' }, h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
-          (reply.via !== undefined || Number.isFinite(time)) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, ...(reply.via !== undefined ? [h(ViaTag, { key: 'via', via: reply.via })] : []), Number.isFinite(time) ? messageClock(time) : null) : null)
+        return h(EarlierUser, {
+          key: `user-${index}`,
+          row: { ...reply, time },
+          sessionId,
+          roster,
+          actions,
+          showTime: true,
+        })
       }
       if (reply.kind === 'goal') {
         return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },
