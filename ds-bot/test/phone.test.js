@@ -137,6 +137,40 @@ test('a browser pairs with its own code and is listed by authenticated kind', as
   await link.client.close()
 })
 
+test('the desktop feed refreshes when failed pairing attempts close the offer', async (t) => {
+  const relay = await startRelayServer()
+  const home = mkdtempSync(join(tmpdir(), 'dsb-pairing-misses-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const desk = open(home)
+  t.after(async () => {
+    await desk.ctx.dispose()
+    await relay.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await desk.call('phone-set', { server: relay.url, on: true })
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+  const paired = await desk.call('phone-pair', {})
+  const offer = parsePairingUri(paired.value.pairing.browserUri)
+  const feed = await desk.ctx.feedRoute.fetch(new Request('http://localhost/api/bot/feed'))
+  const reader = feed.body.getReader()
+  t.after(() => reader.cancel())
+  const decoder = new TextDecoder()
+  assert.match(decoder.decode((await reader.read()).value), /^event: hello\n/u)
+
+  const keys = generateKeyPair()
+  const token = randomToken()
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const link = phone(offer, { pairingCode: 'wrong' }, keys, token)
+    await assert.rejects(link.client.connect(), { code: 'NOT_PAIRED' })
+    await link.client.close()
+    if (attempt < 5) assert.ok((await desk.call('state', {})).value.phone.pairing)
+  }
+  assert.equal(decoder.decode((await reader.read()).value), 'event: live\ndata: {}\n\n')
+  const { phone: closed } = (await desk.call('state', {})).value
+  assert.equal(closed.pairing, null)
+  assert.deepEqual(closed.phones, [])
+})
+
 test('remote state and live polls never disclose pairing offers, including attached state', async t => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-private-pairing-'))
   const view = { type: 'text', let: { pairing: 'ready', phone: { pairing: 'application data' } }, value: '$pairing' }

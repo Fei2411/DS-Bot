@@ -218,6 +218,8 @@ export const ES = {
   "Web browser": "Navegador web",
   "Copy browser link": "Copiar enlace del navegador",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Escanea el código con DS Bot Native en el iPhone. Para enlazar en el navegador, escanéalo con la cámara.",
+  "Pairs with browser permissions.": "El emparejamiento usa permisos de navegador.",
+  "Could not create a browser pairing link. Check the Server address.": "No se pudo crear el enlace de emparejamiento para el navegador. Comprueba la dirección del servidor.",
   "Show new QR code": "Mostrar un nuevo código QR",
   "Clipboard is not available": "El portapapeles no está disponible",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "El servidor retransmite mensajes cifrados. El acceso desde el navegador también confía en la página que sirve.",

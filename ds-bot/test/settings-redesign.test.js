@@ -866,7 +866,7 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     const actions = {
       phoneSet: patch => { calls.push(['set', patch]); return Promise.resolve() },
       phonePair: () => { calls.push(['pair']); return Promise.resolve() },
-      phonePairCancel: () => Promise.resolve(),
+      phonePairCancel: () => { calls.push(['cancel']); return Promise.resolve() },
       phoneRemove: () => Promise.resolve(),
     }
 
@@ -885,6 +885,12 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     editBtn.props.onClick()
     tree = draw()
     assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Server').length, 1)
+
+    const qrButton = (tree, label) => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+    qrButton(tree, 'iOS / Web').props.onClick()
+    tree = draw()
+    assert.equal(qrButton(tree, 'iOS / Web').props['aria-pressed'], true)
+    assert.deepEqual(calls, [])
 
     // Click Turn on & pair while phone access is off.
     const pairBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Turn on & pair')[0]
@@ -934,18 +940,21 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
       on: true,
       status: 'online',
       server: 'wss://relay.example/v1/link',
-      phones: [{ id: 'p1', name: 'Pixel', connected: true, pairedAt: Date.now() }],
+      phones: [
+        { id: 'p1', name: 'Pixel', connected: true, pairedAt: Date.now() },
+        { id: 'p2', name: 'iPhone', kind: 'browser', connected: true, pairedAt: Date.now() },
+      ],
       pairing: null,
     }
     const qrPath = tree => findAll(tree, n => n.props?.['aria-label'] === 'Pairing QR code').flatMap(qr => (
       findAll(qr, n => n.type === 'path').map(path => path.props.d)
     ))
-    const qrButton = (tree, label) => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
     calls.length = 0
     const idleTree = draw()
     assert.match(textOf(idleTree), /Phone online/)
+    assert.match(textOf(idleTree), /iPhone.*Browser access · Connected/)
     assert.equal(qrPath(idleTree).length, 0)
-    assert.equal(qrButton(idleTree, 'Android').props['aria-pressed'], true)
+    assert.equal(qrButton(idleTree, 'Android / iOS (Expo)').props['aria-pressed'], true)
     qrButton(idleTree, 'iOS / Web').props.onClick()
     assert.deepEqual(calls, [['pair']])
     await new Promise(resolve => setImmediate(resolve))
@@ -963,17 +972,27 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     assert.ok(qrButton(iosTree, 'Copy browser link'))
     const browserLink = findAll(iosTree, n => n.type === 'a' && textOf(n) === 'Open in a browser')[0]
     assert.equal(browserLink.props.href, 'https://relay.example/web/#pair=dsbot%3A%2F%2Fpair%3Fcode%3Dbrowser%26device%3Dbrowser')
-    qrButton(iosTree, 'Android').props.onClick()
+    phone = { ...phone, server: 'invalid' }
+    const invalidTree = draw()
+    assert.match(textOf(invalidTree), /Could not create a browser pairing link/)
+    assert.equal(qrPath(invalidTree).length, 0)
+    assert.equal(qrButton(invalidTree, 'Copy browser link'), undefined)
+    qrButton(invalidTree, 'Cancel').props.onClick()
+    assert.deepEqual(calls, [['pair'], ['cancel']])
+    await new Promise(resolve => setImmediate(resolve))
+    phone = { ...phone, server: 'wss://relay.example/v1/link' }
+    qrButton(draw(), 'Android / iOS (Expo)').props.onClick()
     const androidTree = draw()
     assert.equal(qrPath(androidTree).length, 1)
     assert.notDeepEqual(qrPath(androidTree), qrPath(iosTree))
     const download = findAll(androidTree, n => n.type === 'a' && textOf(n) === 'Download')
     assert.equal(download.length, 1)
     assert.equal(download[0].props.href, 'https://github.com/Fei-Craft/DS-Bot/releases/latest')
+    assert.ok(qrButton(androidTree, 'Show new QR code'))
     qrButton(androidTree, 'iOS / Web').props.onClick()
     const activeTree = draw()
     assert.deepEqual(qrPath(activeTree), qrPath(iosTree))
-    assert.deepEqual(calls, [['pair']])
+    assert.deepEqual(calls, [['pair'], ['cancel']])
     qrButton(activeTree, 'Show new QR code').props.onClick()
     await new Promise(resolve => setImmediate(resolve))
     for (const unavailable of [null, { ...offer, expiresAt: Date.now() - 1 }]) {
@@ -985,7 +1004,7 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
       qrButton(nextTree, 'Show QR code').props.onClick()
       await new Promise(resolve => setImmediate(resolve))
     }
-    assert.deepEqual(calls, [['pair'], ['pair'], ['pair'], ['pair']])
+    assert.deepEqual(calls, [['pair'], ['cancel'], ['pair'], ['pair'], ['pair']])
     harness.unmount()
   })
 })

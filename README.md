@@ -144,7 +144,7 @@ Bots can create, inspect and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel
 
 ### Mobile app & browser remote
 
-Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
+Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, then select **Android / iOS (Expo)** to scan in the mobile app built from [`mobile/`](mobile/README.md). The Android APK is in [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest). The standalone **DS Bot Native** iPhone app uses the **iOS / Web** entry and pairs with browser permissions.
 
 For **browser remote (preview)**, select **iOS / Web** on the same pairing screen, then scan the QR code or use **Open in a browser** or **Copy browser link**. Self-hosted relay instructions and security limits are in [`link/README.md`](link/README.md) and [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md).
 

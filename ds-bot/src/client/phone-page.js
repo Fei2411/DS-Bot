@@ -57,7 +57,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
-  const [pairMode, setPairMode] = useState('android')
+  const [pairMode, setPairMode] = useState('phone')
   const copyTimer = useRef(null)
   const qrPanel = useRef(null)
   const prevState = useRef({ on: phone.on, status: phone.status, error: phone.error })
@@ -143,7 +143,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
   }, [qrText])
   const selectPairMode = (mode) => {
     setPairMode(mode)
-    if (pairing === null) startPair()
+    if (online && pairing === null && mode !== pairMode) startPair()
   }
   return h('div', { className: 'bt-phone' },
     h(Section, { title: t('Connection') },
@@ -166,24 +166,28 @@ export function PhonePage({ roster, actions, Section, Row }) {
     h(Section, { title: t('Pair a phone'), tour: 'phone-pair' },
       h('div', { className: 'bt-set-row' },
         h(Segmented, { label: t('Show QR code'), value: pairMode },
-          h('button', { type: 'button', 'aria-pressed': !browserQr, onClick: () => selectPairMode('android') }, 'Android'),
+          h('button', { type: 'button', 'aria-pressed': !browserQr, onClick: () => selectPairMode('phone') }, 'Android / iOS (Expo)'),
           h('button', { type: 'button', 'aria-pressed': browserQr, onClick: () => selectPairMode('browser') }, 'iOS / Web'))),
-      qrText
+      pairing
       ? h('div', { ref: qrPanel, className: 'bt-phone-pair' },
-        h(QrCode, { text: qrText, browser: browserQr }),
+        qrText ? h(QrCode, { text: qrText, browser: browserQr }) : null,
         h('div', { className: 'bt-phone-pair-copy' },
-          h('span', null, browserQr
+          qrText ? h('span', null, browserQr
             ? t('Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.')
-            : t('Scan this code with the DS Bot app on your phone.')),
+            : t('Scan this code with the DS Bot app on your phone.'))
+            : h('span', { role: 'alert' }, t('Could not create a browser pairing link. Check the Server address.')),
           h('span', { className: 'bt-set-hint' }, t('The code works once. It stops working in {count} min.', { count: minutesLeft(pairing.expiresAt) })),
-          browserQr
-            ? h('div', { className: 'bt-phone-pair-actions' },
-              h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
-              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t('Copied') : t('Copy browser link')))
+          browserQr && browserUrl
+            ? [
+                h('div', { key: 'links', className: 'bt-phone-pair-actions' },
+                  h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
+                  h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t('Copied') : t('Copy browser link'))),
+                h('span', { key: 'permissions', className: 'bt-set-hint' }, t('Pairs with browser permissions.')),
+                h('span', { key: 'trust', className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')),
+              ]
             : null,
-          browserQr ? h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')) : null,
           h('div', { className: 'bt-phone-pair-actions' },
-            browserQr ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !online, onClick: startPair }, t('Show new QR code')) : null,
+            qrText ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !online, onClick: startPair }, t('Show new QR code')) : null,
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
       : h(Row, { key: 'qr', label: t('Show QR code') },
         wantPair
@@ -196,9 +200,14 @@ export function PhonePage({ roster, actions, Section, Row }) {
         h('a', { className: 'bt-soft bt-soft-sm', href: APP_DOWNLOAD, target: '_blank', rel: 'noopener noreferrer' }, t('Download')))),
     h(Section, { title: t('Paired devices') }, phone.phones.length === 0
       ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No phones yet')))
-      : phone.phones.map(entry => h(Row, {
-        key: entry.id,
-        label: entry.kind === 'browser' ? t('Web browser') : entry.name || t('Phone'),
-        hint: entry.connected ? t('Connected') : t('Paired on {date}', { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: 'medium' }) }),
-      }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phoneRemove(entry.id)) }, t('Remove'))))))
+      : phone.phones.map(entry => {
+        const status = entry.connected ? t('Connected') : t('Paired on {date}', { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: 'medium' }) })
+        const browser = entry.kind === 'browser'
+        const name = browser && entry.name === 'Web browser' ? '' : entry.name
+        return h(Row, {
+          key: entry.id,
+          label: name || t(browser ? 'Browser access' : 'Phone'),
+          hint: browser && name ? `${t('Browser access')} · ${status}` : status,
+        }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phoneRemove(entry.id)) }, t('Remove')))
+      })))
 }

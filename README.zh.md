@@ -144,7 +144,7 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ### 手机 App 与浏览器远程访问
 
-通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
+通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问后，仓库中 [`mobile/`](mobile/README.md) 构建的手机 App 请选择 **Android / iOS (Expo)** 扫码配对。Android APK 见 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest)。独立的 iPhone App **DS Bot Native** 使用 **iOS / Web** 入口，以浏览器权限配对。
 
 无需安装 App 也可使用**浏览器远程访问（预览）**：在同一配对页选择 **iOS / Web**，扫码或点击 **Open in a browser** 或 **Copy browser link**。自建中转服务器与安全限制见 [`link/README.md`](link/README.md) 和 [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md)。
 

@@ -348,6 +348,8 @@ var JA = {
   "Web browser": "ウェブブラウザー",
   "Copy browser link": "ブラウザーのリンクをコピー",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "iPhone の DS Bot Native で読み取ってください。ブラウザーでペアリングする場合は、カメラで読み取ってください。",
+  "Pairs with browser permissions.": "ブラウザーの権限でペアリングします。",
+  "Could not create a browser pairing link. Check the Server address.": "ブラウザー用のペアリングリンクを作成できませんでした。サーバーのアドレスを確認してください。",
   "Show new QR code": "新しい QR コードを表示",
   "Clipboard is not available": "クリップボードを利用できません",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "サーバーは暗号化されたメッセージを中継します。ブラウザーでのアクセスでは、サーバーが提供するページも信頼します。",
@@ -3978,6 +3980,8 @@ var KO = {
   "Web browser": "웹 브라우저",
   "Copy browser link": "브라우저 링크 복사",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "iPhone의 DS Bot Native로 스캔하세요. 브라우저에서 페어링하려면 카메라로 스캔하세요.",
+  "Pairs with browser permissions.": "브라우저 권한으로 페어링합니다.",
+  "Could not create a browser pairing link. Check the Server address.": "브라우저 페어링 링크를 만들 수 없습니다. 서버 주소를 확인하세요.",
   "Show new QR code": "새 QR 코드 표시",
   "Clipboard is not available": "클립보드를 사용할 수 없습니다",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "서버는 암호화된 메시지를 전달합니다. 브라우저 접근은 서버가 제공하는 페이지도 신뢰합니다.",
@@ -7653,6 +7657,8 @@ var ES = {
   "Web browser": "Navegador web",
   "Copy browser link": "Copiar enlace del navegador",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Escanea el código con DS Bot Native en el iPhone. Para enlazar en el navegador, escanéalo con la cámara.",
+  "Pairs with browser permissions.": "El emparejamiento usa permisos de navegador.",
+  "Could not create a browser pairing link. Check the Server address.": "No se pudo crear el enlace de emparejamiento para el navegador. Comprueba la dirección del servidor.",
   "Show new QR code": "Mostrar un nuevo código QR",
   "Clipboard is not available": "El portapapeles no está disponible",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "El servidor retransmite mensajes cifrados. El acceso desde el navegador también confía en la página que sirve.",
@@ -11328,6 +11334,8 @@ var FR = {
   "Web browser": "Navigateur web",
   "Copy browser link": "Copier le lien du navigateur",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Scannez le code avec DS Bot Native sur iPhone. Pour l’appairer dans le navigateur, scannez-le avec l’appareil photo.",
+  "Pairs with browser permissions.": "L’appairage utilise les autorisations du navigateur.",
+  "Could not create a browser pairing link. Check the Server address.": "Impossible de créer le lien d’appairage pour le navigateur. Vérifiez l’adresse du serveur.",
   "Show new QR code": "Afficher un nouveau code QR",
   "Clipboard is not available": "Le presse-papiers n’est pas disponible",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Le serveur transmet les messages chiffrés. L’accès par navigateur fait aussi confiance à la page qu’il fournit.",
@@ -14958,6 +14966,8 @@ var DE = {
   "Web browser": "Webbrowser",
   "Copy browser link": "Browser-Link kopieren",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "Scanne den Code mit DS Bot Native auf dem iPhone. Zum Koppeln im Browser scannst du mit der Kamera.",
+  "Pairs with browser permissions.": "Die Kopplung verwendet Browser-Berechtigungen.",
+  "Could not create a browser pairing link. Check the Server address.": "Der Browser-Kopplungslink konnte nicht erstellt werden. Prüfe die Serveradresse.",
   "Show new QR code": "Neuen QR-Code anzeigen",
   "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
   "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Der Server leitet verschlüsselte Nachrichten weiter. Der Browserzugriff vertraut auch der von ihm bereitgestellten Seite.",
@@ -19459,6 +19469,8 @@ var ZH = {
   "Web browser": "网页浏览器",
   "Copy browser link": "复制浏览器链接",
   "Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.": "用 iPhone 上的 DS Bot Native 扫码配对。也可以用系统相机扫码，在浏览器中配对。",
+  "Pairs with browser permissions.": "使用浏览器权限配对。",
+  "Could not create a browser pairing link. Check the Server address.": "无法生成浏览器配对链接。请检查服务器地址。",
   "Show new QR code": "显示新二维码",
   "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
@@ -55022,7 +55034,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [busy, setBusy] = (0, import_react55.useState)(false);
   const [error, setError] = (0, import_react55.useState)(null);
   const [copied, setCopied] = (0, import_react55.useState)(false);
-  const [pairMode, setPairMode] = (0, import_react55.useState)("android");
+  const [pairMode, setPairMode] = (0, import_react55.useState)("phone");
   const copyTimer = (0, import_react55.useRef)(null);
   const qrPanel = (0, import_react55.useRef)(null);
   const prevState = (0, import_react55.useRef)({ on: phone.on, status: phone.status, error: phone.error });
@@ -55128,7 +55140,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   }, [qrText]);
   const selectPairMode = (mode) => {
     setPairMode(mode);
-    if (pairing === null) startPair();
+    if (online && pairing === null && mode !== pairMode) startPair();
   };
   return (0, import_react55.createElement)(
     "div",
@@ -55176,30 +55188,33 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         (0, import_react55.createElement)(
           Segmented,
           { label: t("Show QR code"), value: pairMode },
-          (0, import_react55.createElement)("button", { type: "button", "aria-pressed": !browserQr, onClick: () => selectPairMode("android") }, "Android"),
+          (0, import_react55.createElement)("button", { type: "button", "aria-pressed": !browserQr, onClick: () => selectPairMode("phone") }, "Android / iOS (Expo)"),
           (0, import_react55.createElement)("button", { type: "button", "aria-pressed": browserQr, onClick: () => selectPairMode("browser") }, "iOS / Web")
         )
       ),
-      qrText ? (0, import_react55.createElement)(
+      pairing ? (0, import_react55.createElement)(
         "div",
         { ref: qrPanel, className: "bt-phone-pair" },
-        (0, import_react55.createElement)(QrCode, { text: qrText, browser: browserQr }),
+        qrText ? (0, import_react55.createElement)(QrCode, { text: qrText, browser: browserQr }) : null,
         (0, import_react55.createElement)(
           "div",
           { className: "bt-phone-pair-copy" },
-          (0, import_react55.createElement)("span", null, browserQr ? t("Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.") : t("Scan this code with the DS Bot app on your phone.")),
+          qrText ? (0, import_react55.createElement)("span", null, browserQr ? t("Scan with DS Bot Native on iPhone. To pair in a browser, scan with your camera.") : t("Scan this code with the DS Bot app on your phone.")) : (0, import_react55.createElement)("span", { role: "alert" }, t("Could not create a browser pairing link. Check the Server address.")),
           (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(pairing.expiresAt) })),
-          browserQr ? (0, import_react55.createElement)(
-            "div",
-            { className: "bt-phone-pair-actions" },
-            (0, import_react55.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
-            (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
-          ) : null,
-          browserQr ? (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
+          browserQr && browserUrl ? [
+            (0, import_react55.createElement)(
+              "div",
+              { key: "links", className: "bt-phone-pair-actions" },
+              (0, import_react55.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
+              (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
+            ),
+            (0, import_react55.createElement)("span", { key: "permissions", className: "bt-set-hint" }, t("Pairs with browser permissions.")),
+            (0, import_react55.createElement)("span", { key: "trust", className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust."))
+          ] : null,
           (0, import_react55.createElement)(
             "div",
             { className: "bt-phone-pair-actions" },
-            browserQr ? (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || !online, onClick: startPair }, t("Show new QR code")) : null,
+            qrText ? (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || !online, onClick: startPair }, t("Show new QR code")) : null,
             (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel"))
           )
         )
@@ -55220,11 +55235,16 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         (0, import_react55.createElement)("a", { className: "bt-soft bt-soft-sm", href: APP_DOWNLOAD, target: "_blank", rel: "noopener noreferrer" }, t("Download"))
       )
     ),
-    (0, import_react55.createElement)(Section2, { title: t("Paired devices") }, phone.phones.length === 0 ? (0, import_react55.createElement)("div", { className: "bt-set-row" }, (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("No phones yet"))) : phone.phones.map((entry) => (0, import_react55.createElement)(Row4, {
-      key: entry.id,
-      label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
-      hint: entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) })
-    }, (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phoneRemove(entry.id)) }, t("Remove")))))
+    (0, import_react55.createElement)(Section2, { title: t("Paired devices") }, phone.phones.length === 0 ? (0, import_react55.createElement)("div", { className: "bt-set-row" }, (0, import_react55.createElement)("span", { className: "bt-set-hint" }, t("No phones yet"))) : phone.phones.map((entry) => {
+      const status = entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) });
+      const browser = entry.kind === "browser";
+      const name = browser && entry.name === "Web browser" ? "" : entry.name;
+      return (0, import_react55.createElement)(Row4, {
+        key: entry.id,
+        label: name || t(browser ? "Browser access" : "Phone"),
+        hint: browser && name ? `${t("Browser access")} · ${status}` : status
+      }, (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phoneRemove(entry.id)) }, t("Remove")));
+    }))
   );
 }
 
