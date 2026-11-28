@@ -48,6 +48,7 @@ const APP_DOWNLOAD = 'https://github.com/Fei-Craft/DS-Bot/releases/latest'
 
 // Settings → Connect → Phone: the DS Bot phone app reaches this computer through a Relay Server.
 export function PhonePage({ roster, actions, Section, Row }) {
+  const readOnly = Boolean(roster?.readOnly)
   const phone = roster.phone ?? OFF
   const [server, setServer] = useState(phone.server)
   const [editingServer, setEditingServer] = useState(false)
@@ -95,11 +96,11 @@ export function PhonePage({ roster, actions, Section, Row }) {
   }, [wantPair, phone.on, phone.status, phone.pairing, phone.error])
 
   const saveServer = () => {
-    if (busy || server.trim() === phone.server) return
+    if (readOnly || busy || server.trim() === phone.server) return
     void run(actions.phoneSet({ server })).then((ok) => { if (ok) setEditingServer(false) })
   }
   const startPair = () => {
-    if (busy) return
+    if (readOnly || busy) return
     if (phone.on && phone.status === 'online') {
       void run(actions.phonePair())
       return
@@ -133,17 +134,18 @@ export function PhonePage({ roster, actions, Section, Row }) {
         h(Switch, {
           on: phone.on,
           label: t('Phone access'),
-          disabled: busy,
+          disabled: busy || readOnly,
           onChange: (on) => {
+            if (readOnly) return
             if (!on) { wantPairRef.current = false; setWantPair(false) }
             void run(actions.phoneSet({ on }))
           },
         })),
       h(Row, { label: t('Server'), hint: serverHost(phone.server), tour: 'phone-server' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setEditingServer(open => !open) }, editingServer ? t('Hide') : t('Edit'))),
-      editingServer ? h('div', { className: 'bt-set-row bt-phone-server' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => { if (!readOnly) setEditingServer(open => !open) } }, editingServer ? t('Hide') : t('Edit'))),
+      editingServer && !readOnly ? h('div', { className: 'bt-set-row bt-phone-server' },
         h('input', { className: 'bt-input', value: server, placeholder: 'wss://relay.dsbot.app/v1/link', spellCheck: false, 'aria-label': t('Server'), onChange: event => setServer(event.target.value), onKeyDown: event => { if (event.key === 'Enter') saveServer() } }),
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || server.trim() === phone.server, onClick: saveServer }, t('Save'))) : null),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly || server.trim() === phone.server, onClick: saveServer }, t('Save'))) : null),
     error ? h('div', { className: 'bt-connector-error bt-phone-error', role: 'alert' }, error) : null,
     h(Section, { title: t('Pair a phone'), tour: 'phone-pair' }, phone.pairing
       ? h('div', { className: 'bt-phone-pair' },
@@ -157,14 +159,14 @@ export function PhonePage({ roster, actions, Section, Row }) {
               h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t('Copied') : t('Copy browser link')))
             : null,
           browserUrl !== null ? h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')) : null,
-          h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
+          h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
       : h(Row, { key: 'qr', label: t('Show QR code') },
         wantPair
           ? [
               h('span', { key: 'wait', className: 'bt-set-hint' }, t('Waiting for connection…')),
               h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { wantPairRef.current = false; setWantPair(false) } }, t('Cancel')),
             ]
-          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: startPair }, online ? t('Show QR code') : t('Turn on & pair'))),
+          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || readOnly, onClick: startPair }, online ? t('Show QR code') : t('Turn on & pair'))),
       h(Row, { key: 'app', label: t('Android beta') },
         h('a', { className: 'bt-soft bt-soft-sm', href: APP_DOWNLOAD, target: '_blank', rel: 'noopener noreferrer' }, t('Download')))),
     h(Section, { title: t('Paired devices') }, phone.phones.length === 0
@@ -173,5 +175,5 @@ export function PhonePage({ roster, actions, Section, Row }) {
         key: entry.id,
         label: entry.kind === 'browser' ? t('Web browser') : entry.name || t('Phone'),
         hint: entry.connected ? t('Connected') : t('Paired on {date}', { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: 'medium' }) }),
-      }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phoneRemove(entry.id)) }, t('Remove'))))))
+      }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: () => { if (!readOnly) void run(actions.phoneRemove(entry.id)) } }, t('Remove'))))))
 }

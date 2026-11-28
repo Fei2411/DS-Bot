@@ -160,10 +160,10 @@ function SetRow({ label, hint, children, className = '', tour = null }) {
     children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
 
-function Choice({ label, value, options, pick, className = 'bt-look-seg' }) {
+function Choice({ label, value, options, pick, className = 'bt-look-seg', disabled = false }) {
   return h(Segmented, { label, value, className }, options.map(([id, text]) => h('button', {
-    key: id, type: 'button', 'aria-pressed': value === id,
-    onClick: () => { if (value !== id) pick(id) },
+    key: id, type: 'button', 'aria-pressed': value === id, disabled,
+    onClick: () => { if (!disabled && value !== id) pick(id) },
   }, t(text))))
 }
 
@@ -579,7 +579,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }
   const request = part => requests.current.parts[part]
   useEffect(() => { setError('') }, [pageKey])
-  useEffect(() => { if (shown !== 'general' && advancedToken !== 0) setAdvancedToken(0) }, [shown])
+  useEffect(() => {
+    if (shown !== 'general') {
+      pendingAdvancedScroll.current = false
+      if (advancedToken !== 0) setAdvancedToken(0)
+    }
+  }, [shown])
   // A section guide runs while its domain stays open.
   useEffect(() => {
     if (!tour || tour.mode === 'full') return
@@ -612,24 +617,51 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }
   useEffect(() => {
     if (shown !== 'general' || advancedToken === 0 || !pendingAdvancedScroll.current) return undefined
+    userScrolled.current = false
     const settle = () => {
-      if (userScrolled.current) return
+      if (userScrolled.current || !pendingAdvancedScroll.current) return
       scrollToAdvanced()
     }
     const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(settle) : 0
-    const later = setTimeout(() => {
-      settle()
-      pendingAdvancedScroll.current = false
-    }, 450)
-    return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame); clearTimeout(later) }
+    const later = setTimeout(settle, 450)
+    let observer = null
+    let stopObserve = 0
+    const box = scrollRef.current ?? dialogRef.current?.querySelector?.('.bt-settings-scroll')
+    if (box && typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => {
+        if (userScrolled.current || !pendingAdvancedScroll.current) { observer?.disconnect(); observer = null; return }
+        settle()
+      })
+      const targets = [...(box.querySelectorAll?.('[data-part]') ?? [])]
+      if (targets.length > 0) {
+        for (const el of targets) observer.observe(el)
+      } else if (box.firstElementChild) {
+        observer.observe(box.firstElementChild)
+      } else {
+        observer.observe(box)
+      }
+      stopObserve = setTimeout(() => {
+        observer?.disconnect()
+        observer = null
+        pendingAdvancedScroll.current = false
+      }, 3000)
+    } else {
+      stopObserve = setTimeout(() => { pendingAdvancedScroll.current = false }, 3000)
+    }
+    return () => {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+      clearTimeout(later)
+      clearTimeout(stopObserve)
+      observer?.disconnect()
+    }
   }, [shown, advancedToken])
   useEffect(() => {
+    userScrolled.current = false
     if (!parts) return undefined
     if (anchored.current === shown) { anchored.current = null; return undefined }
     anchored.current = null
     heading.current = null
     setSpied(shown)
-    userScrolled.current = false
     const settle = () => {
       if (userScrolled.current) return
       if (shown === 'general' && pendingAdvancedScroll.current) {
@@ -650,7 +682,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         settle()
       })
       for (const el of box.querySelectorAll?.('[data-part]') ?? []) observer.observe(el)
-      stopObserve = setTimeout(() => { observer?.disconnect(); observer = null }, 3000)
+      stopObserve = setTimeout(() => {
+        observer?.disconnect()
+        observer = null
+        pendingAdvancedScroll.current = false
+      }, 3000)
     }
     return () => {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
@@ -669,10 +705,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }
   const takeOver = () => {
     userScrolled.current = true
+    pendingAdvancedScroll.current = false
     heading.current = null
   }
   const goPart = (key) => {
+    if (tourRef.current) dismissTour()
     userScrolled.current = true
+    pendingAdvancedScroll.current = false
     heading.current = key
     clearTimeout(headingTimer.current)
     headingTimer.current = setTimeout(() => { heading.current = null }, 900)
@@ -771,12 +810,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'general': return h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken })
       case 'shortcuts': return h(ShortcutsPage, { roster, actions, surfaceMode: dsh?.surfaceMode ?? 'bot', Section: SetSection, Row: SetRow })
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
-      case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
+      case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow, readOnly: Boolean(roster?.readOnly) })
       // A preset opens the page afresh each time search offers it.
       case 'bot-models': return h(BotModelsPage, { key: request('bot-models')?.key ?? 'bot-models', roster, actions, run, Section: SetSection, preset: request('bot-models')?.id ?? null })
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
       case 'deepseek-services': return h(DeepSeekServicesPage, {
-        key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented,
+        key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented, readOnly: Boolean(roster?.readOnly),
         onOpenWebSearch: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh:web-search') : undefined,
         openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null,
       })
@@ -836,6 +875,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           roster, actions, run, icons: PAGE_ICONS, hasProviders, needsModel, homeGroups,
           homeStatus: key => groupStatus(key),
           onHomeOpen: item => (item.page === 'dsh' ? goUser('dsh', item.id) : goUser(item.page)),
+          onNavigate: goUser,
           onSearch: openPalette,
           narrow: narrowNav,
           keyMissing,

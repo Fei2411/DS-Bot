@@ -817,7 +817,7 @@ test('engine-plugins-list annotates clientSurface and custom cordis.patch.yml pl
   }
 })
 
-test('engine-credentials-* endpoints describe/set/unset via ctx.credentials without leaking secrets and enforce computer-only & read-only', async () => {
+test('engine-credentials-* endpoints enforce web-search allowlist, profile writability, env-managed refusal, and computer-only/read-only', async () => {
   const store = new Map()
   const credentials = {
     async describe(ref) {
@@ -827,7 +827,13 @@ test('engine-credentials-* endpoints describe/set/unset via ctx.credentials with
     async set(ref, value) { store.set(ref, value) },
     async unset(ref) { store.delete(ref) },
   }
-  const { rt } = makeHarness({ services: { credentials } })
+  const settings = {
+    writable: true,
+    describe: () => [
+      { ns: 'web-search-deepseek', value: { apiKeyEnv: 'ENV_ONLY_KEY' }, base: { apiKeyEnv: 'DEEPSEEK_API_KEY' } },
+    ],
+  }
+  const { rt } = makeHarness({ services: { credentials, settings } })
 
   // Describe never leaks raw secret values or preview.
   const d0 = await rt.engineEndpoint('credentials-describe', { refs: ['DEEPSEEK_API_KEY', 'ENV_ONLY_KEY'] })
@@ -835,6 +841,16 @@ test('engine-credentials-* endpoints describe/set/unset via ctx.credentials with
   assert.deepEqual(d0.views.DEEPSEEK_API_KEY, { configured: false, writable: true })
   assert.deepEqual(d0.views.ENV_ONLY_KEY, { configured: false, writable: false, source: 'env' })
   assert.equal(JSON.stringify(d0).includes('sk-'), false)
+
+  // Arbitrary credential refs outside the web-search allowlist are refused on describe, set, and unset.
+  await assert.rejects(() => rt.engineEndpoint('credentials-describe', { refs: ['OPENAI_API_KEY'] }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-set', { ref: 'OPENAI_API_KEY', value: 'sk-hijack' }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-unset', { ref: 'OPENAI_API_KEY' }), { code: 'bot/refused' })
+  assert.equal(store.has('OPENAI_API_KEY'), false)
+
+  // Non-writable (env-managed) ref is refused on set and unset.
+  await assert.rejects(() => rt.engineEndpoint('credentials-set', { ref: 'ENV_ONLY_KEY', value: 'sk-1' }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-unset', { ref: 'ENV_ONLY_KEY' }), { code: 'bot/refused' })
 
   // Set and unset update stored value without echoing it.
   const s1 = await rt.engineEndpoint('credentials-set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-test-secret-999' })
@@ -850,6 +866,18 @@ test('engine-credentials-* endpoints describe/set/unset via ctx.credentials with
   await assert.rejects(() => rt.engineEndpoint('credentials-describe', { refs: ['bad ref!'] }), { code: 'bot/invalid' })
   await assert.rejects(() => rt.engineEndpoint('credentials-set', { ref: 'DEEPSEEK_API_KEY', value: '   ' }), { code: 'bot/invalid' })
 
+  // Read-only profile (settings.writable === false) refuses set/unset while keeping describe working.
+  const { rt: roProfileRt } = makeHarness({
+    services: {
+      credentials,
+      settings: { writable: false, describe: () => [{ ns: 'web-search-deepseek', value: {}, base: {} }] },
+    },
+  })
+  const roProfileDesc = await roProfileRt.engineEndpoint('credentials-describe', { refs: ['DEEPSEEK_API_KEY'] })
+  assert.equal(roProfileDesc.available, true)
+  await assert.rejects(() => roProfileRt.engineEndpoint('credentials-set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-1' }), { code: 'bot/refused' })
+  await assert.rejects(() => roProfileRt.engineEndpoint('credentials-unset', { ref: 'DEEPSEEK_API_KEY' }), { code: 'bot/refused' })
+
   // Remote/phone callers are refused on all engine-credentials-* endpoints.
   for (const ep of ['engine-credentials-describe', 'engine-credentials-set', 'engine-credentials-unset']) {
     assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, ep)?.code, 'bot/refused')
@@ -857,7 +885,7 @@ test('engine-credentials-* endpoints describe/set/unset via ctx.credentials with
   }
 
   // Read-only host allows describe (in READS) and blocks set/unset.
-  const { rt: roRt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { credentials } })
+  const { rt: roRt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { credentials, settings } })
   const roDesc = await roRt.channelCall('engine-credentials-describe', { refs: ['DEEPSEEK_API_KEY'] })
   assert.equal(roDesc.ok, true)
   const roSet = await roRt.channelCall('engine-credentials-set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-1' })
@@ -950,6 +978,19 @@ test('engine-plugins-inventory reads pluginInventory service or falls back to pl
   assert.equal(strictSnap.available, true)
   assert.equal(strictSnap.entries[0].entryId, 's1')
   assert.equal(strictSnap.agentPresets[0].rows[0].fiberPhase, 'active')
+
+  // Runtime throw inside pluginInventory.list() falls back cleanly to pluginManager + agentPresets.
+  const { rt: throwRt } = makeHarness({
+    services: {
+      pluginInventory: { async list() { throw new Error('inventory exploded') } },
+      pluginManager: { async listPlugins() { return [{ entryId: 'rec1', moduleName: 'pkg-recovered', enabled: true, fiberPhase: 'active' }] } },
+      agentPresets: { async compositionInventory() { return [{ id: 'standard', isDefault: true, rows: [] }] } },
+    },
+  })
+  const recSnap = await throwRt.engineEndpoint('plugins-inventory', {})
+  assert.equal(recSnap.available, true)
+  assert.equal(recSnap.entries[0].entryId, 'rec1')
+  assert.equal(recSnap.agentPresets[0].id, 'standard')
 })
 
 test('engine-account-running-tasks inspects deepseekAccount and active workView while staying computer-only and read-only-safe', async () => {
@@ -973,9 +1014,27 @@ test('engine-account-running-tasks inspects deepseekAccount and active workView 
   throwOnCheck = true
   assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false, unknown: true })
 
-  // Fallback to rt.workView() catches active Bot work even when account service returns false.
+  // Fallback inspects real host work views (workView, roomWorkView, agentWorkView, turnsView) directly.
   throwOnCheck = false
-  rt.workView = () => ({ bots: { b1: { kind: 'turn' } }, rooms: {}, agents: {}, turns: {} })
+  rt.workView = () => ({})
+  rt.roomWorkView = () => ({})
+  rt.agentWorkView = () => ({})
+  rt.turnsView = () => ({})
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false })
+
+  rt.workView = () => ({ b1: { since: 1000, tool: 'bash' } })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.workView = () => ({})
+  rt.roomWorkView = () => ({ r1: [{ botId: 'b1', since: 1000 }] })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.roomWorkView = () => ({})
+  rt.agentWorkView = () => ({ a1: { since: 1000 } })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.agentWorkView = () => ({})
+  rt.turnsView = () => ({ s1: 1000 })
   assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
 
   // Read-only host allows engine-account-running-tasks (in READS), while remote/phone callers are refused.

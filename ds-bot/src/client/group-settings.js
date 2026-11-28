@@ -25,16 +25,16 @@ export function roomSubtitle(room, roster) {
 
 // One preset for every member in the group, or each member's own. Turning it on starts
 // from DSH's default preset.
-function GroupPermission({ room, catalog, update }) {
+function GroupPermission({ room, catalog, update, disabled = false }) {
   if (!catalog?.options?.length) return null
   const shared = room.permission !== undefined
   return h(Card, { title: t('Permissions') },
     h(SwitchRow, {
-      label: t('Same for every member'), hint: t("Replaces each member's own permissions in this group."), on: shared,
+      label: t('Same for every member'), hint: t("Replaces each member's own permissions in this group."), on: shared, disabled,
       onChange: on => update({ permission: on ? catalog.defaultPreset ?? catalog.options[0].value : null }),
     }),
     shared ? h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack bt-gs-perm bt-veil' },
-      h(PermissionPicker, { catalog, saved: room.permission, onPick: permission => update({ permission }) })) : null)
+      h(PermissionPicker, { catalog, saved: room.permission, disabled, onPick: permission => update({ permission }) })) : null)
 }
 
 // A group's shared to-do list, shown in its details: every member sees the same items,
@@ -68,8 +68,9 @@ export function GroupTodos({ room, actions }) {
 // members and admin, its permissions, its sidebar place, and deleting it. The user may
 // change all of it; the host enforces what Bots may change.
 export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [editing, setEditing] = useState(false)
-  const [editorShown, editorLeaving] = useLinger(editing, 120)
+  const [editorShown, editorLeaving] = useLinger(editing && !readOnly, 120)
   const closeEditor = useCallback(() => setEditing(false), [])
   const [adding, setAdding] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -83,16 +84,17 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
   const admin = roster.byId[room.admin]
   const mode = shownMode(room, roster)
   const modeHint = ROOM_MODES.find(([id]) => id === mode)?.[2] ?? ''
-  const update = patch => run(actions.updateRoom(room.id, patch))
+  const update = patch => (readOnly ? undefined : run(actions.updateRoom(room.id, patch)))
   const openBot = (id) => { actions.closeSettings(); actions.openSession(id) }
   const remove = () => {
+    if (readOnly) return
     if (!confirming) { setConfirming(true); return }
     void Promise.resolve(run(actions.deleteRoom(room.id))).then((done) => { if (done) onDeleted?.() })
   }
   return h('div', { className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
       h('div', { className: 'bt-avatar-anchor' },
-        h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit group avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
+        h('button', { type: 'button', className: 'bt-avatar-trigger', disabled: readOnly, 'aria-label': t('Edit group avatar'), 'aria-expanded': editing && !readOnly, onClick: () => { if (!readOnly) setEditing(value => !value) } },
           h(RoomAvatar, { room, roster, size: 64 }),
           h('span', { className: 'bt-avatar-pencil', 'aria-hidden': true }, h(PencilIcon))),
         editorShown ? h(AvatarEditor, { room, actions, run, onClose: closeEditor, leaving: editorLeaving }) : null),
@@ -101,23 +103,23 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
         h('span', { className: 'bt-bs-sub' }, roomSubtitle(room, roster)))),
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name'), hint: t('Leave it empty to name the group after its members.') },
-        h(InlineText, { label: t('Group name'), value: room.named ? room.name : '', placeholder: t('Name after members'), maxLength: 60, onSave: name => update({ name }) })),
+        h(InlineText, { label: t('Group name'), value: room.named ? room.name : '', placeholder: t('Name after members'), maxLength: 60, disabled: readOnly, onSave: name => update({ name }) })),
       h(Row, { label: t('Notice'), hint: t('Every member reads it before speaking in this group.'), stack: true },
-        h(InlineText, { label: t('Group notice'), value: room.notice, multiline: true, maxLength: 2000, placeholder: t('Shared instructions every member reads before speaking…'), onSave: notice => update({ notice }) }))),
+        h(InlineText, { label: t('Group notice'), value: room.notice, multiline: true, maxLength: 2000, disabled: readOnly, placeholder: t('Shared instructions every member reads before speaking…'), onSave: notice => update({ notice }) }))),
     h(Card, { title: t('Who answers') },
       h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack' },
         h(Segmented, { label: t('Who answers'), value: mode }, ROOM_MODES.map(([id, label]) => h('button', {
-          key: id, type: 'button', 'aria-pressed': mode === id, disabled: id === 'admin' && !admin,
+          key: id, type: 'button', 'aria-pressed': mode === id, disabled: readOnly || (id === 'admin' && !admin),
           title: id === 'admin' && !admin ? t('Choose an admin first') : undefined,
-          onClick: () => { if (mode !== id) void update({ mode: id }) },
+          onClick: () => { if (!readOnly && mode !== id) void update({ mode: id }) },
         }, t(label)))),
         h('span', { key: mode, className: 'bt-set-hint bt-veil' }, `${t(modeHint)} ${t('@mentions always pick who answers.')}`))),
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) })),
-      h(ExtraFolders, { value: room.extraDirs, group: true, actions, run, onSave: extraDirs => update({ extraDirs }) })),
-    h(GroupPermission, { room, catalog: roster.permissions, update }),
+        h(FolderMenu, { value: room.workDir, group: true, actions, run, disabled: readOnly, onPick: workDir => update({ workDir }) })),
+      h(ExtraFolders, { value: room.extraDirs, group: true, actions, run, disabled: readOnly, onSave: extraDirs => update({ extraDirs }) })),
+    h(GroupPermission, { room, catalog: roster.permissions, update, disabled: readOnly }),
     h(ApprovalSettings, { target: room, group: true, roster, Card }),
     h(Card, { title: t('Members · {count}', { count: members.length }) },
       members.map((member) => {
@@ -128,30 +130,30 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
             h('span', { className: 'bt-row-title' }, member.name),
             leads ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           leads
-            ? h('button', { type: 'button', className: 'bt-mini', title: t('Leave the group without an admin'), onClick: () => update({ admin: null }) }, t('Unset'))
-            : h('button', { type: 'button', className: 'bt-mini', onClick: () => update({ admin: member.id }) }, t('Make admin')),
-          members.length > 2 ? h('button', { type: 'button', className: 'bt-x', 'aria-label': t('Remove {name} from the group', { name: member.name }), title: t('Remove from group'), onClick: () => update({ remove: [member.id] }) }, '×') : null)
+            ? h('button', { type: 'button', className: 'bt-mini', disabled: readOnly, title: t('Leave the group without an admin'), onClick: () => update({ admin: null }) }, t('Unset'))
+            : h('button', { type: 'button', className: 'bt-mini', disabled: readOnly, onClick: () => update({ admin: member.id }) }, t('Make admin')),
+          members.length > 2 ? h('button', { type: 'button', className: 'bt-x', disabled: readOnly, 'aria-label': t('Remove {name} from the group', { name: member.name }), title: t('Remove from group'), onClick: () => update({ remove: [member.id] }) }, '×') : null)
       }),
-      adding
+      adding && !readOnly
         ? [...outside.map(bot => h('button', { key: bot.id, type: 'button', className: 'bt-set-row bt-bs-row bt-gs-pick', onClick: () => { setAdding(false); void update({ add: [bot.id] }) } },
             h(BotMark, { bot, size: 22 }),
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, bot.name)),
             h('span', { className: 'bt-set-hint' }, t('Add')))),
           h('button', { key: 'cancel', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => setAdding(false) }, t('Cancel'))]
         : outside.length > 0
-          ? h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add member'))
+          ? h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', disabled: readOnly, onClick: () => { if (!readOnly) setAdding(true) } }, h(PlusIcon), t('Add member'))
           : null,
       h('div', { className: 'bt-set-row bt-gs-note' }, h('span', { className: 'bt-set-hint' },
         // The host checks for two members on every change, even a rename.
         members.length < 2 ? t('Add a Bot first: a group chat needs at least two.')
           : admin ? t('{name} leads this group: it can call members with @Name, change the group, and post here.', { name: admin.name })
             : t('No admin yet. An admin can call members with @Name, change the group, and post here.')))),
-    h(ChatBackgroundSection, { owner: room, ownerKind: 'room', actions, run, Section: Card }),
+    h(ChatBackgroundSection, { owner: room, ownerKind: 'room', actions, run, Section: Card, disabled: readOnly }),
     h(Card, { title: t('Sidebar') },
-      h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: room.pinned === true, onChange: pinned => run(actions.setFlags(room.id, { pinned })) }),
-      h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: room.hidden === true, onChange: hidden => run(actions.setFlags(room.id, { hidden })) })),
+      h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: room.pinned === true, disabled: readOnly, onChange: pinned => run(actions.setFlags(room.id, { pinned })) }),
+      h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: room.hidden === true, disabled: readOnly, onChange: hidden => run(actions.setFlags(room.id, { hidden })) })),
     h(Card, { title: t('Manage') },
-      h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-bs-danger', 'data-confirm': confirming || undefined, onClick: remove },
+      h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-bs-danger', disabled: readOnly, 'data-confirm': confirming || undefined, onClick: remove },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, confirming ? t('Delete {name}?', { name: room.name }) : t('Delete group')),
           h('span', { className: 'bt-set-hint' }, confirming ? t('Click again to delete. Its history is archived.') : t('Removes the group chat. Its members stay on the team.'))),

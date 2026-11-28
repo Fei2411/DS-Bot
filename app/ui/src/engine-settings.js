@@ -39,10 +39,23 @@ import { writeClipboard } from './primitives.js'
 import { reloadExternalUiPlugins } from './ui-plugin-loader.js'
 
 // Module-level stale-while-revalidate caches so reopening Engine settings tabs never flashes "Loading…".
+function mergeAccountState(prev, next) {
+  if (!next) return next
+  if (
+    next.view?.status === 'credential-stored'
+    && prev?.view?.status === 'credential-stored'
+    && next.profile == null
+    && next.balance == null
+  ) {
+    return { ...next, profile: prev.profile ?? null, balance: prev.balance ?? null }
+  }
+  return next
+}
+
 let accountCache = null
 subscribeDesktopAccountState((reply, meta) => {
   if (meta?.source === 'settings') return
-  accountCache = reply
+  accountCache = mergeAccountState(accountCache, reply)
 })
 let pluginsCache = null
 let inventoryCache = null
@@ -50,8 +63,17 @@ let settingsCache = null
 let presetsCache = null
 let archivedCache = null
 
-const SAFE_EXTERNAL_URL = /^https?:\/\//i
-const safeExternalUrl = (value) => (typeof value === 'string' && SAFE_EXTERNAL_URL.test(value.trim()) ? value.trim() : null)
+function safeExternalUrl(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null
+  } catch {
+    return null
+  }
+}
 
 const SAFE_PLUGIN_ICON_URI = /^data:image\/(svg\+xml|png|webp);base64,/i
 export const safePluginIconUri = (value) => (typeof value === 'string' && SAFE_PLUGIN_ICON_URI.test(value.trim()) ? value.trim() : null)
@@ -63,7 +85,6 @@ const ENGINE_NAMESPACE_META = {
   'web-search-deepseek': { titleKey: 'Web search', order: 20 },
   'web-deepseek-api': { titleKey: 'Web search API', order: 21 },
   web: { titleKey: 'Web', order: 22 },
-  'web-fetch-http': { titleKey: 'Direct HTTP', order: 23 },
   'bash-sandbox': { titleKey: 'Shell (Bash)', order: 30 },
   'bash-local': { titleKey: 'Shell (Bash)', order: 30 },
   'pwsh-sandbox': { titleKey: 'Shell (PowerShell)', order: 31 },
@@ -118,7 +139,7 @@ const BUILTIN_CONFIG_GROUPS = [
     id: 'web-search',
     titleKey: 'Web search',
     icon: GlobeIcon,
-    namespaces: ['web-search-deepseek', 'web-deepseek-api', 'web', 'web-fetch-http'],
+    namespaces: ['web-search-deepseek', 'web-deepseek-api', 'web'],
   },
   {
     id: 'shell',
@@ -216,10 +237,6 @@ const ENGINE_FIELD_LABELS = {
   searchBilling: 'Search billing',
   fetchBilling: 'Fetch billing',
   searchRequestsPerSecond: 'Search requests per second',
-  maxResponseBytes: 'Max response bytes',
-  maxBodyChars: 'Max body chars',
-  maxRedirects: 'Max redirects',
-  userAgent: 'User agent',
   cwd: 'Working directory',
   timeout: 'Timeout',
   timeoutMs: 'Timeout (ms)',
@@ -556,13 +573,30 @@ function StatusAlert({ error, notice }) {
 function parseExactDecimal(raw) {
   if (typeof raw !== 'string') return null
   const trimmed = raw.trim()
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed)
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(trimmed)
   if (!match) return null
-  return {
-    neg: match[1] === '-',
-    intPart: match[2].replace(/^0+(?=\d)/, ''),
-    fracPart: match[3] ?? '',
+  const neg = match[1] === '-'
+  const rawInt = match[2] ?? ''
+  const rawFrac = match[3] ?? match[4] ?? ''
+  const exp = match[5] !== undefined ? Number(match[5]) : 0
+  if (!Number.isSafeInteger(exp) || Math.abs(exp) > 10000) return null
+  const digits = rawInt + rawFrac
+  if (!/[1-9]/.test(digits)) return { neg: false, intPart: '0', fracPart: '' }
+  const pointPos = rawInt.length + exp
+  let intPart
+  let fracPart
+  if (pointPos <= 0) {
+    intPart = '0'
+    fracPart = '0'.repeat(-pointPos) + digits
+  } else if (pointPos >= digits.length) {
+    intPart = digits + '0'.repeat(pointPos - digits.length)
+    fracPart = ''
+  } else {
+    intPart = digits.slice(0, pointPos)
+    fracPart = digits.slice(pointPos)
   }
+  intPart = intPart.replace(/^0+(?=\d)/, '') || '0'
+  return { neg, intPart, fracPart }
 }
 
 function addDigitCommas(intStr) {
@@ -610,7 +644,13 @@ function formatWallets(wallets) {
 function safeHttpsUrl(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
-  return /^https:\/\//i.test(trimmed) ? trimmed : null
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol === 'https:' ? parsed.href : null
+  } catch {
+    return null
+  }
 }
 
 function derivePlatformUrl(usageUrl, pathname) {
@@ -668,20 +708,25 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
 
   useEffect(() => subscribeDesktopAccountState((reply, meta) => {
     if (meta?.source === 'settings') return
-    accountCache = reply
+    accountCache = mergeAccountState(accountCache, reply)
     if (mounted.current) {
-      setData(reply)
+      setData(prev => mergeAccountState(prev, reply))
       setLoading(false)
     }
-    if (reply?.view?.status === 'credential-stored' && !reply.profile && !reply.balance) {
+    if (reply?.view?.status === 'credential-stored' && reply.profile == null && reply.balance == null) {
       void load()
     }
   }), [load])
 
+  const signedIn = data?.view?.status === 'credential-stored'
   const attempt = data?.view?.attempt ?? null
   const attemptPhase = attempt?.phase
   const signingIn = attemptPhase === 'initializing' || attemptPhase === 'waiting-browser' || attemptPhase === 'exchanging' || attemptPhase === 'committing'
   const committing = attemptPhase === 'committing'
+
+  useEffect(() => {
+    if (!signedIn) setSignOutPrompt(null)
+  }, [signedIn])
 
   useEffect(() => { setCopyState('') }, [attempt?.id, attempt?.authorizeUrl])
 
@@ -786,7 +831,6 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
     return h('div', { className: 'dsb-engine-empty' }, t('Account management is not available on this host.'))
   }
 
-  const signedIn = data?.view?.status === 'credential-stored'
   const profile = data?.profile?.status === 'ready' ? data.profile.value : null
   const balanceReady = data?.balance?.status === 'ready'
   const balanceText = balanceReady ? formatWallets(data.balance.value) : null
@@ -845,6 +889,7 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
     h(ReadOnlyBanner, { readOnly }),
     h(StatusAlert, { error: error || attemptErrorText }),
     h(EngineSection, {
+      title: t('Account'),
       action: signedIn ? h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
@@ -889,7 +934,7 @@ export function AccountSettingsPage({ readOnly = false, openModels }) {
         : (data?.balance === undefined || data?.balance === null
           ? h('span', { className: 'bt-set-hint' }, t('Loading…'))
           : balanceUnavailableNode)) : null),
-    (usageUrl || topUpUrl || apiKeysUrl || typeof openModels === 'function') ? h(EngineSection, { title: t('Billing') },
+    signedIn && (usageUrl || topUpUrl || apiKeysUrl || typeof openModels === 'function') ? h(EngineSection, { title: t('Billing') },
       usageUrl ? h(EngineRow, { label: t('Usage details') },
         h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: usageUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open'))) : null,
       topUpUrl ? h(EngineRow, { label: t('Top up') },
@@ -1456,7 +1501,7 @@ function CredentialRefRow({ refName, readOnly = false, fallbackField = null, fal
   }
 
   const clearKey = async () => {
-    if (locked || !state.configured) return
+    if (locked || !state.configured || state.source === 'env') return
     setBusy(true)
     setErr('')
     try {
@@ -1475,7 +1520,8 @@ function CredentialRefRow({ refName, readOnly = false, fallbackField = null, fal
     }
   }
 
-  const statusTag = !state.writable
+  const envManaged = !state.writable || state.source === 'env'
+  const statusTag = envManaged
     ? t('Managed by environment')
     : state.configured ? t('Configured') : t('Not set')
 
@@ -1500,7 +1546,7 @@ function CredentialRefRow({ refName, readOnly = false, fallbackField = null, fal
           disabled: locked || draft.trim() === '',
           onClick: () => { void saveKey() },
         }, t('Save')),
-        state.configured && state.writable
+        state.configured && state.writable && state.source !== 'env'
           ? h('button', {
             type: 'button',
             className: 'bt-soft bt-soft-sm',
@@ -1516,7 +1562,6 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
   const webEntry = byNs.get('web')
   const apiEntry = byNs.get('web-deepseek-api')
   const legacyEntry = byNs.get('web-search-deepseek')
-  const httpFetchEntry = byNs.get('web-fetch-http')
 
   const [providers, setProviders] = useState({ loaded: false, available: false, search: [], fetch: [], error: '' })
   const loadProviders = useCallback(async () => {
@@ -1569,17 +1614,6 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     ? legacyEntry.descriptor.value.apiKeyEnv.trim()
     : 'DEEPSEEK_API_KEY'
 
-  const storedHttpMaxBytes = httpFetchEntry?.descriptor?.value?.maxResponseBytes
-  const baseHttpMaxBytes = readPath(httpFetchEntry?.descriptor?.base, ['maxResponseBytes']) ?? 5_000_000
-  const storedHttpMaxChars = httpFetchEntry?.descriptor?.value?.maxBodyChars
-  const baseHttpMaxChars = readPath(httpFetchEntry?.descriptor?.base, ['maxBodyChars']) ?? 100_000
-  const storedHttpTimeout = httpFetchEntry?.descriptor?.value?.timeoutMs
-  const baseHttpTimeout = readPath(httpFetchEntry?.descriptor?.base, ['timeoutMs']) ?? 30_000
-  const storedHttpMaxRedirects = httpFetchEntry?.descriptor?.value?.maxRedirects
-  const baseHttpMaxRedirects = readPath(httpFetchEntry?.descriptor?.base, ['maxRedirects']) ?? 5
-  const storedHttpUserAgent = httpFetchEntry?.descriptor?.value?.userAgent ?? ''
-  const baseHttpUserAgent = readPath(httpFetchEntry?.descriptor?.base, ['userAgent']) ?? ''
-
   const searchOverrideFields = [
     ...(typeof apiEntry?.descriptor?.value?.searchBaseURL === 'string' && apiEntry.descriptor.value.searchBaseURL.trim() !== '' ? ['searchBaseURL'] : []),
     ...(typeof apiEntry?.descriptor?.value?.searchApiKeyEnv === 'string' && apiEntry.descriptor.value.searchApiKeyEnv.trim() !== '' ? ['searchApiKeyEnv'] : []),
@@ -1621,8 +1655,19 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     setResetFlags(prev => ({ ...prev, [key]: true }))
   }
 
-  const searchProvider = hasOv('web:searchProvider') ? overrides['web:searchProvider'] : storedSearchProvider
-  const fetchProvider = hasOv('web:fetchProvider') ? overrides['web:fetchProvider'] : storedFetchProvider
+  const baseSearchProvider = typeof webEntry?.descriptor?.base?.searchProvider === 'string'
+    ? webEntry.descriptor.base.searchProvider
+    : ''
+  const baseFetchProvider = typeof webEntry?.descriptor?.base?.fetchProvider === 'string'
+    ? webEntry.descriptor.base.fetchProvider
+    : ''
+
+  const searchProvider = resetFlags['web:searchProvider']
+    ? baseSearchProvider
+    : hasOv('web:searchProvider') ? overrides['web:searchProvider'] : storedSearchProvider
+  const fetchProvider = resetFlags['web:fetchProvider']
+    ? baseFetchProvider
+    : hasOv('web:fetchProvider') ? overrides['web:fetchProvider'] : storedFetchProvider
   const countText = resetFlags['web-deepseek-api:count']
     ? String(baseCount)
     : hasOv('web-deepseek-api:count') ? overrides['web-deepseek-api:count'] : fieldInputString(storedCount ?? baseCount)
@@ -1654,33 +1699,11 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     ? String(baseLegacyMaxTokens)
     : hasOv('web-search-deepseek:maxTokens') ? overrides['web-search-deepseek:maxTokens'] : fieldInputString(storedLegacyMaxTokens ?? baseLegacyMaxTokens)
 
-  const httpMaxBytesText = resetFlags['web-fetch-http:maxResponseBytes']
-    ? String(baseHttpMaxBytes)
-    : hasOv('web-fetch-http:maxResponseBytes') ? overrides['web-fetch-http:maxResponseBytes'] : fieldInputString(storedHttpMaxBytes ?? baseHttpMaxBytes)
-  const httpMaxCharsText = resetFlags['web-fetch-http:maxBodyChars']
-    ? String(baseHttpMaxChars)
-    : hasOv('web-fetch-http:maxBodyChars') ? overrides['web-fetch-http:maxBodyChars'] : fieldInputString(storedHttpMaxChars ?? baseHttpMaxChars)
-  const httpTimeoutText = resetFlags['web-fetch-http:timeoutMs']
-    ? String(baseHttpTimeout)
-    : hasOv('web-fetch-http:timeoutMs') ? overrides['web-fetch-http:timeoutMs'] : fieldInputString(storedHttpTimeout ?? baseHttpTimeout)
-  const httpMaxRedirectsText = resetFlags['web-fetch-http:maxRedirects']
-    ? String(baseHttpMaxRedirects)
-    : hasOv('web-fetch-http:maxRedirects') ? overrides['web-fetch-http:maxRedirects'] : fieldInputString(storedHttpMaxRedirects ?? baseHttpMaxRedirects)
-  const httpUserAgentText = resetFlags['web-fetch-http:userAgent']
-    ? String(baseHttpUserAgent)
-    : hasOv('web-fetch-http:userAgent') ? overrides['web-fetch-http:userAgent'] : storedHttpUserAgent
-
   const resetDraft = useCallback(() => {
     setOverrides({})
     setResetFlags({})
   }, [])
 
-  const baseSearchProvider = typeof webEntry?.descriptor?.base?.searchProvider === 'string'
-    ? webEntry.descriptor.base.searchProvider
-    : ''
-  const baseFetchProvider = typeof webEntry?.descriptor?.base?.fetchProvider === 'string'
-    ? webEntry.descriptor.base.fetchProvider
-    : ''
   const searchOptions = useMemo(
     () => buildWebProviderOptions('search', providers.search, searchProvider, baseSearchProvider),
     [providers.search, searchProvider, baseSearchProvider],
@@ -1690,10 +1713,12 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     [providers.fetch, fetchProvider, baseFetchProvider],
   )
 
-  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || searchProvider === 'auto' || searchProvider === '' || !providers.available)
-  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || searchProvider === 'auto' || searchProvider === '' || !providers.available)
-  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || fetchProvider === 'auto' || fetchProvider === '' || !providers.available)
-  const showHttpFetchFields = Boolean(httpFetchEntry) && (fetchProvider === 'http' || fetchProvider === 'auto' || fetchProvider === '' || !providers.available)
+  // Only show provider-specific fields for the provider that will actually read them.
+  // DS Bot's default `auto` runs `web-search-auto` / `web-fetch-auto`, which do not read
+  // `web-deepseek-api` or `web-search-deepseek`.
+  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || (!providers.available && searchProvider === ''))
+  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || (!providers.available && searchProvider === ''))
+  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || (!providers.available && fetchProvider === ''))
 
   const hasSearchRpsField = storedSearchRps !== undefined || readPath(apiEntry?.descriptor?.base, ['searchRequestsPerSecond']) !== undefined
   const hasSendOriginalField = storedSendOriginal !== undefined || readPath(apiEntry?.descriptor?.base, ['sendOriginalQuestion']) !== undefined
@@ -1707,13 +1732,8 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
   const searchRpsCheck = showSearchApiFields && hasSearchRpsField ? validateNumberText(searchRpsText, { min: 1, integer: true }) : { ok: true, empty: true }
   const maxUsesCheck = showLegacyFields ? validateNumberText(maxUsesText, { min: 1, integer: true }) : { ok: true, empty: true }
   const legacyMaxTokensCheck = showLegacyFields && hasLegacyMaxTokensField ? validateNumberText(legacyMaxTokensText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpMaxBytesCheck = showHttpFetchFields ? validateNumberText(httpMaxBytesText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpMaxCharsCheck = showHttpFetchFields ? validateNumberText(httpMaxCharsText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpTimeoutCheck = showHttpFetchFields ? validateNumberText(httpTimeoutText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpMaxRedirectsCheck = showHttpFetchFields ? validateNumberText(httpMaxRedirectsText, { min: 0, integer: true }) : { ok: true, empty: true }
 
   const invalid = !countCheck.ok || !searchRpsCheck.ok || !maxUsesCheck.ok || !legacyMaxTokensCheck.ok
-    || !httpMaxBytesCheck.ok || !httpMaxCharsCheck.ok || !httpTimeoutCheck.ok || !httpMaxRedirectsCheck.ok
 
   // Build ordered mutations: provider config namespaces first, then `web` selection last.
   // Track exact field keys per namespace so saving visible fields never discards unsaved edits
@@ -1834,50 +1854,25 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     if (ops.length > 0) pendingByNs.push({ descriptor: legacyEntry.descriptor, ops, keys })
   }
 
-  if (httpFetchEntry && showHttpFetchFields) {
-    const ops = []
-    const keys = [
-      'web-fetch-http:maxResponseBytes',
-      'web-fetch-http:maxBodyChars',
-      'web-fetch-http:timeoutMs',
-      'web-fetch-http:maxRedirects',
-      'web-fetch-http:userAgent',
-    ]
-    for (const k of keys) visibleKeys.add(k)
-    const numFields = [
-      ['maxResponseBytes', httpMaxBytesCheck, storedHttpMaxBytes, baseHttpMaxBytes],
-      ['maxBodyChars', httpMaxCharsCheck, storedHttpMaxChars, baseHttpMaxChars],
-      ['timeoutMs', httpTimeoutCheck, storedHttpTimeout, baseHttpTimeout],
-      ['maxRedirects', httpMaxRedirectsCheck, storedHttpMaxRedirects, baseHttpMaxRedirects],
-    ]
-    for (const [name, check, stored, base] of numFields) {
-      const k = `web-fetch-http:${name}`
-      if (resetFlags[k]) {
-        if (hasPath(httpFetchEntry.descriptor.user, [name]) || stored !== base) ops.push({ op: 'unset', path: [name] })
-      } else if (check.ok) {
-        if (check.empty && stored !== undefined) ops.push({ op: 'unset', path: [name] })
-        else if (!check.empty && check.value !== stored) ops.push({ op: 'set', path: [name], value: check.value })
-      }
-    }
-    if (resetFlags['web-fetch-http:userAgent']) {
-      if (hasPath(httpFetchEntry.descriptor.user, ['userAgent']) || storedHttpUserAgent !== baseHttpUserAgent) ops.push({ op: 'unset', path: ['userAgent'] })
-    } else if (httpUserAgentText !== storedHttpUserAgent) {
-      ops.push(httpUserAgentText.trim() === '' ? { op: 'unset', path: ['userAgent'] } : { op: 'set', path: ['userAgent'], value: httpUserAgentText.trim() })
-    }
-    if (ops.length > 0) pendingByNs.push({ descriptor: httpFetchEntry.descriptor, ops, keys })
-  }
-
   if (webEntry) {
     const ops = []
     const keys = ['web:searchProvider', 'web:fetchProvider']
     visibleKeys.add('web:searchProvider')
     visibleKeys.add('web:fetchProvider')
-    if (searchProvider !== storedSearchProvider) {
+    if (resetFlags['web:searchProvider']) {
+      if (hasPath(webEntry.descriptor.user, ['searchProvider']) || storedSearchProvider !== baseSearchProvider) {
+        ops.push({ op: 'unset', path: ['searchProvider'] })
+      }
+    } else if (searchProvider !== storedSearchProvider) {
       ops.push(searchProvider === '' || searchProvider === baseSearchProvider
         ? { op: 'unset', path: ['searchProvider'] }
         : { op: 'set', path: ['searchProvider'], value: searchProvider })
     }
-    if (fetchProvider !== storedFetchProvider) {
+    if (resetFlags['web:fetchProvider']) {
+      if (hasPath(webEntry.descriptor.user, ['fetchProvider']) || storedFetchProvider !== baseFetchProvider) {
+        ops.push({ op: 'unset', path: ['fetchProvider'] })
+      }
+    } else if (fetchProvider !== storedFetchProvider) {
       ops.push(fetchProvider === '' || fetchProvider === baseFetchProvider
         ? { op: 'unset', path: ['fetchProvider'] }
         : { op: 'set', path: ['fetchProvider'], value: fetchProvider })
@@ -1917,6 +1912,41 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     } finally {
       setSaving(false)
     }
+  }
+
+  const resettableKeys = []
+  const pushResettable = (key, overridden, differs) => {
+    if (!resetFlags[key] && (overridden || differs)) resettableKeys.push(key)
+  }
+  if (webEntry) {
+    pushResettable('web:searchProvider', hasPath(webEntry.descriptor.user, ['searchProvider']), searchProvider !== baseSearchProvider)
+    pushResettable('web:fetchProvider', hasPath(webEntry.descriptor.user, ['fetchProvider']), fetchProvider !== baseFetchProvider)
+  }
+  if (showSearchApiFields && apiEntry) {
+    pushResettable('web-deepseek-api:count', hasPath(apiEntry.descriptor.user, ['count']), countText !== String(baseCount))
+    if (hasSearchRpsField) pushResettable('web-deepseek-api:searchRequestsPerSecond', hasPath(apiEntry.descriptor.user, ['searchRequestsPerSecond']), searchRpsText !== String(baseSearchRps))
+    if (hasSendOriginalField) pushResettable('web-deepseek-api:sendOriginalQuestion', hasPath(apiEntry.descriptor.user, ['sendOriginalQuestion']), sendOriginalVal !== Boolean(baseSendOriginal))
+    if (!hasCustomSearchEndpoint) pushResettable('web-deepseek-api:searchBilling', hasPath(apiEntry.descriptor.user, ['searchBilling']), searchBilling !== baseSearchBilling)
+  }
+  if (showFetchApiFields && apiEntry && !hasCustomFetchEndpoint) {
+    pushResettable('web-deepseek-api:fetchBilling', hasPath(apiEntry.descriptor.user, ['fetchBilling']), fetchBilling !== baseFetchBilling)
+  }
+  if (showLegacyFields && legacyEntry) {
+    pushResettable('web-search-deepseek:maxUses', hasPath(legacyEntry.descriptor.user, ['maxUses']), maxUsesText !== String(baseMaxUses))
+    pushResettable('web-search-deepseek:baseURL', hasPath(legacyEntry.descriptor.user, ['baseURL']), baseUrlText !== String(baseBaseUrl))
+    if (hasLegacyModelField) pushResettable('web-search-deepseek:model', hasPath(legacyEntry.descriptor.user, ['model']), legacyModelText !== String(baseLegacyModel))
+    if (hasLegacyApiVersionField) pushResettable('web-search-deepseek:apiVersion', hasPath(legacyEntry.descriptor.user, ['apiVersion']), legacyApiVersionText !== String(baseLegacyApiVersion))
+    if (hasLegacyMaxTokensField) pushResettable('web-search-deepseek:maxTokens', hasPath(legacyEntry.descriptor.user, ['maxTokens']), legacyMaxTokensText !== String(baseLegacyMaxTokens))
+  }
+  const handleResetAll = () => {
+    if (resettableKeys.length === 0) return
+    setSaved(false)
+    setOverrides(prev => dropKeysFromMap(prev, new Set(resettableKeys)))
+    setResetFlags((prev) => {
+      const next = { ...prev }
+      for (const key of resettableKeys) next[key] = true
+      return next
+    })
   }
 
   const legacySecretField = legacyEntry?.fields?.find(f => f.kind === 'secret') ?? null
@@ -2075,12 +2105,12 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
           !legacyMaxTokensCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, legacyMaxTokensCheck.error) : null) : null,
         h(CredentialRefRow, {
           refName: legacyApiKeyRef,
-          readOnly: readOnly || saving,
+          readOnly: disabled || saving,
           fallbackField: legacySecretField,
           fallbackDisabled: disabled || saving,
           onFallbackMutate: op => onSecretMutate(legacyEntry.descriptor, op),
         })) : null),
-    (webEntry || showFetchApiFields || showHttpFetchFields) ? h(EngineSection, { title: t('Web fetch') },
+    (webEntry || showFetchApiFields) ? h(EngineSection, { title: t('Web fetch') },
       webEntry ? h('div', { className: 'dsb-engine-field-wrap' },
         h(EngineRow, { label: t('Fetch provider') },
           h(SelectMenu, {
@@ -2102,47 +2132,15 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
               disabled: disabled || saving || hasCustomFetchEndpoint,
               options: billingChoices,
               onChange: next => setField('web-deepseek-api:fetchBilling', next),
-            })))) : null,
-      showHttpFetchFields ? h(Fragment, null,
-        [
-          ['maxResponseBytes', t('Max response bytes'), httpMaxBytesText, baseHttpMaxBytes, httpMaxBytesCheck, 1],
-          ['maxBodyChars', t('Max body chars'), httpMaxCharsText, baseHttpMaxChars, httpMaxCharsCheck, 1],
-          ['timeoutMs', t('Timeout (ms)'), httpTimeoutText, baseHttpTimeout, httpTimeoutCheck, 1],
-          ['maxRedirects', t('Max redirects'), httpMaxRedirectsText, baseHttpMaxRedirects, httpMaxRedirectsCheck, 0],
-        ].map(([fieldKey, label, text, baseVal, check, minVal]) => h('div', { key: fieldKey, className: 'dsb-engine-field-wrap' },
-          h(EngineRow, { label },
-            h('div', { className: 'dsb-engine-inline' },
-              resetBtnFor(`web-fetch-http:${fieldKey}`, hasPath(httpFetchEntry.descriptor.user, [fieldKey]), text !== String(baseVal)),
-              h('input', {
-                className: 'bt-input bt-set-number',
-                type: 'number',
-                min: minVal,
-                step: 1,
-                disabled: disabled || saving,
-                'aria-label': label,
-                'aria-invalid': !check.ok ? true : undefined,
-                value: text,
-                onChange: event => setField(`web-fetch-http:${fieldKey}`, event.target.value),
-              }))),
-          !check.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, check.error) : null)),
-        h('div', { className: 'dsb-engine-field-wrap' },
-          h(EngineRow, { label: t('User agent') },
-            h('div', { className: 'dsb-engine-inline' },
-              resetBtnFor('web-fetch-http:userAgent', hasPath(httpFetchEntry.descriptor.user, ['userAgent']), httpUserAgentText !== String(baseHttpUserAgent)),
-              h('input', {
-                className: 'bt-input dsb-engine-text',
-                type: 'text',
-                disabled: disabled || saving,
-                'aria-label': t('User agent'),
-                value: httpUserAgentText,
-                onChange: event => setField('web-fetch-http:userAgent', event.target.value),
-              }))))) : null) : null,
+            })))) : null) : null,
     h(EngineFormBar, {
       dirty,
       invalid,
       saving,
       saved,
       disabled,
+      canResetAll: resettableKeys.length > 0,
+      onResetAll: handleResetAll,
       onSave: () => { void handleSave() },
       onDiscard: () => { resetDraft(); setSaved(false) },
     }))
@@ -2185,6 +2183,23 @@ function AgentDefaultModelDetailForm({ entry, disabled, readOnly = false, writab
     setSaved(false)
     setOverrides(prev => { if (!Object.prototype.hasOwnProperty.call(prev, k)) return prev; const n = { ...prev }; delete n[k]; return n })
     setResets(prev => ({ ...prev, [k]: true }))
+    if (k === 'provider') {
+      const baseGroup = (Array.isArray(catalog?.groups) ? catalog.groups : []).find(g => g.id === baseProvider)
+      const curModel = resets.model ? baseModel : (hasOv('model') ? overrides.model : storedModel)
+      if (baseGroup?.models?.length > 0) {
+        if (!baseGroup.models.some(m => m.id === curModel)) {
+          if (baseModel && baseGroup.models.some(m => m.id === baseModel)) {
+            setOverrides(prev => { if (!Object.prototype.hasOwnProperty.call(prev, 'model')) return prev; const n = { ...prev }; delete n.model; return n })
+            setResets(prev => ({ ...prev, model: true }))
+          } else {
+            setField('model', baseGroup.models[0].id)
+          }
+        }
+      } else if (baseModel && curModel !== baseModel) {
+        setOverrides(prev => { if (!Object.prototype.hasOwnProperty.call(prev, 'model')) return prev; const n = { ...prev }; delete n.model; return n })
+        setResets(prev => ({ ...prev, model: true }))
+      }
+    }
   }
 
   const provider = resets.provider ? baseProvider : (hasOv('provider') ? overrides.provider : storedProvider)
@@ -2225,7 +2240,7 @@ function AgentDefaultModelDetailForm({ entry, disabled, readOnly = false, writab
     }
   }
   const invalid = provider.trim() === '' || model.trim() === ''
-  const dirty = ops.length > 0 || invalid
+  const dirty = ops.length > 0
 
   const resettable = [
     ['provider', hasPath(descriptor?.user, ['provider']) || provider !== baseProvider],
@@ -2682,6 +2697,39 @@ function PluginIconBox({ src, fallback, accent = false }) {
     : (fallback || h(PuzzleIcon)))
 }
 
+// Localized display metadata for DSH's shipped presets (when a preset omits custom copy).
+const BUILTIN_PRESET_COPY = {
+  standard: {
+    name: 'Standard mode',
+    description: 'Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.',
+  },
+  ptc: {
+    name: 'PTC mode',
+    description: 'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.',
+  },
+  minimal: {
+    name: 'Minimal mode',
+    description: 'The agent uses a terminal and image reading, with context compaction. Useful for testing and comparing its basic performance.',
+  },
+  cordis: {
+    name: 'Creator mode',
+    description: 'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.',
+  },
+}
+
+const isBuiltInPreset = preset => !preset?.name && Object.prototype.hasOwnProperty.call(BUILTIN_PRESET_COPY, preset?.id)
+
+function presetDisplayCopy(preset) {
+  if (isBuiltInPreset(preset)) {
+    const copy = BUILTIN_PRESET_COPY[preset.id]
+    return { name: t(copy.name), description: t(copy.description) }
+  }
+  return {
+    name: preset?.name || preset?.id || '',
+    description: preset?.description || t('No description.'),
+  }
+}
+
 function inventoryItemDisplay(item, lang) {
   const title = resolveLocalizedMetaText(item?.meta?.title, lang)
     || formatSegment(shortBundleName(item?.moduleName))
@@ -2692,11 +2740,10 @@ function inventoryItemDisplay(item, lang) {
   return { title, description }
 }
 
-function inventoryItemMatches(item, query, lang) {
-  if (!query) return true
+function prepareInventoryItem(item, lang) {
   const { title, description } = inventoryItemDisplay(item, lang)
-  const hay = `${title}\n${description}\n${item?.moduleName ?? ''}\n${item?.entryId ?? ''}`.toLowerCase()
-  return hay.includes(query)
+  const haystack = `${title}\n${description}\n${item?.moduleName ?? ''}\n${item?.entryId ?? ''}`.toLowerCase()
+  return { item, title, description, haystack }
 }
 
 function inventoryFiberStatus(phase) {
@@ -2756,61 +2803,74 @@ function PluginInventorySection({ activeLang }) {
     }
   }, [entries.length, hasFailedGlobal])
 
-  const activePreset = useMemo(() => {
-    if (agentPresets.length === 0) return null
-    return agentPresets.find(preset => preset.id === selectedPresetId)
-      ?? agentPresets.find(preset => preset.isDefault)
-      ?? agentPresets[0]
-  }, [agentPresets, selectedPresetId])
+  const preparedPresets = useMemo(() => {
+    void activeLang
+    return agentPresets.map(preset => ({
+      preset,
+      displayName: presetDisplayCopy(preset).name,
+      rows: (preset.rows ?? []).map(row => prepareInventoryItem(row, activeLang)),
+    }))
+  }, [agentPresets, activeLang])
+
+  const activePresetGroup = useMemo(() => {
+    if (preparedPresets.length === 0) return null
+    return preparedPresets.find(g => g.preset.id === selectedPresetId)
+      ?? preparedPresets.find(g => g.preset.isDefault)
+      ?? preparedPresets[0]
+  }, [preparedPresets, selectedPresetId])
+
+  const activePreset = activePresetGroup?.preset ?? null
 
   const normalizedQuery = query.trim().toLowerCase()
   const searching = normalizedQuery.length > 0
 
   const presetNamesByModule = useMemo(() => {
     const map = new Map()
-    for (const preset of agentPresets) {
-      const label = preset.name || preset.id
-      for (const row of preset.rows ?? []) {
-        if (row.enabled === false || !row.moduleName) continue
+    for (const group of preparedPresets) {
+      const label = group.displayName
+      for (const { item: row } of group.rows) {
+        if (row.enabled !== true || !row.moduleName) continue
         const list = map.get(row.moduleName) ?? []
         if (!list.includes(label)) list.push(label)
         map.set(row.moduleName, list)
       }
     }
     return map
-  }, [agentPresets])
+  }, [preparedPresets])
 
   const sortedGlobalEntries = useMemo(() => {
     void activeLang
-    return [...entries].sort((a, b) => {
-      const failDiff = Number(b.fiberPhase === 'failed') - Number(a.fiberPhase === 'failed')
-      if (failDiff !== 0) return failDiff
-      return inventoryItemDisplay(a, activeLang).title.localeCompare(inventoryItemDisplay(b, activeLang).title)
-    })
+    return entries
+      .map(entry => prepareInventoryItem(entry, activeLang))
+      .sort((a, b) => {
+        const failDiff = Number(b.item.fiberPhase === 'failed') - Number(a.item.fiberPhase === 'failed')
+        if (failDiff !== 0) return failDiff
+        return a.title.localeCompare(b.title)
+      })
   }, [entries, activeLang])
 
   const filteredGlobal = useMemo(() => (
-    sortedGlobalEntries.filter(entry => inventoryItemMatches(entry, normalizedQuery, activeLang))
-  ), [sortedGlobalEntries, normalizedQuery, activeLang])
+    searching ? sortedGlobalEntries.filter(p => p.haystack.includes(normalizedQuery)) : sortedGlobalEntries
+  ), [sortedGlobalEntries, searching, normalizedQuery])
 
   const activePresetRows = useMemo(() => (
-    Array.isArray(activePreset?.rows) ? activePreset.rows : []
-  ), [activePreset])
+    activePresetGroup ? activePresetGroup.rows : []
+  ), [activePresetGroup])
 
   const filteredPresetRows = useMemo(() => (
-    activePresetRows.filter(row => inventoryItemMatches(row, normalizedQuery, activeLang))
-  ), [activePresetRows, normalizedQuery, activeLang])
+    searching ? activePresetRows.filter(p => p.haystack.includes(normalizedQuery)) : activePresetRows
+  ), [activePresetRows, searching, normalizedQuery])
 
   const otherPresetMatches = useMemo(() => {
     if (!searching || !activePreset) return []
     const out = []
-    for (const preset of agentPresets) {
-      if (preset.id === activePreset.id) continue
-      const count = (preset.rows ?? []).filter(row => inventoryItemMatches(row, normalizedQuery, activeLang)).length
-      if (count > 0) out.push({ id: preset.id, label: preset.name || preset.id, count })
+    for (const group of preparedPresets) {
+      if (group.preset.id === activePreset.id) continue
+      const count = group.rows.filter(p => p.haystack.includes(normalizedQuery)).length
+      if (count > 0) out.push({ id: group.preset.id, label: group.displayName, count })
     }
     return out
-  }, [searching, activePreset, agentPresets, normalizedQuery, activeLang])
+  }, [searching, activePreset, preparedPresets, normalizedQuery])
 
   const otherPresetMatchTotal = otherPresetMatches.reduce((sum, item) => sum + item.count, 0)
 
@@ -2825,11 +2885,10 @@ function PluginInventorySection({ activeLang }) {
 
   if (snap && snap.available === false && !error) return null
 
-  const presetOptions = agentPresets.map((preset) => {
-    const baseName = preset.name || preset.id
-    let label = baseName
-    if (preset.broken) label = t('{name} (failed to load)', { name: baseName })
-    else if (preset.isDefault) label = t('{name} (default)', { name: baseName })
+  const presetOptions = preparedPresets.map(({ preset, displayName }) => {
+    let label = displayName
+    if (preset.broken) label = t('{name} (failed to load)', { name: displayName })
+    else if (preset.isDefault) label = t('{name} (default)', { name: displayName })
     return { value: preset.id, label }
   })
 
@@ -2845,11 +2904,12 @@ function PluginInventorySection({ activeLang }) {
       : null
   )
 
-  const renderPresetRow = (row, index) => {
+  const renderPresetRow = (prepared, index) => {
+    const { item: row, title, description } = prepared
     const key = `preset:${activePreset?.id ?? ''}:${row.entryId || row.moduleName}:${index}`
     const open = expanded.has(key)
-    const { title, description } = inventoryItemDisplay(row, activeLang)
-    const live = isLiveFiberPhase(row.fiberPhase)
+    const live = row.enabled === true && isLiveFiberPhase(row.fiberPhase)
+    const metaError = typeof row.meta?.error === 'string' && row.meta.error !== '' ? row.meta.error : ''
     const statusTag = row.fiberPhase === 'failed'
       ? { label: t('Failed'), status: 'error' }
       : row.enabled === false
@@ -2874,21 +2934,24 @@ function PluginInventorySection({ activeLang }) {
           h('span', { className: 'dsb-plug-name' }, title),
           live ? h('span', { className: 'dsb-inv-live-dot', title: inventoryFiberStatus(row.fiberPhase), 'aria-label': inventoryFiberStatus(row.fiberPhase) }) : null,
           statusTag ? h('span', { className: 'dsb-ui-plug-status', 'data-status': statusTag.status }, statusTag.label) : null),
-        (description || row.entryId || row.moduleName) ? h('span', { className: 'dsb-plug-desc' }, description || row.entryId || row.moduleName) : null),
+        (description || row.entryId || row.moduleName) ? h('span', { className: 'dsb-plug-desc' }, description || row.entryId || row.moduleName) : null,
+        metaError ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, t('Metadata error: {error}', { error: metaError })) : null),
       h('span', { className: 'dsb-plug-chev', 'aria-hidden': true }, open ? h(ChevronUpIcon) : h(ChevronDownIcon))),
       open ? h('dl', { className: 'dsb-inv-facts' },
         renderFact(t('Module'), row.moduleName, { mono: true }),
-        renderFact(t('From'), row.entryId, { mono: true }),
+        renderFact(t('Entry ID'), row.entryId, { mono: true }),
+        renderFact(t('From'), activePresetGroup?.displayName || ''),
         renderFact(t('Configuration'), configLabel),
         row.condition ? renderFact(t('Disabled when'), row.condition, { mono: true }) : null,
         renderFact(t('Status'), inventoryFiberStatus(row.fiberPhase))) : null)
   }
 
-  const renderGlobalRow = (entry, index) => {
+  const renderGlobalRow = (prepared, index) => {
+    const { item: entry, title, description } = prepared
     const key = `global:${entry.entryId || entry.moduleName}:${index}`
     const open = expanded.has(key)
-    const { title, description } = inventoryItemDisplay(entry, activeLang)
-    const live = isLiveFiberPhase(entry.fiberPhase)
+    const live = entry.enabled === true && isLiveFiberPhase(entry.fiberPhase)
+    const metaError = typeof entry.meta?.error === 'string' && entry.meta.error !== '' ? entry.meta.error : ''
     const presetsUsing = presetNamesByModule.get(entry.moduleName) ?? []
     const viaPresets = entry.enabled === false && presetsUsing.length > 0
     const statusTag = entry.fiberPhase === 'failed'
@@ -2916,11 +2979,12 @@ function PluginInventorySection({ activeLang }) {
           live ? h('span', { className: 'dsb-inv-live-dot', title: inventoryFiberStatus(entry.fiberPhase), 'aria-label': inventoryFiberStatus(entry.fiberPhase) }) : null,
           statusTag ? h('span', { className: 'dsb-ui-plug-status', 'data-status': statusTag.status }, statusTag.label) : null),
         (description || entry.entryId || entry.moduleName) ? h('span', { className: 'dsb-plug-desc' }, description || entry.entryId || entry.moduleName) : null,
+        metaError ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, t('Metadata error: {error}', { error: metaError })) : null,
         entry.diagnostic ? h('span', { className: 'dsb-plug-note', 'data-tone': 'error', role: 'alert' }, entry.diagnostic) : null),
       h('span', { className: 'dsb-plug-chev', 'aria-hidden': true }, open ? h(ChevronUpIcon) : h(ChevronDownIcon))),
       open ? h('dl', { className: 'dsb-inv-facts' },
         renderFact(t('Module'), entry.moduleName, { mono: true }),
-        renderFact(t('From'), entry.entryId, { mono: true }),
+        renderFact(t('Entry ID'), entry.entryId, { mono: true }),
         renderFact(t('Configuration'), configLabel),
         viaPresets ? renderFact(t('Enabled in'), presetsUsing.join(', ')) : null,
         renderFact(t('Status'), inventoryFiberStatus(entry.fiberPhase)),
@@ -2983,7 +3047,7 @@ function PluginInventorySection({ activeLang }) {
                 h(SelectMenu, {
                   value: activePreset?.id ?? '',
                   options: presetOptions,
-                  ariaLabel: t('Choose the agent preset to inspect'),
+                  'aria-label': t('Choose the agent preset to inspect'),
                   onChange: next => setSelectedPresetId(next),
                 })) : null),
             isSessionExpanded ? h('div', { className: 'dsb-inv-group-body' },
@@ -3714,39 +3778,6 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
       },
       showMoreOptional ? t('Show fewer') : t('More'),
       showMoreOptional ? h(ChevronUpIcon) : h(ChevronDownIcon)) : null) : null)
-}
-
-// Localized display metadata for DSH's shipped presets (when a preset omits custom copy).
-const BUILTIN_PRESET_COPY = {
-  standard: {
-    name: 'Standard mode',
-    description: 'Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.',
-  },
-  ptc: {
-    name: 'PTC mode',
-    description: 'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.',
-  },
-  minimal: {
-    name: 'Minimal mode',
-    description: 'The agent uses a terminal and image reading, with context compaction. Useful for testing and comparing its basic performance.',
-  },
-  cordis: {
-    name: 'Creator mode',
-    description: 'Customize the engine through conversation. Write host plugins, tools, or custom modes; use Appearance or ui-plugins for desktop themes and UI.',
-  },
-}
-
-const isBuiltInPreset = preset => !preset.name && Object.prototype.hasOwnProperty.call(BUILTIN_PRESET_COPY, preset.id)
-
-function presetDisplayCopy(preset) {
-  if (isBuiltInPreset(preset)) {
-    const copy = BUILTIN_PRESET_COPY[preset.id]
-    return { name: t(copy.name), description: t(copy.description) }
-  }
-  return {
-    name: preset.name || preset.id,
-    description: preset.description || t('No description.'),
-  }
 }
 
 function PresetConfigModal({ doc, onClose }) {

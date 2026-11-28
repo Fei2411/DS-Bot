@@ -703,7 +703,9 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-engine-readonly{padding:9px 12px;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-sidebar);color:var(--bt-ink-2);font-size:12.5px;line-height:18px}
 .dsb-engine-reset-all{margin-right:auto}
 .dsb-engine-override-tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:14px;font-weight:500}
-.dsb-engine-inline{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.dsb-engine-inline{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+.dsb-engine-inline>.bt-mini{flex:none}
+.dsb-engine-inline>.bt-sel{max-width:min(240px,100%);min-width:0}
 .dsb-engine-link{text-decoration:none;display:inline-flex;align-items:center;min-height:28px}
 .dsb-engine-val{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);font-variant-numeric:tabular-nums}
 .dsb-acct-who{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 auto}
@@ -799,7 +801,7 @@ button.dsb-plug-row:hover .dsb-plug-chev{color:var(--bt-ink-2)}
 .dsb-inv-row{display:flex;align-items:center;gap:10px;width:100%;min-height:46px;padding:9px 16px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;touch-action:manipulation;transition:background-color .1s ease}
 .dsb-inv-row:hover{background:var(--bt-hover)}
 .dsb-inv-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.dsb-inv-live-dot{width:7px;height:7px;border-radius:50%;background:var(--bt-accent);flex:none;display:inline-block}
+.dsb-inv-live-dot{width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-accent);flex:none;display:inline-block}
 .dsb-inv-facts{margin:0;padding:8px 16px 12px;border-top:.5px dashed var(--bt-line);background:var(--bt-sidebar);display:flex;flex-direction:column;gap:5px}
 .dsb-inv-fact{display:grid;grid-template-columns:minmax(92px,130px) minmax(0,1fr);gap:8px;align-items:baseline;font-size:12px;line-height:17px}
 .dsb-inv-fact dt{color:var(--bt-ink-3);font-weight:500}

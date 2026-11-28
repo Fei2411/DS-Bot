@@ -106,8 +106,9 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
 
   const dismiss = useCallback(() => {
     if (committing || busy) return
+    if (signingIn && attempt?.id) void cancelSignIn(attempt.id).catch(() => {})
     complete()
-  }, [committing, busy, complete])
+  }, [committing, busy, signingIn, attempt?.id, cancelSignIn, complete])
 
   useEscape(dismiss, !leaving, { priority: ESCAPE_PRIORITY.DIALOG })
   useModalFocusTrap(dialogRef, !leaving, { initialFocusRef: closeRef })
@@ -234,7 +235,7 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
             h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || committing, onClick: () => { void cancel() } }, t('Cancel')),
           ]
         : [
-            h('button', { key: 'close', type: 'button', className: 'bt-soft bt-soft-sm', onClick: dismiss }, t('Cancel')),
+            h('button', { key: 'close', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: dismiss }, t('Cancel')),
             h('button', { key: 'go', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { void begin() } }, busy ? t('Waiting for sign-in…') : (failureMessage ? t('Try again') : t('Sign in'))),
           ]))))
 

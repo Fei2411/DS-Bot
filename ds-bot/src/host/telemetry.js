@@ -708,8 +708,10 @@ export function install(rt) {
     return ok
   }
 
+  const settingsService = () => (typeof ctx.get === 'function' ? ctx.get('settings') : ctx.settings)
+
   const readSessionLogDescriptor = () => {
-    const settings = ctx.get?.('settings') ?? ctx.settings
+    const settings = settingsService()
     if (!settings || typeof settings.describe !== 'function') return null
     try {
       const list = settings.describe({ redactSecrets: true })
@@ -722,22 +724,20 @@ export function install(rt) {
   }
 
   const syncDshSessionLog = async (ops) => {
-    const settings = ctx.get?.('settings') ?? ctx.settings
-    if (!settings?.writable || typeof settings.mutate !== 'function') return
-    try {
-      await settings.mutate('session-log-deepseek', ops)
-    } catch { /* best-effort; registerExclusion remains authoritative */ }
+    const settings = settingsService()
+    if (!settings || typeof settings.mutate !== 'function') return
+    if (!settings.writable) {
+      throw Object.assign(new Error('Engine settings are read-only in this profile'), { code: 'bot/refused' })
+    }
+    const sl = readSessionLogDescriptor()
+    const expectedRevision = Number.isInteger(sl?.desc?.revision) ? sl.desc.revision : undefined
+    await settings.mutate('session-log-deepseek', ops, expectedRevision)
   }
 
   const status = () => {
     rotateIfNeeded()
     const reason = envReason()
     const sl = readSessionLogDescriptor()
-    const slValue = sl?.desc?.value
-    const slBase = sl?.desc?.base
-    const slUser = sl?.desc?.user
-    const slMaxBytes = Number.isInteger(slValue?.maxBytes) && slValue.maxBytes >= 1 ? slValue.maxBytes : undefined
-    const slMaxBytesDefault = Number.isInteger(slBase?.maxBytes) && slBase.maxBytes >= 1 ? slBase.maxBytes : 8 * 1024 * 1024
     return {
       noticeAccepted: data.noticeAccepted,
       noticeVersion: data.noticeVersion,
@@ -747,11 +747,6 @@ export function install(rt) {
       dshSessionLogWritable: sl ? sl.writable : true,
       dshSessionLogDefault: false,
       dshSessionLogOverridden: data.dshSessionLog !== false,
-      ...(slMaxBytes !== undefined ? {
-        dshSessionLogMaxBytes: slMaxBytes,
-        dshSessionLogMaxBytesDefault: slMaxBytesDefault,
-        dshSessionLogMaxBytesOverridden: slUser !== undefined && slUser !== null && Object.prototype.hasOwnProperty.call(slUser, 'maxBytes'),
-      } : {}),
       dshFeedbackTelemetry: data.dshFeedbackTelemetry,
       anonId: data.anonId,
       anonMonth: data.anonMonth,
@@ -767,6 +762,18 @@ export function install(rt) {
   const update = async (patch = {}) => {
     const wasCurrent = isNoticeCurrent()
     const wasUsage = data.usage
+    const sessionLogOps = []
+    let nextDshSessionLog = data.dshSessionLog
+    if (patch.resetDshSessionLog === true) {
+      nextDshSessionLog = false
+      sessionLogOps.push({ op: 'set', path: ['enabled'], value: false })
+    } else if (typeof patch.dshSessionLog === 'boolean') {
+      nextDshSessionLog = patch.dshSessionLog
+      sessionLogOps.push({ op: 'set', path: ['enabled'], value: nextDshSessionLog })
+    }
+    if (sessionLogOps.length > 0) {
+      await syncDshSessionLog(sessionLogOps)
+    }
     if (typeof patch.noticeAccepted === 'boolean') {
       data.noticeAccepted = patch.noticeAccepted
       data.noticeVersion = NOTICE_VERSION
@@ -779,22 +786,7 @@ export function install(rt) {
     }
     if (typeof patch.usage === 'boolean') data.usage = patch.usage
     if (typeof patch.errors === 'boolean') data.errors = patch.errors
-    const sessionLogOps = []
-    if (patch.resetDshSessionLog === true) {
-      data.dshSessionLog = false
-      sessionLogOps.push({ op: 'set', path: ['enabled'], value: false })
-    } else if (typeof patch.dshSessionLog === 'boolean') {
-      data.dshSessionLog = patch.dshSessionLog
-      sessionLogOps.push({ op: 'set', path: ['enabled'], value: data.dshSessionLog })
-    }
-    if (patch.dshSessionLogMaxBytes === null) {
-      sessionLogOps.push({ op: 'unset', path: ['maxBytes'] })
-    } else if (Number.isInteger(patch.dshSessionLogMaxBytes) && patch.dshSessionLogMaxBytes >= 1) {
-      sessionLogOps.push({ op: 'set', path: ['maxBytes'], value: patch.dshSessionLogMaxBytes })
-    }
-    if (sessionLogOps.length > 0) {
-      await syncDshSessionLog(sessionLogOps)
-    }
+    if (sessionLogOps.length > 0) data.dshSessionLog = nextDshSessionLog
     if (typeof patch.dshFeedbackTelemetry === 'boolean') {
       data.dshFeedbackTelemetry = patch.dshFeedbackTelemetry
     }
