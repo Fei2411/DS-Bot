@@ -64,7 +64,7 @@ export { act } from 'react'
 export { renderCounts, resetRenderCounts } from ${JSON.stringify(reactCountPath)}
 export { applyFrame, emptyLog } from ${JSON.stringify(join(rootDir, 'ds-bot/src/client/session-log.js'))}
 export { SessionTranscript } from ${JSON.stringify(join(appDir, 'ui/src/session-chat.js'))}
-export { installLocale } from ${JSON.stringify(join(rootDir, 'ds-bot/src/client/i18n.js'))}
+export { ensureLocale, installLocale } from ${JSON.stringify(join(rootDir, 'ds-bot/src/client/i18n.js'))}
 export { setAppLocaleService } from ${JSON.stringify(join(appDir, 'ui/src/locale.js'))}
 `)
 
@@ -98,7 +98,7 @@ const { outputFiles } = await build({
 })
 const bundlePath = join(dir, 'bundle.mjs')
 writeFileSync(bundlePath, outputFiles[0].text)
-const { createElement: h, createRoot, act, renderCounts, resetRenderCounts, applyFrame, emptyLog, SessionTranscript, installLocale, setAppLocaleService } = await import(pathToFileURL(bundlePath).href)
+const { createElement: h, createRoot, act, renderCounts, resetRenderCounts, applyFrame, emptyLog, SessionTranscript, ensureLocale, installLocale, setAppLocaleService } = await import(pathToFileURL(bundlePath).href)
 
 // One locale service, shared with the bundle: `installLocale` binds the bundle's `t()`
 // and registers every dictionary into it; `setAppLocaleService` is what the rows'
@@ -221,7 +221,7 @@ test('stream chunks re-render only the live row; committed memoized rows render 
   view.unmount()
 })
 
-test('a language switch re-renders the memoized rows in the new language, mid-stream or not', () => {
+test('a language switch re-renders the memoized rows in the new language, mid-stream or not', async () => {
   resetRenderCounts()
   const view = mount({ classic: true })
   const log = baseLog()
@@ -235,10 +235,14 @@ test('a language switch re-renders the memoized rows in the new language, mid-st
   assert.match(view.text(), /Profile updated/, 'bot event line in English')
   assert.match(view.text(), /script/, 'assistant text rendered')
 
-  // Flip the language. The service notifies; every memoized row re-renders because the
-  // language travels as a prop, even though log, rows, roster and actions are untouched.
+  // Flip the language before the zh pack is loaded: ensureLocale loads it dynamically,
+  // registers it into `locale` (bumping revision), and every memoized row re-renders
+  // in Chinese even though log, rows, roster and actions are untouched.
   const before = new Map(renderCounts)
-  act(() => { void locale.setLocale('zh') })
+  await act(async () => {
+    void locale.setLocale('zh')
+    await ensureLocale('zh')
+  })
 
   assert.match(view.container.innerHTML, /aria-label="复制"/, 'copy buttons read 复制 after the switch')
   assert.equal(view.container.querySelector('.md-copy')?.textContent, '复制', 'the code block label inside the memoized committed row is in Chinese')
@@ -260,7 +264,8 @@ test('a language switch re-renders the memoized rows in the new language, mid-st
   view.unmount()
 })
 
-test('a language switch during streaming re-renders history once and streaming keeps the memo afterwards', () => {
+test('a language switch during streaming re-renders history once and streaming keeps the memo afterwards', async () => {
+  await ensureLocale('zh')
   resetRenderCounts()
   const view = mount({ classic: true })
   let log = baseLog()

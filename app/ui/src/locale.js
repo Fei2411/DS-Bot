@@ -54,6 +54,7 @@ export function createLocale(tag, options = {}) {
   const systemActive = resolveLocale(tag)
   let preference = readStoredPreference(storage)
   let active = preference === 'auto' ? systemActive : resolveLocale(preference)
+  let revision = 0
   const dictionaries = new Map()
   const listeners = new Set()
 
@@ -65,12 +66,14 @@ export function createLocale(tag, options = {}) {
 
   return {
     getLocale: () => ({ active, preference }),
+    getSnapshot: () => ({ active, preference, revision }),
     setLocale(nextPreference) {
       const clean = VALID_PREFERENCES.has(nextPreference) ? nextPreference : 'auto'
       const nextActive = clean === 'auto' ? systemActive : resolveLocale(clean)
       if (clean === preference && nextActive === active) return { active, preference }
       preference = clean
       active = nextActive
+      revision += 1
       writeStoredPreference(storage, preference)
       syncDocumentLang()
       for (const listener of Array.from(listeners)) {
@@ -85,7 +88,14 @@ export function createLocale(tag, options = {}) {
     },
     register(namespace, language, dictionary) {
       const key = `${namespace}:${language}`
+      const prev = dictionaries.get(key)
       dictionaries.set(key, dictionary)
+      if (prev !== dictionary && resolveLocale(language) === active) {
+        revision += 1
+        for (const listener of Array.from(listeners)) {
+          try { listener({ active, preference }) } catch { /* listener error isolated */ }
+        }
+      }
       return () => { dictionaries.delete(key) }
     },
     bind: namespace => (key, params) => fill(dictionaries.get(`${namespace}:${active}`)?.[key] ?? key, params),

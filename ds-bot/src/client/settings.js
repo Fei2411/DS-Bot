@@ -5,29 +5,10 @@ import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOut
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
 export { settingsOwnsKeyboard }
-import { BotSettingsForm, Switch } from './bot-settings.js'
+import { Switch } from './bot-settings.js'
 import { Segmented, useGlide } from './motion.js'
-import { GroupSettingsForm, NewGroupForm } from './group-settings.js'
-import { CreateBot } from './create-bot.js'
-import { KeptPrivateSection } from './kept-private.js'
-import { KeyIcon, SecretsPage } from './secret-card.js'
-import { UsagePage } from './usage-page.js'
-import { ConnectorsPage } from './connectors-page.js'
-import { PhonePage } from './phone-page.js'
-import { ApiPage } from './api-page.js'
-import { ImPage } from './im-page.js'
-import { CapabilitiesPage } from './capability-settings.js'
-import { DeepSeekServicesPage } from './services-settings.js'
-import { BrowserPage } from './browser-settings.js'
-import { PluginsPage } from './plugins-page.js'
-import { ComputerPage } from './computer.js'
-import { SchedulesPage } from './schedules.js'
-import { FeedbackIcon, FeedbackPage } from './feedback.js'
-import { PrivacyPage } from './privacy-page.js'
-import { AboutPage } from './about.js'
-import { ProvidersPage } from './providers-page.js'
-import { LocalAgentsPage } from './local-agents-page.js'
-import { BotModelsPage } from './bot-models-page.js'
+import { KeyIcon } from './secret-card.js'
+import { FeedbackIcon } from './feedback.js'
 import { SettingsTour, canAutoStartTour, hasSectionTour, markTourSeen } from './settings-tour.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
@@ -36,12 +17,39 @@ import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
-import { AppearancePage } from './appearance-page.js'
-import { ShortcutsPage } from './shortcuts-page.js'
 import { isShortcutRecording } from './shortcuts-model.js'
 import { isImeComposing } from './enter-key.js'
-import { SettingsPalette, isMac } from './settings-palette.js'
-import { OverviewPage } from './settings-overview.js'
+import {
+  AboutPage,
+  ApiPage,
+  AppearancePage,
+  BotModelsPage,
+  BotSettingsForm,
+  BrowserPage,
+  CapabilitiesPage,
+  ComputerPage,
+  ConnectorsPage,
+  CreateBot,
+  DeepSeekServicesPage,
+  FeedbackPage,
+  GroupSettingsForm,
+  ImPage,
+  KeptPrivateSection,
+  LocalAgentsPage,
+  NewGroupForm,
+  OverviewPage,
+  PhonePage,
+  PluginsPage,
+  PrivacyPage,
+  ProvidersPage,
+  SchedulesPage,
+  SecretsPage,
+  SettingsPalette,
+  ShortcutsPage,
+  UsagePage,
+} from './settings-pages.js'
+
+const isMac = () => typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '')
 
 
 // Settings dialog: a nav rail beside the page, with search on top. A domain with several

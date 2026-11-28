@@ -45,7 +45,7 @@ const entryCode = `
   export { forgetKeptFiles } from '../ds-bot/src/client/draft-keep.js'
   export { STORAGE } from '../ds-bot/src/client/storage.js'
   export { PASTE_LIMIT } from '../ds-bot/src/client/paste-card.js'
-  export { installLocale } from '../ds-bot/src/client/i18n.js'
+  export { ensureLocale, installLocale } from '../ds-bot/src/client/i18n.js'
   export { createLocale } from './ui/src/locale.js'
   export { mentionSpans } from '../ds-bot/src/shared/mentions.js'
 `
@@ -207,6 +207,7 @@ const {
   forgetKeptFiles,
   STORAGE,
   PASTE_LIMIT,
+  ensureLocale,
   installLocale,
   createLocale,
   mentionSpans,
@@ -300,7 +301,7 @@ test('activeComposerTrigger and applyTriggerText parse @ mentions and leading / 
   assert.equal(applyTriggerText('Ask @Wr, please', beforeComma, '@Writer ').text, 'Ask @Writer , please')
 })
 
-test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / slash commands', () => {
+test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / slash commands', async () => {
   const ran = []
   const roster = {
     ready: true,
@@ -331,6 +332,7 @@ test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / 
   // emit canonical "@everyone " so `mentionSpans` routes to every member while Chinese keeps "@所有人 ".
   const roomMentions = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
   assert.deepEqual(plain(roomMentions.map(i => i.title)), ['Chief', 'Writer', 'Everyone'])
+  await ensureLocale('fr')
   const stopFr = installLocale(createLocale('fr'))
   try {
     const frRoom = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
@@ -340,6 +342,7 @@ test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / 
   } finally {
     stopFr()
   }
+  await ensureLocale('zh')
   const stopZh = installLocale(createLocale('zh'))
   try {
     const zhRoom = buildComposerMenuItems({ mode: 'mention', query: '', roster, sessionId: 'r1', actions })
