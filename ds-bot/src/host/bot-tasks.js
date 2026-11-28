@@ -73,6 +73,7 @@ const safeFileName = id => `${String(id).replace(/[^A-Za-z0-9_-]/g, '_')}.txt`
 export function install(rt) {
   const { ctx, state } = rt
   const hasCoordDb = () => rt.coordDb != null && !rt.coordDb.isClosed?.()
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (hasCoordDb() ? rt.coordDb : null))
   const writableCoordDb = () => hasCoordDb() && rt.coordDb.readonly !== true && rt.readOnly?.() === undefined
   const taskWorkIdOf = task => task?.workId ?? (task?.origin === 'bot-handoff' && task?.exchangeId ? task.exchangeId : (task?.id ? taskAddress(task.id) : undefined))
   const reportsDir = join(rt.home, 'task-reports')
@@ -664,11 +665,12 @@ export function install(rt) {
       const thread = threadOfPart(bot, work.fromPart)
       if (thread?.thread === 'task' && thread.taskId === task.id) return true
     }
-    if (hasCoordDb()) {
+    const db = existingCoordDb()
+    if (db !== null) {
       const workId = taskWorkIdOf(task)
       if (workId !== undefined) {
         try {
-          if (rt.coordDb.listWaits({ workId, status: 'open', limit: 10 }).some(w => w.kind === 'call' || w.kind === 'ask')) {
+          if (db.listWaits({ workId, status: 'open', limit: 10 }).some(w => w.kind === 'call' || w.kind === 'ask')) {
             return true
           }
         } catch { /* best-effort */ }
@@ -1378,6 +1380,8 @@ export function install(rt) {
   async function reconcileTasksAfterRestart(keepSessions = new Set()) {
     if (rt.readOnly?.() !== undefined) return
     const keep = keepSessions instanceof Set ? keepSessions : new Set(Object.keys(keepSessions ?? {}))
+    const db = existingCoordDb()
+    if (db === null && rt.coordDbError?.() != null) return
     for (const bot of Object.values(state.bots)) {
       for (const task of activeTasksOf(bot)) {
         const sid = task.sessionId
@@ -1390,7 +1394,7 @@ export function install(rt) {
         // so `needs_verification`, `paused`, `queued`, `waiting`, and already-settled works are
         // never clobbered into `interrupted` / `stopped`.
         const coordWorkId = taskWorkIdOf(task)
-        const dbWork = hasCoordDb() && coordWorkId !== undefined ? rt.coordDb.getWork(coordWorkId) : undefined
+        const dbWork = db !== null && coordWorkId !== undefined ? db.getWork(coordWorkId) : undefined
         if (dbWork !== undefined) {
           if (dbWork.status === 'needs_verification' || dbWork.status === 'paused' || dbWork.status === 'waiting') {
             if (task.status !== 'waiting_work') {
@@ -1401,7 +1405,7 @@ export function install(rt) {
             continue
           }
           if (dbWork.status === 'queued') {
-            const hasQueuedInbox = rt.coordDb.listInbox(coordWorkId, { unreadOnly: true, includeNotes: false, limit: 1 }).length > 0
+            const hasQueuedInbox = db.listInbox(coordWorkId, { unreadOnly: true, includeNotes: false, limit: 1 }).length > 0
             if (hasQueuedInbox) continue
           }
           if (dbWork.status === 'done' || dbWork.status === 'failed' || dbWork.status === 'stopped') {

@@ -1494,7 +1494,23 @@ test('createRuntime survives corrupt_backup_failed without crashing startup or p
   writeFileSync(join(dir, 'state.json'), JSON.stringify({
     version: 1,
     mainBotIds: ['a'],
-    bots: { a: { id: 'a', name: 'Chief', role: 'Lead', sessionId: 'a', createdAt: 1 } },
+    bots: {
+      a: {
+        id: 'a',
+        name: 'Chief',
+        role: 'Lead',
+        sessionId: 'a',
+        createdAt: 1,
+        tasks: [{
+          id: 'k_active1',
+          title: 'Active task under corrupt backup failure',
+          sessionId: 'task-k_active1',
+          status: 'running',
+          startedAt: 1,
+          updatedAt: 1,
+        }],
+      },
+    },
     rooms: {},
     exchanges: [],
     exchangeTurns: {},
@@ -1527,6 +1543,11 @@ test('createRuntime survives corrupt_backup_failed without crashing startup or p
     assert.deepEqual(rt.pausedWorksView(), [], 'passive pausedWorksView succeeds without throwing')
     assert.deepEqual(rt.activityView(), {}, 'passive activityView succeeds without throwing')
     assert.equal(rt.statusOf?.('a'), 'idle', 'passive statusOf succeeds without throwing')
+    const taskView = rt.taskViewOf(rt.state.bots.a)
+    assert.equal(Array.isArray(taskView) && taskView.length, 1, 'passive taskViewOf with an active task succeeds without throwing')
+    assert.equal(taskView[0].id, 'k_active1')
+    await rt.reconcileTasksAfterRestart()
+    assert.equal(rt.state.bots.a.tasks[0].status, 'running', 'reconcileTasksAfterRestart preserves task state instead of crashing or clobbering when ledger backup failed')
     assert.equal(rt.existingCoordDb(), null, 'passive existingCoordDb returns null without creating an empty ledger')
     assert.throws(
       () => rt.coordDb,
