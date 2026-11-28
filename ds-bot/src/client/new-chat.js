@@ -1,4 +1,4 @@
-import { createElement as h, useRef, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { PlusIcon, PeopleIcon, ArrowUpIcon } from './icons.js'
 import { AdminStar, BotMark } from './mark.js'
@@ -119,6 +119,16 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   useFlip(glide.box, listed, '[data-flip]')
   const drop = useRef(null)
   useMorph(drop, listed)
+  // Ignore hover events that arrive without real pointer movement (scrolling rows under a
+  // resting cursor, opening animation, or keyboard scrollIntoView), and only scroll the
+  // active row into view when moved by the keyboard.
+  const pointerRef = useRef(null)
+  const scrollActiveRef = useRef(false)
+  useEffect(() => {
+    if (!scrollActiveRef.current) return
+    scrollActiveRef.current = false
+    glide.box.current?.querySelector('[aria-selected=true]')?.scrollIntoView?.({ block: 'nearest' })
+  }, [active, listed])
   if (draft) {
     return h('div', { className: 'bt-pane', style: { left: paneLeft } },
       h(CreateBot, {
@@ -152,8 +162,8 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
             onChange: (event) => { setQuery(event.target.value); setCursor(0) },
             onKeyDown: (event) => {
               if (event.nativeEvent.isComposing || event.keyCode === 229) return
-              if (event.key === 'ArrowDown') { event.preventDefault(); setCursor(Math.min(active + 1, options.length - 1)) }
-              else if (event.key === 'ArrowUp') { event.preventDefault(); setCursor(Math.max(active - 1, 0)) }
+              if (event.key === 'ArrowDown') { event.preventDefault(); scrollActiveRef.current = true; setCursor(Math.min(active + 1, options.length - 1)) }
+              else if (event.key === 'ArrowUp') { event.preventDefault(); scrollActiveRef.current = true; setCursor(Math.max(active - 1, 0)) }
               else if (event.key === 'Enter' && options[active]) { event.preventDefault(); options[active].run() }
               else if (event.key === 'Backspace' && query === '') unpick()
             },
@@ -168,7 +178,17 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
         options.length === 0 ? h('div', { className: 'bt-hint' }, mode === 'search' ? t('No Bots match') : t('Type a name to create a Bot'))
           : options.map((option, index) => h('button', {
               key: option.key, type: 'button', role: 'option', className: 'bt-option', 'aria-selected': index === active, 'data-flip': option.key,
-              onMouseEnter: () => setCursor(index), onClick: option.run,
+              onMouseMove: (event) => {
+                const x = event?.clientX
+                const y = event?.clientY
+                if (Number.isFinite(x) && Number.isFinite(y)) {
+                  const last = pointerRef.current
+                  if (last && last.x === x && last.y === y) return
+                  pointerRef.current = { x, y }
+                }
+                if (active !== index) setCursor(index)
+              },
+              onClick: option.run,
             },
             option.bot ? h(BotMark, { bot: option.bot, size: 22 }) : h('span', { className: 'bt-option-icon' }, option.icon),
             h('span', { className: 'bt-option-label' }, option.label),

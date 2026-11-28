@@ -67,9 +67,11 @@ export const SPRING_GLIDE = springEasing(1000, 63)
 // Critically damped pane slide (ω=28, ζ=1, zero overshoot) for bounded edge surfaces
 // like the left sidebar and conversation margins (#2412).
 export const SPRING_SLIDE = springEasing(784, 56)
-// A highlight that follows the keyboard and pointer down a list keeps up on stiffer
-// edges (ω=30 and ω=20).
-export const QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) }
+// A highlight that follows the keyboard and pointer down a list shares SPRING_SLIDE
+// (ω=28, ζ=1): critically damped so equal-height rows glide without stretching or
+// layout height writes, and paced so multi-row moves stay under one row per 60Hz frame
+// without stroboscopic gaps.
+export const QUICK_EDGES = { lead: SPRING_SLIDE, trail: SPRING_SLIDE }
 
 export const spring = (curve, ...properties) => properties.map(property => `${property} ${curve.duration}ms ${curve.easing}`).join(',')
 
@@ -82,13 +84,19 @@ export function liveSprings(apply) {
   const current = {}
   let frame = 0
   let last = 0
+  let fresh = false
   const cancel = () => {
     if (frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
     frame = 0
+    fresh = false
   }
   const step = (now) => {
     const stamp = Number.isFinite(now) ? now : performance.now()
-    const dt = Math.min(0.5, Math.max(0.001, (stamp - last) / 1000))
+    const elapsed = (stamp - last) / 1000
+    // Chromium's rAF timestamp is the VSync start time, which can predate the input
+    // event's performance.now(); avoid stalling the first frame at 1ms when starting from rest.
+    const dt = Math.min(0.5, fresh && elapsed < 0.004 ? 1 / 60 : Math.max(0.001, elapsed))
+    fresh = false
     last = stamp
     const steps = Math.ceil(dt * 240)
     const h = dt / steps
@@ -131,7 +139,7 @@ export function liveSprings(apply) {
         else Object.assign(value, { to, k, c })
       }
       if (immediate) { cancel(); apply(current, false); return }
-      if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
+      if (!frame) { fresh = true; last = performance.now(); frame = requestAnimationFrame(step) }
     },
     reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancel() },
     stop: cancel,
@@ -153,20 +161,33 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
   const thumb = useRef(null)
   const own = useRef(null)
   if (own.current === null) {
+    // Round to 0.01px so IEEE-754 noise (e.g. 36.00000000000003) does not trigger
+    // redundant width/height layout writes while an equal-size thumb glides.
+    const px = value => `${Math.round(Math.max(0, value) * 100) / 100}px`
     own.current = {
-      key: undefined, syncKey: undefined, axis, node: null, observer: null,
+      key: undefined, syncKey: undefined, axis, node: null, observer: null, thumbNode: null, lastW: '', lastH: '',
       springs: liveSprings((values) => {
         const knob = thumb.current
         if (!knob) return
-        const currentAxis = own.current.axis
+        const state = own.current
+        if (state.thumbNode !== knob) { state.thumbNode = knob; state.lastW = ''; state.lastH = '' }
+        const currentAxis = state.axis
         if (currentAxis === 'both') {
           knob.style.transform = `translate3d(${values.x0}px,${values.y0}px,0)`
-          knob.style.width = `${Math.max(0, values.x1 - values.x0)}px`
-          knob.style.height = `${Math.max(0, values.y1 - values.y0)}px`
+          const width = px(values.x1 - values.x0)
+          const height = px(values.y1 - values.y0)
+          if (width !== state.lastW) { state.lastW = width; knob.style.width = width }
+          if (height !== state.lastH) { state.lastH = height; knob.style.height = height }
           return
         }
         knob.style.transform = currentAxis === 'x' ? `translateX(${values.start}px)` : `translateY(${values.start}px)`
-        knob.style[currentAxis === 'x' ? 'width' : 'height'] = `${Math.max(0, values.end - values.start)}px`
+        const size = px(values.end - values.start)
+        if (currentAxis === 'x') {
+          if (size !== state.lastW) { state.lastW = size; knob.style.width = size }
+        } else if (size !== state.lastH) {
+          state.lastH = size
+          knob.style.height = size
+        }
       }),
     }
   }
@@ -181,16 +202,20 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     if (!chosen) { knob.dataset.hidden = ''; return }
     const { springs } = own.current
     const before = springs.target()
+    const now = springs.current()
     const hidden = knob.dataset.hidden !== undefined
     if (currentAxis === 'both') {
       const x0 = chosen.offsetLeft
       const x1 = x0 + chosen.offsetWidth
       const y0 = chosen.offsetTop
       const y1 = y0 + chosen.offsetHeight
-      if (jump && !hidden && before?.x0 === x0 && before?.x1 === x1 && before?.y0 === y0 && before?.y1 === y1 && container.dataset.glide !== undefined) return
+      const settled = !springs.isRunning() && now?.x0 === x0 && now?.x1 === x1 && now?.y0 === y0 && now?.y1 === y1
+      if (!hidden && before?.x0 === x0 && before?.x1 === x1 && before?.y0 === y0 && before?.y1 === y1 && container.dataset.glide !== undefined && (springs.isRunning() || settled)) return
       delete knob.dataset.hidden
-      const forwardX = before === null || x0 >= before.x0
-      const forwardY = before === null || y0 >= before.y0
+      const refX = now?.x0 ?? before?.x0
+      const refY = now?.y0 ?? before?.y0
+      const forwardX = refX === undefined || x0 >= refX
+      const forwardY = refY === undefined || y0 >= refY
       springs.set(
         { x0, x1, y0, y1 },
         {
@@ -206,9 +231,11 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     }
     const start = currentAxis === 'x' ? chosen.offsetLeft : chosen.offsetTop
     const end = start + (currentAxis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
-    if (jump && !hidden && before?.start === start && before?.end === end && container.dataset.glide !== undefined) return
+    const settled = !springs.isRunning() && now?.start === start && now?.end === end
+    if (!hidden && before?.start === start && before?.end === end && container.dataset.glide !== undefined && (springs.isRunning() || settled)) return
     delete knob.dataset.hidden
-    const forward = before === null || start >= before.start
+    const refStart = now?.start ?? before?.start
+    const forward = refStart === undefined || start >= refStart
     springs.set({ start, end }, forward ? { start: trail, end: lead } : { start: lead, end: trail }, jump || hidden || before === null || reducedMotion())
     container.dataset.glide = ''
   }
@@ -224,6 +251,8 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     state.syncKey = syncKey
     if (axisChanged) {
       state.axis = axis
+      state.lastW = ''
+      state.lastH = ''
       state.springs.reset()
       if (thumb.current) {
         thumb.current.style.transform = ''

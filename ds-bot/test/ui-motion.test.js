@@ -18,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { effectsTier, fitSegmented, reducedEffects, reducedMotion, useGlide, useViewport } from './src/client/motion.js'",
+      "export { QUICK_EDGES, effectsTier, fitSegmented, reducedEffects, reducedMotion, useGlide, useViewport } from './src/client/motion.js'",
       "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
       "export { SettingsDialog } from './src/client/settings.js'",
       "export { BotMark } from './src/client/mark.js'",
@@ -522,4 +522,99 @@ test('SHELL_CSS uses container queries on narrow cards and responsive Segmented 
   assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-3\]\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)\}/)
   assert.match(SHELL_CSS, /\.bt-seg\[data-layout\] button\{[^}]*justify-content:safe center/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-seg\.bt-permissions button\{/)
+  assert.match(SHELL_CSS, /\.bt-drop-list:not\(\[data-glide\]\)>\.bt-option:not\(\[aria-selected=true\]\):hover\{background:var\(--bt-hover\)\}/)
+  assert.match(SHELL_CSS, /\.bt-drop-list\{[^}]*overflow:hidden;isolation:isolate;contain:layout paint/)
+  assert.match(SHELL_CSS, /\.bt-palette-list>\.bt-thumb,\.bt-drop-list>\.bt-thumb\{[^}]*will-change:transform/)
+})
+
+test('useGlide QUICK_EDGES keeps equal-height list thumbs steady without overshoot or mid-flight inversion', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { window } = dom
+  const { document } = window
+  window.matchMedia = () => ({ matches: false })
+  let rafCount = 0
+  let clock = 0
+  const queued = new Map()
+  const refs = []
+  let refIdx = 0
+  let layoutFn = null
+  const { exports: client } = loadClient(
+    {
+      window, document,
+      requestAnimationFrame: (fn) => { const id = ++rafCount; queued.set(id, fn); return id },
+      cancelAnimationFrame: (id) => { queued.delete(id) },
+      performance: { now: () => clock },
+    },
+    {
+      useRef: (init) => { const idx = refIdx++; if (!(idx in refs)) refs[idx] = { current: init }; return refs[idx] },
+      useLayoutEffect: (fn) => { layoutFn = fn },
+      useEffect() {},
+    },
+  )
+
+  const box = document.createElement('div')
+  const thumb = document.createElement('span')
+  const rows = Array.from({ length: 6 }, (_, i) => {
+    const el = document.createElement('button')
+    Object.defineProperty(el, 'offsetTop', { get: () => i * 38 })
+    Object.defineProperty(el, 'offsetHeight', { get: () => 36 })
+    return el
+  })
+  box.append(thumb, ...rows)
+
+  let heightWrites = 0
+  const rawStyle = thumb.style
+  let heightValue = ''
+  Object.defineProperty(rawStyle, 'height', {
+    get: () => heightValue,
+    set: (next) => { heightWrites += 1; heightValue = next },
+    configurable: true,
+  })
+
+  const select = (idx) => {
+    rows.forEach((el, i) => el.setAttribute('aria-selected', String(i === idx)))
+    refIdx = 0
+    const res = client.useGlide(String(idx), { axis: 'y', box: { current: box }, ...client.QUICK_EDGES })
+    res.thumb.current = thumb
+    layoutFn()
+  }
+  const tickFrames = (count) => {
+    for (let step = 0; step < count && queued.size > 0; step += 1) {
+      clock += 16
+      const fns = [...queued.values()]
+      queued.clear()
+      for (const fn of fns) fn(clock)
+    }
+  }
+
+  select(0)
+  assert.equal(thumb.style.transform, 'translateY(0px)')
+  assert.equal(heightValue, '36px')
+  const writesAfterInit = heightWrites
+
+  // Sweep down to row 5, then reverse mid-flight to row 4: height stays constant (no
+  // stretch/collapse or per-frame layout reflow) and never overshoots row 4 (152px).
+  select(5)
+  tickFrames(3)
+  select(4)
+  let maxY = -Infinity
+  for (let step = 0; step < 60 && queued.size > 0; step += 1) {
+    tickFrames(1)
+    const y = Number.parseFloat(/translateY\(([^)]+)px\)/.exec(thumb.style.transform)?.[1] ?? '0')
+    if (y > maxY) maxY = y
+    assert.equal(heightValue, '36px')
+  }
+  assert.equal(heightWrites, writesAfterInit, 'equal-height QUICK_EDGES glide must not rewrite height on every frame')
+  assert.ok(maxY <= 152.05, `critically damped thumb should not overshoot target (got ${maxY})`)
+  assert.equal(thumb.style.transform, 'translateY(152px)')
+
+  // First rAF arriving with a VSync timestamp earlier than performance.now() must not
+  // stall at 1ms (~0.05px); it advances a real frame immediately.
+  clock = 1000.8
+  select(0)
+  const firstFns = [...queued.values()]
+  queued.clear()
+  for (const fn of firstFns) fn(998.4)
+  const yAfterFirst = Number.parseFloat(/translateY\(([^)]+)px\)/.exec(thumb.style.transform)?.[1] ?? '152')
+  assert.ok(yAfterFirst < 145, `first frame should make real progress instead of stalling (got ${yAfterFirst})`)
 })
