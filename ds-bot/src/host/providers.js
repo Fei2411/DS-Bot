@@ -175,6 +175,26 @@ function compatForRoute(id, profile) {
   return { ...defaults, ...current }
 }
 
+function catalogRoute(section, profile) {
+  const api = profile?.api ?? 'openai-completions'
+  const adaptive = api === 'anthropic-messages' && Object.values(section?.schema?.refs ?? {})
+    .some(node => node?.dict?.forceAdaptiveThinking !== undefined)
+  return { api, allowed: routeOptions(section, 'reasoning'), adaptive, routeAdaptive: profile?.compat?.forceAdaptiveThinking }
+}
+
+// Earlier versions tracked only the level map. A wrapped entry also owns the
+// per-model adaptive switch, so a route-level override can take precedence later.
+const trackedLevels = entry => entry?.levels ?? entry
+function withAdaptive(model, previous, enable) {
+  if (enable) return model.compat?.forceAdaptiveThinking === true ? model
+    : { ...model, compat: { ...model.compat, forceAdaptiveThinking: true } }
+  if (!previous?.adaptive || model.compat?.forceAdaptiveThinking !== true) return model
+  const next = { ...model, compat: { ...model.compat } }
+  delete next.compat.forceAdaptiveThinking
+  if (!Object.keys(next.compat).length) delete next.compat
+  return next
+}
+
 export function install(rt) {
   const { ctx } = rt
 
@@ -207,28 +227,44 @@ export function install(rt) {
     await rt.save?.()
   }
 
-  // A saved map is user-owned unless it still matches our last write. This
-  // preserves disabled levels and custom wire spellings across catalog updates.
-  async function enrichModel(provider, api, model, changes, allowed, useCatalog = false) {
+  async function lookupEfforts(id, route, model, previous) {
+    const modelAdaptive = previous?.adaptive && model?.compat?.forceAdaptiveThinking === true
+      ? undefined : model?.compat?.forceAdaptiveThinking
+    const adaptive = route.adaptive && (modelAdaptive ?? route.routeAdaptive ?? true)
+    // Without adaptive thinking the pinned Anthropic adapter sends the same token
+    // budget for High, Xhigh and Max. Only advertise distinct settings in that mode.
+    const allowed = route.api === 'anthropic-messages' && !adaptive
+      ? (route.allowed ?? THINKING_LEVELS).filter(level => level !== 'xhigh' && level !== 'max') : route.allowed
+    const levels = await catalogEfforts(id, route.api, allowed)
+    return { levels, ownAdaptive: adaptive && modelAdaptive === undefined && route.routeAdaptive === undefined }
+  }
+
+  // A saved map is user-owned unless it still matches our last write.
+  async function enrichModel(provider, route, model, changes, useCatalog = false) {
     const id = typeof model === 'string' ? model : model.id
     const ref = provider + '/' + id
     const saved = model.reasoningEfforts
-    const managed = trackedEfforts()[ref]
+    const previous = trackedEfforts()[ref]
+    const managed = trackedLevels(previous)
     if (saved !== undefined && !useCatalog && !isDeepStrictEqual(saved, managed)) {
       if (managed !== undefined) changes.set(ref, undefined)
       return model
     }
-    const levels = await catalogEfforts(id, api, allowed)
-    if (levels === null && managed !== undefined && isDeepStrictEqual(saved, managed)) {
+    const { levels, ownAdaptive } = await lookupEfforts(id, route, model, previous)
+    if (levels === undefined) return model
+    if (levels === null) {
+      if (managed === undefined) return model
       changes.set(ref, undefined)
-      const next = { ...model }
+      const next = { ...withAdaptive(model, previous, false) }
       delete next.reasoningEfforts
       return next
     }
-    if (!levels) return model
-    if (!isDeepStrictEqual(managed, levels)) changes.set(ref, levels)
-    if (isDeepStrictEqual(saved, levels)) return model
-    return { ...(typeof model === 'string' ? { id } : model), reasoningEfforts: levels }
+    const record = ownAdaptive ? { levels, adaptive: true } : levels
+    if (!isDeepStrictEqual(previous, record)) changes.set(ref, record)
+    const current = typeof model === 'string' ? { id } : model
+    const next = withAdaptive(current, previous, ownAdaptive)
+    if (isDeepStrictEqual(saved, levels) && current === next) return model
+    return { ...next, reasoningEfforts: levels }
   }
 
   let knownCache
@@ -269,13 +305,13 @@ export function install(rt) {
     if (!userProviders || typeof userProviders !== 'object') return
     const ops = []
     const changes = new Map()
-    const allowed = routeOptions(section, 'reasoning')
     for (const [id, profile] of Object.entries(userProviders)) {
       const nextCompat = compatForRoute(id, profile)
       if (nextCompat !== undefined) ops.push({ op: 'set', path: ['providers', id, 'compat'], value: nextCompat })
       if (id === CHATGPT_PROVIDER || !rt.home || rt.readOnly?.() || rt.hasLoaded?.() === false || !Array.isArray(profile?.models) ||
           !profile.baseURL || entryOf(id)?.declared !== true) continue
-      const models = await Promise.all(profile.models.map(model => enrichModel(id, profile.api ?? 'openai-completions', model, changes, allowed)))
+      const route = catalogRoute(section, profile)
+      const models = await Promise.all(profile.models.map(model => enrichModel(id, route, model, changes)))
       if (models.some((model, i) => model !== profile.models[i])) {
         ops.push({ op: 'set', path: ['providers', id, 'models'], value: models })
       }
@@ -419,7 +455,8 @@ export function install(rt) {
     const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI)), allowed) : {}
     const changes = new Map()
     if (custom) {
-      profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, profile.api, model, changes, allowed)))
+      const route = catalogRoute(map.get(PI_AI), profile)
+      profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, route, model, changes)))
     }
     if (keyed) profile.apiKeyEnv = ref
     await settings.mutate(PI_AI, [{ op: 'set', path: entry?.settingsPath ?? ['providers', provider], value: profile }], map.get(PI_AI)?.revision)
@@ -474,11 +511,14 @@ export function install(rt) {
     const models = await ctx.llm.discoverModels(PI_AI, request)
     const known = request.provider === undefined ? await knownCatalogModels() : undefined
     const existing = new Map((Array.isArray(profile?.models) ? profile.models : []).map(m => [typeof m === 'string' ? m : m.id, m]))
-    const allowed = routeOptions(map.get(PI_AI), 'reasoning')
+    const route = catalogRoute(map.get(PI_AI), { ...profile, api: request.api })
     return Promise.all(models.slice(0, MAX_MODELS).map(async model => {
-      const levels = provider !== CHATGPT_PROVIDER && (!entry || entry.declared === true) ? await catalogEfforts(model.id, request.api ?? 'openai-completions', allowed) : undefined
-      const saved = existing.get(model.id)?.reasoningEfforts
-      const manual = saved !== undefined && !isDeepStrictEqual(saved, trackedEfforts()[provider + '/' + model.id])
+      const entryModel = existing.get(model.id)
+      const previous = trackedEfforts()[provider + '/' + model.id]
+      const { levels } = provider !== CHATGPT_PROVIDER && (!entry || entry.declared === true)
+        ? await lookupEfforts(model.id, route, entryModel, previous) : {}
+      const saved = entryModel?.reasoningEfforts
+      const manual = saved !== undefined && !isDeepStrictEqual(saved, trackedLevels(previous))
 
       const match = lookupKnownModel(known, model.id)
       const contextWindow = model.contextWindow ?? match?.contextWindow
@@ -522,7 +562,7 @@ export function install(rt) {
       .map(model => [typeof model === 'string' ? model : model?.id, model])
       .filter(([id]) => typeof id === 'string' && id !== ''))
     const changes = new Map()
-    const allowed = routeOptions(section, 'reasoning')
+    const route = catalogRoute(section, profile)
     const openaiEntry = provider === CHATGPT_PROVIDER ? entryOf('openai') : undefined
     const openaiProfile = openaiEntry ? profileOf(openaiEntry, map) : undefined
     const hasOfficialOpenAI = provider === CHATGPT_PROVIDER
@@ -534,7 +574,7 @@ export function install(rt) {
       const old = current.get(id)
       let saved = typeof old === 'string' ? { id: old } : old
       const ref = provider + '/' + id
-      const managed = trackedEfforts()[ref]
+      const managed = trackedLevels(trackedEfforts()[ref])
       if (provider === CHATGPT_PROVIDER && managed !== undefined) {
         // Older versions also filled the plan route from the custom gateway catalog.
         changes.set(ref, undefined)
@@ -554,13 +594,13 @@ export function install(rt) {
         fallbackEfforts ??= fallbackChatGPTReasoningEfforts(id)
       }
       const mergedInput = { ...saved, ...incoming, ...(fallbackEfforts !== undefined ? { reasoningEfforts: fallbackEfforts } : {}) }
-      const next = modelEntry(mergedInput, known, allowed)
+      const next = modelEntry(mergedInput, known, route.allowed)
       const combined = { ...saved, ...next }
       // If the caller explicitly supplied reasoningEfforts that normalized to nothing
       // (e.g. invalid keys or off-only), do not resurrect a stale saved.reasoningEfforts.
       if (incomingHasEfforts && next.reasoningEfforts === undefined) delete combined.reasoningEfforts
       if (provider === CHATGPT_PROVIDER || entry.declared !== true) return combined
-      return enrichModel(provider, profile.api ?? 'openai-completions', combined, changes, allowed, incoming.useCatalogLevels === true)
+      return enrichModel(provider, route, combined, changes, incoming.useCatalogLevels === true)
     }))
     const kept = new Set(models.map(model => model.id))
     for (const id of current.keys()) {

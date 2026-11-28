@@ -403,6 +403,9 @@ test('a discovered ID gains catalog levels, preserves manual mappings, and can f
   await writeFile(join(home, 'model-catalog-codex.json'), JSON.stringify({
     updated: Date.now(), rows: [[model, ['low', 'high', 'max', 'ultra']]],
   }))
+  await writeFile(join(home, 'model-catalog-vendor.json'), JSON.stringify({
+    version: 2, updated: Date.now(), rows: [['xai/grok-test', ['low', 'high']]],
+  }))
   const { rt } = dsh({ home })
   const settings = rt.ctx.get('settings')
   const route = () => settings.describe().at(-1)
@@ -424,6 +427,34 @@ test('a discovered ID gains catalog levels, preserves manual mappings, and can f
   models[0].useCatalogLevels = true
   await rt.saveProviderModels({ provider: 'relay', models })
   assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, expected)
+})
+
+test('Claude gateway levels enable adaptive thinking per model and respect explicit settings', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dsbot-adaptive-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const id = 'claude-opus-5'
+  const levels = ['low', 'medium', 'high', 'max']
+  await writeFile(join(home, 'model-catalog-vendor.json'), JSON.stringify({
+    version: 2, updated: Date.now(), rows: [['claude/' + id, levels], ['claude/old', []]],
+  }))
+  const { rt } = dsh({ home })
+  const settings = rt.ctx.get('settings')
+  const baseDescribe = settings.describe
+  settings.describe = () => baseDescribe().map(s => s.ns === 'llm-pi-ai' ? { ...s, schema: PiAiConfig.toJSON() } : s)
+  const section = () => settings.describe().at(-1)
+  const models = () => section().user.providers.relay.models
+  await rt.addProvider({ custom: true, provider: 'relay', api: 'anthropic-messages', baseURL: 'https://relay.example', models: [id, 'old'] })
+  assert.deepEqual(models()[0].compat, { forceAdaptiveThinking: true })
+  assert.deepEqual(Object.keys(models()[0].reasoningEfforts), levels)
+  assert.equal(models()[1].compat, undefined)
+  await settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', 'relay', 'compat'], value: { forceAdaptiveThinking: false } }], section().revision)
+  await rt.saveProviderModels({ provider: 'relay', models: [id, 'old'] })
+  assert.equal(models()[0].compat, undefined)
+  assert.deepEqual(Object.keys(models()[0].reasoningEfforts), ['low', 'medium', 'high'])
+  await settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', 'relay', 'models', '0', 'compat'], value: { forceAdaptiveThinking: true } }], section().revision)
+  await rt.saveProviderModels({ provider: 'relay', models: [id, 'old'] })
+  assert.deepEqual(models()[0].compat, { forceAdaptiveThinking: true })
+  assert.deepEqual(Object.keys(models()[0].reasoningEfforts), levels)
 })
 
 test('saving models normalizes incoming reasoningEfforts and never resurrects stale efforts on invalid or off-only input', async () => {
