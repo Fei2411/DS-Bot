@@ -401,6 +401,15 @@ export function install(rt) {
       // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.
       if (bot.computer !== undefined && (bot.computer === null || typeof bot.computer !== 'object' || Array.isArray(bot.computer))) delete bot.computer
       else if (bot.computer !== undefined && (bot.computer.apps === null || typeof bot.computer.apps !== 'object' || Array.isArray(bot.computer.apps))) delete bot.computer.apps
+      else if (bot.computer?.apps !== undefined) {
+        for (const [key, entry] of Object.entries(bot.computer.apps)) {
+          if (key.trim() === '' || entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            delete bot.computer.apps[key]
+            migrated = true
+          }
+        }
+        if (Object.keys(bot.computer.apps).length === 0) delete bot.computer.apps
+      }
       // LEGACY: Bots saved with a lab ran on that lab's default model; the model they
       // last ran on becomes their own, so dropping the lab changes nothing for them.
       if ('lab' in bot) {
