@@ -78,7 +78,9 @@ export function base64Of(bytes) {
 const captureError = (kind, cause) => Object.assign(new Error(kind), { kind, cause })
 
 // One microphone recording. level() reads the live loudness (0–1); finish() returns
-// the WAV, or null when nothing was recorded; cancel() drops it.
+// the WAV, or null when nothing was recorded; cancel() drops it. finish() also
+// takes a start offset in seconds: a barge-in hit keeps the moment the user began
+// talking, which is slightly before the hit, and transcribes from there.
 export async function openCapture() {
   const devices = navigator.mediaDevices
   if (!devices?.getUserMedia || typeof MediaRecorder === 'undefined') throw captureError('unavailable')
@@ -124,7 +126,7 @@ export async function openCapture() {
       return Math.min(1, Math.sqrt(sum / frame.length) * 4)
     },
     cancel: close,
-    async finish(maxSeconds) {
+    async finish(maxSeconds, fromSeconds = 0) {
       if (closed || recorder.state === 'inactive') { close(); return null }
       try {
         await new Promise((resolve) => { recorder.onstop = resolve; recorder.stop() })
@@ -132,12 +134,13 @@ export async function openCapture() {
         const blob = new Blob(chunks, { type: recorder.mimeType })
         if (blob.size === 0) return null
         const decoded = await audio.decodeAudioData(await blob.arrayBuffer())
-        const length = Math.max(1, Math.floor(Math.min(decoded.duration, maxSeconds) * 16000))
+        const from = Math.max(0, Math.min(fromSeconds, Math.max(0, decoded.duration - 0.05)))
+        const length = Math.max(1, Math.floor(Math.min(decoded.duration - from, maxSeconds) * 16000))
         const offline = new OfflineAudioContext(1, length, 16000)
         const source = offline.createBufferSource()
         source.buffer = decoded
         source.connect(offline.destination)
-        source.start()
+        source.start(0, from)
         return waveBytes((await offline.startRendering()).getChannelData(0))
       } finally { close() }
     },

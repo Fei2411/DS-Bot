@@ -8,6 +8,7 @@ import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 import { openCapture, preparationStep, speechCatalog, transcribeWave, turnDetector } from './speech.js'
 import { createSpeechPlayer, replyVoice, settleSpeech } from './speech-playback.js'
+import { useVoiceBarge } from './voice-barge.js'
 
 // Voice chat: listen, send what the user said, read the Bot's answer aloud, listen
 // again. With DSH's Voice Input plugin on, its recognizer hears the user: one
@@ -155,6 +156,10 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
   // Which cloud speech owns 'speaking': a say replaced or stopped resolves late
   // and must not touch the phase or write a note under a newer speech.
   const speechSeq = useRef(0)
+  // The barge-in listener's shared state: whether it may still run this pane,
+  // how many transcripts it has dropped as the Bot's own voice, and where the
+  // reading had got to when it was interrupted.
+  const barge = useRef({ armed: true, fails: 0, hit: false, pos: 0, base: 0, start: 0, boundary: false })
   const stopSpeech = () => {
     speechSeq.current += 1
     window.speechSynthesis?.cancel()
@@ -295,8 +300,13 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         // must not overlap this one.
         window.speechSynthesis?.cancel()
         // The channel takes the whole request body; the player calls per chunk.
-        player.current ??= createSpeechPlayer((text, voice, signal) => actions.synthesizeSpeech({ text, voice }, signal))
+        player.current ??= createSpeechPlayer((text2, voice, signal) => actions.synthesizeSpeech({ text: text2, voice }, signal))
         const own = ++speechSeq.current
+        barge.current.hit = false
+        barge.current.boundary = false
+        barge.current.pos = 0
+        barge.current.base = 0
+        barge.current.start = performance.now()
         setPhase('speaking')
         void settleSpeech(player.current.say(spoken, cloud), () => speechSeq.current === own, {
           failed: () => setNote(t("Couldn't read the reply")),
@@ -310,8 +320,24 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
       player.current?.stop()
       const utterance = new SpeechSynthesisUtterance(spoken)
       utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? 'zh-CN' : 'en-US'
-      utterance.onend = () => setPhase(current => (current === 'speaking' ? 'listening' : current))
+      // Where the reading got to, character by character: the barge-in guard
+      // matches a transcript against that stretch of the reply.
+      utterance.onboundary = (event) => {
+        barge.current.boundary = true
+        barge.current.pos = event.charIndex || 0
+      }
+      // A reading that was stopped fires `end` as well; without this the phase
+      // would fall to listening and tear down the interruption's recording.
+      utterance.onend = () => {
+        if (barge.current.hit) return
+        setPhase(current => (current === 'speaking' ? 'listening' : current))
+      }
       utterance.onerror = utterance.onend
+      barge.current.hit = false
+      barge.current.boundary = false
+      barge.current.pos = 0
+      barge.current.base = 0
+      barge.current.start = performance.now()
       setPhase('speaking')
       window.speechSynthesis.cancel()
       window.speechSynthesis.speak(utterance)
@@ -327,6 +353,8 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         speak(text)
       })
   }, [phase, running, lastReply])
+  // Talking over the reading stops it and submits what was said instead.
+  useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech, submit, setPhase, setNote, turn, ctl: transcribeCtl })
   // Unmount (close, or the pane's key moving to another Session) invalidates
   // every pending completion before it settles: the late transcript drops and
   // the say's then is stale before its state writes would land.
