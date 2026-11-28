@@ -43,6 +43,10 @@ const loadThoughtLevel = process.argv.includes('--load-thought-level')
 const agyCatalog = process.argv.includes('--agy-catalog')
 const degradedCatalog = process.argv.includes('--degraded-catalog')
 const emitConfigUpdate = process.argv.includes('--emit-config-update')
+// `--grok-thoughts` shapes the catalog like grok acp does: the shared thought_level
+// descends xhigh → low, and each model carries its own `_meta.reasoningEfforts`,
+// fake-small having no xhigh, like grok-4.5.
+const grokThoughts = process.argv.includes('--grok-thoughts')
 // Marks each emitted config_option_update so a test can wait for it exactly.
 const noticeFile = process.argv.find(arg => arg.startsWith('--notice-file='))?.slice('--notice-file='.length)
 const modelResetsThought = process.argv.includes('--model-resets-thought')
@@ -330,9 +334,25 @@ async function runPrompt(session, prompt, requestId) {
     finish(`allowed via ${outcome.optionId}; tool said: ${(result.content ?? []).map(block => block.text).join('')}`)
     return
   }
+  if (text.includes('meta-tools')) {
+    // Grok's discovery plumbing: search_tool/use_tool ride plain tool_call updates,
+    // the successful ones completing silently; use_tool fails once. A scheduler
+    // call of the CLI's own is real work and stays visible. search_tool's query
+    // arrives with a second update, the way a CLI completes a call's input after
+    // its first line.
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'meta-1', title: 'search_tool', name: 'search_tool', status: 'in_progress' })
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'meta-1', rawInput: { query: 'dsbot schedule_create' }, status: 'in_progress' })
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'meta-1', status: 'completed' })
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'meta-2', title: 'use_tool', name: 'use_tool', rawInput: { name: 'dsbot__schedule_create' }, status: 'in_progress' })
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'meta-2', status: 'failed' })
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'work-1', title: 'scheduler_create', name: 'scheduler_create', rawInput: { title: 'standup' }, status: 'in_progress' })
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'work-1', status: 'completed' })
+    finish('meta tools done')
+    return
+  }
   if (text.includes('call-tool') || text.includes('two-calls')) {
     const server = session.mcp
-    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'mcp dsbot message_bot', kind: 'other', status: 'in_progress' })
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'mcp dsbot message_bot', kind: 'other', status: 'in_progress', _meta: { serverName: 'dsbot' } })
     try {
       const calls = text.includes('two-calls') ? 2 : 1
       const results = await Promise.all([...Array(calls)].map((_, i) => mcpCall(server, 'message_bot', { to: 'Chief', message: `hi ${i}` })))
@@ -402,9 +422,10 @@ process.stdin.on('data', (chunk) => {
         saveSaved()
         // Devin lists its commands before it answers session/new.
         update(session.id, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'status', description: 'Show status' }, ...(listsCompact ? [{ name: 'compact', description: 'Force conversation compaction' }] : [])] })
+        const grokDescending = [{ value: 'xhigh', name: 'XHigh' }, { value: 'high', name: 'High' }, { value: 'medium', name: 'Medium' }, { value: 'low', name: 'Low' }]
         const configOptions = agyCatalog ? agyConfigOptions(session) : [
           ...(legacyModels ? [] : [{ id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] }]),
-          ...(thoughtLevels ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: defaultThought, options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
+          ...(thoughtLevels || grokThoughts ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: grokThoughts ? 'high' : defaultThought, options: grokThoughts ? grokDescending : [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
           { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
         ]
         const models = legacyModels ? {
@@ -416,6 +437,11 @@ process.stdin.on('data', (chunk) => {
           // The degraded snapshot: the config lists two bases, the variants stop
           // at them, exactly what a mid-build catalog fetch returns.
           availableModels: agyVariantEntries,
+        } : grokThoughts ? {
+          availableModels: [
+            { modelId: 'fake-large', name: 'Fake Large', _meta: { reasoningEfforts: [{ id: 'xhigh', label: 'XHigh' }, { id: 'high', label: 'High' }, { id: 'medium', label: 'Medium' }, { id: 'low', label: 'Low' }] } },
+            { modelId: 'fake-small', name: 'Fake Small', _meta: { reasoningEfforts: [{ id: 'high', label: 'High' }, { id: 'medium', label: 'Medium' }, { id: 'low', label: 'Low' }] } },
+          ],
         } : thoughtLevels ? {
           availableModels: [
             { modelId: 'fake-large-low', name: 'Fake Large (Low)' },

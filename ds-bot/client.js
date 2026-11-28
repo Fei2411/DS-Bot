@@ -1274,6 +1274,8 @@ var JA = {
   "Message actions": "メッセージの操作",
   "Download": "ダウンロード",
   "Thought it through": "思考プロセス",
+  "1 action": "1 件の操作",
+  "{count} actions": "{count} 件の操作",
   "Earlier messages": "以前のメッセージ",
   "Loading earlier messages…": "以前のメッセージを読み込み中…",
   "Couldn’t load earlier messages · Retry": "以前のメッセージを読み込めませんでした · 再試行",
@@ -4926,6 +4928,8 @@ var KO = {
   "Message actions": "메시지 작업",
   Download: "다운로드",
   "Thought it through": "사고 과정",
+  "1 action": "작업 1개",
+  "{count} actions": "작업 {count}개",
   "Earlier messages": "이전 메시지",
   "Loading earlier messages…": "이전 메시지 불러오는 중…",
   "Couldn’t load earlier messages · Retry": "이전 메시지를 불러오지 못했습니다 · 재시도",
@@ -8594,6 +8598,8 @@ var ES = {
   "Message actions": "Acciones del mensaje",
   Download: "Descargar",
   "Thought it through": "Razonamiento",
+  "1 action": "1 acción",
+  "{count} actions": "{count} acciones",
   "Earlier messages": "Mensajes anteriores",
   "Loading earlier messages…": "Cargando mensajes anteriores…",
   "Couldn’t load earlier messages · Retry": "No se pudieron cargar los mensajes anteriores · Reintentar",
@@ -12233,6 +12239,8 @@ var FR = {
   "Message actions": "Actions sur le message",
   "Download": "Télécharger",
   "Thought it through": "Réflexion",
+  "1 action": "1 action",
+  "{count} actions": "{count} actions",
   "Earlier messages": "Messages précédents",
   "Loading earlier messages…": "Chargement des messages précédents…",
   "Couldn’t load earlier messages · Retry": "Impossible de charger les messages précédents · Réessayer",
@@ -15885,6 +15893,8 @@ var DE = {
   "Message actions": "Nachrichtenaktionen",
   Download: "Herunterladen",
   "Thought it through": "Gedankengang",
+  "1 action": "1 Aktion",
+  "{count} actions": "{count} Aktionen",
   "Earlier messages": "Frühere Nachrichten",
   "Loading earlier messages…": "Frühere Nachrichten werden geladen…",
   "Couldn’t load earlier messages · Retry": "Frühere Nachrichten konnten nicht geladen werden · Erneut versuchen",
@@ -19622,6 +19632,8 @@ var ZH = {
   "Message actions": "消息操作",
   Download: "下载",
   "Thought it through": "思考过程",
+  "1 action": "1 个操作",
+  "{count} actions": "{count} 个操作",
   "Earlier messages": "更早的消息",
   "Loading earlier messages…": "正在加载更早的消息…",
   "Couldn’t load earlier messages · Retry": "更早的消息没加载出来 · 重试",
@@ -27173,6 +27185,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
+.bt-agent-acts .bt-agent-activity{margin:6px 0 0;white-space:normal;max-height:140px}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
 .bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}
 .bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -37885,8 +37898,20 @@ function useEfforts(served, ref, actions, version = 0) {
   }, [ref, served?.reasoning !== void 0, actions, version]);
   return served?.reasoning ?? fetched;
 }
+var EFFORT_RANK = new Map(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"].map((id, rank) => [id, rank]));
+function orderedEfforts(efforts) {
+  if (efforts.length < 2) return efforts;
+  const rankOf = (effort) => EFFORT_RANK.get(String(effort?.id ?? "").trim().toLowerCase());
+  if (!efforts.some((effort) => rankOf(effort) !== void 0)) return efforts;
+  return efforts.map((effort, index) => ({ effort, index, rank: rankOf(effort) })).sort((a, b2) => {
+    if (a.rank !== void 0 && b2.rank !== void 0) return a.rank - b2.rank || a.index - b2.index;
+    if (a.rank !== void 0) return -1;
+    if (b2.rank !== void 0) return 1;
+    return a.index - b2.index;
+  }).map((entry) => entry.effort);
+}
 function effortStops(reasoning) {
-  const efforts = reasoning?.efforts ?? [];
+  const efforts = orderedEfforts(reasoning?.efforts ?? []);
   if (efforts.length === 0) return [];
   const hasDefault = efforts.some((effort) => effort.id === reasoning.defaultEffort);
   return hasDefault ? efforts.map((effort) => ({ effort: effort.id, label: effort.name })) : [{ effort: void 0, label: t("Default") }, ...efforts.map((effort) => ({ effort: effort.id, label: effort.name }))];
@@ -43587,10 +43612,16 @@ function turnReasoning(steps, current2) {
   if (members.findLast((step) => stepReasoning(step) !== "")?.step !== current2.step) return "";
   return members.map(stepReasoning).filter(Boolean).join("\n\n");
 }
+function turnActivity(steps, current2) {
+  const members = steps.length ? steps : [current2];
+  if (members.findLast((step) => stepActivity(step).length > 0)?.step !== current2.step) return [];
+  return members.flatMap(stepActivity);
+}
 function opensReply(steps, current2, withReasoning = true) {
   const members = steps.length ? steps : [current2];
   const reasoner = withReasoning ? members.findLast((step) => stepReasoning(step) !== "") : void 0;
-  return members.find((step) => texts(step).length > 0 || step === reasoner)?.step === current2.step;
+  const actor = withReasoning ? members.findLast((step) => stepActivity(step).length > 0) : void 0;
+  return members.find((step) => texts(step).length > 0 || step === reasoner || step === actor)?.step === current2.step;
 }
 var thinkingStep = (steps) => steps.find(thinkingLive);
 var thinkingLive = (step) => step.status === "running" && texts(step).length === 0 && step.blocks.some((block) => block.kind === "reasoning");
@@ -43607,6 +43638,23 @@ var isActivity = (line) => line.startsWith(ACTIVITY);
 var reasoningText = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => visibleReasoning(block.text)).join("\n");
 var stepReasoning = (step) => reasoningText(step).split("\n").filter((line) => !isActivity(line)).join("\n").trim();
 var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => line.slice(ACTIVITY.length).trim()).filter(Boolean);
+function stepLiveActivity(step) {
+  const blocks2 = step?.blocks ?? [];
+  for (let index = blocks2.length - 1; index >= 0; index -= 1) {
+    const block = blocks2[index];
+    if (block?.kind === "tool-call") return void 0;
+    if (block?.kind === "text") {
+      if (String(block.text ?? "").trim() !== "") return void 0;
+      continue;
+    }
+    if (block?.kind !== "reasoning") continue;
+    const lines = visibleReasoning(String(block.text ?? "")).split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+    const last = lines.at(-1);
+    return isActivity(last) ? last.slice(ACTIVITY.length).trim() || void 0 : void 0;
+  }
+  return void 0;
+}
 
 // src/shared/group-replies.js
 var HANDLE_PREFIX = /^\s*§\d+§\s*/;
@@ -43722,6 +43770,46 @@ var presentedFiles = (value) => (Array.isArray(value) ? value : []).filter((file
   ...Number.isInteger(file.seq) ? { seq: file.seq } : {},
   ...Number.isInteger(file.index) ? { index: file.index } : {}
 }));
+
+// src/shared/meta-tools.js
+var META_TOOL_NAMES = Object.freeze([
+  "search_tool",
+  "search_tools",
+  "use_tool",
+  "list_tools",
+  "tool_search",
+  "toolsearch",
+  "load_tool",
+  "discover_tool",
+  "discover_tools"
+]);
+var META_TOOL_SET = new Set(META_TOOL_NAMES);
+function bareToolName(name) {
+  const text = String(name ?? "").trim();
+  if (text === "") return "";
+  const withoutMcp = text.replace(/^mcp(?:__|_)/i, "");
+  const parts = withoutMcp.split(/__|[:/]/).map((part) => part.trim()).filter((part) => part !== "");
+  let base = parts.length > 0 ? parts.at(-1) : "";
+  if (base.toLowerCase().startsWith("dsbot_") && base.toLowerCase() !== "dsbot") base = base.slice("dsbot_".length);
+  return base;
+}
+function metaToolName(name) {
+  const base = bareToolName(name).toLowerCase();
+  return META_TOOL_SET.has(base) ? base : void 0;
+}
+function metaToolTextName(text) {
+  let value = String(text ?? "").trim();
+  if (value === "") return void 0;
+  value = value.replace(/^mcp(?:__|_)/i, "");
+  const prefixed = /^([^\s:()[\]]+?)(?:__|:|\/)/.exec(value);
+  if (prefixed !== null) {
+    const prefixName = metaToolName(prefixed[1]);
+    if (prefixName !== void 0) return prefixName;
+    value = value.slice(prefixed[0].length).trim();
+  }
+  const [first = ""] = value.split(/[\s:()[\]]+/);
+  return metaToolName(first);
+}
 
 // src/client/fold.js
 var import_react35 = require("react");
@@ -45179,6 +45267,57 @@ function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }
     (0, import_react39.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure }, text)
   );
 }
+function AgentActivityRow({ lines, viewKey }) {
+  const box = (0, import_react39.useRef)(null);
+  const view = (0, import_react39.useRef)(lruGet(rowViews, viewKey));
+  const atEnd = (0, import_react39.useRef)(view.current?.atEnd ?? true);
+  const [open, setOpen] = (0, import_react39.useState)(view.current?.open ?? false);
+  const [fade, setFade] = (0, import_react39.useState)(void 0);
+  const remember = (patch) => {
+    if (viewKey !== void 0) lruSet(rowViews, viewKey, { ...rowViews.get(viewKey), ...patch }, MAX_ROW_VIEWS);
+  };
+  const measure = () => {
+    const el = box.current;
+    if (!el) return;
+    atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+    remember({ atEnd: atEnd.current, top: el.scrollTop });
+    const above = el.scrollTop > 0;
+    setFade(above && !atEnd.current ? "both" : above ? "top" : !atEnd.current ? "bottom" : void 0);
+  };
+  const toggle = (event) => {
+    const next = event.currentTarget.open;
+    if (next) atEnd.current = true;
+    remember({ open: next });
+    setOpen(next);
+  };
+  const signature = lines.join("\n");
+  (0, import_react39.useLayoutEffect)(() => {
+    if (!open) return;
+    const el = box.current;
+    if (!el) return;
+    const restore = view.current;
+    view.current = void 0;
+    if (atEnd.current) el.scrollTop = el.scrollHeight;
+    else if (restore?.top !== void 0) el.scrollTop = restore.top;
+    measure();
+  }, [signature, open]);
+  const title = lines.length === 1 ? t("1 action") : t("{count} actions", { count: lines.length });
+  return (0, import_react39.createElement)(
+    "details",
+    { className: "bt-think bt-agent-acts", open, onToggle: toggle },
+    (0, import_react39.createElement)("summary", null, title),
+    (0, import_react39.createElement)(
+      "div",
+      { ref: box, className: "bt-think-text bt-agent-activity", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, onScroll: measure },
+      lines.map((line, index) => (0, import_react39.createElement)(
+        "div",
+        { key: index, className: "bt-agent-act", title: line },
+        (0, import_react39.createElement)("span", { className: "bt-agent-act-mark", "aria-hidden": true }),
+        (0, import_react39.createElement)("span", { className: "bt-agent-act-text" }, activityParts(line))
+      ))
+    )
+  );
+}
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
   const tail = useTurnData?.("turn-tail");
   const location2 = node.location;
@@ -45202,16 +45341,19 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   const members = steps.length ? steps : [data];
   const shown = thinkingShown(roster.prefs);
   const reasoning = groupPart === "response" || !shown ? "" : turnReasoning(steps, data);
+  const activity = groupPart === "response" || !shown ? [] : turnActivity(steps, data);
+  const liveActivity = groupPart === "response" || !running ? void 0 : stepLiveActivity(data);
   const thinking = groupPart === "response" || !shown ? void 0 : thinkingStep(members);
   const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter((step) => step.status !== "running").length, skip: hidden || reasoning === "" });
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts2.length > 0 ? { text: true } : null);
+  useLiveNote(actions, sessionId, `agent:${node.key ?? data.seq}`, !hidden && liveActivity !== void 0 ? localActivityNote(liveActivity) : null);
   if (hidden) return (0, import_react39.createElement)(CellEmpty);
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : [];
-  const activity = groupPart === "response" ? [] : stepActivity(data);
   if (texts2.length === 0 && !reasoning && relays.length === 0 && activity.length === 0) return (0, import_react39.createElement)(CellEmpty);
   const selfId = roster.byId[sessionId]?.id ?? sessionId;
   const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[sessionId] : void 0;
-  const head = speaker !== void 0 && opensReply(steps, data, shown) && (reasoning !== "" || texts2.length > 0 && !(groupPart === "response" && shown && turnReasoning(steps, data) !== ""));
+  const hasLeadingThought = shown && (turnReasoning(steps, data) !== "" || turnActivity(steps, data).length > 0);
+  const head = speaker !== void 0 && opensReply(steps, data, shown) && (reasoning !== "" || activity.length > 0 || texts2.length > 0 && !(groupPart === "response" && hasLeadingThought));
   return (0, import_react39.createElement)(
     import_react39.Fragment,
     null,
@@ -45229,7 +45371,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       });
     }),
     head ? (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: data.time }) : null,
-    activity.length ? (0, import_react39.createElement)("div", { className: "bt-agent-activity" }, activity.map((line, index) => (0, import_react39.createElement)("div", { key: index, className: "bt-agent-act", title: line }, (0, import_react39.createElement)("span", { className: "bt-agent-act-mark", "aria-hidden": true }), (0, import_react39.createElement)("span", { className: "bt-agent-act-text" }, activityParts(line))))) : null,
+    activity.length ? (0, import_react39.createElement)(AgentActivityRow, { lines: activity, viewKey: `act:${sessionId}:${data.turn}` }) : null,
     reasoning ? (0, import_react39.createElement)(ThinkingRow, {
       text: reasoning,
       live: thinking !== void 0,
@@ -46012,10 +46154,24 @@ function toolActivity(name, arg, findBot, self) {
       return { label: phrase ? t(phrase) : null, state: toolState(name) };
   }
 }
+function localActivityNote(raw, fallbackTool) {
+  const line = String(raw ?? "").replace(/^\s*▸\s*/, "").replaceAll("`", "").replace(/\s+/g, " ").trim();
+  if (line === "") return fallbackTool ? { label: null, state: fallbackTool === "read" ? "searching" : "working" } : null;
+  const head = line.split(/[\s:()[\]]+/)[0] ?? "";
+  if (metaToolTextName(line) !== void 0) return { label: null, state: "working" };
+  if (/^(?:web_?search|search_?web)$/i.test(head)) return { label: t("Searching online"), state: "searching" };
+  if (/^(?:fetch|web_?fetch|browse|browser)$/i.test(head)) return { label: t("Reading a page"), state: "searching" };
+  if (/^(?:run|shell|bash|pwsh|powershell|exec|command|terminal)$/i.test(head)) return { label: t("Running shell commands"), state: "working" };
+  if (/^(?:read|view|cat|open|notebookread)$/i.test(head)) return { label: t("Opening a file"), state: "searching" };
+  if (/^(?:search|grep|glob|list|ls|find|list_dir)$/i.test(head)) return { label: t("Looking through files"), state: "searching" };
+  if (/^(?:edit|write|patch|apply|replace|search_replace|delete|move|update)$/i.test(head)) return { label: t("Writing changes"), state: "working" };
+  return { label: null, state: fallbackTool === "read" ? "searching" : "working" };
+}
 function workPhrase(doing) {
   const { tool, said, note, target, switching, folder } = typeof doing === "string" ? { tool: doing } : doing ?? {};
   if (switching) return folder === true ? t("Switching working folder") : t("Moving to a fresh conversation");
-  const own = (said || note)?.replace(/[\s.。…]+$/u, "");
+  const safeNote = typeof note === "string" && metaToolTextName(note.trim()) !== void 0 ? void 0 : note;
+  const own = (said || safeNote)?.replace(/[\s.。…]+$/u, "");
   if (own) return own;
   if (!tool) return t("Thinking about it");
   const label = toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
@@ -47366,6 +47522,12 @@ var import_react_dom8 = require("react-dom");
 var PHRASE_HOLD_MS = 800;
 var drawPhrase = (pool) => t(pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))]);
 var rowVisible = ({ running, streaming, tools, relaying, bot, room: room2 }) => running && (!streaming || tools.length > 0) && !relaying && (bot !== void 0 || room2 !== void 0);
+function pickActivity({ tools, localNote, localAt = 0, streaming = false }) {
+  const chatTool = tools.at(-1);
+  const hostTool = localNote && (!streaming || tools.length > 0) ? { ...localNote, at: localAt, source: "local" } : void 0;
+  if (hostTool && (!chatTool || hostTool.at > (chatTool.at ?? 0))) return hostTool;
+  return chatTool ? { ...chatTool, source: "tool" } : void 0;
+}
 var freshInputAt = (submissions, steeredAt) => Math.max(
   0,
   steeredAt ?? 0,
@@ -47524,16 +47686,32 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: us
     const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
   }) ?? 0;
+  const localWorkKey = useWork?.((work) => {
+    if (!running || bot === void 0) return "";
+    const entry = work.bots?.[bot.id];
+    if (!entry || entry.switching === true || entry.roomId !== void 0) return "";
+    if (entry.tool !== "read" && entry.tool !== "cli") return "";
+    return JSON.stringify({ tool: entry.tool, note: entry.note ?? "" });
+  }) ?? "";
+  const localSeen = (0, import_react41.useRef)({ key: "", at: 0 });
+  if (localSeen.current.key !== localWorkKey) {
+    localSeen.current = { key: localWorkKey, at: localWorkKey ? Date.now() : 0 };
+  }
+  const localNote = (0, import_react41.useMemo)(() => {
+    if (!localWorkKey) return null;
+    const parsed = JSON.parse(localWorkKey);
+    return localActivityNote(parsed.note, parsed.tool);
+  }, [localWorkKey]);
   const entries2 = (0, import_react41.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
   const streaming = entries2.some((entry) => entry.text);
   const tools = entries2.filter((entry) => !entry.text).sort((a, b2) => a.at - b2.at);
   const relaying = tools.some((entry) => entry.relay);
-  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools, relaying, bot, room: room2 });
-  const tool = tools.at(-1);
+  const selected = pickActivity({ tools, localNote, localAt: localSeen.current.at, streaming });
+  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools: selected ? [selected] : [], relaying, bot, room: room2 });
   const inputRef = (0, import_react41.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES2.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES2.thinking, state: "thinking" };
+  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (selected?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES2.thinking, state: "thinking" } : selected ? { key: selected.label ? `${selected.source}:${selected.label}` : `${selected.source}:working`, label: selected.label, pool: PHRASES2.working, state: selected.state ?? "working" } : { key: "thinking", pool: PHRASES2.thinking, state: "thinking" };
   const [shown, setShown] = (0, import_react41.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react41.useRef)("thinking");
@@ -51282,6 +51460,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [agentModel, setAgentModel] = (0, import_react50.useState)("");
   const [ownLook, setOwnLook] = (0, import_react50.useState)(false);
   const [effort, setEffort] = (0, import_react50.useState)(void 0);
+  const [agentEffort, setAgentEffort] = (0, import_react50.useState)(void 0);
   const [agentPreset, setAgentPreset] = (0, import_react50.useState)(null);
   const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions);
   const [busy, setBusy] = (0, import_react50.useState)(false);
@@ -51291,6 +51470,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [reading, readModels] = useAgentModels(actions);
   const local = mode === "local";
   const chosen = local ? agentModel : model;
+  const chosenEffort = local ? agentEffort : effort;
   useEscape(onBack);
   const fallbackName = freshBotName(roster, t("New Bot"));
   const finalName = name.trim() || fallbackName;
@@ -51302,7 +51482,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     setError("");
     setBusy(true);
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? void 0 : effort, brief, agentPreset: local ? void 0 : agentPreset, ownLook, sectionId: start?.sectionId }));
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: chosenEffort, brief, agentPreset: local ? void 0 : agentPreset, ownLook, sectionId: start?.sectionId }));
       onCreated(bot);
     } catch (failure) {
       setError(failure?.message ?? String(failure));
@@ -51315,7 +51495,11 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     avatarImage(file).then(setImage, (failure) => setError(failure?.message ?? String(failure)));
   };
   const pickAgent = (agent) => {
-    setAgentModel(`${agent.route}/default`);
+    const next = `${agent.route}/default`;
+    if (next !== agentModel) {
+      setAgentModel(next);
+      setAgentEffort(void 0);
+    }
     readModels(agent.route);
   };
   const worn = local && chosen !== "" && !ownLook ? agentAvatar(routeOf(chosen))?.image : void 0;
@@ -51407,14 +51591,19 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
       "div",
       { className: "bt-field" },
       (0, import_react50.createElement)("span", { className: "bt-field-label" }, t("Model"), local && reading ? (0, import_react50.createElement)(ReadingModels) : null),
-      (0, import_react50.createElement)(ModelMenu, { bot: { id: "new-bot", name: finalName, model: chosen || void 0, effort: local ? void 0 : effort }, roster, actions, wide: true, onPick: (ref) => {
+      (0, import_react50.createElement)(ModelMenu, { bot: { id: "new-bot", name: finalName, model: chosen || void 0, effort: chosenEffort }, roster, actions, wide: true, onPick: (ref) => {
         if (local) {
-          setAgentModel(ref);
+          if (ref !== agentModel) {
+            setAgentModel(ref);
+            setAgentEffort(void 0);
+          }
           return;
         }
-        setModel(ref);
-        setEffort(void 0);
-      }, onPickEffort: (picked) => setEffort(picked ?? null) }),
+        if (ref !== model) {
+          setModel(ref);
+          setEffort(void 0);
+        }
+      }, onPickEffort: (picked) => local ? setAgentEffort(picked ?? null) : setEffort(picked ?? null) }),
       (0, import_react50.createElement)("span", { className: "bt-note" }, chosen ? t("The Bot runs on this model. You can change it later in its details.") : modelsFor(roster.models).length > 0 ? t("Pick a model here, or the Bot asks for one in its chat.") : t("Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later."))
     ) : null,
     !local ? (0, import_react50.createElement)(

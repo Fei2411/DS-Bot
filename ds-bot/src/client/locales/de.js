@@ -1155,6 +1155,8 @@ export const DE = {
   'Message actions': 'Nachrichtenaktionen',
   Download: 'Herunterladen',
   'Thought it through': 'Gedankengang',
+  '1 action': '1 Aktion',
+  '{count} actions': '{count} Aktionen',
   'Earlier messages': 'Frühere Nachrichten',
   'Loading earlier messages…': 'Frühere Nachrichten werden geladen…',
   'Couldn’t load earlier messages · Retry': 'Frühere Nachrichten konnten nicht geladen werden · Erneut versuchen',

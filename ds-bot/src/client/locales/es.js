@@ -1155,6 +1155,8 @@ export const ES = {
   'Message actions': 'Acciones del mensaje',
   Download: 'Descargar',
   'Thought it through': 'Razonamiento',
+  '1 action': '1 acción',
+  '{count} actions': '{count} acciones',
   'Earlier messages': 'Mensajes anteriores',
   'Loading earlier messages…': 'Cargando mensajes anteriores…',
   'Couldn’t load earlier messages · Retry': 'No se pudieron cargar los mensajes anteriores · Reintentar',

@@ -29,8 +29,20 @@ const expand = (node) => {
   return { ...node, props: { ...node.props, children: expand(node.props?.children) } }
 }
 const rerender = () => { idx = 0; concrete = expand(module.exports.CreateBot(props)) }
+// The props of the last ModelMenu and CliList elements the form created, caught at
+// element creation time: expand() inlines function components, so the elements
+// themselves never survive into the tree a test can search. Their callbacks close
+// over the render that made them, so a test must use the props of the latest render
+// — in local mode without a picked CLI the menu does not render at all, and stale
+// props would act on the wrong mode.
+let modelMenuProps = null
+let cliListProps = null
 const react = {
-  createElement: (type, p, ...children) => ({ type, props: { ...p, children } }),
+  createElement: (type, p, ...children) => {
+    if (typeof type === 'function' && type.name === 'ModelMenu') modelMenuProps = p
+    if (typeof type === 'function' && type.name === 'CliList') cliListProps = p
+    return { type, props: { ...p, children } }
+  },
   Fragment: 'fragment',
   useCallback: fn => fn,
   useMemo: make => make(),
@@ -49,7 +61,7 @@ const react = {
 const dom = new JSDOM('<!doctype html><body></body>')
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
-  module, exports: module.exports,
+  module, exports: module.exports, btoa, atob,
   document: dom.window.document,
   window: { matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {} },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
@@ -114,6 +126,86 @@ test('on Local agent, Create waits for a CLI', () => {
   button('Built-in engine').props.onClick()
   assert.equal(presetPickers().length, 1)
   assert.equal(button('Create').props.disabled, false)
+})
+
+test('a thinking level picked for a local agent reaches the creation payload', async () => {
+  const created = []
+  const reading = []
+  render({ models: MODELS })
+  props.actions = { createBot: async payload => { created.push(payload); return { id: 'new' } }, agentModels: route => reading.push(route) }
+  rerender()
+  button('Local agent').props.onClick()
+  // The CLI list is empty in tests (effects never run), so pick through the same
+  // onPick the list rows call: the agent ref resets the level and asks for models.
+  cliListProps.onPick({ route: 'local-grok-cli' })
+  modelMenuProps.onPick('local-grok-cli/grok-4.7')
+  modelMenuProps.onPickEffort('high')
+  const [nameInput] = collect(n => n.type === 'input' && n.props['aria-label'] === 'Name')
+  nameInput.props.onChange({ target: { value: 'Grokky' } })
+  assert.equal(button('Create').props.disabled, false)
+  button('Create').props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(created.length, 1)
+  assert.equal(created[0].model, 'local-grok-cli/grok-4.7')
+  assert.equal(created[0].effort, 'high')
+})
+
+test('picking the CLI default level on a local agent clears the effort to null', async () => {
+  const created = []
+  render({ models: MODELS })
+  props.actions = { createBot: async payload => { created.push(payload); return { id: 'new' } } }
+  rerender()
+  // The DS Bot model side keeps its own level and never leaks into the agent pick.
+  modelMenuProps.onPickEffort('low')
+  button('Local agent').props.onClick()
+  cliListProps.onPick({ route: 'local-grok-cli' })
+  modelMenuProps.onPick('local-grok-cli/grok-4.7')
+  modelMenuProps.onPickEffort(null)
+  const [nameInput] = collect(n => n.type === 'input' && n.props['aria-label'] === 'Name')
+  nameInput.props.onChange({ target: { value: 'Grokky' } })
+  button('Create').props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(created.length, 1)
+  assert.equal(created[0].effort, null)
+  assert.equal(created[0].model, 'local-grok-cli/grok-4.7')
+})
+
+test('a thinking level picked for a DS Bot model reaches the creation payload', async () => {
+  const created = []
+  render({ models: MODELS })
+  props.actions = { createBot: async payload => { created.push(payload); return { id: 'new' } } }
+  rerender()
+  modelMenuProps.onPickEffort('low')
+  button('Create').props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(created.length, 1)
+  assert.equal(created[0].effort, 'low')
+  assert.equal(created[0].model, MODELS[0].ref)
+})
+
+test('re-picking the current model keeps the selected thinking level on both modes', async () => {
+  const created = []
+  render({ models: MODELS })
+  props.actions = { createBot: async payload => { created.push(payload); return { id: 'new' } }, agentModels() {} }
+  rerender()
+
+  // DS Bot model mode: re-picking the active model ref preserves effort.
+  modelMenuProps.onPickEffort('low')
+  modelMenuProps.onPick(MODELS[0].ref)
+  assert.equal(modelMenuProps.bot.effort, 'low')
+  modelMenuProps.onPick(MODELS[1].ref)
+  assert.equal(modelMenuProps.bot.effort, undefined)
+
+  // Local agent mode: re-picking the same agent card or same model ref preserves effort.
+  button('Local agent').props.onClick()
+  cliListProps.onPick({ route: 'local-grok-cli' })
+  modelMenuProps.onPickEffort('high')
+  cliListProps.onPick({ route: 'local-grok-cli' })
+  assert.equal(modelMenuProps.bot.effort, 'high')
+  modelMenuProps.onPick('local-grok-cli/default')
+  assert.equal(modelMenuProps.bot.effort, 'high')
+  modelMenuProps.onPick('local-grok-cli/grok-4.7')
+  assert.equal(modelMenuProps.bot.effort, undefined)
 })
 
 test('inline Settings subpage does not autoFocus Name below the avatar picker', () => {

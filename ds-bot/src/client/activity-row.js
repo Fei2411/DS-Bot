@@ -1,7 +1,7 @@
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BotMark, RoomAvatar } from './mark.js'
-import { Elapsed, Shimmer, PHRASES } from './cells.js'
+import { Elapsed, Shimmer, PHRASES, localActivityNote } from './cells.js'
 import { MoveIcon } from './icons.js'
 import { noteClientError } from './diagnostics.js'
 import { noHover, reducedEffects, reducedMotion } from './motion.js'
@@ -20,6 +20,19 @@ export { reducedMotion }
 // tool starts: streaming alone hides it, but running work must not.
 export const rowVisible = ({ running, streaming, tools, relaying, bot, room }) =>
   running && (!streaming || tools.length > 0) && !relaying && (bot !== undefined || room !== undefined)
+
+// Pick the newest in-flight activity across chat live-notes and host work status,
+// so visibility, steer freshness, and copy all agree on the same entry. Host work
+// stays set through final text streaming (turns.js clears it on turn/end), so it
+// only competes while no reply text is streaming or a chat tool is already active.
+export function pickActivity({ tools, localNote, localAt = 0, streaming = false }) {
+  const chatTool = tools.at(-1)
+  const hostTool = localNote && (!streaming || tools.length > 0)
+    ? { ...localNote, at: localAt, source: 'local' }
+    : undefined
+  if (hostTool && (!chatTool || hostTool.at > (chatTool.at ?? 0))) return hostTool
+  return chatTool ? { ...chatTool, source: 'tool' } : undefined
+}
 
 // A queued message waits for the next turn, so only a transcript or steering
 // send counts as fresh input; a steer the host saw counts from when it landed.
@@ -186,13 +199,31 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
       : room !== undefined ? work.rooms?.[room.id]?.find(item => item.self === true) : undefined
     return entry?.switching === true && entry.folder === true && entry.roomId === undefined ? entry.since : 0
   }) ?? 0
+  // Local-agent status updates (e.g. downgraded meta-tools or CLI steps that stay out of
+  // the transcript) still surface here as quiet live phrases while the turn is running.
+  const localWorkKey = useWork?.((work) => {
+    if (!running || bot === undefined) return ''
+    const entry = work.bots?.[bot.id]
+    if (!entry || entry.switching === true || entry.roomId !== undefined) return ''
+    if (entry.tool !== 'read' && entry.tool !== 'cli') return ''
+    return JSON.stringify({ tool: entry.tool, note: entry.note ?? '' })
+  }) ?? ''
+  const localSeen = useRef({ key: '', at: 0 })
+  if (localSeen.current.key !== localWorkKey) {
+    localSeen.current = { key: localWorkKey, at: localWorkKey ? Date.now() : 0 }
+  }
+  const localNote = useMemo(() => {
+    if (!localWorkKey) return null
+    const parsed = JSON.parse(localWorkKey)
+    return localActivityNote(parsed.note, parsed.tool)
+  }, [localWorkKey])
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])
   const streaming = entries.some(entry => entry.text)
   const tools = entries.filter(entry => !entry.text).sort((a, b) => a.at - b.at)
   // Group chats show who is typing on their own while members speak.
   const relaying = tools.some(entry => entry.relay)
-  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools, relaying, bot, room })
-  const tool = tools.at(-1)
+  const selected = pickActivity({ tools, localNote, localAt: localSeen.current.at, streaming })
+  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools: selected ? [selected] : [], relaying, bot, room })
   const inputRef = useRef(0)
   // A steer keeps the run going, so nothing else resets the row: fresh input is
   // the newest activity, and the phrase and the clock restart from the send.
@@ -200,9 +231,10 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   inputRef.current = inputAt
   const want = !visible ? null
     : moveAt !== 0 ? { key: 'move', label: t('Switching working folder'), state: 'thinking' }
-      : inputAt > (tool?.at ?? 0)
+      : inputAt > (selected?.at ?? 0)
         ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
-        : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
+        : selected
+          ? { key: selected.label ? `${selected.source}:${selected.label}` : `${selected.source}:working`, label: selected.label, pool: PHRASES.working, state: selected.state ?? 'working' }
           : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
   const [shown, setShown] = useState(null)
   const wantKey = want?.key ?? null

@@ -1155,6 +1155,8 @@ export const KO = {
   'Message actions': '메시지 작업',
   Download: '다운로드',
   'Thought it through': '사고 과정',
+  '1 action': '작업 1개',
+  '{count} actions': '작업 {count}개',
   'Earlier messages': '이전 메시지',
   'Loading earlier messages…': '이전 메시지 불러오는 중…',
   'Couldn’t load earlier messages · Retry': '이전 메시지를 불러오지 못했습니다 · 재시도',

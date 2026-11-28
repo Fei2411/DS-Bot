@@ -18,8 +18,9 @@ import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.
 import { mdLabels, t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
-import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
+import { turnReasoning, turnActivity, thinkingStep, opensReply, stepLiveActivity } from './turn-reasoning.js'
 import { compressedRelayPreview, parseReplies, presentedFiles, relayRange, stackReplies } from '../shared/group-replies.js'
+import { metaToolTextName } from '../shared/meta-tools.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { ReplyGuide } from './reading.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
@@ -339,6 +340,49 @@ export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource
     h('div', { ref: box, className: 'bt-think-text', role: 'region', 'aria-label': title, tabIndex: 0, 'data-fade': fade, 'data-text-interaction-source': textInteractionSource && !live ? '' : undefined, onScroll: measure }, text))
 }
 
+// Local-agent CLI actions for a Turn, collapsed by default under the same quiet
+// disclosure styling as ThinkingRow so raw CLI steps never flood the chat.
+export function AgentActivityRow({ lines, viewKey }) {
+  const box = useRef(null)
+  const view = useRef(lruGet(rowViews, viewKey))
+  const atEnd = useRef(view.current?.atEnd ?? true)
+  const [open, setOpen] = useState(view.current?.open ?? false)
+  const [fade, setFade] = useState(undefined)
+  const remember = patch => { if (viewKey !== undefined) lruSet(rowViews, viewKey, { ...rowViews.get(viewKey), ...patch }, MAX_ROW_VIEWS) }
+  const measure = () => {
+    const el = box.current
+    if (!el) return
+    atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2
+    remember({ atEnd: atEnd.current, top: el.scrollTop })
+    const above = el.scrollTop > 0
+    setFade(above && !atEnd.current ? 'both' : above ? 'top' : !atEnd.current ? 'bottom' : undefined)
+  }
+  const toggle = event => {
+    const next = event.currentTarget.open
+    if (next) atEnd.current = true
+    remember({ open: next })
+    setOpen(next)
+  }
+  const signature = lines.join('\n')
+  useLayoutEffect(() => {
+    if (!open) return
+    const el = box.current
+    if (!el) return
+    const restore = view.current
+    view.current = undefined
+    if (atEnd.current) el.scrollTop = el.scrollHeight
+    else if (restore?.top !== undefined) el.scrollTop = restore.top
+    measure()
+  }, [signature, open])
+  const title = lines.length === 1 ? t('1 action') : t('{count} actions', { count: lines.length })
+  return h('details', { className: 'bt-think bt-agent-acts', open, onToggle: toggle },
+    h('summary', null, title),
+    h('div', { ref: box, className: 'bt-think-text bt-agent-activity', role: 'region', 'aria-label': title, tabIndex: 0, 'data-fade': fade, onScroll: measure },
+      lines.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line },
+        h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }),
+        h('span', { className: 'bt-agent-act-text' }, activityParts(line))))))
+}
+
 // The files a finished turn changed or delivered, linked from inline code in its
 // reply as in DSH's own chat. DSH resolves them for the step that closes the turn.
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
@@ -368,25 +412,29 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const members = steps.length ? steps : [data]
   const shown = thinkingShown(roster.prefs)
   const reasoning = groupPart === 'response' || !shown ? '' : turnReasoning(steps, data)
+  const activity = groupPart === 'response' || !shown ? [] : turnActivity(steps, data)
+  const liveActivity = groupPart === 'response' || !running ? undefined : stepLiveActivity(data)
   // A live step of the same Turn keeps the row ticking even when it sits on an
   // earlier step's cell.
   const thinking = groupPart === 'response' || !shown ? undefined : thinkingStep(members)
   const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter(step => step.status !== 'running').length, skip: hidden || reasoning === '' })
-  // A streaming reply stands in for the activity row.
+  // A streaming reply stands in for the activity row; an in-flight local-agent
+  // action feeds it a quiet status phrase while the transcript stays clean.
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
+  useLiveNote(actions, sessionId, `agent:${node.key ?? data.seq}`, !hidden && liveActivity !== undefined ? localActivityNote(liveActivity) : null)
   if (hidden) return h(CellEmpty)
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
   // DSH 0.2; the step that answers it shows the event line where it was read,
   // once, in the step's first cell.
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : []
-  const activity = groupPart === 'response' ? [] : stepActivity(data)
   if (texts.length === 0 && !reasoning && relays.length === 0 && activity.length === 0) return h(CellEmpty)
   const selfId = roster.byId[sessionId]?.id ?? sessionId
   // The flat layout heads a reply with who speaks, once per Turn: in the step that opens
-  // it, in that step's reasoning part when the reasoning shows there.
+  // it, in that step's reasoning part when the reasoning or collapsed actions show there.
   const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[sessionId] : undefined
+  const hasLeadingThought = shown && (turnReasoning(steps, data) !== '' || turnActivity(steps, data).length > 0)
   const head = speaker !== undefined && opensReply(steps, data, shown)
-    && (reasoning !== '' || (texts.length > 0 && !(groupPart === 'response' && shown && turnReasoning(steps, data) !== '')))
+    && (reasoning !== '' || activity.length > 0 || (texts.length > 0 && !(groupPart === 'response' && hasLeadingThought)))
   return h(Fragment, null,
     relays.map(relay => {
       const source = relay.source
@@ -405,7 +453,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       })
     }),
     head ? h(SpeakerHead, { bot: speaker, time: data.time }) : null,
-    activity.length ? h('div', { className: 'bt-agent-activity' }, activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line }, h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }), h('span', { className: 'bt-agent-act-text' }, activityParts(line))))) : null,
+    activity.length ? h(AgentActivityRow, { lines: activity, viewKey: `act:${sessionId}:${data.turn}` }) : null,
     reasoning ? h(ThinkingRow, {
       text: reasoning, live: thinking !== undefined, viewKey: `${sessionId}:${data.turn}`, textInteractionSource,
       // The live clock counts the settled steps too: backing `at` by the settled
@@ -1206,13 +1254,29 @@ function toolActivity(name, arg, findBot, self) {
   }
 }
 
+// Map a local CLI activity/status line onto the same quiet status phrases DSH tools use.
+export function localActivityNote(raw, fallbackTool) {
+  const line = String(raw ?? '').replace(/^\s*▸\s*/, '').replaceAll('`', '').replace(/\s+/g, ' ').trim()
+  if (line === '') return fallbackTool ? { label: null, state: fallbackTool === 'read' ? 'searching' : 'working' } : null
+  const head = line.split(/[\s:()[\]]+/)[0] ?? ''
+  if (metaToolTextName(line) !== undefined) return { label: null, state: 'working' }
+  if (/^(?:web_?search|search_?web)$/i.test(head)) return { label: t('Searching online'), state: 'searching' }
+  if (/^(?:fetch|web_?fetch|browse|browser)$/i.test(head)) return { label: t('Reading a page'), state: 'searching' }
+  if (/^(?:run|shell|bash|pwsh|powershell|exec|command|terminal)$/i.test(head)) return { label: t('Running shell commands'), state: 'working' }
+  if (/^(?:read|view|cat|open|notebookread)$/i.test(head)) return { label: t('Opening a file'), state: 'searching' }
+  if (/^(?:search|grep|glob|list|ls|find|list_dir)$/i.test(head)) return { label: t('Looking through files'), state: 'searching' }
+  if (/^(?:edit|write|patch|apply|replace|search_replace|delete|move|update)$/i.test(head)) return { label: t('Writing changes'), state: 'working' }
+  return { label: null, state: fallbackTool === 'read' ? 'searching' : 'working' }
+}
+
 // What a Bot busy elsewhere is doing: what it said in the step it is on, its running
 // call's own description, else the kind of tool and what it works on. `doing` is a work
 // entry, or just a tool name.
 export function workPhrase(doing) {
   const { tool, said, note, target, switching, folder } = typeof doing === 'string' ? { tool: doing } : doing ?? {}
   if (switching) return folder === true ? t('Switching working folder') : t('Moving to a fresh conversation')
-  const own = (said || note)?.replace(/[\s.。…]+$/u, '')
+  const safeNote = typeof note === 'string' && metaToolTextName(note.trim()) !== undefined ? undefined : note
+  const own = (said || safeNote)?.replace(/[\s.。…]+$/u, '')
   if (own) return own
   if (!tool) return t('Thinking about it')
   const label = toolActivity(tool, () => undefined, () => undefined)?.label ?? t('On it')

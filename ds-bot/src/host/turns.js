@@ -12,6 +12,7 @@ import { splitRef, textOf } from './text.js'
 import { addressedSession, returnAddress, sameConversation, threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { presentedFiles } from '../shared/group-replies.js'
+import { localTeamCall } from './local-agents/engines.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
 
@@ -640,11 +641,8 @@ export function install(rt) {
     else next[id] = value
     activity = next
   }
-  // An activity line starts with the tool's name, so only that name may mark a team
-  // call. Reading the whole line would treat a `dsbot/` path in a shell argument as the
-  // team server and hide real work from the group.
-  const LOCAL_TEAM_TOOL = /^(?:mcp(?:__|_)dsbot(?=[_:]|$)|dsbot(?=[_:]|$))/i
-  const localTeamCall = text => LOCAL_TEAM_TOOL.test(String(text ?? '').trim().split(/\s+/)[0] ?? '')
+  // A line naming one of DS Bot's own team tools counts nothing here: its real
+  // tool call is what DSH already tracks (shared with the adapter's own skip).
   const LOCAL_READ_TOOL = /^(?:read|view|cat|search|grep|glob|ls|find|list|fetch|browse|web_?search|web_?fetch|notebookread)\b/i
   // A local CLI's activity line is `▸ <tool> <detail>`; keep it short and route read
   // tools to the searching state instead of the generic working one.
@@ -689,6 +687,10 @@ export function install(rt) {
         showCall(id, entry)
       }
       return
+    }
+    if (event.type === 'thought' && entry.localDoing !== undefined) {
+      entry.localDoing = undefined
+      showCall(id, entry)
     }
     if (rt.groupOwners.has(id)) rt.touchRoomTurn?.(id)
     if (event.type !== 'activity' && event.type !== 'status') return

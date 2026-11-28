@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, launchOf, probeEnv, runProbeCommand, spawnAgent, terminateChild } from './discover.js'
-import { acpMode } from './engines.js'
+import { EFFORT_ORDER, acpMode, isMetaToolCall, sortEfforts } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
 // DS Bot's loopback MCP server, which carries the Bot's team tools.
@@ -34,8 +34,7 @@ export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
   return target
 }
 
-const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const EFFORT_NAMES = { off: 'Off', none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
 const TOOL_CALL_CACHE_MAX = 100
 const REPORTED_TOOL_CALLS_MAX = 1_000
 
@@ -323,19 +322,32 @@ export class AcpEngine {
             session.reportedToolCalls.delete(session.reportedToolCalls.values().next().value)
           }
         }
+        // The CLI's own discovery plumbing (search_tool/use_tool and friends) is
+        // noise in the user's chat: demoted to a transient status unless it fails,
+        // which stays an activity line as a diagnostic.
+        const meta = !team && isMetaToolCall(call)
         if (!reported) {
           if (update.status === 'failed' && !alreadyFailed) {
             markReported()
             session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
           } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
             markReported()
-            session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
+            // A demoted meta call gets a generic transient: its described line still
+            // names the query and target, which is exactly the leak this demotion
+            // exists to hide. Failures above keep the real line as the diagnostic.
+            session.push({ type: meta ? 'status' : 'activity', text: meta ? 'Working…' : `▸ ${described}`, ...(team ? { team: true } : {}) })
           }
         } else if (update.status === 'failed' && !alreadyFailed) {
           session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
         } else if (update.status !== 'completed' && known !== undefined && described !== describeCall(known)) {
-          session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
+          // A follow-up update can complete the call's input (the query arrives
+          // with the second in_progress, not the first). A meta call's refresh
+          // stays generic for the same reason its first line is.
+          session.push({ type: 'status', text: meta ? 'Working…' : described, ...(team ? { team: true } : {}) })
         }
+        // The CLI can resume thinking without another activity event; once the
+        // last tracked call ends, the live indicator must stop naming that call.
+        if (terminal && known !== undefined && session.toolCalls.size === 0) session.push({ type: 'idle' })
         break
       }
       case 'plan':
@@ -1085,12 +1097,37 @@ export function modelsFromProbe(probe) {
   const configIds = new Set(configBases.map(base => base.id))
   const variantMode = configBases.some(base => groups.has(base.id))
   if (!variantMode) {
-    // No evidence this CLI publishes one id per level: every model serves the
-    // thinking levels the config lists, like before variant-aware parsing.
+    // No evidence this CLI publishes one id per level. A model's own level list
+    // wins over the session-wide one — Grok's availableModels carry
+    // `_meta.reasoningEfforts` (descending, and per model: grok-4.5 has no xhigh),
+    // which the shared option cannot say. An explicit empty list is evidence the
+    // model has no levels; only a missing list may use the shared option. Whatever
+    // the source, the list is normalized weak-to-strong: the CLI's own order is
+    // never trusted.
+    const ownLevelsOf = (model) => {
+      const own = entries.find(entry => entry.id === model.id)?.entry?._meta?.reasoningEfforts
+      if (!Array.isArray(own)) return undefined
+      const efforts = sortEfforts(own.map((entry) => {
+        const raw = typeof entry === 'string' ? entry : (entry?.id ?? entry?.value ?? entry?.name)
+        const id = String(raw ?? '').trim()
+        const label = typeof entry === 'string' ? id : String(entry?.name ?? entry?.label ?? raw ?? '').trim()
+        return {
+          id,
+          name: label || id,
+          ...(typeof entry === 'object' && entry?.description ? { description: String(entry.description) } : {}),
+        }
+      }).filter(entry => entry.id !== ''))
+      return efforts.length > 0 ? efforts : null
+    }
+    const shared = sortEfforts(thoughtOptions)
     const baseModels = configBases.length > 0
       ? configBases
       : entries.map(({ entry, id }) => ({ id, name: String(entry.name ?? id) }))
-    return baseModels.map(model => (thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model))
+    return baseModels.map((model) => {
+      const own = ownLevelsOf(model)
+      const efforts = own === undefined ? (shared.length > 0 ? shared : undefined) : own ?? undefined
+      return efforts === undefined ? model : { ...model, reasoning: { efforts } }
+    })
   }
 
   const consumed = new Set()

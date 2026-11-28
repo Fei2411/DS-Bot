@@ -2014,6 +2014,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
+.bt-agent-acts .bt-agent-activity{margin:6px 0 0;white-space:normal;max-height:140px}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
 .bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}
 .bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}

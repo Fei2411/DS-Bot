@@ -905,6 +905,12 @@ test('Claude Code writes long system prompts to a temp file via --append-system-
   assert.ok(parsed.filePath.endsWith('system-prompt.txt'), 'long system prompt must use --append-system-prompt-file')
   assert.equal(parsed.hasInline, false)
   assert.equal(parsed.len, longSystem.length)
+  // The native channel passes the team's words through verbatim: the file the CLI
+  // reads is the original system text byte for byte, with no bridge rules appended.
+  const written = readFileSync(parsed.filePath, 'utf8')
+  assert.equal(written, longSystem, 'the prompt file carries the team system verbatim, not a derived copy')
+  assert.ok(!written.includes('## Working inside DS Bot'), 'no bridge rules on the native channel')
+  assert.ok(!written.includes('schedule_create / schedule_list / schedule_view / schedule_edit'), 'no scheduler bridge on the native channel')
   assert.equal(existsSync(parsed.filePath), true, 'prompt file stays readable while process lives')
   await adapter.dispose()
   assert.equal(existsSync(parsed.filePath), false, 'prompt temp file must be cleaned up when process exits')

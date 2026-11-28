@@ -128,6 +128,38 @@ test('the Thinking section always offers Default, so a picked level can be clear
   assert.deepEqual(picked, ['high', undefined])
 })
 
+test('the slider normalizes the levels a CLI reports in reverse order, weakest first', () => {
+  // Grok reports its thought levels strongest first (xhigh → high → medium → low);
+  // the slider reads array order as left-to-right strength, so they must be re-sorted.
+  const reversed = ['xhigh', 'high', 'medium', 'low'].map(id => ({ id, name: id }))
+  assert.deepEqual(Array.from(effortStops({ efforts: reversed }), row => row.effort), [undefined, 'low', 'medium', 'high', 'xhigh'])
+  // A named default drops the leading Default stop, but the order still normalizes.
+  assert.deepEqual(Array.from(effortStops({ efforts: reversed, defaultEffort: 'high' }), row => row.effort), ['low', 'medium', 'high', 'xhigh'])
+  // The full standard ladder orders by meaning, not by position or alphabet.
+  const ladder = ['max', 'low', 'off', 'xhigh', 'none', 'medium', 'minimal', 'high'].map(id => ({ id, name: id }))
+  assert.deepEqual(Array.from(effortStops({ efforts: ladder }), row => row.effort), [undefined, 'off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+  // Unknown levels keep their relative order and sit behind every known one.
+  const mixed = ['fast', 'high', 'slow', 'low'].map(id => ({ id, name: id }))
+  assert.deepEqual(Array.from(effortStops({ efforts: mixed }), row => row.effort), [undefined, 'low', 'high', 'fast', 'slow'])
+  // A purely custom ladder keeps the CLI's own order untouched.
+  const custom = ['fast', 'slow'].map(id => ({ id, name: id }))
+  assert.deepEqual(Array.from(effortStops({ efforts: custom }), row => row.effort), [undefined, 'fast', 'slow'])
+  // The input array is not mutated in place.
+  const source = [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }]
+  effortStops({ efforts: source })
+  assert.deepEqual(source.map(effort => effort.id), ['high', 'low'])
+})
+
+test('a reversed level list keeps the right level under the slider thumb', () => {
+  const reversed = ['xhigh', 'high', 'medium', 'low'].map(id => ({ id, name: id }))
+  // After normalization, High sits left of xhigh: dragging right still means stronger.
+  const bar = EffortBar({ reasoning: { efforts: reversed }, current: 'high', onPick: () => {} })
+  const slider = nodes(bar, node => node.props.role === 'slider')[0]
+  assert.equal(slider.props['aria-valuenow'], 3)
+  assert.equal(slider.props['aria-valuemax'], 4)
+  assert.equal(slider.props['aria-valuetext'], 'high')
+})
+
 test('nothing in the open model menu raises a native hover tooltip', () => {
   const tree = menuRows('official/flash')
   const rows = modelRows(tree)

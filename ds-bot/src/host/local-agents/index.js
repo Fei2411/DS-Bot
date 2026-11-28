@@ -35,6 +35,10 @@ import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersi
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
 const VERSION_FAIL_TTL_MS = 30_000
+// DSH's harness-level schedule tools the loopback MCP may carry; DS Bot's own
+// guards (this_session target, no background-task scheduling) still apply when
+// the bridged call executes.
+const BRIDGED_SCHEDULE_TOOLS = ['schedule_create', 'schedule_list', 'schedule_view', 'schedule_edit']
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
 export function parseCliSemver(raw) {
@@ -313,11 +317,15 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: (options, sessionId = options?.sessionId) => {
-      // Only DS Bot's own team tools cross the bridge; the CLI keeps its own.
+      // DS Bot's own team tools cross the bridge; the CLI keeps its own. DSH's
+      // schedule tools ride along too: they are not team tools (they belong to the
+      // harness preset), but without them the CLI finds no scheduling tool in the
+      // MCP catalog at all and falls back on its own native scheduler — invisible
+      // to the user's team — exactly what the bridge instructions forbid.
       // Read live scoped schemas from the active Agent when available so
       // `notifications/tools/list_changed` immediately serves fresh tools/list
       // without waiting for the next adapter.stream() turn.
-      const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action'])
+      const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action', ...BRIDGED_SCHEDULE_TOOLS])
       const liveAgent = sessionId === undefined ? undefined : ctx.get?.('agents')?.get?.(sessionId)
       const schemas = liveAgent !== undefined && typeof ctx.tools?.schemas === 'function'
         ? ctx.tools.schemas(liveAgent)

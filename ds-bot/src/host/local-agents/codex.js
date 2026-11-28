@@ -3,6 +3,7 @@
 // item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
+import { bareToolName, isMetaToolCall, sortEfforts } from './engines.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -126,7 +127,10 @@ export class CodexEngine {
           if (thought !== '') thread.push({ type: 'thought', text: thought, turnId })
         } else if (method === 'item/started' && item.type !== undefined && !NON_ACTIVITY_ITEMS.has(item.type)) {
           const team = item.type === 'mcpToolCall' && (item.server === MCP_SERVER || item.serverName === MCP_SERVER)
-          thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId, ...(team ? { team: true } : {}) })
+          // The CLI's own discovery plumbing (search_tool/use_tool and friends) is
+          // noise in the user's chat: a transient status, not an activity line.
+          const meta = !team && isMetaToolCall({ name: item.type === 'mcpToolCall' ? item.tool : bareToolName(item.type) })
+          thread.push({ type: meta ? 'status' : 'activity', text: meta ? 'Working…' : `▸ ${activityOf(item)}`, turnId, ...(team ? { team: true } : {}) })
         }
         break
       }
@@ -405,11 +409,11 @@ export class CodexEngine {
       // left out on purpose: DSH would send it on every turn, and the level the
       // user set in their Codex config (model_reasoning_effort) would stop
       // applying. A Bot without a level of its own keeps the CLI's.
-      const efforts = (entry.supportedReasoningEfforts ?? []).map(option => ({
+      const efforts = sortEfforts((entry.supportedReasoningEfforts ?? []).map(option => ({
         id: String(option.reasoningEffort ?? option),
         name: String(option.reasoningEffort ?? option),
         ...(option.description ? { description: String(option.description) } : {}),
-      }))
+      })))
       if (efforts.length === 0) return model
       return { ...model, reasoning: { efforts } }
     })
