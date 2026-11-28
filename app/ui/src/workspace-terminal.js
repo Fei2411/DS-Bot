@@ -404,9 +404,23 @@ export function createLocalLineEditor(term, onLine, onEof) {
   }
 }
 
+function canStealFocusForTerminal(hostEl) {
+  if (typeof document === 'undefined') return true
+  const activeEl = document.activeElement
+  if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true
+  if (hostEl && typeof hostEl.contains === 'function' && hostEl.contains(activeEl)) return true
+  if (typeof activeEl.closest === 'function'
+    && activeEl.closest('[data-composer-input], [data-composer-card], textarea, input, select, [contenteditable="true"]')) {
+    return false
+  }
+  return true
+}
+
 function TerminalPane({
   term,
   active,
+  paneVisible = true,
+  focusNonce = 0,
   readOnly,
   writersRef,
   pendingOutputRef,
@@ -417,6 +431,13 @@ function TerminalPane({
   const hostRef = useRef(null)
   const activeRef = useRef(active)
   activeRef.current = active
+  const paneVisibleRef = useRef(paneVisible)
+  paneVisibleRef.current = paneVisible
+  const focusNonceRef = useRef(focusNonce)
+  focusNonceRef.current = focusNonce
+  const prevActiveRef = useRef(active)
+  const prevVisibleRef = useRef(paneVisible)
+  const lastFocusNonceRef = useRef(focusNonce)
   const exitedRef = useRef(term.exited)
   exitedRef.current = term.exited
   const readOnlyRef = useRef(readOnly)
@@ -471,7 +492,7 @@ function TerminalPane({
 
     const runFit = () => {
       fitRaf = 0
-      if (disposed || !activeRef.current) return
+      if (disposed || !activeRef.current || !paneVisibleRef.current) return
       const box = paneRef.current ?? hostEl
       if ((box.offsetWidth ?? 0) <= 0 || (box.offsetHeight ?? 0) <= 0) return
       try {
@@ -544,9 +565,11 @@ function TerminalPane({
       window.addEventListener('resize', onWinResize)
     }
 
-    if (activeRef.current) {
+    if (activeRef.current && paneVisibleRef.current) {
       scheduleFit()
-      xterm.focus()
+      if (focusNonceRef.current > 0 || canStealFocusForTerminal(paneRef.current)) {
+        xterm.focus()
+      }
     }
 
     return () => {
@@ -560,12 +583,21 @@ function TerminalPane({
   }, [term.id, writersRef, pendingOutputRef])
 
   useEffect(() => {
-    if (!active) return
+    const wasActive = prevActiveRef.current
+    const wasVisible = prevVisibleRef.current
+    const prevNonce = lastFocusNonceRef.current
+    prevActiveRef.current = active
+    prevVisibleRef.current = paneVisible
+    lastFocusNonceRef.current = focusNonce
+    if (!active || !paneVisible) return
     const api = writersRef.current.get(term.id)
     if (!api) return
     api.fit()
-    api.focus()
-  }, [active, term.id, writersRef])
+    const explicitFocus = focusNonce !== prevNonce
+    if (explicitFocus || ((!wasActive || !wasVisible) && canStealFocusForTerminal(paneRef.current))) {
+      api.focus()
+    }
+  }, [active, paneVisible, focusNonce, term.id, writersRef])
 
   return h('div', {
     ref: paneRef,
@@ -583,10 +615,11 @@ function TerminalPane({
 /**
  * Interactive local terminal tabs bound to the active Bot/room workspace folder.
  */
-export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenNonce = 0 }) {
+export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenNonce = 0, active: paneVisible = true }) {
   const [state, setState] = useState({ terms: [], activeId: null })
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState('')
+  const [focusNonce, setFocusNonce] = useState(() => (autoOpenNonce > 0 ? 1 : 0))
   const tabsRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
@@ -844,6 +877,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     if (!autoOpenNonce || autoOpenNonce === lastAutoNonceRef.current || readOnly) return
     lastAutoNonceRef.current = autoOpenNonce
     openedOnceRef.current = true
+    setFocusNonce(n => n + 1)
     void openNew()
   }, [autoOpenNonce, readOnly, openNew])
 
@@ -927,6 +961,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   }, [])
 
   const selectTerm = useCallback((id) => {
+    setFocusNonce(n => n + 1)
     setState(current => (current.activeId === id ? current : { ...current, activeId: id }))
   }, [])
 
@@ -978,7 +1013,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
           disabled: opening || readOnly,
           'aria-label': t('New terminal'),
           title: t('New terminal'),
-          onClick: () => { void openNew() },
+          onClick: () => { setFocusNonce(n => n + 1); void openNew() },
         }, h(PlusIcon)))),
     error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error)) : null,
     readOnly
@@ -986,7 +1021,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
       : terms.length === 0
         ? h('div', { className: 'dsb-rp-empty' },
           h('p', null, t('No open terminals')),
-          h('button', { type: 'button', className: 'bt-soft', disabled: opening, onClick: () => { void openNew() } },
+          h('button', { type: 'button', className: 'bt-soft', disabled: opening, onClick: () => { setFocusNonce(n => n + 1); void openNew() } },
             h(TerminalIcon), t('New terminal')))
         : h('div', { className: 'dsb-term-stage' },
           active ? h('div', { className: 'dsb-term-cwd-bar' },
@@ -996,6 +1031,8 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
             key: term.id,
             term,
             active: term.id === active?.id,
+            paneVisible,
+            focusNonce,
             readOnly,
             writersRef,
             pendingOutputRef,

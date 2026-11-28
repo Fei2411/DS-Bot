@@ -1034,7 +1034,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       : null,
     hasTerminal
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'terminal' },
-        h(WorkspaceTerminal, { sessionId, feed, readOnly, autoOpenNonce: terminalNonce }))
+        h(WorkspaceTerminal, { sessionId, feed, readOnly, autoOpenNonce: terminalNonce, active: visible && activeTab === 'terminal' }))
       : null,
     activePlugin
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible },

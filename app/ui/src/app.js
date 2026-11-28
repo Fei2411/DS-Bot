@@ -536,8 +536,22 @@ export function App() {
       })),
   }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly])
   const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
-  // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
-  const chatKey = chat?.id ?? shown
+  // Key the conversation by stable Bot/room id so segment rollovers and initial roster
+  // hydration on a rolled-over segment both preserve unsent drafts and composer focus.
+  const chatKeyRef = useRef({ shown: null, chatId: null, key: null })
+  const chatId = chat?.id ?? null
+  let chatKey = chatId ?? shown
+  if (shown) {
+    const prev = chatKeyRef.current
+    const same = prev.key !== null && (
+      (prev.shown === shown && prev.chatId === null)
+      || (chatId !== null && prev.chatId === chatId)
+    )
+    if (same) chatKey = prev.key
+    chatKeyRef.current = { shown, chatId: same ? (chatId ?? prev.chatId) : chatId, key: chatKey }
+  } else {
+    chatKeyRef.current = { shown: null, chatId: null, key: null }
+  }
   return h('div', {
     className: 'dsb-frame',
     style: { '--dsb-side-w': `${effectiveSideW}px` },

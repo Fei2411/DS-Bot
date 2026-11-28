@@ -955,3 +955,87 @@ test('adaptRoomItem preserves presented files on group Bot messages for ChatRows
   assert.equal(adapted.kind, 'post')
   assert.deepEqual(adapted.presented, [file])
 })
+
+test('composer stays editable when bot.waiting has a model, focuses on card click, and respects IME composition end', async () => {
+  const sent = []
+  const roster = {
+    ready: true,
+    readOnly: null,
+    bots: [
+      { id: 'b-with-model', name: 'Chief', color: 'blue', sessionId: 'b-with-model', waiting: true, model: 'deepseek/deepseek-chat' },
+      { id: 'b-no-model', name: 'Newbie', color: 'green', sessionId: 'b-no-model', waiting: true },
+    ],
+    rooms: [],
+    byId: {},
+    roomsById: {},
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+  }
+  roster.byId['b-with-model'] = roster.bots[0]
+  roster.byId['b-no-model'] = roster.bots[1]
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      send: async (_sid, text) => { sent.push(text) },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useSessionStatus: select => select(new Map()),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  // 1. Bot waiting with no model still locks composer and asks to pick a model.
+  const noModelInst = mount({ sessionId: 'b-no-model', team })
+  try {
+    const tree = noModelInst.render()
+    assert.equal(textarea(tree).props.disabled, true)
+    assert.match(textarea(tree).props.placeholder, /Pick a model/)
+  } finally {
+    noModelInst.unmount()
+  }
+
+  // 2. Bot waiting WITH a model (e.g. kickoff held after quota/auth failure) stays editable.
+  const inst = mount({ sessionId: 'b-with-model', team })
+  try {
+    let tree = inst.render()
+    const ta = textarea(tree)
+    assert.equal(ta.props.disabled, false, 'waiting bot with an assigned model must keep composer enabled')
+    assert.match(ta.props.placeholder, /Message Chief/)
+
+    // Clicking padding on [data-composer-card] focuses the textarea; clicking a button does not.
+    let focused = 0
+    ta.props.ref.current = { focus() { focused += 1 }, style: {}, scrollHeight: 30 }
+    const card = all(tree, n => n.props?.['data-composer-card'] !== undefined)[0]
+    assert.ok(card)
+    let prevented = 0
+    card.props.onMouseDown({ button: 0, target: { closest: () => null }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1)
+    assert.equal(prevented, 1)
+    card.props.onMouseDown({ button: 0, target: { closest: sel => (sel.includes('button') ? {} : null) }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'clicking an interactive control inside composer card must not hijack focus')
+
+    // IME compositionStart -> compositionEnd -> immediate Enter must not submit; Enter after keyUp submits.
+    ta.props.onChange({ target: { value: '你好', selectionStart: 2 } })
+    tree = inst.render()
+    textarea(tree).props.onCompositionStart()
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(sent.length, 0, 'Enter during active IME composition must not submit')
+    textarea(tree).props.onCompositionEnd()
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(sent.length, 0, 'Enter fired immediately after compositionend must not submit')
+    textarea(tree).props.onKeyUp({ target: { selectionStart: 2 } })
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    await tick()
+    assert.deepEqual(sent, ['你好'])
+  } finally {
+    inst.unmount()
+  }
+})
