@@ -16,7 +16,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { findHost, releaseHost, rowVisible, freshInputAt } from './src/client/activity-row.js'",
+      "export { findHost, releaseHost, rowVisible, freshInputAt, backgroundActivity } from './src/client/activity-row.js'",
       "export { clientErrors } from './src/client/diagnostics.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
@@ -44,7 +44,7 @@ runInNewContext(outputFiles[0].text, {
   cancelAnimationFrame: id => clearTimeout(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { findHost, releaseHost, rowVisible, freshInputAt, clientErrors } = module.exports
+const { findHost, releaseHost, rowVisible, freshInputAt, backgroundActivity, clientErrors } = module.exports
 
 // The shell renders its running status inside the flow, before the pending steering
 // rows, so hosting the row there puts it above an interjection's echo until the echo
@@ -52,18 +52,18 @@ const { findHost, releaseHost, rowVisible, freshInputAt, clientErrors } = module
 // jumps below the new one. The row mounts at the flow (the column around the shell's
 // slot), where it stays after those rows, even under an extra wrapper.
 test('the activity row mounts at the flow around the running slot, not at the slot', () => {
-  dom.window.document.body.innerHTML = '<div data-chat-flow id="flow"><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
+  dom.window.document.body.innerHTML = '<div data-bt-flow id="flow"><div class="wrap"><div data-bt-running id="slot"></div></div></div>'
   const host = findHost()
   assert.equal(host?.id, 'flow')
 })
 
 test('the activity row stays after a pending steer echo, and after the message once it commits', () => {
   dom.window.document.body.innerHTML = [
-    '<div data-chat-flow id="flow">',
-    '<div data-slot="conversation.chat.flow">',
-    '<div data-chat-flow-key="u1" data-chat-flow-kind="user" id="first">first message</div>',
-    '<div data-chat-running id="slot"></div>',
-    '<div data-chat-flow-key="s1" data-chat-flow-kind="steering" id="echo">a steer</div>',
+    '<div data-bt-flow id="flow">',
+    '<div data-bt-slot="conversation.chat.flow">',
+    '<div data-bt-flow-key="u1" data-bt-flow-kind="user" id="first">first message</div>',
+    '<div data-bt-running id="slot"></div>',
+    '<div data-bt-flow-key="s1" data-bt-flow-kind="steering" id="echo">a steer</div>',
     '</div>',
     '</div>',
   ].join('')
@@ -80,14 +80,14 @@ test('the activity row stays after a pending steer echo, and after the message o
   echo.remove()
   const committed = doc.createElement('div')
   committed.id = 'committed'
-  committed.setAttribute('data-chat-flow-key', 's1')
-  committed.setAttribute('data-chat-flow-kind', 'steering')
+  committed.setAttribute('data-bt-flow-key', 's1')
+  committed.setAttribute('data-bt-flow-kind', 'steering')
   doc.getElementById('slot').before(committed)
   assert.ok(committed.compareDocumentPosition(row) & doc.defaultView.Node.DOCUMENT_POSITION_FOLLOWING, 'the committed steer still draws above the row')
 })
 
 test('without the running slot the row mounts at the flow tail', () => {
-  dom.window.document.body.innerHTML = '<div data-chat-flow id="flow"><div data-chat-flow-key="1"></div></div>'
+  dom.window.document.body.innerHTML = '<div data-bt-flow id="flow"><div data-bt-flow-key="1"></div></div>'
   const host = findHost()
   assert.equal(host?.id, 'flow')
 })
@@ -96,7 +96,7 @@ test('without the running slot the row mounts at the flow tail', () => {
 // leaves its flow.
 test('the activity row keeps its flow while the slot stays, and follows the slot when it leaves', () => {
   const doc = dom.window.document
-  doc.body.innerHTML = '<div data-chat-flow id="one"><div data-chat-running id="slot"></div></div><div data-chat-flow id="two"></div>'
+  doc.body.innerHTML = '<div data-bt-flow id="one"><div data-bt-running id="slot"></div></div><div data-bt-flow id="two"></div>'
   assert.equal(findHost()?.id, 'one')
   const query = doc.querySelector
   let queries = 0
@@ -108,7 +108,7 @@ test('the activity row keeps its flow while the slot stays, and follows the slot
     assert.equal(findHost()?.id, 'two')
     doc.getElementById('slot').remove()
     assert.equal(findHost()?.id, 'one')
-    doc.getElementById('one').insertAdjacentHTML('beforeend', '<div data-chat-running></div>')
+    doc.getElementById('one').insertAdjacentHTML('beforeend', '<div data-bt-running></div>')
     assert.equal(findHost()?.id, 'one')
   } finally {
     delete doc.querySelector
@@ -117,11 +117,11 @@ test('the activity row keeps its flow while the slot stays, and follows the slot
 
 test('a slot that stops running or a released row searches again', () => {
   const doc = dom.window.document
-  doc.body.innerHTML = '<div data-chat-flow id="one"></div><div data-chat-flow id="two"><div data-chat-running id="slot"></div></div>'
+  doc.body.innerHTML = '<div data-bt-flow id="one"></div><div data-bt-flow id="two"><div data-bt-running id="slot"></div></div>'
   assert.equal(findHost()?.id, 'two')
-  doc.getElementById('slot').removeAttribute('data-chat-running')
+  doc.getElementById('slot').removeAttribute('data-bt-running')
   assert.equal(findHost()?.id, 'one')
-  doc.getElementById('slot').setAttribute('data-chat-running', '')
+  doc.getElementById('slot').setAttribute('data-bt-running', '')
   assert.equal(findHost()?.id, 'two')
   const query = doc.querySelector
   let queries = 0
@@ -231,8 +231,14 @@ test('activity-row background action stays hidden and borderless at rest, with v
   const reducedInner = [...reducedBlock.cssRules]
   assert.ok(reducedInner.some(r => r.selectorText?.includes('.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico') && r.style.getPropertyValue('transform') === 'none'))
   assert.ok(reducedInner.some(r => r.selectorText === '.bt-typing-bg:active:not(:disabled)' && r.style.getPropertyValue('scale') === 'none'))
+  assert.ok(reducedInner.some(r => r.selectorText?.includes('.bt-typing-task') && r.style.getPropertyValue('transition') === 'none'))
+  assert.ok(reducedInner.some(r => r.selectorText === '.bt-typing-task:active:not(:disabled)' && r.style.getPropertyValue('scale') === 'none'))
+  const offTaskTransitionRule = rules.find(rule => rule.selectorText?.includes('body[data-bt-effects=off]') && rule.selectorText.includes('.bt-typing-task') && rule.style.getPropertyValue('transition') === 'none')
+  const offTaskScaleRule = rules.find(rule => rule.selectorText === 'body[data-bt-effects=off] .bt-typing-task:active:not(:disabled)')
+  assert.ok(offTaskTransitionRule && offTaskScaleRule)
   assert.equal(offTransformRule.style.getPropertyValue('transform'), 'none')
   assert.equal(offScaleRule.style.getPropertyValue('scale'), 'none')
+  assert.equal(offTaskScaleRule.style.getPropertyValue('scale'), 'none')
 })
 
 test('ActivityIndicator renders wrapped background button, sets data-bg-busy on click, and supports touch tap-to-toggle', async () => {
@@ -258,7 +264,7 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
     while (deferredEffects.length > 0) deferredEffects.shift()()
     return tree
   }
-  const compDom = new JSDOM('<!doctype html><body><div data-chat-flow id="flow"><div data-chat-running></div></div></body>')
+  const compDom = new JSDOM('<!doctype html><body><div data-bt-flow id="flow"><div data-bt-running></div></div></body>')
   let isTouch = true
   const listeners = new Map()
   const win = {
@@ -371,6 +377,254 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
     tree = render(React.createElement(ActivityIndicator, props), attachRef)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-busy'], undefined)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing-bg').props.disabled, false)
+  } finally {
+    unmount()
+  }
+})
+
+test('backgroundActivity summarizes DM background tasks and ignores group or settled tasks', () => {
+  assert.equal(backgroundActivity(undefined), null)
+  assert.equal(backgroundActivity({ id: 'b1', tasks: [] }), null)
+  assert.equal(backgroundActivity({
+    id: 'b1',
+    tasks: [
+      { id: 't-done', title: 'Done', status: 'completed', startedAt: 100 },
+      { id: 't-group', title: 'Group task', status: 'running', roomId: 'r1', startedAt: 200 },
+    ],
+  }), null)
+
+  const running = backgroundActivity({
+    id: 'b1',
+    tasks: [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 5000 }],
+  })
+  assert.equal(running.state, 'background')
+  assert.equal(running.label, 'In background · Review open PRs')
+  assert.equal(running.startedAt, 5000)
+  assert.equal(running.needsApproval, false)
+
+  const untitled = backgroundActivity({
+    id: 'b1',
+    tasks: [{ id: 't2', title: '   ', status: 'running', startedAt: 6000 }],
+  })
+  assert.equal(untitled.label, 'Working in background')
+
+  const waitingWork = backgroundActivity({
+    id: 'b1',
+    tasks: [{ id: 't3', title: 'Wait for Chief', status: 'waiting_work', startedAt: 7000 }],
+  })
+  assert.equal(waitingWork.state, 'waiting')
+  assert.equal(waitingWork.label, 'Waiting for teammate · Wait for Chief')
+
+  // Live answerable DM task approval flips the state to alert immediately, while
+  // group approvals and non-answerable approvals are ignored.
+  const liveApproval = backgroundActivity(
+    { id: 'b1', tasks: [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 5000 }] },
+    [
+      { botId: 'b1', roomId: 'r1', taskId: 'tg', answerable: true },
+      { botId: 'b1', taskId: 't1', answerable: false },
+      { botId: 'b1', taskId: 't1', answerable: true },
+    ],
+  )
+  assert.equal(liveApproval.state, 'alert')
+  assert.equal(liveApproval.needsApproval, true)
+  assert.equal(liveApproval.label, 'Waiting for approval · Review open PRs')
+
+  const multi = backgroundActivity({
+    id: 'b1',
+    tasks: [
+      { id: 't1', title: 'Task A', status: 'running', startedAt: 9000 },
+      { id: 't2', title: 'Task B', status: 'waiting_approval', startedAt: 4000 },
+    ],
+  })
+  assert.equal(multi.state, 'alert')
+  assert.equal(multi.startedAt, 4000)
+  assert.equal(multi.count, 2)
+  assert.equal(multi.primaryId, 't2')
+  assert.equal(multi.label, '2 background tasks · 1 needs approval')
+
+  // Multiple live approvals on the same task and stale approvals for settled tasks
+  // never overcount, while distinct tasks across roster + live approvals union cleanly.
+  const unionApprovals = backgroundActivity(
+    {
+      id: 'b1',
+      tasks: [
+        { id: 't1', title: 'Task A', status: 'running', startedAt: 9000 },
+        { id: 't2', title: 'Task B', status: 'waiting_approval', startedAt: 4000 },
+      ],
+    },
+    [
+      { botId: 'b1', taskId: 't1', answerable: true },
+      { botId: 'b1', taskId: 't1', answerable: true },
+      { botId: 'b1', taskId: 't-stale', answerable: true },
+    ],
+  )
+  assert.equal(unionApprovals.label, '2 background tasks · 2 needs approval')
+
+  const livePrimary = backgroundActivity(
+    {
+      id: 'b1',
+      tasks: [
+        { id: 't1', title: 'Newer running', status: 'running', startedAt: 9000 },
+        { id: 't2', title: 'Older live approval', status: 'running', startedAt: 4000 },
+      ],
+    },
+    [{ botId: 'b1', taskId: 't2', answerable: true }],
+  )
+  assert.equal(livePrimary.primaryId, 't2')
+  assert.equal(livePrimary.label, '2 background tasks · 1 needs approval')
+})
+
+test('ActivityIndicator shows animated Bot row for idle DM with active background tasks and hands off cleanly', async () => {
+  const { outputFiles: compFiles } = await build({
+    stdin: { contents: "export { ActivityIndicator } from './src/client/activity-row.js'", resolveDir: PLUGIN },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const { React: baseReact, render: baseRender, unmount } = makeStatefulReact()
+  const deferredEffects = []
+  const React = {
+    ...baseReact,
+    useEffect: (fn, deps) => baseReact.useEffect(() => {
+      let cleanup
+      deferredEffects.push(() => { cleanup = fn() })
+      return () => { if (typeof cleanup === 'function') cleanup() }
+    }, deps),
+  }
+  const render = (el) => {
+    const tree = baseRender(el)
+    while (deferredEffects.length > 0) deferredEffects.shift()()
+    return tree
+  }
+  const compDom = new JSDOM('<!doctype html><body><div data-bt-flow id="flow"></div></body>')
+  const compMod = { exports: {} }
+  const timers = new Map()
+  let nextTimer = 1
+  const fakeSetTimeout = (fn, ms) => { const id = nextTimer++; timers.set(id, { fn, ms }); return id }
+  const fakeClearTimeout = (id) => { timers.delete(id) }
+  runInNewContext(compFiles[0].text, {
+    module: compMod, exports: compMod.exports,
+    document: compDom.window.document,
+    window: { matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {} },
+    Element: compDom.window.Element,
+    MutationObserver: compDom.window.MutationObserver,
+    requestAnimationFrame: fn => fakeSetTimeout(fn, 0),
+    cancelAnimationFrame: id => fakeClearTimeout(id),
+    setTimeout: fakeSetTimeout, clearTimeout: fakeClearTimeout,
+    require: name => (name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : {}),
+  })
+  const { ActivityIndicator } = compMod.exports
+  const findNode = (node, pred) => {
+    if (!node || typeof node !== 'object') return null
+    if (pred(node)) return node
+    for (const child of node.children ?? []) {
+      const hit = findNode(child, pred)
+      if (hit) return hit
+    }
+    return null
+  }
+  const textOf = (node) => {
+    if (node == null || typeof node === 'boolean') return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(textOf).join('')
+    return (node.children ?? []).map(textOf).join('')
+  }
+  const toggled = []
+  let fgRunning = false
+  let away = false
+  let tasks = [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 1000 }]
+  let approvals = []
+  const makeProps = () => ({
+    sessionId: 's1',
+    away,
+    useRoster: sel => sel({ byId: { s1: { id: 'b1', name: 'Reviewr', tasks } }, roomsById: {} }),
+    useSessionStatus: sel => sel(new Map([['s1', { running: fgRunning }]])),
+    useSession: sel => sel({ pendingSubmissions: [] }),
+    useLive: sel => sel({}),
+    useWork: sel => sel({ canBackground: { s1: { botId: 'b1', turn: 2 } }, turns: { s1: 9999 }, approvals }),
+    actions: {
+      clearLive() {},
+      reportError() {},
+      moveToBackground() {},
+      toggleTaskDeck: id => toggled.push(id),
+    },
+  })
+  try {
+    let tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const row = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.ok(row, 'background activity row renders when foreground is idle')
+    assert.equal(row.props['data-bg-task'], '')
+    assert.equal(findNode(row, n => n.props?.className === 'bt-typing-bg'), null, 'Move to background button is hidden for background task rows')
+    const mark = findNode(row, n => n.props?.className === 'bt-mark')
+    assert.equal(mark?.props?.['data-state'], 'background')
+    const btn = findNode(row, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
+    assert.ok(btn, 'background status text is a clickable button to open the task deck')
+    assert.equal(btn.props.disabled, false)
+    assert.equal(btn.props['aria-label'], 'In background · Review open PRs · View background tasks')
+    assert.match(textOf(findNode(btn, n => n.props?.className === 'bt-typing-label')), /^In background · Review open PRs…$/)
+    assert.equal(findNode(btn, n => n.props?.className === 'bt-typing-dot'), null)
+    btn.props.onClick()
+    assert.deepEqual(toggled, ['b1'])
+
+    // Immediate (<800ms) transition to waiting_approval updates text, aria-label, dot and avatar atomically.
+    tasks = [{ id: 't1', title: 'Review open PRs', status: 'waiting_approval', startedAt: 1000 }]
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const apvRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    const apvBtn = findNode(apvRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
+    assert.equal(findNode(apvRow, n => n.props?.className === 'bt-mark')?.props?.['data-state'], 'alert')
+    assert.ok(findNode(apvBtn, n => n.props?.className === 'bt-typing-dot'))
+    assert.equal(apvBtn.props['aria-label'], 'Waiting for approval · Review open PRs · View background tasks')
+    assert.match(textOf(findNode(apvBtn, n => n.props?.className === 'bt-typing-label')), /^Waiting for approval · Review open PRs…$/)
+
+    // Immediate (<800ms) FG takeover replaces background label instead of holding stale BG text.
+    fgRunning = true
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const fgRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.equal(fgRow.props['data-bg-task'], undefined)
+    assert.equal(findNode(fgRow, n => n.props?.className === 'bt-mark')?.props?.['data-state'], 'thinking')
+    assert.doesNotMatch(textOf(findNode(fgRow, n => n.props?.className === 'bt-typing-label')), /Waiting for approval/)
+    assert.ok(findNode(fgRow, n => n.props?.className === 'bt-typing-bg'))
+
+    // Returning to idle with active background task immediately restores BG text.
+    fgRunning = false
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const backRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.equal(backRow.props['data-bg-task'], '')
+    assert.match(textOf(findNode(backRow, n => n.props?.className === 'bt-typing-label')), /^Waiting for approval · Review open PRs…$/)
+
+    // Settling the last background task keeps the row mounted during the 140ms exit
+    // animation with its snapshot button disabled and approval dot intact, then unmounts.
+    tasks = []
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const exitingRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.ok(exitingRow, 'exiting background row stays mounted during 140ms fade-out')
+    assert.equal(exitingRow.props['data-exiting'], '')
+    assert.equal(exitingRow.props['data-bg-task'], '')
+    const exitingBtn = findNode(exitingRow, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
+    assert.ok(exitingBtn && exitingBtn.props.disabled === true)
+    assert.ok(findNode(exitingBtn, n => n.props?.className === 'bt-typing-dot'))
+    exitingBtn.props.onClick()
+    assert.deepEqual(toggled, ['b1'], 'clicking while exiting does not reopen task deck')
+    const exitEntry = [...timers.entries()].find(([, entry]) => entry.ms === 140)
+    assert.ok(exitEntry, 'schedules 140ms exit timer')
+    timers.delete(exitEntry[0])
+    exitEntry[1].fn()
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing'), null)
+
+    // Away from chat view clears the row immediately without waiting for exit.
+    tasks = [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 1000 }]
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    assert.ok(findNode(tree, n => n.props?.className === 'bt-typing'))
+    away = true
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing'), null)
   } finally {
     unmount()
   }

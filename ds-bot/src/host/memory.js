@@ -2301,8 +2301,20 @@ export function install(rt) {
     return route
   }
   const modelTimeoutMs = config.memoryModelTimeoutMs ?? MODEL_TIMEOUT_MS
+  const CACHE_KEY_MAX = 64
+  const VALID_CACHE_KEY = /^[\x21-\x7E]{1,64}$/
+  const stableCacheKey = (key) => {
+    if (typeof key !== 'string' || key === '') return undefined
+    if (VALID_CACHE_KEY.test(key)) return key
+    const colon = key.indexOf(':')
+    const prefix = (colon > 0 ? key.slice(0, colon) : 'mem').replace(/[^\x21-\x7E]/g, '').slice(0, 24) || 'mem'
+    const digest = createHash('sha256').update(key).digest('hex').slice(0, CACHE_KEY_MAX - prefix.length - 1)
+    return `${prefix}:${digest}`
+  }
   // The panel's model calls belong to the Bot or group whose memory they serve;
-  // without the tag the meter would file them under "other".
+  // without the tag the meter would file them under "other". Auxiliary memory calls
+  // can pass a dedicated `cacheKey` so their prompt_cache_key / session-id does not
+  // collide with the Bot's main chat session while usage still bills under `tag.sessionId`.
   async function oneShot(route, system, text, tag) {
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     const efforts = info?.reasoning?.efforts ?? []
@@ -2316,13 +2328,14 @@ export function install(rt) {
     const budgets = [first, retry]
     const messages = [{ role: 'user', content: [{ type: 'text', text }] }]
     if (tag !== undefined) rt.tagUsage?.(messages, tag)
+    const cacheSessionId = stableCacheKey(tag?.cacheKey) ?? tag?.sessionId
     let lastKind = 'stop'
     for (let attempt = 0; attempt < budgets.length; attempt += 1) {
       const maxTokens = budgets[attempt]
       const callOptions = {
         provider: route.provider,
         model: route.model,
-        ...(tag?.sessionId === undefined ? {} : { sessionId: tag.sessionId }),
+        ...(cacheSessionId === undefined ? {} : { sessionId: cacheSessionId }),
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
         system,
         messages,
@@ -2481,7 +2494,7 @@ export function install(rt) {
     }
     const bot = rt.botOf(String(body.botId ?? ''))
     if (bot === undefined) throw new Error('Unknown Bot')
-    return { id: bot.id, name: bot.name, group: false, keeper: bot, tag: { sessionId: rt.chatOf(bot.id), kind: 'memory' }, scopes: { own: ownScope(bot.id), team: TEAM } }
+    return { id: bot.id, name: bot.name, group: false, keeper: bot, tag: { sessionId: rt.chatOf(bot.id), kind: 'memory', cacheKey: `mem-panel:${bot.id}` }, scopes: { own: ownScope(bot.id), team: TEAM } }
   }
   const panelBody = panel => (panel.group ? { roomId: panel.id } : { botId: panel.id })
   const panelLabel = (panel, scope) => (scope.kind === 'team' ? 'the team memory' : panel.group ? 'the group memory' : `${panel.name}'s memory`)

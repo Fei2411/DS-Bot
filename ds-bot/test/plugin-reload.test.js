@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -166,10 +166,7 @@ test('a real DSH transport failure drains the pending inbox without another send
   agent.followup(followup)
   await plugin.rt.deliver({ fromId: 'a', toId: 'b', role: 'reply', exchangeId: 'reply', text: 'Work from Chief' })
   await plugin.rt.deliver({ toId: 'b', role: 'task-report', exchangeId: 'report', text: 'Task finished' })
-  const queued = () => {
-    try { return JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')).queued.b ?? [] } catch { return undefined }
-  }
-  await settle(() => queued()?.length === 2)
+  await settle(() => plugin.rt.unreadOf('b').length === 2)
   fail.resolve()
   await agent.whenIdle()
   assert.equal(agent.inbox.nextTurn.length, 0, 'the pending inbox should drain after the failed turn')
@@ -180,7 +177,6 @@ test('a real DSH transport failure drains the pending inbox without another send
   assert.deepEqual(messages.filter(event => event.data.source.kind === 'user').map(event => event.data.id), [opening.id, steer.id, followup.id])
   assert.deepEqual(messages.flatMap(event => event.data.source.exchangeId ?? []), ['reply', 'report'])
   assert.deepEqual(plugin.rt.unreadOf('b'), [])
-  await settle(() => queued()?.length === 0)
 })
 
 test('a pending subagent settlement wakes the parent after a transport failure', async (t) => {

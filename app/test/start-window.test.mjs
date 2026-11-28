@@ -53,6 +53,7 @@ test('a failure gets one of the six reasons of the failure page', () => {
   assert.equal(failureReason(new Error('The app could not load its own bundles:\nds-bot: missing')), 'files')
   assert.equal(failureReason(new Error('The DSH Host stopped (exit 1):\nError: EACCES: permission denied, open \'state.json\'')), 'permission')
   assert.equal(failureReason(new Error('The DSH Host stopped (exit 3221225477)')), 'engine')
+  assert.equal(failureReason(new Error('The DSH Host stopped (exit null, signal SIGKILL)')), 'engine')
   assert.equal(failureReason(new Error('The profile in D:\\x does not start the engine\'s web server and connection.')), 'engine')
   assert.equal(failureReason(new Error('DS Bot: no free port on 127.0.0.1')), 'other')
   assert.equal(failureReason('a string'), 'other')
@@ -157,6 +158,9 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   assert.equal(clockMs({ base: 1000, from: now + 500, running: true }, now), 1000)
   const failed = startSnapshot(state({ view: 'failed', failure: { reason: 'engine', log: ['a', 'b'] } }), now)
   assert.deepEqual(failed.failure, { reason: 'engine', log: ['a', 'b'] })
+  assert.equal('running' in failed.failure, false)
+  const stopped = startSnapshot(state({ view: 'failed', failure: { reason: 'engine', running: true, log: ['a'] } }), now)
+  assert.deepEqual(stopped.failure, { reason: 'engine', running: true, log: ['a'] })
   assert.equal('card' in failed, false)
   assert.equal('hint' in failed, false)
   assert.deepEqual(startSnapshot(state({ hint: { drive: 'C', free: '1.2 GB' } }), now).hint, { drive: 'C', free: '1.2 GB' })
@@ -293,6 +297,7 @@ function startWindow(t, { effects = 'full' } = {}) {
   t.mock.method(console, 'log', () => {})
   const fake = fakeElectron()
   const main = new fake.electron.BrowserWindow({ show: false })
+  main.focused = false
   const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [], saveAs: [], saveTo: undefined }
   const start = new StartWindow({
     electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', devTools: false,
@@ -512,10 +517,13 @@ test('a retry after the engine was up guards the new engine, while the whale kee
   s.start.fail(new Error('The DSH Host stopped (exit 1)'))
   assert.equal(s.state().view, 'failed')
   assert.equal(s.state().failure.reason, 'engine')
+  assert.equal(s.state().failure.running, true)
+  assert.deepEqual(s.state().done, ['data'])
+  assert.equal(s.state().phase, 'engine')
   assert.equal(s.act('retry'), true)
   assert.equal(s.calls.retry, 1)
-  assert.deepEqual(s.state().done, ['data', 'engine'])
-  assert.equal(s.state().phase, 'team')
+  assert.deepEqual(s.state().done, ['data'])
+  assert.equal(s.state().phase, 'engine')
   // The old team view cannot hand over before the new engine is up.
   s.start.ready()
   assert.equal(s.state().view, 'boot')
@@ -552,6 +560,30 @@ test('the team view has 20 s to call ready(); a late ready() hands over without 
   assert.equal(s.state().view, 'handoff')
   assert.equal(s.state().celebrate, false)
   assert.equal('failure' in s.state(), false)
+})
+
+test('teamViewFailed enters viewFailed immediately without waiting TEAM_VIEW_MS', (t) => {
+  const s = startWindow(t)
+  s.start.open('later')
+  s.start.done('data')
+  s.start.done('engine')
+  s.start.teamLoading()
+  s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED'))
+  assert.equal(s.state().view, 'viewFailed')
+  assert.deepEqual(s.state().failure, { reason: 'other', log: ['a log line'] })
+})
+
+test('teamViewFailed waits while a card is open and shows once the card clears', (t) => {
+  const c = startWindow(t)
+  c.start.open('first')
+  c.start.done('data')
+  c.start.done('engine')
+  c.start.teamLoading()
+  c.start.card({ kind: 'picked', path: '/tmp/x' })
+  c.start.teamViewFailed(new Error('ERR_FAILED'))
+  assert.equal(c.state().view, 'card')
+  c.start.card(undefined)
+  assert.equal(c.state().view, 'viewFailed')
 })
 
 for (const [kind, wait] of [['first', 2500], ['later', 800]]) {
@@ -765,6 +797,10 @@ test('a failure during the hand-off draws the failure page on a fresh page', (t)
   s.tick(300)
   s.start.fail(new Error('The DSH Host stopped (exit 1)'))
   assert.equal(s.state().view, 'failed')
+  assert.equal(s.state().phase, 'engine')
+  assert.deepEqual(s.state().done, ['data'])
+  assert.equal(s.state().failure.reason, 'engine')
+  assert.equal(s.state().failure.running, true)
   assert.equal(s.win().webContents.reloads, 1)
   // The team window that waited under the start window is hidden again.
   assert.deepEqual(s.win().bounds, centred(startSize(AREA), AREA))
@@ -784,14 +820,96 @@ test('a failure after the hand-off opens a fresh start window over the hidden te
   s.tick(2500)
   const handed = s.win()
   assert.equal(s.main.visible, true)
-  s.start.fail(new Error('The DSH Host stopped (exit 1)'), 'later')
+  s.start.fail(new Error('The DSH Host stopped (exit null, signal SIGKILL)'), 'later')
   assert.equal(handed.destroyed, true)
   assert.notEqual(s.win(), handed)
   assert.equal(s.main.visible, false)
+  assert.equal(s.main.opacity, 1)
+  assert.deepEqual(s.main.calls.slice(-3), ['hide', 'opacity 1', 'skipTaskbar false'])
   assert.equal(s.state().view, 'failed')
+  assert.equal(s.state().phase, 'engine')
+  assert.deepEqual(s.state().done, ['data'])
+  assert.equal(s.state().failure.reason, 'engine')
+  assert.equal(s.state().failure.running, true)
   assert.equal(s.state().start, 'later')
   assert.equal(s.start.owner(), s.win())
   assert.equal(s.calls.close, 0)
+  // A retry that fails during boot reports a startup failure again, not a running stop.
+  assert.equal(s.act('retry'), true)
+  s.start.fail(new Error('The DSH Host stopped (exit 1)'), 'later')
+  assert.equal(s.state().view, 'failed')
+  assert.equal(s.state().phase, 'engine')
+  assert.equal(s.state().failure.reason, 'engine')
+  assert.equal('running' in s.state().failure, false)
+})
+
+test('an engine stop after done(engine) but before team window reveal is classified as a runtime stop', async (t) => {
+  await t.test('while the team view is still loading', (st) => {
+    const loading = startWindow(st)
+    loading.start.open('later')
+    loading.start.done('data')
+    loading.start.done('engine')
+    loading.start.teamLoading()
+    assert.equal(loading.start.revealed, false)
+    loading.start.fail(new Error('The DSH Host stopped (exit null, signal SIGTERM)'))
+    assert.equal(loading.state().view, 'failed')
+    assert.equal(loading.state().phase, 'engine')
+    assert.deepEqual(loading.state().done, ['data'])
+    assert.equal(loading.state().failure.reason, 'engine')
+    assert.equal(loading.state().failure.running, true)
+    // Retrying clears running when the next attempt fails before done('engine').
+    assert.equal(loading.act('retry'), true)
+    loading.start.fail(new Error('The DSH Host stopped (exit 1)'))
+    assert.equal(loading.state().view, 'failed')
+    assert.equal(loading.state().phase, 'engine')
+    assert.deepEqual(loading.state().done, ['data'])
+    assert.equal('running' in loading.state().failure, false)
+  })
+
+  await t.test('while a start card holds handoff after import', (st) => {
+    const held = startWindow(st)
+    held.start.open('first')
+    held.start.done('data')
+    held.start.done('import')
+    held.start.done('engine')
+    held.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
+    held.start.ready()
+    assert.equal(held.start.revealed, false)
+    held.start.fail(new Error('The DSH Host stopped (exit null, signal SIGKILL)'))
+    assert.equal(held.state().view, 'failed')
+    assert.equal(held.state().phase, 'engine')
+    assert.deepEqual(held.state().done, ['data', 'import'])
+    assert.equal(held.state().failure.reason, 'engine')
+    assert.equal(held.state().failure.running, true)
+  })
+
+  await t.test('with a data-stage reason after engineUp', (st) => {
+    const space = startWindow(st)
+    space.start.open('later')
+    space.start.done('data')
+    space.start.done('engine')
+    space.start.fail(Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }))
+    assert.equal(space.state().view, 'failed')
+    assert.equal(space.state().phase, 'data')
+    assert.deepEqual(space.state().done, [])
+    assert.equal(space.state().failure.reason, 'space')
+    assert.equal(space.state().failure.running, true)
+  })
+})
+
+test('a failure mid-crossfade restores mainWindow opacity to 1 and skipTaskbar to false', (t) => {
+  const s = handingOver(t)
+  s.act('handoffShow', { whale: { x: 304, y: 147, size: 112 } })
+  s.start.teamReady()
+  s.tick(CROSSFADE.duration / 2)
+  assert.equal(s.start.revealed, true)
+  assert.ok(s.main.opacity > 0 && s.main.opacity < 1, 'mainWindow is mid-crossfade')
+  s.start.fail(new Error('The DSH Host stopped (exit null, signal SIGKILL)'), 'later')
+  assert.equal(s.main.visible, false)
+  assert.equal(s.main.opacity, 1)
+  assert.deepEqual(s.main.calls.slice(-3), ['hide', 'opacity 1', 'skipTaskbar false'])
+  assert.equal(s.state().view, 'failed')
+  assert.equal(s.state().failure.running, true)
 })
 
 test('the place line, its picker and its cards, and a start over in another folder', (t) => {
@@ -980,4 +1098,45 @@ test('the 20 s check\'s verdict waits for a card\'s answer instead of being lost
   assert.equal(v.state().view, 'card')
   v.start.card(undefined)
   assert.equal(v.state().view, 'viewFailed')
+})
+
+test('teamViewFailed redacts launch tokens from console output', (t) => {
+  const s = startWindow(t)
+  const logged = []
+  const origLog = console.log
+  console.log = (...args) => { logged.push(args.join(' ')) }
+  try {
+    s.start.open('first')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.teamLoading()
+    s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED (-102) loading http://127.0.0.1:4123/?token=secret-launch-token'))
+  } finally {
+    console.log = origLog
+  }
+  assert.equal(s.state().view, 'viewFailed')
+  assert.ok(logged.some(line => line.includes('token=<hidden>')), 'redacted token should appear in log line')
+  assert.equal(logged.some(line => line.includes('secret-launch-token')), false, 'raw launch token must never print to console')
+})
+
+test('deferred teamViewFailed transitions to viewFailed after card closes without logging a 20 s timeout', (t) => {
+  const s = startWindow(t)
+  const logged = []
+  const origLog = console.log
+  console.log = (...args) => { logged.push(args.join(' ')) }
+  try {
+    s.start.open('first')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.teamLoading()
+    s.start.card({ kind: 'rejected', reason: 'onedrive', path: 'C:\\OneDrive' })
+    s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED (-102)'))
+    assert.equal(s.state().view, 'card')
+    s.start.card(undefined)
+  } finally {
+    console.log = origLog
+  }
+  assert.equal(s.state().view, 'viewFailed')
+  assert.ok(logged.some(line => line.includes('the team view failed to load')), 'load failure should be logged once')
+  assert.equal(logged.some(line => line.includes('did not call ready() within 20 s')), false, 'must not log misleading 20 s timeout after teamViewFailed')
 })

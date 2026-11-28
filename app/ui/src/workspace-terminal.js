@@ -411,7 +411,7 @@ function canStealFocusForTerminal(hostEl) {
   if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true
   if (hostEl && typeof hostEl.contains === 'function' && hostEl.contains(activeEl)) return true
   if (typeof activeEl.closest === 'function'
-    && activeEl.closest('[data-composer-input], [data-composer-card], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+    && activeEl.closest('[data-bt-composer-input], [data-bt-composer], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
     return false
   }
   return true
@@ -670,6 +670,7 @@ export function WorkspaceTerminal({
   const positionsRef = useRef(new Map())
   const syncRunningRef = useRef(false)
   const syncAgainRef = useRef(false)
+  const syncFailedRef = useRef(false)
   const syncPromiseRef = useRef(null)
   const syncRef = useRef(null)
   const { terms, activeId } = state
@@ -699,10 +700,33 @@ export function WorkspaceTerminal({
         sync()
       }
     }
-    const observer = new MutationObserver(schedule)
-    if (document.documentElement) observer.observe(document.documentElement, { attributes: true })
+    const isStyleNode = node => node?.nodeName === 'STYLE' || (node?.nodeName === 'LINK' && node?.rel === 'stylesheet')
+    const onMutation = (records) => {
+      if (!Array.isArray(records) || records.length === 0) {
+        schedule()
+        return
+      }
+      for (const record of records) {
+        if (record.type === 'attributes') {
+          schedule()
+          return
+        }
+        if (record.type === 'childList') {
+          for (const node of record.addedNodes ?? []) {
+            if (isStyleNode(node)) { schedule(); return }
+          }
+          for (const node of record.removedNodes ?? []) {
+            if (isStyleNode(node)) { schedule(); return }
+          }
+        }
+      }
+    }
+    const observer = new MutationObserver(onMutation)
+    if (document.documentElement) observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'class', 'style'] })
     if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'class', 'style'] })
-    if (document.head) observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    // Direct childList only: `useTheme` mounts/unmounts its `<style>` directly under `<head>`.
+    // Avoid `subtree: true` / `characterData: true` so unrelated head/title/script edits never fire.
+    if (document.head) observer.observe(document.head, { childList: true })
     return () => {
       observer.disconnect()
       if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
@@ -836,8 +860,10 @@ export function WorkspaceTerminal({
           if (!mountedRef.current) return count
           count = Math.max(count, applySyncList(list))
           ok = true
+          syncFailedRef.current = false
         } while (syncAgainRef.current)
       } catch {
+        syncFailedRef.current = true
         // The next feed hello tries again; terminal output itself never replaces what is held.
       } finally {
         syncRunningRef.current = false
@@ -955,7 +981,7 @@ export function WorkspaceTerminal({
     }
     return feed.on((event, data) => {
       if (event === 'hello') {
-        void syncRef.current?.()
+        if (data?.resumed !== true || syncFailedRef.current) void syncRef.current?.()
         return
       }
       if (!data?.id || closedIdsRef.current.has(data.id)) return

@@ -69,6 +69,179 @@ const LINKED_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath, remarkFi
 
 const InPreContext = createContext(false)
 const InLinkContext = createContext(false)
+const StreamingTailContext = createContext(null)
+
+const LIST_MARKER_RE = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?=[ \t]|$)/
+const BARE_ORDERED_PREFIX_RE = /^ {0,3}\d{1,9}$/
+const ATX_OR_BREAK_RE = /^ {0,3}(?:#{1,6}(?:[ \t]+|$)|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)/
+
+function hasUnescapedClosingDollars(rest, markerLen) {
+  let i = 0
+  while (i < rest.length) {
+    const ch = rest[i]
+    if (ch === '\\') { i += 2; continue }
+    if (ch === '$') {
+      let run = 1
+      while (i + run < rest.length && rest[i + run] === '$') run += 1
+      if (run >= markerLen && i > 0) return true
+      i += run
+      continue
+    }
+    i += 1
+  }
+  return false
+}
+
+// Tracks whether a closed block ended in a list or indented context (matching
+// `splitMarkdownBlocks`'s `inList || previousLineIndented` before its trailing blank lines).
+function blockEndsInListOrIndent(block) {
+  if (typeof block !== 'string' || block === '') return false
+  const lines = block.split('\n')
+  let fence = null
+  let mathFence = null
+  let inList = false
+  let previousLineIndented = false
+  for (const line of lines) {
+    if (fence !== null) {
+      const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line)
+      if (close !== null && close[1][0] === fence.char && close[1].length >= fence.length) {
+        const wasIndented = fence.indent > 0
+        fence = null
+        if (!wasIndented) inList = false
+        previousLineIndented = wasIndented
+      }
+      continue
+    }
+    if (mathFence !== null) {
+      const close = /^ {0,3}(\${2,})[ \t]*$/.exec(line)
+      if (close !== null && close[1].length >= mathFence.length) {
+        const wasIndented = mathFence.indent > 0
+        mathFence = null
+        if (!wasIndented) inList = false
+        previousLineIndented = wasIndented
+      }
+      continue
+    }
+    if (/^[ \t]*$/.test(line)) continue
+    const openFence = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (openFence !== null && (openFence[1][0] === '~' || !line.includes('`', openFence[0].length))) {
+      let indent = 0
+      while (indent < line.length && line[indent] === ' ') indent += 1
+      fence = { char: openFence[1][0], length: openFence[1].length, indent }
+      if (indent === 0) inList = false
+      previousLineIndented = indent > 0
+      continue
+    }
+    const openMath = /^ {0,3}(\${2,})[ \t]*$/.exec(line)
+    if (openMath !== null) {
+      let indent = 0
+      while (indent < line.length && line[indent] === ' ') indent += 1
+      mathFence = { length: openMath[1].length, indent }
+      if (indent === 0) inList = false
+      previousLineIndented = indent > 0
+      continue
+    }
+    if (LIST_MARKER_RE.test(line)) inList = true
+    else if (ATX_OR_BREAK_RE.test(line)) inList = false
+    previousLineIndented = line.startsWith(' ') || line.startsWith('\t')
+  }
+  return inList || previousLineIndented
+}
+
+function suffixStartsListContinuation(suffix) {
+  const nl = suffix.indexOf('\n')
+  const firstLine = nl === -1 ? suffix : suffix.slice(0, nl)
+  return LIST_MARKER_RE.test(firstLine) || BARE_ORDERED_PREFIX_RE.test(firstLine)
+}
+
+function leadingSpaceCount(line) {
+  let count = 0
+  while (count < line.length && line[count] === ' ') count += 1
+  return count
+}
+
+// Inspects a streaming Markdown tail piece for an unclosed fenced code block or unclosed
+// `$$` display math block by exact 1-based start line so syntax highlighting and KaTeX
+// defer ONLY on the trailing unclosed node (never affecting earlier closed blocks).
+function inspectStreamingTail(source) {
+  if (typeof source !== 'string' || source === '') {
+    return { source, unclosedFenceLine: null, unclosedMathLine: null }
+  }
+  const lines = source.split('\n')
+  let fence = null
+  let mathFence = null
+  let fenceOpenLine = -1
+  let mathOpenLine = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const blank = /^[ \t]*$/.test(line)
+    const indent = leadingSpaceCount(line)
+    if (fence !== null) {
+      if (!blank && fence.indent > 0 && indent < fence.indent) {
+        fence = null
+        fenceOpenLine = -1
+      } else {
+        const close = /^ *(`+|~+)[ \t]*$/.exec(line)
+        if (close !== null && indent <= fence.indent + 3 && close[1][0] === fence.char && close[1].length >= fence.length) {
+          fence = null
+          fenceOpenLine = -1
+        }
+        continue
+      }
+    }
+    if (mathFence !== null) {
+      if (!blank && mathFence.indent > 0 && indent < mathFence.indent) {
+        mathFence = null
+        mathOpenLine = -1
+      } else {
+        const close = /^ *(\${2,})[ \t]*$/.exec(line)
+        if (close !== null && indent <= mathFence.indent + 3 && close[1].length >= mathFence.length) {
+          mathFence = null
+          mathOpenLine = -1
+        }
+        continue
+      }
+    }
+    const openFence = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (openFence !== null) {
+      const marker = openFence[1]
+      if (marker[0] === '~' || !line.includes('`', openFence[0].length)) {
+        fence = { char: marker[0], length: marker.length, indent }
+        fenceOpenLine = i
+        continue
+      }
+    }
+    const openMath = /^ {0,3}(\${2,})(.*)$/.exec(line)
+    if (openMath !== null) {
+      const marker = openMath[1]
+      const rest = openMath[2]
+      const singleLineClosed = rest.trim() !== '' && hasUnescapedClosingDollars(rest, marker.length)
+      if (!singleLineClosed) {
+        mathFence = { length: marker.length, indent, hasInlineBody: rest.trim() !== '' }
+        mathOpenLine = i
+      }
+    }
+  }
+  if (fence !== null) {
+    return {
+      source,
+      unclosedFenceLine: fenceOpenLine + 1,
+      unclosedMathLine: null,
+    }
+  }
+  if (mathFence !== null) {
+    // If an unclosed `$$` has inline text on the opening line (e.g. `$$x^2 + y` or
+    // `$$x^2 + y\n+ z`), escape the opening `$$` while streaming so remark-math renders it
+    // visibly as plain text instead of swallowing the first line as an invisible meta string.
+    if (mathFence.hasInlineBody) {
+      const escapedLines = lines.slice()
+      escapedLines[mathOpenLine] = escapedLines[mathOpenLine].replace(/^ {0,3}(\${2,})/, match => match.replace(/\$/g, '\\$'))
+      return { source: escapedLines.join('\n'), unclosedFenceLine: null, unclosedMathLine: null }
+    }
+    return { source, unclosedFenceLine: null, unclosedMathLine: mathOpenLine + 1 }
+  }
+  return { source, unclosedFenceLine: null, unclosedMathLine: null }
+}
 
 function plainChildrenText(node) {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -90,13 +263,19 @@ function extractFenceMeta(children) {
   return { className, rawLang, isMath, codeText }
 }
 
-function CodeBlock({ children, labels }) {
+function CodeBlock({ children, labels, startLine }) {
   const [copied, setCopied] = useState(false)
   const block = useRef(null)
+  const tailState = useContext(StreamingTailContext)
   const { className, rawLang, isMath, codeText } = extractFenceMeta(children)
-  const highlighted = useHighlightedCode(isMath ? '' : codeText, isMath ? '' : rawLang)
+  const isUnclosedFence = tailState !== null && tailState.unclosedFenceLine !== null && startLine === tailState.unclosedFenceLine
+  const isUnclosedMath = isMath && (isUnclosedFence || (tailState !== null && tailState.unclosedMathLine !== null && startLine === tailState.unclosedMathLine))
+  const highlighted = useHighlightedCode(isMath || isUnclosedFence ? '' : codeText, isMath || isUnclosedFence ? '' : rawLang)
 
   if (isMath) {
+    if (isUnclosedMath) {
+      return h('pre', { className: 'dsb-math-block dsb-math-fallback', 'data-math-display': '' }, h('code', null, codeText.trim()))
+    }
     return h(MathExpression, { tex: codeText.trim(), display: true })
   }
 
@@ -177,7 +356,7 @@ const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions }) => ({
     }
     return h(InLinkContext.Provider, { value: true }, h('a', { ...props, target: '_blank', rel: 'noreferrer' }, children))
   },
-  pre: ({ children }) => h(CodeBlock, { labels }, children),
+  pre: ({ node, children }) => h(CodeBlock, { labels, startLine: node?.position?.start?.line }, children),
   code: ({ node: _node, ...props }) => h(InlineCode, { ...props, onOpenFile, onRevealFolder, fileMentions }),
 })
 
@@ -214,17 +393,25 @@ export function markdownUrlTransform(url, key, node) {
   return defaultSafeUrlTransform(url)
 }
 
+const preprocessMarkdown = text => escapeCurrencyDollars(normalizeMathDelimiters(text ?? ''))
+
 // A closed block of a streaming reply. Once the splitter has closed it, later chunks
 // cannot change what it means, so the memo holds for the rest of the stream and the
-// block never re-parses. The Fragment keeps the block's elements flat inside the one
-// outer `.md_markdown` wrapper: the DOM a settled full parse would produce is the same,
-// so nothing jumps when streaming completes.
+// block never re-parses (including math delimiter normalization and currency guarding).
+// The Fragment keeps the block's elements flat inside the one outer `.md_markdown`
+// wrapper: the DOM a settled full parse would produce is the same, so nothing jumps
+// when streaming completes.
 const StaticMarkdownBlock = memo(function StaticMarkdownBlock({ text, components, remarkPlugins, urlTransform }) {
-  return h(Fragment, null, h(Markdown, { remarkPlugins, components, urlTransform }, text))
+  const source = useMemo(() => preprocessMarkdown(text), [text])
+  return h(Fragment, null, h(Markdown, { remarkPlugins, components, urlTransform }, source))
 })
 
 // Short replies cost little enough that splitting them is not worth the extra elements.
 const STREAM_SPLIT_MIN = 512
+// Desktop Markdown does not run rehype-slug (headings carry no document-wide id counter),
+// so repeated headings or streaming prefixes like `## Section 4` before `## Section 40`
+// stay split instead of remounting every closed block.
+const DESKTOP_SPLIT_OPTIONS = { allowDuplicateHeadings: true }
 
 // The class keeps the `_markdown` stem that the Bot views' styles give DSH's Markdown.
 export function MarkdownText({ text, labels, variant, streaming = false, onOpenFile, onRevealFolder, fileMentions }) {
@@ -236,19 +423,92 @@ export function MarkdownText({ text, labels, variant, streaming = false, onOpenF
     () => elements({ labels, onOpenFile, onRevealFolder, fileMentions }),
     [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions],
   )
-  const source = useMemo(() => escapeCurrencyDollars(normalizeMathDelimiters(text ?? '')), [text])
-  // While streaming, closed blocks parse once and only the live trailing piece re-parses
-  // per chunk, instead of the whole message (which re-parses quadratically over a reply).
-  // `null` from the splitter means the text holds document-wide syntax and stays whole.
-  const blocks = streaming && source.length > STREAM_SPLIT_MIN ? splitMarkdownBlocks(source) : null
+  const raw = text ?? ''
+  // Incremental prefix cache: while a reply grows monotonically, closed blocks stay intact
+  // and only the unclosed suffix is scanned, keeping per-chunk split cost O(|tail|). Also
+  // keeps the split mounted across the `streaming: true -> false` transition so finishing a
+  // long reply does not unmount and re-parse every closed block at once.
+  const splitCacheRef = useRef({ closedBlocks: [], closedPrefix: '', lastClosedInListOrIndent: false, wasSplit: false })
+  const blocks = useMemo(() => {
+    const cache = splitCacheRef.current
+    const canKeepSettledSplit = !streaming && cache.wasSplit && cache.closedPrefix !== '' && raw.startsWith(cache.closedPrefix)
+    if ((!streaming && !canKeepSettledSplit) || raw.length <= STREAM_SPLIT_MIN) {
+      if (!streaming) {
+        cache.closedBlocks = []
+        cache.closedPrefix = ''
+        cache.lastClosedInListOrIndent = false
+        cache.wasSplit = false
+      }
+      return null
+    }
+    let nextBlocks
+    const prefixLen = cache.closedPrefix.length
+    const nextChar = raw[prefixLen]
+    const suffix = prefixLen > 0 && raw.startsWith(cache.closedPrefix) ? raw.slice(prefixLen) : null
+    const listBoundaryThreat = cache.lastClosedInListOrIndent && suffix !== null && suffixStartsListContinuation(suffix)
+    if (
+      suffix !== null
+      && !listBoundaryThreat
+      && nextChar !== undefined
+      && nextChar !== ' '
+      && nextChar !== '\t'
+      && nextChar !== '\n'
+      && nextChar !== '\r'
+    ) {
+      const suffixBlocks = splitMarkdownBlocks(suffix, DESKTOP_SPLIT_OPTIONS)
+      if (suffixBlocks === null) {
+        cache.closedBlocks = []
+        cache.closedPrefix = ''
+        cache.lastClosedInListOrIndent = false
+        cache.wasSplit = false
+        return null
+      }
+      nextBlocks = suffixBlocks.length === 1
+        ? [...cache.closedBlocks, suffixBlocks[0]]
+        : [...cache.closedBlocks, ...suffixBlocks]
+      if (suffixBlocks.length >= 2) {
+        const newlyClosed = suffixBlocks.slice(0, -1)
+        cache.closedBlocks = [...cache.closedBlocks, ...newlyClosed]
+        cache.closedPrefix += newlyClosed.join('')
+        cache.lastClosedInListOrIndent = blockEndsInListOrIndent(newlyClosed.at(-1))
+      }
+    } else {
+      nextBlocks = splitMarkdownBlocks(raw, DESKTOP_SPLIT_OPTIONS)
+      if (nextBlocks !== null && nextBlocks.length >= 2) {
+        const closed = nextBlocks.slice(0, -1)
+        cache.closedBlocks = closed
+        cache.closedPrefix = closed.join('')
+        cache.lastClosedInListOrIndent = blockEndsInListOrIndent(closed.at(-1))
+      } else {
+        cache.closedBlocks = []
+        cache.closedPrefix = ''
+        cache.lastClosedInListOrIndent = false
+      }
+    }
+    cache.wasSplit = nextBlocks !== null && nextBlocks.length >= 2
+    return nextBlocks
+  }, [streaming, raw])
   const split = blocks !== null && blocks.length >= 2
-  return h('div', { className: variant === 'compact' ? 'md_markdown md-compact' : 'md_markdown' },
+  const tailRaw = split ? blocks.at(-1) : raw
+  const tailState = useMemo(() => {
+    const processed = preprocessMarkdown(tailRaw)
+    return streaming ? inspectStreamingTail(processed) : { source: processed, unclosedFenceLine: null, unclosedMathLine: null }
+  }, [tailRaw, streaming])
+  const tailKey = split ? blocks.length - 1 : 'tail'
+  const tailNode = streaming
+    ? h(StreamingTailContext.Provider, { key: tailKey, value: tailState },
+      h(Markdown, { remarkPlugins, components, urlTransform }, tailState.source))
+    : (split
+      ? h(StaticMarkdownBlock, { key: tailKey, text: tailRaw, components, remarkPlugins, urlTransform })
+      : h(Markdown, { remarkPlugins, components, urlTransform }, tailState.source))
+
+  return h('div', { className: variant === 'compact' ? 'md_markdown bt-md md-compact' : 'md_markdown bt-md' },
     split
       ? [
         ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins, urlTransform })),
-        h(Markdown, { key: blocks.length - 1, remarkPlugins, components, urlTransform }, blocks.at(-1)),
+        tailNode,
       ]
-      : h(Markdown, { remarkPlugins, components, urlTransform }, source))
+      : tailNode)
 }
 
 // Settings icons, drawn by DS Bot (ds-bot/src/client/icons.js). DSH's take a `size`.

@@ -13,7 +13,7 @@ const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
 const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
-  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const NewDivider = () => ({ type: "new-divider", props: { className: "bt-new-sep", children: [] } })\nexport const unseenSince = (visit, time) => typeof visit?.seen === "number" && Number.isFinite(time) && time > visit.seen && time <= visit.entered\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
@@ -144,7 +144,7 @@ const sandbox = {
   document: { querySelector: () => null, body: { toggleAttribute() {}, removeAttribute() {} }, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
   navigator: { language: 'en' },
   setTimeout: () => 0, clearTimeout() {},
-  requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
+  requestAnimationFrame: fn => setImmediate(() => fn(0)), cancelAnimationFrame: id => clearImmediate(id), performance: { now: () => 0 },
   fetch: (...args) => sse.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)
@@ -201,7 +201,7 @@ const all = (node, check) => {
   if (!node || typeof node !== 'object') return []
   return [...(check(node) ? [node] : []), ...all(node.props.children, check)]
 }
-const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-composer-input'] !== undefined)[0]
+const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-bt-composer-input'] !== undefined)[0]
 const sendButton = node => all(node, child => child.type === 'button' && child.props?.className === 'dsb-send')[0]
 const answerField = node => all(node, child => child.props?.className === 'bt-q-input')[0]
 const enter = (extra = {}) => ({
@@ -1029,7 +1029,7 @@ test('composer stays editable when bot.waiting has a model, focuses on card clic
     // slider, or a React portal child rendered outside currentTarget does not.
     let focused = 0
     ta.props.ref.current = { focus() { focused += 1 }, style: {}, scrollHeight: 30 }
-    const card = all(tree, n => n.props?.['data-composer-card'] !== undefined)[0]
+    const card = all(tree, n => n.props?.['data-bt-composer'] !== undefined)[0]
     assert.ok(card)
     let prevented = 0
     const insideTarget = { closest: () => null }
@@ -1075,5 +1075,371 @@ test('composer stays editable when bot.waiting has a model, focuses on card clic
     }
   } finally {
     inst.unmount()
+  }
+})
+
+test('room chat and classic controls skip hello reload when resumed: true, and PendingUserRows marks unconfirmed sends', async () => {
+  // 1. Room chat skips room-chat reload on hello { resumed: true }, reloads on resumed: false.
+  let roomCalls = 0
+  const room = mountRoom(async (name) => {
+    if (name === 'room-chat') roomCalls += 1
+    return { sessionId: 'r1', items: [{ id: '1', kind: 'user', text: 'hi', time: 100 }], cursor: null }
+  })
+  try {
+    await tick()
+    await tick()
+    assert.equal(roomCalls, 1)
+    room.emit('hello', { revision: 1, resumed: true })
+    await tick()
+    assert.equal(roomCalls, 1, 'resumed hello must not reload room-chat')
+    room.emit('hello', { revision: 1, resumed: false })
+    await tick()
+    assert.equal(roomCalls, 2, 'unresumed hello must reload room-chat')
+  } finally {
+    room.unmount()
+  }
+
+  // 2. Classic controls skip reload on hello { resumed: true } and reload on resumed: false;
+  //    pending sends show Sending… when connected and Waiting to confirm… while reconnecting.
+  let controlCalls = 0
+  let connectionState = { status: 'connected', lostSince: null, fatal: false, message: null }
+  let releaseSend = null
+  const listeners = new Set()
+  const classicRoster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [],
+    rooms: [],
+    byId: {},
+    roomsById: {},
+    questions: {},
+  }
+  const classicSessions = { ids: ['s-classic'], byId: { 's-classic': { id: 's-classic', title: 'Agent' } } }
+  const classicTeam = {
+    actions: {
+      noteSent() {},
+      send: () => new Promise((resolve) => { releaseSend = resolve }),
+      sessionControls: async () => { controlCalls += 1; return {} },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(classicRoster),
+      useSessions: select => select(classicSessions),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+      useConnection: select => select(connectionState),
+    },
+    chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
+  }
+  const inst = mount({ sessionId: 's-classic', team: classicTeam })
+  try {
+    inst.render()
+    await tick()
+    assert.equal(controlCalls, 1)
+    for (const fn of listeners) fn('hello', { revision: 1, resumed: true })
+    await tick()
+    assert.equal(controlCalls, 1, 'resumed hello must not reload classic session controls')
+    for (const fn of listeners) fn('hello', { revision: 1, resumed: false })
+    await tick()
+    assert.equal(controlCalls, 2, 'unresumed hello must reload classic session controls')
+
+    // Send a message that stays in flight -> PendingUserRows marks it Sending…, then Waiting to confirm… when reconnecting.
+    textarea(inst.render()).props.onChange({ target: { value: 'pending msg' } })
+    textarea(inst.render()).props.onKeyDown(enter())
+    await tick()
+    let tree = inst.render()
+    let meta = all(tree, n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Sending/)
+
+    connectionState = { status: 'reconnecting', lostSince: 1, fatal: false, message: null }
+    tree = inst.render()
+    meta = all(tree, n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Waiting to confirm/)
+
+    releaseSend?.()
+    await tick()
+  } finally {
+    inst.unmount()
+  }
+
+  // 3. Bot mode PendingUserRows also switches between Sending… and Waiting to confirm….
+  let botConn = { status: 'connected', lostSince: null, fatal: false, message: null }
+  let releaseBotSend = null
+  const botRoster = { ready: true, prefs: { enterToSend: true }, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: {} }
+  const botTeam = {
+    actions: {
+      noteSent() {},
+      send: () => new Promise((resolve) => { releaseBotSend = resolve }),
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(botRoster),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+      useConnection: select => select(botConn),
+    },
+    chat: { on: () => () => {} },
+  }
+  const botInst = mount({ sessionId: 'b1', team: botTeam })
+  try {
+    textarea(botInst.render()).props.onChange({ target: { value: 'bot pending' } })
+    textarea(botInst.render()).props.onKeyDown(enter())
+    await tick()
+    let meta = all(botInst.render(), n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Sending/)
+
+    botConn = { status: 'reconnecting', lostSince: 1, fatal: false, message: null }
+    meta = all(botInst.render(), n => n.props?.className === 'dsb-pending-meta')
+    assert.equal(meta.length, 1)
+    assert.match(JSON.stringify(meta[0]), /Waiting to confirm/)
+    releaseBotSend?.()
+    await tick()
+  } finally {
+    botInst.unmount()
+  }
+})
+
+test('W4 part 3: group chat sends incremental `after` on room feed events and auto-loads earlier page when scrolled up to top', async () => {
+  const calls = []
+  const tip1 = { part: 0, seq: 10, roomSeq: 2, openCounts: {} }
+  const tip2 = { part: 0, seq: 11, roomSeq: 3, openCounts: {} }
+  const listeners = new Set()
+  const observers = []
+  const origIO = sandbox.IntersectionObserver
+  sandbox.IntersectionObserver = class FakeIO {
+    constructor(cb, options) {
+      this.cb = cb
+      this.options = options
+      this.targets = []
+      observers.push(this)
+    }
+    observe(target) { this.targets.push(target) }
+    disconnect() { this.disconnected = true }
+  }
+  const origCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'room-chat') {
+      if (body.cursor) {
+        return {
+          roomId: 'r1',
+          sessionId: 'r1',
+          items: [{ id: '1', kind: 'user', text: 'older message', time: 500 }],
+          cursor: null,
+        }
+      }
+      if (body.after) {
+        return {
+          roomId: 'r1',
+          sessionId: 'r1',
+          incremental: true,
+          tip: tip2,
+          items: [{ id: '11', kind: 'bot', botId: 'b1', name: 'Chief', text: 'new delta reply', time: 2000 }],
+        }
+      }
+      return {
+        roomId: 'r1',
+        sessionId: 'r1',
+        tip: tip1,
+        items: [{ id: '10', kind: 'user', text: 'latest message', time: 1000 }],
+        cursor: { part: 0, beforeSeq: 10 },
+      }
+    }
+    return {}
+  }
+
+  const roomRoster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [{ id: 'b1', name: 'Chief' }],
+    byId: { b1: { id: 'b1', name: 'Chief' } },
+    rooms: [{ id: 'r1', name: 'Launch', members: ['b1'] }],
+    roomsById: { r1: { id: 'r1', name: 'Launch', members: ['b1'] } },
+    questions: {},
+  }
+  const roomTeam = {
+    actions: {
+      noteSent() {},
+      send: async () => {},
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roomRoster),
+      useUi: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+    },
+    chat: {
+      on: (fn) => { listeners.add(fn); return () => listeners.delete(fn) },
+    },
+  }
+
+  const plain = value => JSON.parse(JSON.stringify(value))
+  const inst = mount({ sessionId: 'r1', team: roomTeam })
+  try {
+    await tick()
+    inst.render()
+    assert.equal(calls.length, 1)
+    assert.deepEqual(plain(calls[0]), ['room-chat', { roomId: 'r1' }])
+
+    // Live `room` feed event requests incremental `after: tip1` instead of full page.
+    for (const fn of listeners) fn('room', { roomId: 'r1' })
+    await tick()
+    const treeAfterDelta = inst.render()
+    assert.equal(calls.length, 2)
+    assert.deepEqual(plain(calls[1]), ['room-chat', { roomId: 'r1', after: tip1 }])
+    const chatRowsNode = all(treeAfterDelta, n => n.type === 'chat-rows')[0]
+    assert.deepEqual(plain(chatRowsNode.props.items.map(i => i.id)), ['10', '11'])
+
+    // While following tail (`following === true`), no top auto-load observer is active.
+    assert.equal(observers.length, 0, 'top auto-load observer stays inactive while following tail')
+
+    // Simulate user scrolling up away from bottom -> observer attaches and loads earlier page on intersection.
+    const scrollEl = all(treeAfterDelta, n => n.props?.className === 'dsb-scroll')[0]
+    scrollEl.props.ref.current = { scrollHeight: 2000, scrollTop: 100, clientHeight: 500 }
+    scrollEl.props.onScroll()
+    const treeScrolledUp = inst.render()
+    const topEl = all(treeScrolledUp, n => n.props?.className === 'bt-earlier-top')[0]
+    assert.ok(topEl, 'earlier top sentinel rendered')
+    assert.equal(observers.length, 1, 'IntersectionObserver attaches once user scrolls up')
+    observers[0].cb([{ isIntersecting: true }])
+    await tick()
+    const treeAfterEarlier = inst.render()
+    assert.equal(calls.length, 3)
+    assert.deepEqual(plain(calls[2]), ['room-chat', { roomId: 'r1', cursor: { part: 0, beforeSeq: 10 } }])
+    const chatRowsAfterEarlier = all(treeAfterEarlier, n => n.type === 'chat-rows')[0]
+    assert.deepEqual(plain(chatRowsAfterEarlier.props.items.map(i => i.id)), ['1', '10', '11'])
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = origCall
+    sandbox.IntersectionObserver = origIO
+  }
+})
+
+test('W4 part 3: group chat part rollover merges new part onto displayed history and queues top auto-load during live refresh', async () => {
+  const listeners = new Set()
+  const observers = []
+  const calls = []
+  let phase = 0
+  let releaseRefresh = null
+  const origIO = sandbox.IntersectionObserver
+  sandbox.IntersectionObserver = class FakeIO {
+    constructor(cb, options) {
+      this.cb = cb
+      this.options = options
+      observers.push(this)
+    }
+    observe() {}
+    disconnect() {}
+  }
+  const origCall = sandbox.__testCall
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint !== 'room-chat') return {}
+    if (body.cursor) {
+      return {
+        roomId: 'r1',
+        items: [{ id: '1', sessionId: 'r1', kind: 'user', text: 'part 0 earlier', time: 500 }],
+        cursor: null,
+      }
+    }
+    phase += 1
+    if (phase === 1) {
+      return {
+        roomId: 'r1',
+        tip: { boot: 'b1', sessionId: 'r1', part: 0, seq: 10, roomSeq: 1, openCounts: {} },
+        items: [{ id: '10', sessionId: 'r1', kind: 'user', text: 'part 0 message', time: 1000 }],
+        cursor: { part: 0, beforeSeq: 10 },
+      }
+    }
+    if (phase === 2) {
+      // Host rolled over to part 1 (`r1-part-2`) and fell back from incremental `after` to full page.
+      return {
+        roomId: 'r1',
+        tip: { boot: 'b1', sessionId: 'r1-part-2', part: 1, seq: 1, roomSeq: 2, openCounts: {} },
+        items: [{ id: '1', sessionId: 'r1-part-2', kind: 'user', text: 'part 1 message', time: 2000 }],
+        cursor: { part: 0 },
+      }
+    }
+    // Phase 3: in-flight incremental refresh in part 1 whose item shares bare id '10' with part 0!
+    await new Promise((resolve) => { releaseRefresh = resolve })
+    return {
+      roomId: 'r1',
+      incremental: true,
+      tip: { boot: 'b1', sessionId: 'r1-part-2', part: 1, seq: 10, roomSeq: 3, openCounts: {} },
+      items: [{ id: '10', sessionId: 'r1-part-2', kind: 'user', text: 'part 1 message ten', time: 2100 }],
+    }
+  }
+  const roomRoster = {
+    ready: true,
+    prefs: { enterToSend: true },
+    bots: [{ id: 'b1', name: 'Chief' }],
+    byId: { b1: { id: 'b1', name: 'Chief' } },
+    rooms: [{ id: 'r1', name: 'Launch', members: ['b1'] }],
+    roomsById: { r1: { id: 'r1', name: 'Launch', members: ['b1'] } },
+    questions: {},
+  }
+  const roomTeam = {
+    actions: { noteSent() {}, send: async () => {}, speech: () => undefined, openVoice() {}, clearQuote() {}, canReferenceChat: () => false },
+    hooks: { useRoster: s => s(roomRoster), useUi: s => s({}), useTurnClock: s => s({}), useSessionStatus: s => s(new Map()) },
+    chat: { on: (fn) => { listeners.add(fn); return () => listeners.delete(fn) } },
+  }
+  const plain = value => JSON.parse(JSON.stringify(value))
+  const props = { sessionId: 'r1', team: roomTeam }
+  const inst = mount(props)
+  try {
+    inst.render()
+    await tick()
+    inst.render()
+    // Simulate `App` updating `sessionId` to the rolled-over part while `room.id` stays `'r1'`.
+    roomRoster.roomsById['r1-part-2'] = roomRoster.roomsById.r1
+    inst.render({ sessionId: 'r1-part-2', team: roomTeam })
+    await tick()
+    const tree = inst.render({ sessionId: 'r1-part-2', team: roomTeam })
+    const chatRowsNode = all(tree, n => n.type === 'chat-rows')[0]
+    assert.deepEqual(
+      plain(chatRowsNode.props.items.map(i => i.text)),
+      ['part 0 message', 'part 1 message'],
+      'part rollover full refresh must append new part onto existing displayed history without wiping part 0',
+    )
+
+    // Scroll up so top auto-load observer attaches, then trigger an in-flight silent incremental refresh
+    // AND intersect `.bt-earlier-top` while that refresh is busy -> earlier load must be queued, not dropped!
+    const scrollEl = all(tree, n => n.props?.className === 'dsb-scroll')[0]
+    scrollEl.props.ref.current = { scrollHeight: 2000, scrollTop: 50, clientHeight: 500 }
+    scrollEl.props.onScroll()
+    inst.render()
+    assert.ok(observers.length >= 1, 'top observer attached after scrolling up')
+
+    for (const fn of listeners) fn('room', { roomId: 'r1' })
+    observers.at(-1).cb([{ isIntersecting: true }])
+    releaseRefresh?.()
+    await tick()
+    await tick()
+    const treeAfter = inst.render()
+    const rowsAfter = all(treeAfter, n => n.type === 'chat-rows')[0]
+    assert.deepEqual(
+      plain(rowsAfter.props.items.map(i => i.text)),
+      ['part 0 earlier', 'part 0 message', 'part 1 message', 'part 1 message ten'],
+      'part 1 incremental message with colliding bare id appends without overwriting part 0, and queued top auto-load runs after busy refresh',
+    )
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = origCall
+    sandbox.IntersectionObserver = origIO
   }
 })

@@ -19,6 +19,8 @@ const stubs = {
     export const ThinkingRow = ({ text, live, ms, viewKey }) => ({ type: 'thinking', props: { text, live, ms, viewKey, children: [text] } })
     export const EarlierParts = ({ sessionId }) => ({ type: 'earlier-parts', props: { sessionId, children: ['earlier-parts:' + sessionId] } })
     export const PartLine = ({ time }) => ({ type: 'part-line', props: { time, children: [] } })
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
     export const Elapsed = () => null
@@ -90,7 +92,7 @@ const entryCode = `
   export { createSlotRegistry, SlotErrorBoundary, TOOL_VIEW_SLOT, CHAT_NODE_SLOT } from './ui/src/slots.js'
   export { buildSessionRows, makeToolArgs, splitReasoning, streamReasoningMs } from './ui/src/session-transcript.js'
   export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
-  export { SessionTranscript, useSessionFollow } from './ui/src/session-chat.js'
+  export { SessionTranscript, advanceReplyWatermark, useSessionFollow } from './ui/src/session-chat.js'
   export { Chat } from './ui/src/chat.js'
   export { createTeam } from './ui/src/team.js'
 `
@@ -242,7 +244,7 @@ const sandbox = {
   navigator: { language: 'en' },
   setTimeout: (fn, ms, ...args) => { recordedTimers.push(ms); return setTimeout(fn, ms, ...args) },
   clearTimeout,
-  requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
+  requestAnimationFrame: fn => setImmediate(() => fn(0)), cancelAnimationFrame: id => clearImmediate(id), performance: { now: () => 0 },
   fetch: (...args) => fetchCtrl.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)
@@ -251,7 +253,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  SessionTranscript, useSessionFollow, Chat, createTeam,
+  SessionTranscript, advanceReplyWatermark, useSessionFollow, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -532,8 +534,8 @@ test('slots support React.memo, orphan tools skip unkeyed slots, streaming Parti
   const customMount = mount(ToolCallCard, { entry: listEntry, cwd: '/repo', registry })
   const customTree = customMount.render()
   assert.match(textOf(customTree), /custom:list_bots:false/)
-  assert.equal(customTree.props['data-chat-anchor-key'], 'call:c1')
-  assert.equal(customTree.props['data-chat-call-id'], 'c1')
+  assert.equal(customTree.props['data-bt-anchor-key'], 'call:c1')
+  assert.equal(customTree.props['data-bt-call-id'], 'c1')
   assert.deepEqual(plain(received[0]), { callId: 'c1', toolName: 'list_bots', cwd: '/repo', phase: 'result', keys: ['expanded', 'setExpanded', 'toggle'] })
 
   // Throwing slot is isolated by SlotErrorBoundary and recovers on Retry.
@@ -711,6 +713,233 @@ test('useSessionFollow resyncs once without the stale cursor and replaces rows w
     assert.equal(view.terminalError, null)
   } finally {
     inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow preserves already-loaded earlier pages on bot/stale and fills only the gap', async () => {
+  fetchCtrl.reset()
+  const pageCalls = []
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+  sandbox.__testCall = async (name, body) => {
+    pageCalls.push([name, body])
+    if (name === 'session-page' && body.beforeSeq === 6) {
+      return { records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `earlier ${seq}`) })), hasMore: false }
+    }
+    if (name === 'session-page' && body.beforeSeq === 13) {
+      return { records: [11, 12].map(seq => ({ type: 'event', event: msg(seq, `gap ${seq}`) })), hasMore: true }
+    }
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    // Initial snapshot loads 6..10 with hasMore: true.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [6, 7, 8, 9, 10].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    // User scrolls up and loads earlier page 1..5 (hasMore becomes false).
+    await view.loadEarlier(null)
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert.equal(view.log.hasMore, false)
+
+    // bot/stale arrives -> reopens without cursor -> fresh snapshot starts at 13..15 (gap 11..12).
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale cursor' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 15, hasMore: true,
+      records: [13, 14, 15].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    // A live event 16 arrives right after the snapshot while gap fill is settling.
+    fetchCtrl.latest().push('frame', { type: 'event', event: msg(16, 'live 16') })
+    await tick()
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    assert.equal(view.log.hasMore, false, 'earlier loaded page boundary (hasMore: false) is preserved')
+    assert.equal(view.historyReloaded, false, 'gap fill preserves history without marking full reload')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow falls back cleanly when bot/stale gap fill fails and ignores stale gap fills after superseding snapshot', async () => {
+  fetchCtrl.reset()
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+
+  // Part 1: fillGap failure falls back to opening events + historyReloaded: true (never leaves a silent middle hole).
+  sandbox.__testCall = async (name) => {
+    if (name === 'session-page') throw new Error('network failed')
+    return { records: [], hasMore: false }
+  }
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [10, 11, 12], 'failed gap fill must drop unreachable prefix instead of leaving a permanent middle hole')
+    assert.equal(view.log.hasMore, true, 'failed gap fill restores snapshot hasMore so Load earlier works')
+    assert.equal(view.historyReloaded, true, 'failed gap fill surfaces historyReloaded banner')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+
+  // Part 2: superseding snapshot/rewind arriving while fillGap is in flight cancels the old gap fill.
+  let resolveGap
+  sandbox.__testCall = (name) => {
+    if (name === 'session-page') {
+      return new Promise((resolve) => { resolveGap = resolve })
+    }
+    return Promise.resolve({ records: [], hasMore: false })
+  }
+  const inst2 = mount(Probe, {})
+  try {
+    inst2.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    assert.equal(typeof resolveGap, 'function', 'fillGap should be in flight')
+
+    // Superseding rewind snapshot arrives while fillGap is still pending.
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'rewound' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 4, hasMore: false,
+      records: [2, 3, 4].map(seq => ({ type: 'event', event: msg(seq, `rewind ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+
+    // Old fillGap now resolves with outdated gap events 6..9 -> must be ignored!
+    resolveGap({ records: [6, 7, 8, 9].map(seq => ({ type: 'event', event: msg(seq, `stale-gap ${seq}`) })), hasMore: false })
+    await tick()
+    await tick()
+    inst2.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [2, 3, 4], 'stale in-flight fillGap must not splice outdated events into superseding snapshot')
+    assert.equal(view.log.cursor, 4)
+  } finally {
+    sandbox.__testCall = origCall
+    inst2.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow in read-only mode ignores hello { resumed: true }, reopens on hello { resumed: false } and catalog updatedAt change', async () => {
+  fetchCtrl.reset()
+  const listeners = new Set()
+  const feed = { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } }
+  const emit = (ev, data) => { for (const fn of listeners) fn(ev, data) }
+  let view
+  const Probe = ({ updatedAt }) => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, feed, readOnly: true, readOnlyUpdatedAt: updatedAt })
+    return null
+  }
+  const inst = mount(Probe, { updatedAt: 100 })
+  try {
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1)
+    emit('hello', { revision: 1, feedSeq: 1, resumed: true })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'resumed hello must not reopen read-only session follow')
+    // Same updatedAt keeps it idle.
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'unchanged updatedAt must not reopen read-only session follow')
+    // Advancing catalog updatedAt (same DM segment updated in writer process) reopens to pick up new messages.
+    inst.render({ updatedAt: 200 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'advancing readOnlyUpdatedAt reopens read-only session follow')
+    emit('hello', { revision: 1, feedSeq: 1, resumed: false })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 3, 'unresumed hello reopens read-only session follow')
+    void view
+  } finally {
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('openSessionFollow stops reconnecting and surfaces a terminal error when a single SSE frame exceeds the buffer limit', async () => {
+  fetchCtrl.reset()
+  recordedTimers.length = 0
+  const events = []
+  let cancelled = false
+  fetchCtrl.setImpl(async () => ({
+    ok: true,
+    body: {
+      getReader: () => {
+        let sent = false
+        return {
+          async read() {
+            if (!sent) {
+              sent = true
+              return { value: new TextEncoder().encode('data: ' + 'x'.repeat(8 * 1024 * 1024 + 64)), done: false }
+            }
+            return { value: undefined, done: true }
+          },
+          async cancel() { cancelled = true },
+        }
+      },
+    },
+  }))
+  const handle = openSessionFollow({ sessionId: 'b1' }, (event, data) => events.push([event, data]))
+  try {
+    await tick()
+    await tick()
+    assert.equal(cancelled, true)
+    assert.equal(recordedTimers.length, 0, 'oversized session SSE frame must not schedule a retry')
+    assert.equal(events.some(([ev, data]) => ev === 'error' && data?.code === 'bot/stream-overflow'), true)
+  } finally {
+    handle.close()
     fetchCtrl.reset()
   }
 })
@@ -1743,5 +1972,421 @@ test('SessionTranscript hides non-Bot/MCP tool cards and compaction in Bot DM mo
     assert.match(rendered, /run_code/)
   } finally {
     classicInst.unmount()
+  }
+})
+
+test('SessionTranscript reply watermark ignores Load earlier prepends and only notifies on live tail replies', () => {
+  const msg = (seq, text = 'reply') => ({ kind: 'assistant', seq, texts: [text] })
+
+  // Pure helper contract: initial snapshot establishes baseline with 0 arrivals;
+  // prepending older rows (seq <= maxSeq) reports 0; live tail row (seq > maxSeq) reports +1.
+  const pre = advanceReplyWatermark({ sessionId: null, maxSeq: null }, 's1', false, [])
+  assert.equal(pre.added, 0)
+  const init = advanceReplyWatermark(pre.next, 's1', true, [msg(10), msg(20)])
+  assert.equal(init.added, 0)
+  assert.equal(init.next.maxSeq, 20)
+  const paged = advanceReplyWatermark(init.next, 's1', true, [msg(2), msg(4), msg(10), msg(20)])
+  assert.equal(paged.added, 0)
+  const live = advanceReplyWatermark(paged.next, 's1', true, [msg(2), msg(4), msg(10), msg(20), msg(25)])
+  assert.equal(live.added, 1)
+  assert.equal(live.next.maxSeq, 25)
+
+  // Real SessionTranscript lifecycle with addPage (Load earlier) + applyFrame (live tail arrival)
+  const bot = { id: 'b1', name: 'Helper', sessionId: 'b1', parts: [] }
+  const roster = { bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, prefs: {} }
+  const arrivals = []
+  const actions = { noteReplyArrival: (sid, delta) => arrivals.push([sid, delta]) }
+
+  let { log } = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 11,
+    hasMore: true,
+    records: [
+      { type: 'event', event: { type: 'user/message', seq: 10, time: 2000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 11, time: 2100, data: { turn: 5, step: 1, message: { content: [{ type: 'text', text: 'initial reply' }] } } } },
+    ],
+  })
+  const inst = mount(SessionTranscript, { log, sessionId: 'b1', bot, roster, actions, classic: false })
+  try {
+    inst.render()
+    assert.deepEqual(arrivals, [], 'opening snapshot must not report new arrivals')
+
+    // Prepend an earlier history page (seq 1..2 < 11) via addPage (Load earlier)
+    log = addPage(log, {
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 1, time: 1000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'older q' }] } } },
+        { type: 'event', event: { type: 'assistant/message', seq: 2, time: 1100, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'older reply' }] } } } },
+      ],
+    })
+    inst.render({ log, sessionId: 'b1', bot, roster, actions, classic: false })
+    assert.deepEqual(arrivals, [], 'Load earlier prepended replies must NOT trigger new-message arrivals')
+
+    // Live reply arrives at the tail (seq 12 > 11)
+    ;({ log } = applyFrame(log, {
+      type: 'event',
+      event: { type: 'assistant/message', seq: 12, time: 3000, data: { turn: 6, step: 1, message: { content: [{ type: 'text', text: 'live reply' }] } } },
+    }))
+    inst.render({ log, sessionId: 'b1', bot, roster, actions, classic: false })
+    assert.deepEqual(arrivals, [['b1', 1]], 'live tail reply must report exactly +1 arrival')
+  } finally {
+    inst.unmount()
+  }
+})
+
+test('W3 gap-fill backfill, historyReloaded full reload, and resume snapshot replay do not inflate replyCount', async () => {
+  fetchCtrl.reset()
+  const origCall = sandbox.__testCall
+  const asst = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 100, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+  const user = (seq, text) => ({ type: 'user/message', seq, time: seq * 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
+
+  let gapMode = 'bridge'
+  sandbox.__testCall = async (name, body) => {
+    if (name === 'session-page' && body.beforeSeq === 13) {
+      if (gapMode === 'fail') throw new Error('gap page failed')
+      return { records: [11, 12].map(seq => ({ type: 'event', event: asst(seq, `backfilled gap ${seq}`) })), hasMore: true }
+    }
+    return { records: [], hasMore: false }
+  }
+
+  const bot = { id: 'b1', name: 'Helper', sessionId: 'b1', parts: [] }
+  const roster = {
+    ready: true,
+    bots: [bot],
+    byId: { b1: bot },
+    rooms: [],
+    roomsById: {},
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+    prefs: {},
+  }
+  let replyCount = 0
+  const arrivals = []
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      noteCards() {},
+      noteTurnTime() {},
+      noteReplyArrival: (sid, delta) => {
+        arrivals.push([sid, delta])
+        replyCount += delta
+      },
+      send: async () => {},
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useCards: select => select({}),
+      useHeldCards: select => select({}),
+      useTurnClock: select => select({}),
+      useSessionStatus: select => select(new Map()),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  const inst = mount(Chat, { sessionId: 'b1', team })
+  try {
+    inst.render()
+    await tick()
+
+    // 1. Opening snapshot (seq 6..10) establishes baseline with 0 arrivals.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [6, 7, 8, 9, 10].map(seq => ({ type: 'event', event: asst(seq, `init ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 0, 'opening snapshot must not increase replyCount')
+
+    // 2. bot/stale resync with forward gap where opening has ONLY user events (seq 13..15)
+    //    and fillGap asynchronously backfills older assistant events (seq 11..12).
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale cursor' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 15, hasMore: true,
+      records: [13, 14, 15].map(seq => ({ type: 'event', event: user(seq, `u ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 0, 'resync snapshot and fillGap backfilled assistant rows must not increase replyCount')
+
+    // 3. A genuine live tail reply after gap fill (seq 16) DOES increase replyCount by +1.
+    fetchCtrl.latest().push('frame', { type: 'event', event: asst(16, 'live after gap') })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'live tail reply after gap fill must increment replyCount by 1')
+
+    // 4. Reconnect snapshot replay covering already-seen seqs (14..16) must not double-count.
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 16, hasMore: true,
+      records: [14, 15, 16].map(seq => ({ type: 'event', event: asst(seq, `replay ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'reconnect snapshot replay must not increase replyCount')
+
+    // 5. bot/stale with failed fillGap -> fallbackToOpening sets historyReloaded: true (must not increase replyCount).
+    gapMode = 'fail'
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale again' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 22, hasMore: true,
+      records: [20, 21, 22].map(seq => ({ type: 'event', event: asst(seq, `reloaded ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'historyReloaded fallbackToOpening must not increase replyCount')
+
+    // 6. bot/stale with rewound cursor (cursor 4 < 22, historyReloaded: true) resets watermark cleanly without increasing replyCount,
+    //    and a subsequent live reply (seq 5) after the rewind IS counted once.
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'rewound' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 4, hasMore: false,
+      records: [2, 3, 4].map(seq => ({ type: 'event', event: asst(seq, `rewound ${seq}`) })),
+      assistantStream: { revision: 0 },
+    })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 1, 'rewound historyReloaded snapshot must not increase replyCount')
+
+    fetchCtrl.latest().push('frame', { type: 'event', event: asst(5, 'live after rewind') })
+    await tick()
+    inst.render()
+    assert.equal(replyCount, 2, 'live tail reply after rewind must still increment replyCount by 1')
+    assert.deepEqual(arrivals, [['b1', 1], ['b1', 1]])
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow applies authoritative snapshot over buffered gapped assistant-stream frame and clears pending buffer on retry, read-only refresh, and end', () => {
+  const prevRaf = sandbox.requestAnimationFrame
+  const prevCancelRaf = sandbox.cancelAnimationFrame
+  let nextRafId = 1
+  const rafQueue = new Map()
+  sandbox.requestAnimationFrame = (cb) => { const id = nextRafId++; rafQueue.set(id, cb); return id }
+  sandbox.cancelAnimationFrame = (id) => { rafQueue.delete(id) }
+
+  let emitFollow = null
+  let reopens = 0
+  const openFollow = (_opts, onEvent) => {
+    emitFollow = onEvent
+    return { close() {}, reopen() { reopens += 1 } }
+  }
+  const feedListeners = new Set()
+  const feed = { on: fn => { feedListeners.add(fn); return () => feedListeners.delete(fn) } }
+  const emitFeed = (ev, data) => { for (const fn of feedListeners) fn(ev, data) }
+
+  let view
+  const Probe = ({ readOnly = false, updatedAt = 100 }) => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, openFollow, feed, readOnly, readOnlyUpdatedAt: updatedAt })
+    return null
+  }
+  const inst = mount(Probe, { readOnly: false, updatedAt: 100 })
+  try {
+    inst.render({ readOnly: false, updatedAt: 100 })
+    // 1. Initial snapshot (cursor: 1, 1 event, streamRevision: 1).
+    emitFollow('frame', {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 1,
+      hasMore: false,
+      records: [{ type: 'event', event: { type: 'user/message', seq: 1, time: 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } }],
+      assistantStream: { revision: 1 },
+    })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.cursor, 1)
+    assert.equal(view.log.events.length, 1)
+
+    // 2. Buffer a gapped assistant-stream frame (revision: 99) before rAF fires, then deliver
+    //    a fresh authoritative snapshot (cursor: 5, 2 events). Snapshot MUST win without extra reopen.
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'chunk', attemptId: 'old-att', revision: 99, index: 0, time: 150, chunk: { type: 'text-delta', index: 0, text: 'stale' } },
+    })
+    assert.equal(rafQueue.size, 1, 'gapped stream frame scheduled a flush')
+    emitFollow('frame', {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 5,
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 1, time: 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } } },
+        { type: 'event', event: { type: 'assistant/message', seq: 5, time: 200, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'fresh' }] } } } },
+      ],
+      assistantStream: { revision: 5 },
+    })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.cursor, 5, 'authoritative snapshot must not be dropped behind a buffered gapped stream frame')
+    assert.equal(view.log.events.length, 2)
+    assert.equal(reopens, 0, 'authoritative snapshot must not trigger a spurious reopen')
+    assert.equal(rafQueue.size, 0, 'snapshot cancels scheduled stream flush')
+
+    // 3. retry() must cancel scheduled flush and discard stale buffered assistant-stream frames.
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-retry', revision: 6, turn: 2, step: 1, startedAfterSeq: 5 },
+    })
+    assert.equal(rafQueue.size, 1)
+    view.retry()
+    assert.equal(reopens, 1)
+    assert.equal(rafQueue.size, 0, 'retry() must cancel pending rAF')
+    // A subsequent event must not replay the discarded stale-retry stream start.
+    emitFollow('frame', { type: 'event', event: { type: 'turn/start', seq: 6, time: 210, data: { turn: 2 } } })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.writing, null, 'stale buffered stream frame before retry() must not leak after retry')
+
+    // 4. event === 'end' must cancel scheduled flush and discard stale buffered assistant-stream frames.
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-end', revision: 7, turn: 2, step: 1, startedAfterSeq: 6 },
+    })
+    assert.equal(rafQueue.size, 1)
+    emitFollow('end', {})
+    assert.equal(rafQueue.size, 0, 'event: end must cancel pending rAF')
+    emitFollow('frame', { type: 'event', event: { type: 'turn/end', seq: 7, time: 220, data: { turn: 2, reason: { kind: 'done' } } } })
+    inst.render({ readOnly: false, updatedAt: 100 })
+    assert.equal(view.log.writing, null, 'stale buffered stream frame before end must not replay')
+
+    // 5. Read-only feed revision and updatedAt refreshes must cancel pending rAF and discard buffered frames.
+    inst.render({ readOnly: true, updatedAt: 100 })
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-ro-1', revision: 8, turn: 3, step: 1, startedAfterSeq: 7 },
+    })
+    assert.equal(rafQueue.size, 1)
+    emitFeed('revision', { revision: 2 })
+    assert.equal(reopens, 2)
+    assert.equal(rafQueue.size, 0, 'read-only feed revision reopen must cancel pending rAF')
+
+    emitFollow('frame', {
+      type: 'assistant-stream',
+      frame: { type: 'start', attemptId: 'stale-ro-2', revision: 9, turn: 3, step: 1, startedAfterSeq: 7 },
+    })
+    assert.equal(rafQueue.size, 1)
+    inst.render({ readOnly: true, updatedAt: 200 })
+    assert.equal(reopens, 3)
+    assert.equal(rafQueue.size, 0, 'read-only updatedAt reopen must cancel pending rAF')
+  } finally {
+    inst.unmount()
+    sandbox.requestAnimationFrame = prevRaf
+    sandbox.cancelAnimationFrame = prevCancelRaf
+  }
+})
+
+test('useSessionFollow flushes buffered stream frames via fallback timer while hidden/occluded and flushes immediately on visibilitychange', () => {
+  const prevRaf = sandbox.requestAnimationFrame
+  const prevCancelRaf = sandbox.cancelAnimationFrame
+  const prevSetTimeout = sandbox.setTimeout
+  const prevClearTimeout = sandbox.clearTimeout
+  const prevDocHidden = sandbox.document.hidden
+  const prevDocAdd = sandbox.document.addEventListener
+  const prevDocRemove = sandbox.document.removeEventListener
+
+  let nextRafId = 1
+  const rafQueue = new Map()
+  // Suspended rAF: callbacks are queued but never fire automatically (hidden/minimized/occluded window).
+  sandbox.requestAnimationFrame = (cb) => { const id = nextRafId++; rafQueue.set(id, cb); return id }
+  sandbox.cancelAnimationFrame = (id) => { rafQueue.delete(id) }
+
+  let nextTimerId = 1
+  const timers = new Map()
+  sandbox.setTimeout = (cb, ms) => { const id = nextTimerId++; timers.set(id, { cb, ms }); return id }
+  sandbox.clearTimeout = (id) => { timers.delete(id) }
+
+  const visListeners = new Set()
+  sandbox.document.hidden = true
+  sandbox.document.addEventListener = (type, fn) => { if (type === 'visibilitychange') visListeners.add(fn) }
+  sandbox.document.removeEventListener = (type, fn) => { if (type === 'visibilitychange') visListeners.delete(fn) }
+
+  let emitFollow = null
+  let reopens = 0
+  const openFollow = (_opts, onEvent) => {
+    emitFollow = onEvent
+    return { close() {}, reopen() { reopens += 1 } }
+  }
+
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, openFollow })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    emitFollow('frame', {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 1,
+      hasMore: false,
+      records: [{ type: 'event', event: { type: 'turn/start', seq: 1, time: 100, data: { turn: 1 } } }],
+      assistantStream: { revision: 0 },
+    })
+    inst.render()
+
+    // 1. While document.hidden === true and rAF is suspended, stream frames schedule a bounded fallback timer.
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'start', attemptId: 'bg-1', revision: 1, turn: 1, step: 1, startedAfterSeq: 1 } })
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 2, index: 0, time: 110, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 3, index: 1, time: 111, chunk: { type: 'text-delta', index: 0, text: 'bg-token' } } })
+    assert.equal(timers.size, 1, 'hidden stream must schedule a single bounded fallback timer')
+    assert.equal(rafQueue.size, 0, 'hidden stream should not rely on suspended rAF')
+
+    // Firing the fallback timer commits the buffered frames without rAF ever running.
+    const [[tId, tEntry]] = [...timers.entries()]
+    timers.delete(tId)
+    tEntry.cb()
+    inst.render()
+    assert.ok(view.log.writing, 'fallback timer must commit buffered background stream frames')
+    assert.equal(view.log.streamRevision, 3)
+
+    // 2. When becoming visible, visibilitychange flushes pending frames immediately and cancels the timer.
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 4, index: 2, time: 112, chunk: { type: 'text-delta', index: 0, text: '-resumed' } } })
+    assert.equal(timers.size, 1)
+    sandbox.document.hidden = false
+    for (const fn of visListeners) fn()
+    inst.render()
+    assert.equal(view.log.streamRevision, 4, 'visibilitychange must flush pending stream frames immediately on becoming visible')
+    assert.equal(timers.size, 0, 'visibilitychange flush must cancel pending fallback timer')
+
+    // 3. While document.hidden === false but window is occluded (rAF suspended), fallback timer still
+    //    fires to detect gaps and flush frames, while normal foreground rAF cancels the timer on frame tick.
+    emitFollow('frame', { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'bg-1', revision: 99, index: 99, time: 120, chunk: { type: 'text-delta', index: 0, text: 'gap' } } })
+    assert.equal(rafQueue.size, 1, 'visible window schedules rAF')
+    assert.equal(timers.size, 1, 'visible window also arms fallback timer for macOS occlusion')
+    const [[occId, occEntry]] = [...timers.entries()]
+    timers.delete(occId)
+    occEntry.cb()
+    assert.equal(reopens, 1, 'fallback timer detects stream gap and triggers reopen even when rAF is suspended')
+    assert.equal(rafQueue.size, 0, 'fallback flush cancels suspended rAF')
+  } finally {
+    inst.unmount()
+    sandbox.requestAnimationFrame = prevRaf
+    sandbox.cancelAnimationFrame = prevCancelRaf
+    sandbox.setTimeout = prevSetTimeout
+    sandbox.clearTimeout = prevClearTimeout
+    if (prevDocHidden === undefined) delete sandbox.document.hidden
+    else sandbox.document.hidden = prevDocHidden
+    sandbox.document.addEventListener = prevDocAdd
+    sandbox.document.removeEventListener = prevDocRemove
   }
 })

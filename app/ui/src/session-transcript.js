@@ -223,23 +223,49 @@ function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, er
  */
 export function extractTurnFacts(events, { roster, sessionId } = {}) {
   const turns = new Map()
+  const lastAssistantText = new Map()
+  const closingReplies = new Map()
+  const userMessages = []
   const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
   let openTurn
+  let currentTurn
   for (const event of Array.isArray(events) ? events : []) {
     if (!event || typeof event !== 'object') continue
-    const turn = event.data?.turn
-    if (!Number.isInteger(turn) || hidden(turn)) continue
-    const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
-    if (event.type === 'turn/start') {
-      const existing = turns.get(turn)
-      turns.set(turn, {
-        turn,
+    const turn = Number.isInteger(event.data?.turn) ? event.data.turn : currentTurn
+    if (event.type === 'user/message') {
+      if (event.data?.source?.kind !== 'user') continue
+      const content = Array.isArray(event.data?.content) ? event.data.content : []
+      const { text } = contentParts(content)
+      userMessages.push({
+        ...(Number.isInteger(event.seq) ? { seq: event.seq } : {}),
+        text,
+        ...(Number.isFinite(event.time) ? { time: event.time } : {}),
+      })
+    } else if (event.type === 'turn/start') {
+      if (!Number.isInteger(event.data?.turn) || hidden(event.data.turn)) continue
+      const tNum = event.data.turn
+      currentTurn = tNum
+      const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
+      const existing = turns.get(tNum)
+      turns.set(tNum, {
+        turn: tNum,
         status: existing?.end ? 'closed' : 'open',
         start: existing?.start ?? mark,
         ...(existing?.end ? { end: existing.end } : {}),
       })
-      if (!existing?.end) openTurn = turn
+      if (!existing?.end) openTurn = tNum
+    } else if (event.type === 'assistant/message') {
+      if (!Number.isInteger(turn) || hidden(turn)) continue
+      const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
+      const text = content
+        .filter(block => block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '')
+        .map(block => stripToolCallTags(block.text))
+        .filter(part => part.trim() !== '')
+        .join('\n\n')
+      if (text !== '') lastAssistantText.set(turn, text)
     } else if (event.type === 'turn/end') {
+      if (!Number.isInteger(turn) || hidden(turn)) { currentTurn = undefined; continue }
+      const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
       const existing = turns.get(turn)
       turns.set(turn, {
         turn,
@@ -247,40 +273,78 @@ export function extractTurnFacts(events, { roster, sessionId } = {}) {
         start: existing?.start ?? mark,
         end: mark,
       })
+      closingReplies.set(turn, lastAssistantText.get(turn) ?? '')
       if (openTurn === turn) openTurn = undefined
+      currentTurn = undefined
     }
   }
-  return { turns, openTurn }
+  return { turns, openTurn, closingReplies, userMessages }
 }
 
 const hiddenTurn = (roster, sessionId, turn) => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
 
 // Committed rows of one events array never change afterwards: a stream chunk only grows
 // the reply being written, it never touches the events the window already holds. They
-// are cached on the events array itself, and inside it once more on the roster (two
-// nested WeakMaps, so a dropped log or roster takes its entries with it): a stream-only
-// frame finds its rows in O(1) as the very same objects, and interleaving rosters never
-// evict each other. The roster and the session id shape the rows, so a cached entry only
-// serves a call whose roster and session id are the ones it was built with.
+// are cached on the events array alone (`WeakMap<events, Map<rosterVersion, entry>>`),
+// while the narrow roster fields that actually shape committed rows for `sessionId`
+// (`exchangeTurns`, `closedCards`, `apiVia`, `imVia`, `api.tokens`) are versioned
+// independently. Stream chunks and unrelated roster updates (other Bots, prefs,
+// revision, plugins, etc.) both hit in O(1) and return the exact same row objects.
 const committedRowsCache = new WeakMap()
-const NO_ROSTER = {}
+const valueKeyCache = new WeakMap()
+const apiTokensKeyCache = new WeakMap()
+
+function stableValueKey(value) {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'object') return String(value)
+  let key = valueKeyCache.get(value)
+  if (key === undefined) {
+    if (Array.isArray(value)) {
+      key = value.length === 0 ? '[]' : JSON.stringify(value)
+    } else {
+      const keys = Object.keys(value)
+      if (keys.length === 0) {
+        key = '{}'
+      } else {
+        keys.sort()
+        key = JSON.stringify(keys.map(k => [k, value[k]]))
+      }
+    }
+    valueKeyCache.set(value, key)
+  }
+  return key
+}
+
+function apiTokensKey(tokens) {
+  if (!Array.isArray(tokens) || tokens.length === 0) return ''
+  let key = apiTokensKeyCache.get(tokens)
+  if (key === undefined) {
+    key = tokens.map(item => `${item?.keyId ?? ''}:${item?.name ?? ''}`).join('\0')
+    apiTokensKeyCache.set(tokens, key)
+  }
+  return key
+}
+
+function committedRosterVersion(roster, sessionId) {
+  const sid = sessionId ?? ''
+  return `${sid}\u0001${stableValueKey(sid ? roster?.exchangeTurns?.[sid] : undefined)}\u0001${stableValueKey(sid ? roster?.closedCards?.[sid] : undefined)}\u0001${stableValueKey(sid ? roster?.apiVia?.[sid] : undefined)}\u0001${stableValueKey(sid ? roster?.imVia?.[sid] : undefined)}\u0001${apiTokensKey(roster?.api?.tokens)}`
+}
 
 function committedRowsOf(events, roster, sessionId) {
-  let byRoster = committedRowsCache.get(events)
-  if (byRoster === undefined) {
-    byRoster = new WeakMap()
-    committedRowsCache.set(events, byRoster)
+  let byVersion = committedRowsCache.get(events)
+  if (byVersion === undefined) {
+    byVersion = new Map()
+    committedRowsCache.set(events, byVersion)
   }
-  const key = typeof roster === 'object' && roster !== null ? roster : NO_ROSTER
-  // One roster almost always means one session here, so the slot holds a short list of
-  // entries and a lookup scans it; building never evicts another session id's rows.
-  const entries = byRoster.get(key) ?? []
-  const cached = entries.find(entry => entry.roster === roster && entry.sessionId === sessionId)
+  const version = committedRosterVersion(roster, sessionId)
+  const cached = byVersion.get(version)
   if (cached !== undefined) return cached
   const entry = buildCommittedRows(events, roster, sessionId)
-  entries.push(entry)
-  if (entries.length > 4) entries.shift()
-  byRoster.set(key, entries)
+  byVersion.set(version, entry)
+  if (byVersion.size > 8) {
+    const oldest = byVersion.keys().next().value
+    if (oldest !== undefined) byVersion.delete(oldest)
+  }
   return entry
 }
 
@@ -708,7 +772,7 @@ function buildCommittedRows(events, roster, sessionId) {
     }
   }
 
-  return { rows, callsById, roster, sessionId }
+  return { rows, callsById }
 }
 
 // Live in-progress reply rows from DSH's BlockAssembler, rebuilt per stream chunk. They

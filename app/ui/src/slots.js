@@ -4,6 +4,7 @@
 import { Component, Fragment, createElement as h, useCallback, useSyncExternalStore } from 'react'
 import { noteClientError } from '../../../ds-bot/src/client/diagnostics.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
+import { reloadWindowSafely } from './retryable-lazy.js'
 
 export const TOOL_VIEW_SLOT = 'tool.call.toolview'
 export const CHAT_NODE_SLOT = 'conversation.chat.node'
@@ -64,6 +65,9 @@ export function createSlotRegistry() {
     list(name) {
       return snapshots.get(name) ?? EMPTY_LIST
     },
+    entries(name) {
+      return snapshots.get(name) ?? EMPTY_LIST
+    },
     resolveEntry(name, key) {
       const entries = bySlot.get(name)
       if (!entries || entries.length === 0) return undefined
@@ -106,7 +110,7 @@ export function useSlotEntries(registry = slots, name) {
 export class SlotErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { failed: false, resetKey: props.resetKey, retryCount: 0 }
+    this.state = { failed: false, resetKey: props.resetKey, retryCount: 0, reloadNotice: null }
   }
 
   static getDerivedStateFromError() {
@@ -114,12 +118,13 @@ export class SlotErrorBoundary extends Component {
   }
 
   static getDerivedStateFromProps(props, state) {
-    return props.resetKey === state.resetKey ? null : { failed: false, resetKey: props.resetKey, retryCount: 0 }
+    return props.resetKey === state.resetKey ? null : { failed: false, resetKey: props.resetKey, retryCount: 0, reloadNotice: null }
   }
 
   componentDidCatch(error) {
     console.error('ds-bot: slot view failed', this.props.slotName, error)
     noteClientError?.(`slot:${this.props.slotName ?? 'unknown'}`, error)
+    this.props.onError?.(error)
   }
 
   retry() {
@@ -127,7 +132,17 @@ export class SlotErrorBoundary extends Component {
     if (this.props.pluginId && typeof this.props.runtime?.retry === 'function') {
       this.props.runtime.retry(this.props.pluginId, { force: true })
     }
-    this.setState(prev => ({ failed: false, retryCount: (prev.retryCount ?? 0) + 1 }))
+    this.setState(prev => ({ failed: false, retryCount: (prev.retryCount ?? 0) + 1, reloadNotice: null }))
+  }
+
+  reload() {
+    if (typeof this.props.onReload === 'function') {
+      this.props.onReload()
+      return
+    }
+    reloadWindowSafely({
+      onBlocked: (reason) => { this.setState({ reloadNotice: reason }) },
+    })
   }
 
   render() {
@@ -136,9 +151,14 @@ export class SlotErrorBoundary extends Component {
         ? h(Fragment, { key: this.state.retryCount }, this.props.children)
         : this.props.children
     }
+    // First failure gets a cache-busted in-place Retry; if that still fails (e.g. a
+    // statically imported sub-chunk is poisoned in Chromium's module map), offer Reload window.
+    const needsReload = (this.state.retryCount ?? 0) >= 1
     return h('div', { className: 'dsb-slot-error', role: 'alert' },
-      h('span', null, t('This view could not be shown.')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.retry() }, t('Retry')))
+      h('span', null, this.state.reloadNotice ?? t('This view could not be shown.')),
+      needsReload
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.reload() }, t('Reload window'))
+        : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.retry() }, t('Retry')))
   }
 }
 

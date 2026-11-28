@@ -120,6 +120,164 @@ export function install(rt) {
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
   const publicCards = cards => Object.fromEntries(Object.entries(cards ?? {}).map(([sessionId, { imOrigin, ...card }]) => [sessionId, card]))
+
+  // Secondary (read-only) windows read coordination.sqlite directly in readonly mode
+  // (WAL on Unix/macOS; DELETE journal mode on Windows) without taking write locks or scheduling.
+  const existingCoord = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
+  const readOnlyCoord = () => (rt.readOnly() !== undefined ? existingCoord() : null)
+
+  const coordTaskStatus = (work, openWaits) => {
+    if (work.status === 'done') return 'completed'
+    if (work.status === 'failed') return 'failed'
+    if (work.status === 'stopped') return 'stopped'
+    if (openWaits.some(w => w.kind === 'approval')) return 'waiting_approval'
+    if (work.status === 'waiting' || openWaits.length > 0) return 'waiting_work'
+    return 'running'
+  }
+
+  const readOnlyTasksForBot = (bot) => {
+    const base = rt.taskViewOf?.(bot) ?? []
+    const db = readOnlyCoord()
+    if (!db) return base
+    try {
+      const works = db.listWorks({ botId: bot.id, kind: 'task', limit: 100 }).filter(w => w.apiRunId === null && w.originKind !== 'request_dedup')
+      if (works.length === 0) return base
+      const seen = new Set(base.map(item => item.id))
+      const merged = [...base]
+      for (const work of works) {
+        const taskId = work.meta?.taskId ?? work.meta?.legacyTaskId ?? (work.workId.startsWith('task:') ? work.workId.slice(5) : work.workId)
+        if (seen.has(taskId)) continue
+        seen.add(taskId)
+        const waits = db.listWaits({ workId: work.workId, status: 'open', limit: 20 })
+        merged.push({
+          id: taskId,
+          sessionId: work.sessionId ?? work.logicalAddress,
+          title: work.title ?? 'Background task',
+          status: coordTaskStatus(work, waits),
+          createdAt: work.createdAt,
+          updatedAt: work.updatedAt,
+          ...(work.startedAt != null ? { startedAt: work.startedAt } : {}),
+          ...(work.finishedAt != null ? { finishedAt: work.finishedAt } : {}),
+          ...(work.roomId != null ? { roomId: work.roomId } : {}),
+          ...(work.resultSummary != null ? { summary: work.resultSummary } : {}),
+          ...(work.error?.message ? { error: work.error.message } : {}),
+        })
+      }
+      return merged
+    } catch {
+      return base
+    }
+  }
+
+  const readOnlyLiveOverlay = (baseLive) => {
+    const db = readOnlyCoord()
+    if (!db) return baseLive
+    try {
+      const activeWorks = db.listWorks({ activeOnly: true, limit: 500 }).filter(w => w.apiRunId === null && w.originKind !== 'request_dedup')
+      const botsWork = { ...baseLive.work.bots }
+      const activity = { ...baseLive.activity }
+      const paused = [...baseLive.work.paused]
+      const seenPaused = new Set(paused.map(item => item?.id).filter(Boolean))
+
+      for (const work of activeWorks) {
+        if (work.status === 'running' && work.botId && rt.botOf(work.botId)) {
+          if (botsWork[work.botId] === undefined) {
+            botsWork[work.botId] = {
+              sessionId: work.sessionId ?? rt.chatOf(work.botId),
+              since: work.claimedAt ?? work.startedAt ?? work.updatedAt,
+              ...(work.kind === 'task' ? { taskId: work.meta?.taskId ?? work.meta?.legacyTaskId ?? (work.workId.startsWith('task:') ? work.workId.slice(5) : work.workId) } : {}),
+            }
+          }
+          if (activity[work.botId] === undefined || activity[work.botId] === 'idle') {
+            activity[work.botId] = 'working'
+          }
+        }
+        if ((work.status === 'paused' || work.status === 'needs_verification') && !seenPaused.has(work.workId)) {
+          seenPaused.add(work.workId)
+          paused.push({
+            id: work.workId,
+            ...(work.workRef ? { ref: work.workRef } : {}),
+            botId: work.botId,
+            to: work.botId,
+            reason: work.pauseReason ?? work.status,
+            detail: work.pauseDetail ?? null,
+            status: work.status,
+            at: work.updatedAt,
+          })
+        }
+      }
+
+      // `baseLive.work.waiting` (`rt.waitingView()`) already reads `rt.coordDb` directly
+      // and returns `{ bots, rooms, for, waits }`; keep its exact shape intact.
+      return {
+        ...baseLive,
+        activity,
+        work: {
+          ...baseLive.work,
+          bots: botsWork,
+          paused,
+        },
+      }
+    } catch {
+      return baseLive
+    }
+  }
+
+  // Closes any open `waits(kind='user_question')` matching a question or view card when the
+  // user submits or dismisses it. Runs only on the writable lock-holding host.
+  const resolveUserQuestionWait = ({ sessionId, kind, cardId, status = 'resolved', resolution }) => {
+    const db = existingCoord()
+    if (!db || db.readonly || db.isClosed?.()) return
+    try {
+      const candidateTargets = new Set([
+        ...(cardId ? [String(cardId), `${kind}:${cardId}`] : []),
+        ...(sessionId ? [`${kind}:${sessionId}`, `question:${sessionId}`, `view:${sessionId}`] : []),
+      ])
+      const workBySession = sessionId ? db.getWorkBySessionId(sessionId) : undefined
+      const open = db.listWaits({ kind: 'user_question', status: 'open', limit: 200 })
+      const matches = open.filter((w) => {
+        if (candidateTargets.has(w.targetId)) return true
+        if (cardId !== undefined && (w.meta?.cardId === cardId || w.meta?.questionId === cardId || w.meta?.viewId === cardId)) return true
+        if (sessionId && w.meta?.sessionId === sessionId && w.targetId.startsWith(`${kind}:`)) return true
+        if (workBySession && w.workId === workBySession.workId && w.targetId.startsWith(`${kind}:`)) return true
+        return false
+      })
+      if (matches.length === 0) return
+      const realWokenWorkIds = []
+      db.transaction(() => {
+        for (const w of matches) {
+          db.resolveWait({
+            waitId: w.waitId,
+            status,
+            resolution: { kind, cardId, sessionId, ...resolution },
+            wake: false,
+          })
+          // `answerQuestion` / `answerView` already delivered the reply via `agent.followup`
+          // (and `dismiss-*` must not start a turn). Wake the work only when no required waits
+          // remain open AND there is at least one unread waking message waiting in its inbox,
+          // so we never fire a phantom `"(continue work)"` turn when inbox is empty.
+          const openReq = db.listWaits({ workId: w.workId, status: 'open', limit: 20 })
+            .filter(item => item.required)
+          if (openReq.length === 0) {
+            const work = db.getWork(w.workId)
+            if (work && (work.status === 'waiting' || work.status === 'idle')) {
+              const unreadWaking = db.listInbox(w.workId, { unreadOnly: true, includeNotes: false, limit: 1 })
+              if (unreadWaking.length > 0) {
+                db.requeueInterruptedWork(w.workId, { reason: 'pending_inbox_after_user_question' })
+                realWokenWorkIds.push(w.workId)
+              }
+            }
+          }
+        }
+      })
+      for (const workId of realWokenWorkIds) {
+        void Promise.resolve(rt.kickScheduler?.({ workId })).catch(() => {})
+      }
+    } catch (error) {
+      rt.warn?.('ds-bot: resolving user_question wait (%s) failed: %s', cardId ?? sessionId, error?.message ?? error)
+    }
+  }
+
   const botTailOf = (botId) => {
     const partId = rt.chatOf?.(botId) ?? botId
     const tail = rt.chatTail?.(partId)
@@ -143,7 +301,7 @@ export function install(rt) {
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
     bots: Object.values(state.bots).map(({ segments, kickoff, agentPresetDefault, agentPresetDefaultPending, tasks: _rawTasks, ...bot }) => {
       const partId = rt.chatOf(bot.id)
-      const botTasks = rt.taskViewOf?.(state.bots[bot.id]) ?? []
+      const botTasks = readOnlyTasksForBot(state.bots[bot.id])
       return {
         ...bot, sessionId: partId, parts: (segments ?? []).map(segment => segment.sessionId),
         ...(botTasks.length > 0 ? { tasks: botTasks } : {}),
@@ -212,7 +370,7 @@ export function install(rt) {
   // running; `work`: per Bot, the turn it runs and its tool; per group, the members whose
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
   // and per Session, when its running turn began.
-  const live = () => ({
+  const live = () => readOnlyLiveOverlay({
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
@@ -462,7 +620,10 @@ export function install(rt) {
       }
       await rt.refresh()
       const readOnly = rt.readOnly()
-      if (readOnly !== undefined && !READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
+      if (readOnly !== undefined) {
+        rt.refreshCoordDb?.()
+        if (!READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
+      }
       switch (endpoint) {
         case 'state': {
           if (typeof body.locale === 'string' && /^[a-z]{2,3}(-[\w-]+)?$/i.test(body.locale)) uiLocale = body.locale
@@ -877,16 +1038,32 @@ export function install(rt) {
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
-            rt.closeCard(body.sessionId, state.questions[body.sessionId], 'dismissed')
+            const card = state.questions[body.sessionId]
+            rt.closeCard(body.sessionId, card, 'dismissed')
             delete state.questions[body.sessionId]
+            resolveUserQuestionWait({
+              sessionId: body.sessionId,
+              kind: 'question',
+              cardId: card?.id,
+              status: 'cancelled',
+              resolution: { dismissed: true },
+            })
             await rt.save()
           }
           return ok(true)
         case 'dismiss-view':
           await rt.load()
           if (rt.own(state.views, body.sessionId) !== undefined) {
-            rt.closeCard(body.sessionId, state.views[body.sessionId], 'dismissed')
+            const card = state.views[body.sessionId]
+            rt.closeCard(body.sessionId, card, 'dismissed')
             delete state.views[body.sessionId]
+            resolveUserQuestionWait({
+              sessionId: body.sessionId,
+              kind: 'view',
+              cardId: card?.id,
+              status: 'cancelled',
+              resolution: { dismissed: true },
+            })
             await rt.save()
           }
           return ok(true)
@@ -1255,8 +1432,19 @@ export function install(rt) {
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           const taskId = String(body.taskId ?? '')
-          const task = (bot.tasks ?? []).find(item => item?.id === taskId)
-          if (task === undefined) return fail('Unknown task', 'bot/not-found')
+          const hasTask = (bot.tasks ?? []).some(item => item?.id === taskId)
+            || rt.taskById?.(taskId)?.bot?.id === bot.id
+            || (() => {
+              const db = existingCoord()
+              if (!db || db.isClosed?.()) return false
+              try {
+                const work = db.getWork(`task:${taskId}`) ?? db.getWork(taskId)
+                return work !== undefined && work.botId === bot.id
+              } catch {
+                return false
+              }
+            })()
+          if (!hasTask) return fail('Unknown task', 'bot/not-found')
           const text = String(body.text ?? '').trim()
           if (text === '') return fail('Message text is required', 'bot/invalid')
           return ok(await rt.deliverToTask(taskId, { text, role: 'task-followup', note: 'User follow-up' }))
@@ -1434,7 +1622,15 @@ export function install(rt) {
       const code = errorCode(error)
       const message = error?.message ?? String(error)
       const details = error?.details && typeof error.details === 'object' ? error.details : {}
-      if (code === 'bot/internal') rt.noteFailure?.({ source: 'api', text: `${endpoint}: ${message}`, code: error?.code ?? error?.name, stack: error?.stack })
+      if (code === 'bot/internal') {
+        rt.noteFailure?.({
+          source: 'api',
+          text: `${endpoint}: ${message}`,
+          errorName: typeof error?.name === 'string' && error.name !== '' ? error.name : undefined,
+          code: error?.code ?? error?.name,
+          stack: error?.stack,
+        })
+      }
       return fail(message, code, details)
     }
   }
@@ -1560,6 +1756,13 @@ export function install(rt) {
       state.questions[sessionId] ??= question
       throw error
     }
+    resolveUserQuestionWait({
+      sessionId,
+      kind: 'question',
+      cardId: questionId,
+      status: 'resolved',
+      resolution: { answer },
+    })
     await rt.save()
     return true
   }
@@ -1592,11 +1795,18 @@ export function install(rt) {
       if (!consumed) state.views[sessionId] ??= pending
       throw error
     }
+    resolveUserQuestionWait({
+      sessionId,
+      kind: 'view',
+      cardId: viewId,
+      status: 'resolved',
+      resolution: { action, ...(values !== undefined ? { values } : {}) },
+    })
     await rt.save()
     return issueReportResult === undefined ? true : { issueReportResult }
   }
 
-  Object.assign(rt, { sendUser, answerQuestion, answerView })
+  Object.assign(rt, { sendUser, answerQuestion, answerView, resolveUserQuestionWait })
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => {

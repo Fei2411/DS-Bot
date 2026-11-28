@@ -95,5 +95,5 @@ test('modal cards, pickers and app-shell dialogs keep a top drag strip in framel
   assert.match(shellStrip[2], /app-region:drag/)
 
   assert.match(appCss, /\.dsb-lightbox>\.dsb-lightbox-close\{[^}]*z-index:2[^}]*-webkit-app-region:no-drag/)
-  assert.match(appCss, /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.dsb-lightbox>\.dsb-lightbox-close\{top:calc\(var\(--dsh-windows-titlebar-height,var\(--dsb-band\)\) \+ 12px\)\}/)
+  assert.match(appCss, /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.dsb-lightbox>\.dsb-lightbox-close\{top:calc\(var\(--bt-titlebar-h,var\(--dsb-band\)\) \+ 12px\)\}/)
 })

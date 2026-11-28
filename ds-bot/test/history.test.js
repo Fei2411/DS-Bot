@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { termQuery } from '../src/host/chat-index.js'
-import { canonicalHeadings, cardText, historyEntry, questionReply, readReply, replyText, viewCardText } from '../src/host/parts.js'
+import { canonicalHeadings, cardText, historyEntry, normalizeNoteHeadings, questionReply, readReply, replyText, viewCardText } from '../src/host/parts.js'
 import { VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
 
 test('cardText shows a question card as the user saw it', () => {
@@ -113,4 +113,104 @@ test('canonicalHeadings keeps a note whose known headings are repeated or out of
   const swapped = '## Progress\n- b\n## 目标\n- a\n## 决定\n- c'
   assert.equal(canonicalHeadings(swapped, names), swapped)
   assert.equal(canonicalHeadings('## 目标\n- a\n## Progress\n- b\n## 决定\n- c', names), '## Goals\n- a\n## Progress\n- b\n## Decisions\n- c')
+})
+
+test('normalizeNoteHeadings unwraps code fences and normalizes numbered, bold, bilingual, and partial Chinese headings', () => {
+  const names = ['Goals', 'Constraints and preferences', 'Progress', 'Decisions', 'Facts to keep', 'Open threads', 'Next step', 'Where to look']
+  const fenced = [
+    '```markdown',
+    '# Handoff Note',
+    '## 1. **Goals** (目标)',
+    '- Finish migration',
+    '### 2、约束与偏好：',
+    '- Never skip tests',
+    '**3. 进展**',
+    '- Done: schema updated',
+    '## 4) 决策 / Decisions',
+    '- Kept D1 schema unchanged',
+    '## 关键事实',
+    '- Endpoint is telemetry.dsbot.app',
+    '## 下一步：',
+    '- Deploy fix',
+    '```',
+  ].join('\n')
+  const out = normalizeNoteHeadings(fenced, names)
+  assert.doesNotMatch(out, /^```/)
+  assert.match(out, /^## Goals$/m)
+  assert.match(out, /^## Constraints and preferences$/m)
+  assert.match(out, /^## Progress$/m)
+  assert.match(out, /^## Decisions$/m)
+  assert.match(out, /^## Facts to keep$/m)
+  assert.match(out, /^## Next step$/m)
+  assert.match(out, /- Finish migration/)
+
+  // Nested fenced code blocks must not be rewritten or steal `seen` from real headings.
+  const withCodeBlock = [
+    '## 目标',
+    '- Ship fix',
+    '## 关键事实',
+    '```bash',
+    '# 下一步',
+    '## 下一步',
+    'echo ok',
+    '```',
+    '## 下一步',
+    '- Run tests',
+  ].join('\n')
+  const normalizedCode = normalizeNoteHeadings(withCodeBlock, names)
+  assert.match(normalizedCode, /```bash\n# 下一步\n## 下一步\necho ok\n```/)
+  assert.match(normalizedCode, /```\n## Next step\n- Run tests/)
+
+  // Already-valid notes with subheadings mentioning a section word must stay untouched.
+  const validWithSubheading = [
+    '## Goals',
+    '### PR #123 — Decisions',
+    '- Keep PR #123 scoped',
+    '## Constraints and preferences',
+    '- (none)',
+    '## Progress',
+    '- Done: fixed bug',
+    '## Decisions',
+    '- Kept existing contract',
+    '## Facts to keep',
+    '- (none)',
+    '## Open threads',
+    '- (none)',
+    '## Next step',
+    '- (none)',
+    '## Where to look',
+    '- (none)',
+  ].join('\n')
+  assert.equal(normalizeNoteHeadings(validWithSubheading, names), validWithSubheading)
+
+  // Two separate fenced blocks (including indented interior closers) must not be unwrapped.
+  const twoFences = '~~~text\nfirst block\n  ~~~\n## 目标\n- keep fences\n~~~text\nlast block\n~~~'
+  const normalizedTwoFences = normalizeNoteHeadings(twoFences, names)
+  assert.match(normalizedTwoFences, /^~~~text\nfirst block\n  ~~~/)
+  assert.match(normalizedTwoFences, /~~~text\nlast block\n~~~$/)
+  assert.match(normalizedTwoFences, /^## Goals$/m)
+
+  // Indented canonical headings (1-3 spaces) normalize to column 0; 4-space list-nested headings stay untouched.
+  const indented = [
+    '  ## Goals',
+    '- Ship cleanly',
+    '    ### Progress',
+    '  ## Progress',
+    '- Done: fixed',
+  ].join('\n')
+  const normalizedIndented = normalizeNoteHeadings(indented, names)
+  assert.match(normalizedIndented, /^## Goals$/m)
+  assert.match(normalizedIndented, /^    ### Progress$/m)
+  assert.match(normalizedIndented, /^## Progress$/m)
+
+  // Triple-backtick inline code spans must not be misread as opening fences.
+  const withInlineBackticks = [
+    '## 目标',
+    '```npm test``` runs the suite',
+    '## 进展',
+    '- Done: verified',
+  ].join('\n')
+  const normalizedInline = normalizeNoteHeadings(withInlineBackticks, names)
+  assert.match(normalizedInline, /^## Goals$/m)
+  assert.match(normalizedInline, /^## Progress$/m)
 })

@@ -12,6 +12,7 @@ import { TokenMeter } from '@deepseek-ai/dsh-token-meter'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
 import { HANDOFF_ACK, REPLY_KIND, SOURCE_KIND } from '../src/host/constants.js'
+import { FORWARDED_UNKNOWN_SOURCE_KIND } from '../src/host/context-messages.js'
 import { install as installParts } from '../src/host/parts.js'
 import { output } from '../src/host/tools.js'
 import { fakeContext } from './fake-ctx.js'
@@ -884,8 +885,8 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, subag
     assert.equal(realCalled, true, `bare HANDOFF_ACK must NOT swallow source.kind=${kind}`)
   }
 
-  // Non-waking sources (time-context, silent note, null) paired with a bare handoff still get HANDOFF_ACK without throwing.
-  for (const extraSource of [{ kind: 'time-context' }, { kind: SOURCE_KIND, role: 'note', silent: true }, null]) {
+  // Non-waking sources (time-context, silent note, forwarded-unknown, null) paired with a bare handoff still get HANDOFF_ACK without throwing.
+  for (const extraSource of [{ kind: 'time-context' }, { kind: SOURCE_KIND, role: 'note', silent: true }, { kind: FORWARDED_UNKNOWN_SOURCE_KIND }, null]) {
     let realCalled = false
     const stream = llmStream({
       sessionId: 's-cur',
@@ -897,7 +898,8 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, subag
     assert.equal(ack, HANDOFF_ACK)
   }
 
-  // 2) Check forward() from pastOwners wakes current part via followup() for all waking kinds.
+  // 2) Check forward() from pastOwners wakes current part via followup() for all waking kinds,
+  // and keeps non-waking / null-source messages non-waking (inject) with a non-user v4 source.kind.
   const preStep = ctx.listeners.get('agent/pre-step').at(-1)
   await preStep({
     agent: { id: 's-old', session: { id: 's-old' } },
@@ -921,7 +923,7 @@ test('F7: bare HANDOFF_ACK never swallows REPLY_KIND, schedule, tool-jobs, subag
     ['followup', 'subagent-settled'],
     ['followup', 'agent-message'],
     ['inject', 'time-context'],
-    ['inject', null],
+    ['inject', FORWARDED_UNKNOWN_SOURCE_KIND],
   ])
 })
 

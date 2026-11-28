@@ -22,6 +22,12 @@ export const withLogTail = (message, stderr) => {
   return tail === '' ? message : `${message}:\n${tail}`
 }
 
+export const hostStoppedMessage = (code, signal) => (
+  typeof signal === 'string' && signal !== ''
+    ? `The DSH Host stopped (exit ${String(code)}, signal ${signal})`
+    : `The DSH Host stopped (exit ${String(code)})`
+)
+
 const settlesWithin = (promise, ms) => new Promise((resolve) => {
   const timer = setTimeout(() => { resolve(false) }, ms)
   void promise.then(() => { clearTimeout(timer); resolve(true) })
@@ -71,8 +77,8 @@ export class HostProcess {
       })
       child.once('error', (error) => { this.#fail(error, reject) })
       this.#exit = new Promise((done) => {
-        child.once('close', (code) => {
-          this.#fail(new Error(withLogTail(`The DSH Host stopped (exit ${String(code)})`, this.#stderr)), reject)
+        child.once('close', (code, signal) => {
+          this.#fail(new Error(withLogTail(hostStoppedMessage(code, signal), this.#stderr)), reject)
           done()
         })
       })
