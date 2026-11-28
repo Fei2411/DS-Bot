@@ -165,10 +165,19 @@ Each result starts with a `Search backend: …` line that names the path it took
   name: '@deepseek-ai/dsh-web'
   config:
     searchProvider: deepseek-official
-    fetchProvider: http
+    fetchProvider: auto
 ```
 
 Another plugin can also set the search provider while dsh runs, after the profile patch. When you turn such a plugin off, check this setting again.
+
+## Web fetch
+
+The package also includes `ds-bot/web-fetch`. It registers the fetch provider `auto`, and `cordis.patch.yml` makes it the default (`fetchProvider: auto`). Each `web_fetch` runs in two stages:
+
+1. Direct HTTP(S) retrieval with browser-compatible headers, HTTP and HTML `<meta charset>` decoding, and safe cross-origin redirect following (public origins cannot redirect to loopback, private, or link-local addresses).
+2. Automatic fallback to an isolated, ephemeral browser fetch when direct HTTP is blocked by WAF/anti-bot status codes (`403`/`406`/`429`/`503`/`52x`), hits a bot challenge or empty JavaScript SPA shell, or fails on transport (for example when the OS system proxy is not in environment variables). In the desktop app this uses an ephemeral non-persistent Electron window; outside the desktop app it uses headless Chromium via `playwright-core` when a local Chromium/Chrome/Edge binary is present. User and Bot profiles/cookies are never touched, and CAPTCHAs are never solved or bypassed.
+
+To switch back to DSH's plain HTTP fetcher or DeepSeek Fetch API, choose another provider in **Settings → Plugins → Web search and fetch** or set `fetchProvider: http` in `cordis.patch.yml`. If you disable `web-fetch-auto`, set `fetchProvider: http` on the `web` row as well (the desktop app reconciles this automatically on the next launch).
 
 ## Bot browser
 
