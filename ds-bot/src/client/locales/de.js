@@ -3044,6 +3044,8 @@ export const DE = {
   "Initial delay cannot exceed max delay": "Die Anfangsverzögerung darf die maximale Verzögerung nicht überschreiten",
   "Jitter ratio must be between 0 and 1": "Der Jitter-Anteil muss zwischen 0 und 1 liegen",
   "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben",
+  "Using built-in catalog ({count} models)": "Integrierter Katalog aktiv ({count} Modelle)",
+  "Settings changed elsewhere. Reload or discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Lade neu oder verwirf deine Änderungen und versuche es erneut.",
 }
 
 export const HOST_ERRORS_DE = [

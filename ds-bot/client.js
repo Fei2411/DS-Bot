@@ -3211,7 +3211,9 @@ var init_zh = __esm({
       "Max delay must be a positive number": "最大延迟必须是正数",
       "Initial delay cannot exceed max delay": "初始延迟不能大于最大延迟",
       "Jitter ratio must be between 0 and 1": "抖动比例必须在 0 到 1 之间",
-      "Use lowercase letters, digits, and dashes, starting with a letter": "仅使用小写字母、数字和连字符，且以字母开头"
+      "Use lowercase letters, digits, and dashes, starting with a letter": "仅使用小写字母、数字和连字符，且以字母开头",
+      "Using built-in catalog ({count} models)": "使用内置目录（{count} 个模型）",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "设置已在别处更改。请重新加载或放弃修改后重试。"
     };
     Object.assign(ZH, HOST_ZH);
   }
@@ -6337,7 +6339,9 @@ var init_ja = __esm({
       "Max delay must be a positive number": "最大待機時間は正の数である必要があります",
       "Initial delay cannot exceed max delay": "初期待機時間は最大待機時間を超えられません",
       "Jitter ratio must be between 0 and 1": "ジッター比率は 0 から 1 の間である必要があります",
-      "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください"
+      "Use lowercase letters, digits, and dashes, starting with a letter": "英小文字で始め、英小文字・数字・ハイフンのみを使用してください",
+      "Using built-in catalog ({count} models)": "組み込みカタログを使用中（{count} モデル）",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "別の場所で設定が変更されました。再読み込みまたは変更を破棄して再試行してください。"
     };
     HOST_ERRORS_JA = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -10135,7 +10139,9 @@ var init_ko = __esm({
       "Max delay must be a positive number": "최대 지연 시간은 양수여야 합니다",
       "Initial delay cannot exceed max delay": "초기 지연 시간은 최대 지연 시간을 초과할 수 없습니다",
       "Jitter ratio must be between 0 and 1": "지터 비율은 0에서 1 사이여야 합니다",
-      "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요"
+      "Use lowercase letters, digits, and dashes, starting with a letter": "문자로 시작하는 소문자, 숫자, 하이픈만 사용하세요",
+      "Using built-in catalog ({count} models)": "내장 카탈로그 사용 중 ({count}개 모델)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "다른 곳에서 설정이 변경되었습니다. 새로고침하거나 변경사항을 취소한 뒤 다시 시도하세요."
     };
     HOST_ERRORS_KO = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -13934,7 +13940,9 @@ var init_es = __esm({
       "Max delay must be a positive number": "El retraso máximo debe ser un número positivo",
       "Initial delay cannot exceed max delay": "El retraso inicial no puede superar el retraso máximo",
       "Jitter ratio must be between 0 and 1": "La proporción de jitter debe estar entre 0 y 1",
-      "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra"
+      "Use lowercase letters, digits, and dashes, starting with a letter": "Usa letras minúsculas, dígitos y guiones, empezando por una letra",
+      "Using built-in catalog ({count} models)": "Usando catálogo integrado ({count} modelos)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Los ajustes cambiaron en otro lugar. Recarga o descarta tus cambios e inténtalo de nuevo."
     };
     HOST_ERRORS_ES = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -17689,7 +17697,9 @@ var init_fr = __esm({
       "Max delay must be a positive number": "Le délai maximal doit être un nombre positif",
       "Initial delay cannot exceed max delay": "Le délai initial ne peut pas dépasser le délai maximal",
       "Jitter ratio must be between 0 and 1": "Le ratio de gigue doit être compris entre 0 et 1",
-      "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre"
+      "Use lowercase letters, digits, and dashes, starting with a letter": "Utilisez des lettres minuscules, des chiffres et des tirets en commençant par une lettre",
+      "Using built-in catalog ({count} models)": "Catalogue intégré utilisé ({count} modèles)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Les paramètres ont été modifiés ailleurs. Rechargez ou abandonnez vos modifications puis réessayez."
     };
     HOST_ERRORS_FR = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -21487,7 +21497,9 @@ var init_de = __esm({
       "Max delay must be a positive number": "Die maximale Verzögerung muss eine positive Zahl sein",
       "Initial delay cannot exceed max delay": "Die Anfangsverzögerung darf die maximale Verzögerung nicht überschreiten",
       "Jitter ratio must be between 0 and 1": "Der Jitter-Anteil muss zwischen 0 und 1 liegen",
-      "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben"
+      "Use lowercase letters, digits, and dashes, starting with a letter": "Verwende Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben",
+      "Using built-in catalog ({count} models)": "Integrierter Katalog aktiv ({count} Modelle)",
+      "Settings changed elsewhere. Reload or discard your changes and try again.": "Die Einstellungen wurden an anderer Stelle geändert. Lade neu oder verwirf deine Änderungen und versuche es erneut."
     };
     HOST_ERRORS_DE = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -62696,6 +62708,8 @@ function ModelListEditor({
   models: models2,
   family,
   overridden,
+  inheritedCount = 0,
+  resetEpoch = 0,
   defaultContextWindow,
   defaultMaxTokens,
   defaultInput,
@@ -62707,6 +62721,12 @@ function ModelListEditor({
   extraActions = null
 }) {
   const rowState = useModelRows(models2, onChange, disabled);
+  const lastEpoch = (0, import_react70.useRef)(resetEpoch);
+  (0, import_react70.useEffect)(() => {
+    if (lastEpoch.current === resetEpoch) return;
+    lastEpoch.current = resetEpoch;
+    rowState.reset();
+  }, [resetEpoch]);
   const inputField = family === "deepseek" ? "inputModalities" : "input";
   const updateField = (index, field, value) => {
     const next = models2.map((model, at2) => {
@@ -62767,7 +62787,11 @@ function ModelListEditor({
         extraActions
       )
     ),
-    models2.length === 0 ? (0, import_react70.createElement)("div", { className: "bt-set-hint" }, t("No models configured.")) : (0, import_react70.createElement)(
+    models2.length === 0 ? (0, import_react70.createElement)(
+      "div",
+      { className: "bt-set-hint" },
+      overridden === false && family === "pi-ai" && inheritedCount > 0 ? t("Using built-in catalog ({count} models)", { count: inheritedCount }) : t("No models configured.")
+    ) : (0, import_react70.createElement)(
       "div",
       { className: "bt-model-list" },
       rowState.rows.map(({ model, key, expanded, order }, index) => (0, import_react70.createElement)(ModelRowItem, {
@@ -63146,7 +63170,9 @@ var ENDPOINT_HINTS = {
 };
 var SHOWN_MODELS = 8;
 var translated = (promise) => Promise.resolve(promise).catch((failure) => {
-  throw new Error(hostText(failure?.message ?? String(failure)));
+  const err = new Error(hostText(failure?.message ?? String(failure)));
+  if (failure?.code !== void 0) err.code = failure.code;
+  throw err;
 });
 function draftFrom(provider, discovered) {
   const existing = Array.isArray(provider.declaredModels) && provider.declaredModels.length > 0 ? provider.declaredModels : provider.models ?? [];
@@ -63309,7 +63335,7 @@ function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced
 }
 function keyState(key) {
   if (key === null) return null;
-  if (!key.configured) return ["missing", t("Needs an API key")];
+  if (!key.configured) return key.optional ? null : ["missing", t("Needs an API key")];
   return key.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
 }
 function detectedEnvVars(provider) {
@@ -63557,24 +63583,14 @@ function ProviderConfigEditor({
   const [discovered, setDiscovered] = (0, import_react72.useState)(null);
   const [discovering, setDiscovering] = (0, import_react72.useState)(false);
   const [discoverError, setDiscoverError] = (0, import_react72.useState)("");
+  const [draftRevision, setDraftRevision] = (0, import_react72.useState)(provider.revision);
+  const [conflicted, setConflicted] = (0, import_react72.useState)(false);
+  const [reloading, setReloading] = (0, import_react72.useState)(false);
+  const [resetEpoch, setResetEpoch] = (0, import_react72.useState)(0);
   const [saving, setSaving] = (0, import_react72.useState)(false);
   const [savedNotice, setSavedNotice] = (0, import_react72.useState)(false);
   const [saveError, setSaveError] = (0, import_react72.useState)("");
   const [confirmImpact, setConfirmImpact] = (0, import_react72.useState)(false);
-  (0, import_react72.useEffect)(() => {
-    setDisplayName(provider.displayName ?? "");
-    setBaseURL(provider.baseURL ?? "");
-    setApi(provider.api ?? "");
-    setModels(normalizeModelDrafts(provider.editableModels));
-    setModelsEdited(false);
-    setResetModels(false);
-    setRetryPolicy(provider.retryPolicy ?? void 0);
-    setRetryEdited(false);
-    setDiscovered(null);
-    setDiscoverError("");
-    setSaveError("");
-    setConfirmImpact(false);
-  }, [provider.revision, provider.id]);
   const effectiveApi = ownsIdentity ? api || provider.api : provider.api;
   const allowReasoning = family === "pi-ai" && (provider.custom === true || models2.some((m) => m?.reasoningEfforts !== void 0));
   const reasoning = allowReasoning ? protocolReasoningLevels(effectiveApi, reasoningLevels) : { levels: [], levelsOnly: false };
@@ -63586,7 +63602,7 @@ function ProviderConfigEditor({
     requireNonEmpty: ownsIdentity
   }) : void 0;
   const retryError = retryEdited ? validateRetryPolicy(retryPolicy, provider.retryDefaults) : void 0;
-  const protocolKeyMissing = family === "pi-ai" && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv;
+  const protocolKeyMissing = family === "pi-ai" && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv && !provider.key?.configured;
   const displayNameChanged = ownsIdentity && displayName.trim() !== initialDisplayName.trim();
   const baseURLChanged = baseURL.trim() !== initialBaseURL.trim();
   const apiChanged = ownsIdentity && api !== initialApi && api !== "";
@@ -63594,23 +63610,66 @@ function ProviderConfigEditor({
   const retryChanged = retryEdited && JSON.stringify(retryPolicy ?? null) !== JSON.stringify(initialRetryPolicy ?? null);
   const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged || retryChanged;
   const invalid = Boolean(baseUrlError || modelError || retryError || protocolKeyMissing);
-  const disabled = readOnly || saving;
-  const impact = modelsChanged ? modelEditorImpact(provider, models2, resetModels, roster) : { switching: [], failed: [], local: [] };
-  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0;
-  const discard = () => {
-    setDisplayName(initialDisplayName);
-    setBaseURL(initialBaseURL);
-    setApi(initialApi);
-    setModels(initialModels);
+  const disabled = readOnly || saving || reloading;
+  const syncFromProvider = (source = provider) => {
+    setDisplayName(source.displayName ?? "");
+    setBaseURL(source.baseURL ?? "");
+    setApi(source.api ?? "");
+    setModels(normalizeModelDrafts(source.editableModels));
     setModelsEdited(false);
     setResetModels(false);
-    setRetryPolicy(initialRetryPolicy);
+    setRetryPolicy(source.retryPolicy ?? void 0);
     setRetryEdited(false);
     setDiscovered(null);
     setDiscoverError("");
+    setDraftRevision(source.revision);
+    setConflicted(false);
+    setSaveError("");
+    setConfirmImpact(false);
+    setResetEpoch((n) => n + 1);
+  };
+  const lastProviderId = (0, import_react72.useRef)(provider.id);
+  (0, import_react72.useEffect)(() => {
+    if (lastProviderId.current === provider.id) return;
+    lastProviderId.current = provider.id;
+    syncFromProvider();
+  }, [provider.id]);
+  (0, import_react72.useEffect)(() => {
+    if (saving || reloading || provider.revision === draftRevision) return;
+    if (!dirty && !conflicted) {
+      syncFromProvider();
+    } else {
+      setConflicted(true);
+    }
+  }, [provider.revision, saving, reloading]);
+  const impact = modelsChanged ? modelEditorImpact(provider, models2, resetModels, roster) : { switching: [], failed: [], local: [] };
+  const hasImpact = impact.switching.length > 0 || impact.failed.length > 0;
+  const reload = () => {
+    if (reloading || typeof actions.providers !== "function") {
+      syncFromProvider();
+      setSavedNotice(false);
+      return;
+    }
+    setReloading(true);
     setSaveError("");
     setSavedNotice(false);
-    setConfirmImpact(false);
+    void translated(actions.providers()).then((next) => {
+      const fresh = next?.providers?.find((p) => p.id === provider.id);
+      if (fresh) syncFromProvider(fresh);
+      else syncFromProvider();
+      if (next?.providers) return apply2(Promise.resolve(next));
+      return true;
+    }).catch((error) => {
+      setSaveError(error?.message ?? String(error));
+    }).finally(() => setReloading(false));
+  };
+  const discard = () => {
+    const wasConflicted = conflicted;
+    syncFromProvider();
+    setSavedNotice(false);
+    if (wasConflicted && typeof actions.providers === "function") {
+      reload();
+    }
   };
   const canDiscover = family === "pi-ai" && !readOnly && (typeof actions.discoverProviderModels === "function" || canRefresh);
   const fetchModels = () => {
@@ -63630,14 +63689,14 @@ function ProviderConfigEditor({
     }).catch((error) => setDiscoverError(error?.message ?? String(error))).finally(() => setDiscovering(false));
   };
   const save = () => {
-    if (disabled || !dirty || invalid || typeof actions.saveProviderConfig !== "function") return;
+    if (disabled || !dirty || invalid || conflicted || typeof actions.saveProviderConfig !== "function") return;
     if (hasImpact && !confirmImpact) {
       setConfirmImpact(true);
       return;
     }
     const payload = {
       provider: provider.id,
-      ...provider.revision !== void 0 ? { revision: provider.revision } : {}
+      ...draftRevision !== void 0 ? { revision: draftRevision } : {}
     };
     if (displayNameChanged) payload.displayName = displayName.trim() === "" ? null : displayName.trim();
     if (baseURLChanged) payload.baseURL = baseURL.trim() === "" ? null : baseURL.trim();
@@ -63653,18 +63712,24 @@ function ProviderConfigEditor({
     setSaveError("");
     setSavedNotice(false);
     void translated(actions.saveProviderConfig(payload)).then((next) => {
+      const fresh = next?.providers?.find((p) => p.id === provider.id);
+      if (fresh) syncFromProvider(fresh);
+      else {
+        setModelsEdited(false);
+        setResetModels(false);
+        setRetryEdited(false);
+        setDiscovered(null);
+        setConflicted(false);
+        setConfirmImpact(false);
+      }
       if (next?.providers) return apply2(Promise.resolve(next));
       return true;
     }).then((ok) => {
       if (ok === false) return;
-      setModelsEdited(false);
-      setResetModels(false);
-      setRetryEdited(false);
-      setDiscovered(null);
-      setConfirmImpact(false);
       setSavedNotice(true);
       void actions.refreshModels?.();
     }).catch((error) => {
+      if (error?.code === "bot/stale") setConflicted(true);
       setSaveError(error?.message ?? String(error));
     }).finally(() => setSaving(false));
   };
@@ -63757,9 +63822,12 @@ function ProviderConfigEditor({
         setSavedNotice(false);
       }
     }) : (0, import_react72.createElement)(ModelListEditor, {
+      key: resetEpoch,
+      resetEpoch,
       models: models2,
       family,
       overridden: effectiveOverridden,
+      inheritedCount: provider.models?.length ?? 0,
       defaultContextWindow: provider.defaultContextWindow,
       defaultMaxTokens: provider.defaultMaxTokens,
       defaultInput: provider.defaultInput,
@@ -63809,21 +63877,32 @@ function ProviderConfigEditor({
       { key: `fail-${bot.id}`, className: "bt-set-hint bt-provider-used", role: "status" },
       t("{name} has no model to fall back to; its next turn will fail.", { name: bot.name })
     )),
-    saveError ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, saveError) : null,
+    conflicted ? (0, import_react72.createElement)(
+      "div",
+      { className: "bt-set-hint", "data-error": "", role: "alert" },
+      t("Settings changed elsewhere. Reload or discard your changes and try again.")
+    ) : null,
+    saveError && !conflicted ? (0, import_react72.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, saveError) : null,
     (0, import_react72.createElement)(
       "div",
       { className: "bt-secret-row-actions bt-provider-form-bar" },
-      savedNotice && !dirty ? (0, import_react72.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react72.createElement)(CheckIcon), t("Saved.")) : null,
+      savedNotice && !dirty && !conflicted ? (0, import_react72.createElement)("span", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react72.createElement)(CheckIcon), t("Saved.")) : null,
+      conflicted ? (0, import_react72.createElement)("button", {
+        type: "button",
+        className: "bt-soft bt-soft-sm",
+        disabled: readOnly || reloading,
+        onClick: reload
+      }, t("Reload")) : null,
       (0, import_react72.createElement)("button", {
         type: "button",
         className: "bt-soft bt-soft-sm",
-        disabled: disabled || !dirty,
+        disabled: disabled || !dirty && !conflicted,
         onClick: discard
       }, t("Discard")),
       (0, import_react72.createElement)("button", {
         type: "button",
         className: "bt-send bt-soft-sm",
-        disabled: disabled || !dirty || invalid,
+        disabled: disabled || !dirty || invalid || conflicted,
         onClick: save
       }, saving ? t("Saving…") : confirmImpact && hasImpact ? t("Save anyway") : t("Save"))
     )

@@ -1,7 +1,7 @@
 // The Models page of a window that has no DSH settings of its own: the model providers
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, EyeIcon, HideIcon, PlusIcon, SearchIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
@@ -36,8 +36,12 @@ const ENDPOINT_HINTS = {
 }
 const SHOWN_MODELS = 8
 
-// A failure in the interface language; the dialog's error line shows it.
-export const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
+// A failure in the interface language; preserve error codes (e.g. bot/stale) for conflict handling.
+export const translated = promise => Promise.resolve(promise).catch((failure) => {
+  const err = new Error(hostText(failure?.message ?? String(failure)))
+  if (failure?.code !== undefined) err.code = failure.code
+  throw err
+})
 
 // A discovery result as a draft: what the endpoint returned is selected; entries the
 // endpoint no longer returns stay visible and selected, so a smaller upstream list never
@@ -198,7 +202,7 @@ export function ProvidersPage({ actions, run, roster, Section, advanced = null }
 
 function keyState(key) {
   if (key === null) return null
-  if (!key.configured) return ['missing', t('Needs an API key')]
+  if (!key.configured) return key.optional ? null : ['missing', t('Needs an API key')]
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
@@ -426,26 +430,14 @@ export function ProviderConfigEditor({
   const [discovered, setDiscovered] = useState(null)
   const [discovering, setDiscovering] = useState(false)
   const [discoverError, setDiscoverError] = useState('')
+  const [draftRevision, setDraftRevision] = useState(provider.revision)
+  const [conflicted, setConflicted] = useState(false)
+  const [reloading, setReloading] = useState(false)
+  const [resetEpoch, setResetEpoch] = useState(0)
   const [saving, setSaving] = useState(false)
   const [savedNotice, setSavedNotice] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [confirmImpact, setConfirmImpact] = useState(false)
-
-  // Reset local draft whenever the server revision advances (after save or external reload).
-  useEffect(() => {
-    setDisplayName(provider.displayName ?? '')
-    setBaseURL(provider.baseURL ?? '')
-    setApi(provider.api ?? '')
-    setModels(normalizeModelDrafts(provider.editableModels))
-    setModelsEdited(false)
-    setResetModels(false)
-    setRetryPolicy(provider.retryPolicy ?? undefined)
-    setRetryEdited(false)
-    setDiscovered(null)
-    setDiscoverError('')
-    setSaveError('')
-    setConfirmImpact(false)
-  }, [provider.revision, provider.id])
 
   const effectiveApi = ownsIdentity ? (api || provider.api) : provider.api
   const allowReasoning = family === 'pi-ai' && (provider.custom === true || models.some(m => m?.reasoningEfforts !== undefined))
@@ -463,7 +455,7 @@ export function ProviderConfigEditor({
       })
     : undefined
   const retryError = retryEdited ? validateRetryPolicy(retryPolicy, provider.retryDefaults) : undefined
-  const protocolKeyMissing = family === 'pi-ai' && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv
+  const protocolKeyMissing = family === 'pi-ai' && protocolNeedsKey(effectiveApi) && !provider.apiKeyEnv && !provider.key?.configured
 
   const displayNameChanged = ownsIdentity && displayName.trim() !== initialDisplayName.trim()
   const baseURLChanged = baseURL.trim() !== initialBaseURL.trim()
@@ -472,25 +464,77 @@ export function ProviderConfigEditor({
   const retryChanged = retryEdited && JSON.stringify(retryPolicy ?? null) !== JSON.stringify(initialRetryPolicy ?? null)
   const dirty = displayNameChanged || baseURLChanged || apiChanged || modelsChanged || retryChanged
   const invalid = Boolean(baseUrlError || modelError || retryError || protocolKeyMissing)
-  const disabled = readOnly || saving
+  const disabled = readOnly || saving || reloading
+
+  const syncFromProvider = (source = provider) => {
+    setDisplayName(source.displayName ?? '')
+    setBaseURL(source.baseURL ?? '')
+    setApi(source.api ?? '')
+    setModels(normalizeModelDrafts(source.editableModels))
+    setModelsEdited(false)
+    setResetModels(false)
+    setRetryPolicy(source.retryPolicy ?? undefined)
+    setRetryEdited(false)
+    setDiscovered(null)
+    setDiscoverError('')
+    setDraftRevision(source.revision)
+    setConflicted(false)
+    setSaveError('')
+    setConfirmImpact(false)
+    setResetEpoch(n => n + 1)
+  }
+
+  // Sync cleanly when switching providers or when upstream advances while clean;
+  // preserve dirty edits and raise a conflict banner if upstream moved mid-edit.
+  const lastProviderId = useRef(provider.id)
+  useEffect(() => {
+    if (lastProviderId.current === provider.id) return
+    lastProviderId.current = provider.id
+    syncFromProvider()
+  }, [provider.id])
+
+  useEffect(() => {
+    if (saving || reloading || provider.revision === draftRevision) return
+    if (!dirty && !conflicted) {
+      syncFromProvider()
+    } else {
+      setConflicted(true)
+    }
+  }, [provider.revision, saving, reloading])
 
   const impact = modelsChanged ? modelEditorImpact(provider, models, resetModels, roster) : { switching: [], failed: [], local: [] }
   const hasImpact = impact.switching.length > 0 || impact.failed.length > 0
 
-  const discard = () => {
-    setDisplayName(initialDisplayName)
-    setBaseURL(initialBaseURL)
-    setApi(initialApi)
-    setModels(initialModels)
-    setModelsEdited(false)
-    setResetModels(false)
-    setRetryPolicy(initialRetryPolicy)
-    setRetryEdited(false)
-    setDiscovered(null)
-    setDiscoverError('')
+  const reload = () => {
+    if (reloading || typeof actions.providers !== 'function') {
+      syncFromProvider()
+      setSavedNotice(false)
+      return
+    }
+    setReloading(true)
     setSaveError('')
     setSavedNotice(false)
-    setConfirmImpact(false)
+    void translated(actions.providers())
+      .then((next) => {
+        const fresh = next?.providers?.find(p => p.id === provider.id)
+        if (fresh) syncFromProvider(fresh)
+        else syncFromProvider()
+        if (next?.providers) return apply(Promise.resolve(next))
+        return true
+      })
+      .catch((error) => {
+        setSaveError(error?.message ?? String(error))
+      })
+      .finally(() => setReloading(false))
+  }
+
+  const discard = () => {
+    const wasConflicted = conflicted
+    syncFromProvider()
+    setSavedNotice(false)
+    if (wasConflicted && typeof actions.providers === 'function') {
+      reload()
+    }
   }
 
   const canDiscover = family === 'pi-ai' && !readOnly && (typeof actions.discoverProviderModels === 'function' || canRefresh)
@@ -513,14 +557,14 @@ export function ProviderConfigEditor({
   }
 
   const save = () => {
-    if (disabled || !dirty || invalid || typeof actions.saveProviderConfig !== 'function') return
+    if (disabled || !dirty || invalid || conflicted || typeof actions.saveProviderConfig !== 'function') return
     if (hasImpact && !confirmImpact) {
       setConfirmImpact(true)
       return
     }
     const payload = {
       provider: provider.id,
-      ...(provider.revision !== undefined ? { revision: provider.revision } : {}),
+      ...(draftRevision !== undefined ? { revision: draftRevision } : {}),
     }
     if (displayNameChanged) payload.displayName = displayName.trim() === '' ? null : displayName.trim()
     if (baseURLChanged) payload.baseURL = baseURL.trim() === '' ? null : baseURL.trim()
@@ -538,20 +582,26 @@ export function ProviderConfigEditor({
     setSavedNotice(false)
     void translated(actions.saveProviderConfig(payload))
       .then((next) => {
+        const fresh = next?.providers?.find(p => p.id === provider.id)
+        if (fresh) syncFromProvider(fresh)
+        else {
+          setModelsEdited(false)
+          setResetModels(false)
+          setRetryEdited(false)
+          setDiscovered(null)
+          setConflicted(false)
+          setConfirmImpact(false)
+        }
         if (next?.providers) return apply(Promise.resolve(next))
         return true
       })
       .then((ok) => {
         if (ok === false) return
-        setModelsEdited(false)
-        setResetModels(false)
-        setRetryEdited(false)
-        setDiscovered(null)
-        setConfirmImpact(false)
         setSavedNotice(true)
         void actions.refreshModels?.()
       })
       .catch((error) => {
+        if (error?.code === 'bot/stale') setConflicted(true)
         setSaveError(error?.message ?? String(error))
       })
       .finally(() => setSaving(false))
@@ -628,9 +678,12 @@ export function ProviderConfigEditor({
           },
         })
       : h(ModelListEditor, {
+          key: resetEpoch,
+          resetEpoch,
           models,
           family,
           overridden: effectiveOverridden,
+          inheritedCount: provider.models?.length ?? 0,
           defaultContextWindow: provider.defaultContextWindow,
           defaultMaxTokens: provider.defaultMaxTokens,
           defaultInput: provider.defaultInput,
@@ -675,19 +728,27 @@ export function ProviderConfigEditor({
       t('{name} will switch to {model} on its next turn.', { name: bot.name, model: bot.target.name ?? bot.target.ref }))),
     impact.failed.map(bot => h('div', { key: `fail-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
       t('{name} has no model to fall back to; its next turn will fail.', { name: bot.name }))),
-    saveError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, saveError) : null,
+    conflicted ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' },
+      t('Settings changed elsewhere. Reload or discard your changes and try again.')) : null,
+    saveError && !conflicted ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, saveError) : null,
     h('div', { className: 'bt-secret-row-actions bt-provider-form-bar' },
-      savedNotice && !dirty ? h('span', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Saved.')) : null,
+      savedNotice && !dirty && !conflicted ? h('span', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Saved.')) : null,
+      conflicted ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: readOnly || reloading,
+        onClick: reload,
+      }, t('Reload')) : null,
       h('button', {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
-        disabled: disabled || !dirty,
+        disabled: disabled || (!dirty && !conflicted),
         onClick: discard,
       }, t('Discard')),
       h('button', {
         type: 'button',
         className: 'bt-send bt-soft-sm',
-        disabled: disabled || !dirty || invalid,
+        disabled: disabled || !dirty || invalid || conflicted,
         onClick: save,
       }, saving ? t('Saving…') : (confirmImpact && hasImpact ? t('Save anyway') : t('Save')))))
 }

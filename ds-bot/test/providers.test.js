@@ -320,9 +320,9 @@ test('an existing custom provider refreshes through its saved profile without a 
 })
 
 test('a protocol whose listing pi-ai cannot read offers no refresh entry', async () => {
-  const user = { providers: { gem: { api: 'google-generative-ai', baseURL: 'https://gem.example/v1beta', models: [{ id: 'g' }] } } }
+  const user = { providers: { bed: { api: 'bedrock-converse-stream', baseURL: 'https://bed.example/v1', models: [{ id: 'b' }] } } }
   const { rt } = dsh({ user })
-  assert.equal(row(await rt.providersView(), 'gem').refreshable, false)
+  assert.equal(row(await rt.providersView(), 'bed').refreshable, false)
 })
 
 test('refreshing saves only the model list, keeps advanced fields, and leaves the Bot model alone', async () => {

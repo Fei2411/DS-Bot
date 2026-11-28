@@ -300,14 +300,14 @@ test('ProviderConfigEditor edits retry policy (mode/maxRetries/retryableCodes/ba
     defaultMode: 'normal',
     branches: {
       normal: {
-        maxRetries: { type: 'number', default: 5, minimum: 0, integer: true },
+        maxRetries: { type: 'number', default: 5, min: 0, max: 9007199254740991, step: 1 },
         retryableCodes: { type: 'codes', choices: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'QUOTA'], default: ['RATE_LIMIT', 'SERVER'] },
         backoff: {
           type: 'object',
           fields: {
-            initialDelayMs: { type: 'number', default: 500 },
-            maxDelayMs: { type: 'number', default: 10000 },
-            jitterRatio: { type: 'number', default: 0.1 },
+            initialDelayMs: { type: 'number', default: 500, min: 5e-324, max: 2147483647 },
+            maxDelayMs: { type: 'number', default: 10000, min: 5e-324, max: 2147483647 },
+            jitterRatio: { type: 'number', default: 0.1, min: 0, max: 1 },
           },
         },
       },
@@ -315,9 +315,9 @@ test('ProviderConfigEditor edits retry policy (mode/maxRetries/retryableCodes/ba
         backoff: {
           type: 'object',
           fields: {
-            initialDelayMs: { type: 'number', default: 500 },
-            maxDelayMs: { type: 'number', default: 10000 },
-            jitterRatio: { type: 'number', default: 0.1 },
+            initialDelayMs: { type: 'number', default: 500, min: 5e-324, max: 2147483647 },
+            maxDelayMs: { type: 'number', default: 10000, min: 5e-324, max: 2147483647 },
+            jitterRatio: { type: 'number', default: 0.1, min: 0, max: 1 },
           },
         },
       },
@@ -388,4 +388,97 @@ test('ProviderConfigEditor edits retry policy (mode/maxRetries/retryableCodes/ba
     retryableCodes: ['RATE_LIMIT', 'SERVER', 'UPSTREAM_BUSY'],
     backoff: { initialDelayMs: 750 },
   })
+})
+
+test('ProviderConfigEditor clears invalid ModelListEditor capacity text on Discard', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  const props = {
+    provider: {
+      id: 'my-gw', name: 'My Gateway', family: 'pi-ai', custom: true, editable: true, revision: 2,
+      displayName: 'My Gateway', baseURL: 'https://gw.example/v1', api: 'openai-completions',
+      apiKeyEnv: 'MY_GW_API_KEY', modelsOverridden: true,
+      models: [{ id: 'alpha', ref: 'my-gw/alpha', name: 'Alpha' }],
+      editableModels: [{ id: 'alpha', name: 'Alpha', contextWindow: 128_000 }],
+    },
+    protocols: ['openai-completions'], reasoningLevels: ['off', 'low', 'high'],
+    readOnly: false, apply: async () => true,
+    actions: { saveProviderConfig: async () => ({ providers: [] }), providers: async () => ({ providers: [] }) },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  }
+  let tree = render(ProviderConfigEditor, props)
+  const btn = label => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+  const btnAria = label => findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === label)[0]
+  const inputAria = label => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+
+  btnAria('Model details 1').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  inputAria('Context window 1').props.onChange({ target: { value: 'abc' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Context window 1').props.value, 'abc')
+  assert.equal(btn('Discard').props.disabled, false)
+
+  btn('Discard').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  btnAria('Model details 1').props.onClick()
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Context window 1').props.value, '128K', 'invalid raw text cleared after Discard')
+})
+
+test('ProviderConfigEditor detects upstream revision drift without wiping dirty draft, and offers Reload on bot/stale', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  let reloadCalls = 0
+  const baseProvider = {
+    id: 'my-gw', name: 'My Gateway', family: 'pi-ai', custom: true, editable: true, revision: 5,
+    displayName: 'My Gateway', baseURL: 'https://gw.example/v1', api: 'openai-completions',
+    apiKeyEnv: 'MY_GW_API_KEY', modelsOverridden: true,
+    models: [{ id: 'alpha', ref: 'my-gw/alpha', name: 'Alpha' }],
+    editableModels: [{ id: 'alpha', name: 'Alpha' }],
+  }
+  const props = {
+    provider: baseProvider,
+    protocols: ['openai-completions'], reasoningLevels: ['off', 'low', 'high'],
+    readOnly: false, apply: async (p) => { await p; return true },
+    actions: {
+      saveProviderConfig: async () => { throw Object.assign(new Error('stale'), { code: 'bot/stale' }) },
+      providers: async () => { reloadCalls += 1; return { providers: [{ ...baseProvider, revision: 6 }] } },
+    },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  }
+  let tree = render(ProviderConfigEditor, props)
+  const btn = label => findAll(tree, n => n.type === 'button' && textOf(n) === label)[0]
+  const inputAria = label => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === label)[0]
+
+  // Dirty the Base URL
+  inputAria('Base URL').props.onChange({ target: { value: 'https://gw-new.example/v1' } })
+  tree = render(ProviderConfigEditor, props)
+  assert.equal(inputAria('Base URL').props.value, 'https://gw-new.example/v1')
+
+  // Simulate upstream revision advance while dirty -> must NOT wipe unsaved edit, must show conflict & Reload
+  tree = render(ProviderConfigEditor, { ...props, provider: { ...baseProvider, revision: 6 } })
+  assert.equal(inputAria('Base URL').props.value, 'https://gw-new.example/v1', 'dirty draft preserved on upstream drift')
+  assert.ok(btn('Reload'), 'Reload button shown on revision conflict')
+  assert.equal(btn('Save').props.disabled, true, 'Save disabled while conflicted')
+
+  // Clicking Reload fetches actions.providers()
+  btn('Reload').props.onClick()
+  await settle(); await settle()
+  assert.equal(reloadCalls, 1)
+})
+
+test('ProviderConfigEditor shows inherited catalog hint instead of No models configured on unoverridden pi-ai catalog provider', async () => {
+  const { exports: { ProviderConfigEditor }, render } = await loadProvidersPageBundle()
+  const tree = render(ProviderConfigEditor, {
+    provider: {
+      id: 'openai', name: 'OpenAI', family: 'pi-ai', custom: false, editable: true, revision: 1,
+      modelsOverridden: false,
+      models: [{ id: 'gpt-5', ref: 'openai/gpt-5', name: 'GPT-5' }, { id: 'gpt-4o', ref: 'openai/gpt-4o', name: 'GPT-4o' }],
+      editableModels: [],
+    },
+    protocols: ['openai-completions'], reasoningLevels: [],
+    readOnly: false, apply: async () => true,
+    actions: { saveProviderConfig: async () => ({ providers: [] }) },
+    roster: { bots: [], models: [] }, canRefresh: false, refreshing: false, onOpenRefresh() {},
+  })
+  assert.match(textOf(tree), /Using built-in catalog \(2 models\)/)
+  assert.doesNotMatch(textOf(tree), /No models configured\./)
 })

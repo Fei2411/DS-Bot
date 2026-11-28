@@ -1,7 +1,7 @@
 // Editable model catalog list for a provider card (DeepSeek and pi-ai routes):
 // model ID, display name, add/remove/reorder, context window, max output tokens,
 // input modalities (Text / Images), per-model reasoning levels, and Reset to default.
-import { createElement as h, Fragment, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { Switch } from './bot-settings.js'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, PlusIcon, TrashIcon } from './icons.js'
 import { SelectMenu } from './select-menu.js'
@@ -368,6 +368,8 @@ export function ModelListEditor({
   models,
   family,
   overridden,
+  inheritedCount = 0,
+  resetEpoch = 0,
   defaultContextWindow,
   defaultMaxTokens,
   defaultInput,
@@ -379,6 +381,12 @@ export function ModelListEditor({
   extraActions = null,
 }) {
   const rowState = useModelRows(models, onChange, disabled)
+  const lastEpoch = useRef(resetEpoch)
+  useEffect(() => {
+    if (lastEpoch.current === resetEpoch) return
+    lastEpoch.current = resetEpoch
+    rowState.reset()
+  }, [resetEpoch])
   const inputField = family === 'deepseek' ? 'inputModalities' : 'input'
 
   const updateField = (index, field, value) => {
@@ -440,7 +448,10 @@ export function ModelListEditor({
           : null,
         extraActions)),
     models.length === 0
-      ? h('div', { className: 'bt-set-hint' }, t('No models configured.'))
+      ? h('div', { className: 'bt-set-hint' },
+          overridden === false && family === 'pi-ai' && inheritedCount > 0
+            ? t('Using built-in catalog ({count} models)', { count: inheritedCount })
+            : t('No models configured.'))
       : h('div', { className: 'bt-model-list' },
           rowState.rows.map(({ model, key, expanded, order }, index) => h(ModelRowItem, {
             key,
