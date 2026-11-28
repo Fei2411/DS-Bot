@@ -4240,7 +4240,7 @@ export function install(rt) {
   // in the part's history. When nothing is left to do, that turn's reply is a fixed
   // line instead of a model call.
   ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     const messages = options.messages ?? []
     const since = messages.findLastIndex(message => message.role === 'assistant' || message.role === 'tool') + 1
     const opened = messages.slice(since).filter(message => message.role === 'user' && isWakingSource(message.source))
@@ -4903,8 +4903,17 @@ export function install(rt) {
     }
     // Register session ownership BEFORE any native CLI fork writes `state.localAgents.sessions[sessionId]`
     // so a concurrent `pruneLocalAgentSessions(liveRaw)` pass can never delete the new record.
+    // A DSH-forked task inherits the parent's prompt prefix and cache affinity root so
+    // step 1 hits the parent's warm KV cache instead of invalidating tools/system prompt.
+    const cacheRoot = dshForked ? (rt.cacheAffinityOf?.(fromSessionId) ?? fromSessionId) : undefined
     rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
+    rt.taskOwners.set(sessionId, {
+      botId: bot.id,
+      taskId: task.id,
+      ...(room ? { roomId: room.id } : {}),
+      ...(dshForked ? { preservePrefix: true } : {}),
+    })
+    if (dshForked && cacheRoot !== undefined) rt.setCacheAffinity?.(sessionId, cacheRoot)
     if (fork !== false && isLocal && dir === defaultDir && typeof rt.forkLocalAgentSession === 'function') {
       const parsed = splitRef(picked?.ref ?? bot.model ?? bot.appliedModel)
       const canForkCli = capabilities.canFork === true
@@ -4924,6 +4933,7 @@ export function install(rt) {
       if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
         rt.chatOwners.delete(sessionId)
         rt.taskOwners.delete(sessionId)
+        rt.forgetCacheAffinity?.(sessionId)
         rt.forgetLocalAgentSession?.(sessionId)
         await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
           .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
@@ -4957,6 +4967,7 @@ export function install(rt) {
       sessionId,
       segments: [],
       startSeq,
+      ...(dshForked ? { forkedPrefixSessionId: sessionId, ...(cacheRoot !== undefined ? { cacheAffinityId: cacheRoot } : {}) } : {}),
       ...(workDir !== undefined ? { workDir } : {}),
     }
     ;(bot.tasks ??= []).push(stored)
@@ -5012,7 +5023,8 @@ export function install(rt) {
         await selectRoute({ name: bot.name }, sessionId, now)
       }
     }
-    return { sessionId, forked, syncRoute }
+    const cacheAffinityId = forked ? (rt.cacheAffinityOf?.(fromSessionId) ?? fromSessionId) : undefined
+    return { sessionId, forked, syncRoute, ...(cacheAffinityId !== undefined ? { cacheAffinityId } : {}) }
   }
 
   // Read-only transcript paging for one background task across its own segments,
@@ -5057,6 +5069,7 @@ export function install(rt) {
   const forgetSessionParts = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
     contextRuntime.forget(sessionId)
+    rt.forgetCacheAffinity?.(sessionId)
     rt.forgetLocalAgentSession?.(sessionId)
     rt.forgetChatIndexSession?.(sessionId)
     condensedUnmeasured.delete(sessionId)
@@ -5158,6 +5171,8 @@ export function install(rt) {
         return { sessionId: rt.chatOf(bot.id), recovered: false }
       }
       bot.sessionId = freshId
+      delete bot.cacheAffinitySessionId
+      delete bot.cacheAffinityId
       finishPresetClear(bot, lostId, presetAtCreation !== undefined ? freshId : undefined)
       if (bot.sessionMissing === lostId) delete bot.sessionMissing
       if (bot.failures?.[lostId] !== undefined) {
@@ -5189,6 +5204,11 @@ export function install(rt) {
       // never strands persisted silent notes under an unowned `freshId`.
       await rt.save({ required: true })
       try {
+        const existingDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+        if (existingDb && !existingDb.readonly && !existingDb.isClosed?.()) {
+          const fg = existingDb.getForegroundWork(bot.id)
+          if (fg !== undefined) existingDb.rebindSession(fg.workId, freshId)
+        }
         await rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
         await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })
         delete state.switching[lostId]

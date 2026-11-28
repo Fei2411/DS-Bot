@@ -695,3 +695,91 @@ test('usage scan aborting on dispose never touches closed ledger or warns, and a
     db.close()
   }
 })
+
+test('usage incrementally syncs a session on turn/end into usage.sqlite without waiting for usageView', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-usage-turn-sync-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const ctx = fakeContext()
+  t.after(() => ctx.dispose())
+  let pageCalls = 0
+  ctx.sessionController = {
+    list: async () => ({ items: [] }),
+    projections: async ({ sessionId }) => (sessionId === 's-live' ? { asOfSeq: 1 } : null),
+    page: async ({ address }) => {
+      pageCalls += 1
+      assert.equal(address.sessionId, 's-live')
+      return {
+        records: [
+          { event: { ...header('openai-chatgpt', 'gpt-6.2-sol'), seq: 0 } },
+          { event: { ...message(1, 0, { inputTokens: 10_000, cacheReadTokens: 9_800, outputTokens: 120 }, HOUR), seq: 1 } },
+        ],
+        hasMore: false,
+      }
+    },
+  }
+  const rt = {
+    ctx,
+    home,
+    config: { usageTurnSyncDelayMs: 0 },
+    state: { revision: 1, bots: { b1: { id: 'b1', name: 'Chief', sessionId: 's-live' } }, rooms: {}, agents: {} },
+    load: async () => {},
+    hasLoaded: () => true,
+    readOnly: () => undefined,
+    chatOf: id => (id === 'b1' ? 's-live' : id),
+    roomOf: () => undefined,
+    botOf: id => (id === 'b1' ? rt.state.bots.b1 : undefined),
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    cachedCatalog: () => [],
+    warn: (...args) => assert.fail(`unexpected warn: ${args.join(' ')}`),
+  }
+  installUsage(rt)
+  const onEvent = ctx.listeners.get('session/event').at(-1)
+  assert.equal(typeof onEvent, 'function')
+  // Subagent turn/end must be skipped without calling projections/page on a root address.
+  onEvent({ id: 's-sub', origin: 'subagent' }, { type: 'turn/end' })
+  // Two rapid turn/end events coalesce into one incremental sync.
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  const deadline = Date.now() + 2000
+  while (pageCalls === 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(pageCalls, 1)
+
+  // A turn/end arriving while a sync is in flight queues a follow-up sync instead of dropping.
+  let releaseSecondPage
+  let inFlightCalls = 0
+  ctx.sessionController.projections = async () => ({ asOfSeq: inFlightCalls === 0 ? 2 : 3 })
+  ctx.sessionController.page = async ({ throughSeq }) => {
+    inFlightCalls += 1
+    if (inFlightCalls === 1) {
+      await new Promise(resolve => { releaseSecondPage = resolve })
+      return { records: [{ event: { ...message(2, 0, { inputTokens: 1000, cacheReadTokens: 900, outputTokens: 20 }, HOUR), seq: 2 } }], hasMore: false }
+    }
+    assert.equal(throughSeq, 3)
+    return { records: [{ event: { ...message(3, 0, { inputTokens: 2000, cacheReadTokens: 1900, outputTokens: 30 }, HOUR), seq: 3 } }], hasMore: false }
+  }
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  while (releaseSecondPage === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  onEvent({ id: 's-live' }, { type: 'turn/end' })
+  releaseSecondPage()
+  const deadline2 = Date.now() + 2000
+  while (inFlightCalls < 2 && Date.now() < deadline2) await new Promise(resolve => setTimeout(resolve, 10))
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(inFlightCalls, 2)
+
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(join(home, 'usage.sqlite'))
+  try {
+    const rows = db.prepare("SELECT session, provider, model, kind, input, cache_read, output FROM calls WHERE kind = 'turn' ORDER BY key").all()
+    assert.equal(rows.length, 3)
+    assert.deepEqual(
+      { session: rows[0]?.session, provider: rows[0]?.provider, model: rows[0]?.model, kind: rows[0]?.kind, input: rows[0]?.input, cache_read: rows[0]?.cache_read, output: rows[0]?.output },
+      { session: 's-live', provider: 'openai-chatgpt', model: 'gpt-6.2-sol', kind: 'turn', input: 10_000, cache_read: 9_800, output: 120 },
+    )
+    assert.equal(rows[2]?.input, 2000)
+    const owner = db.prepare('SELECT owner, name FROM owners WHERE session = ?').get('s-live')
+    assert.deepEqual({ owner: owner?.owner, name: owner?.name }, { owner: 'b1', name: 'Chief' })
+  } finally {
+    db.close()
+  }
+})

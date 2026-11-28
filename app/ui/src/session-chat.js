@@ -43,7 +43,12 @@ function useUiLanguage() {
     const service = getAppLocale()
     return typeof service?.subscribe === 'function' ? service.subscribe(notify) : NO_LOCALE
   }, [])
-  const snapshot = useCallback(() => getAppLocale()?.getLocale?.().active ?? 'en', [])
+  const snapshot = useCallback(() => {
+    const svc = getAppLocale()
+    const active = svc?.getLocale?.().active ?? 'en'
+    const revision = svc?.getSnapshot?.().revision ?? 0
+    return `${active}:${revision}`
+  }, [])
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 import { GenericToolCard, ToolCallCard } from './tool-card.js'
@@ -917,11 +922,16 @@ const DeliverablesRow = memo(function DeliverablesRow({ row, sessionId, onOpenFi
 })
 
 function turnFactsSignature(facts) {
-  if (!facts?.turns) return ''
+  if (!facts?.turns && !Array.isArray(facts?.userMessages)) return ''
   const parts = [`open:${facts.openTurn ?? ''}`]
-  for (const entry of facts.turns.values()) {
+  for (const entry of facts.turns?.values() ?? []) {
     const replyLen = facts.closingReplies?.get(entry.turn)?.length ?? 0
     parts.push(`${entry.turn}:${entry.status}:${entry.start?.seq ?? ''}:${entry.start?.time ?? ''}:${entry.end?.seq ?? ''}:${entry.end?.time ?? ''}:${replyLen}`)
+  }
+  const users = Array.isArray(facts.userMessages) ? facts.userMessages : []
+  if (users.length > 0) {
+    const lastUser = users[users.length - 1]
+    parts.push(`users:${users.length}:${lastUser?.seq ?? ''}:${lastUser?.time ?? ''}`)
   }
   return parts.join('|')
 }

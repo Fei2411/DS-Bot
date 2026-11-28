@@ -1063,7 +1063,12 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 /* Settings → Connectors. */
 .bt-connector{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
 .bt-connector-head{display:flex;align-items:center;gap:12px;min-width:0}
-.bt-connector-mark{flex:none;width:36px;height:36px;border-radius:10px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 1px 2px rgba(0,0,0,.04);display:flex;align-items:center;justify-content:center;color:var(--bt-ink)}
+.bt-connector-mark{--bt-mark-ink:var(--bt-ink);flex:none;width:36px;height:36px;border-radius:10px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 1px 2px rgba(0,0,0,.04);display:flex;align-items:center;justify-content:center;color:var(--bt-ink)}
+.bt-about-link{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.bt-about-link svg{width:14px;height:14px}
+.bt-kbd-group{display:inline-flex;align-items:center;gap:4px;flex:none}
+.bt-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1;color:var(--bt-ink)}
+.bt-palette-kbd{margin-left:auto;padding-left:8px;flex:none}
 .bt-connector-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .bt-connector-title{display:flex;align-items:center;gap:6px;min-width:0}
 .bt-connector-name{font-size:14px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

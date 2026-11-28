@@ -4,12 +4,19 @@ import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
 import { install as installLedger, bookFile, parseBook } from '../src/host/ledger.js'
 import { segmentNoteFile } from '../src/host/store.js'
 import { fakeContext } from './fake-ctx.js'
+
+const tempDirs = []
+after(() => {
+  for (const dir of tempDirs.splice(0)) {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) } catch {}
+  }
+})
 
 function patchFsp(method, replace) {
   const original = fsp[method]
@@ -74,7 +81,7 @@ function makeAgent(id, { events = [], cwd = '/tmp/team', tokens = 1_000 } = {}) 
 async function bootHost(t, { home, seed, llmStream, measureTokens, pageEvents = {}, runningSessions = [] } = {}) {
   const ownHome = home === undefined
   const dir = home ?? mkdtempSync(join(tmpdir(), 'ds-bot-slim-state-'))
-  if (ownHome) t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }))
+  if (ownHome) tempDirs.push(dir)
   if (seed !== undefined) writeFileSync(join(dir, 'state.json'), JSON.stringify(seed))
 
   const runningSet = new Set(runningSessions)
@@ -195,7 +202,7 @@ test('segmentNoteFile produces Windows/macOS/Linux-safe collision-free filenames
 
 test('legacy state.exchanges migrates transparently into pair ledgers without losing existing books, and new deliveries never grow state.json', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-exchanges-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   // Pre-seed pair-a-c.jsonl with a newer message AND an already-imported legacy id.
   mkdirSync(join(home, 'ledger'), { recursive: true })
@@ -284,7 +291,7 @@ test('legacy state.exchanges migrates transparently into pair ledgers without lo
 
 test('failed pair ledger write keeps legacy state.exchanges intact (fail-closed) and retries on next load', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-exchanges-fail-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   // Block `<home>/ledger` directory creation cross-platform by placing a regular file there.
   writeFileSync(join(home, 'ledger'), 'not a directory')
@@ -328,7 +335,7 @@ test('failed pair ledger write keeps legacy state.exchanges intact (fail-closed)
 
 test('legacy inline segment notes migrate to segment-notes/*.md across bot, task, and room segments, shrinking state.json by >90%', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-notes-migrate-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   const botNote1 = fullNote('BOT_SEG_1', 200)
   const botNoteUnsafe = fullNote('WIN_RESERVED_CON', 150)
@@ -538,7 +545,7 @@ test('live part switch writes externalized segment-notes/*.md and carries earlie
 
 test('segment-notes write failure falls back fail-closed to inline segment.note during both migration and live part switch', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-notes-fail-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   // Block `<home>/segment-notes` directory creation cross-platform by placing a regular file there.
   writeFileSync(join(home, 'segment-notes'), 'not a directory')
@@ -613,7 +620,7 @@ test('segment-notes write failure falls back fail-closed to inline segment.note 
 
 test('deleteBot, deleteRoom, and member removal clean up all segment-notes/*.md files without leaking orphans', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-cleanup-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   const seed = {
     version: 1,
@@ -727,7 +734,7 @@ test('deleteBot, deleteRoom, and member removal clean up all segment-notes/*.md 
 
 test('pruning old settled tasks deletes pruned task segment notes while preserving foreground bot segment notes', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-prune-tasks-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   const settledTasks = Array.from({ length: 50 }, (_, idx) => ({
     id: `k_old_${idx}`,
@@ -793,7 +800,7 @@ test('pruning old settled tasks deletes pruned task segment notes while preservi
 
 test('read-only host reads unmigrated legacy state without writing, then migrates cleanly upon lock takeover', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-readonly-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   const seed = {
     version: 1,
@@ -850,7 +857,7 @@ test('read-only host reads unmigrated legacy state without writing, then migrate
 
 test('legacy duplicated bot.tasks[*].inheritedSegments[*].note entries migrate out of state.json without risking foreground notes on prune', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-inherited-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   const fgNote = fullNote('SHARED_FG_NOTE', 120)
   const orphanInheritedNote = fullNote('ORPHAN_INHERITED_NOTE', 80)
@@ -958,9 +965,9 @@ test('concurrent writeSegmentNote + deleteSegmentNotes cannot resurrect deleted 
   assert.equal(host.rt.readSegmentNote('race-sid'), undefined)
 })
 
-test('dispose during migrateSegmentNotes stops remaining segment note writes before lock release', async (t) => {
+test('dispose during migrateSegmentNotes stops remaining segment note writes before lock release', async () => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-dispose-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  tempDirs.push(home)
 
   const seed = {
     version: 1,
@@ -1019,10 +1026,10 @@ test('dispose during migrateSegmentNotes stops remaining segment note writes bef
   assert.equal(existsSync(seg2Path), false, 'seg-2 must not be written after dispose stopped migration')
 })
 
-test('ledger.mergeRecords prevents duplicate disk writes, duplicate delivered events on cold open, and book resurrection after drop', async (t) => {
+test('ledger.mergeRecords prevents duplicate disk writes, duplicate delivered events on cold open, and book resurrection after drop', async () => {
   const makeLedger = (label) => {
     const home = mkdtempSync(join(tmpdir(), `ds-bot-merge-race-${label}-`))
-    t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+    tempDirs.push(home)
     let readOnly
     const rt = { home, readOnly: () => readOnly, warn: () => {} }
     installLedger(rt)

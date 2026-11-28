@@ -1031,7 +1031,7 @@ test('plugin-runtime sanitizes ctx.theme and ctx.style offline via adoptedStyleS
   assert.equal(noSheetRuntime.getSnapshot().find(p => p.id === 'local:no-sheet')?.status, 'active')
 })
 
-test('ui-plugin-loader releases inFlight, drops stale concurrent syncs, isolates targeted retry, and validates combined url+theme modules', async () => {
+test('ui-plugin-loader releases inFlight, serializes concurrent syncs in FIFO order, isolates targeted retry, and validates combined url+theme modules', async () => {
   const { mod } = loadMod()
   mod.resetExternalUiPluginsForTest()
 
@@ -1101,13 +1101,20 @@ test('ui-plugin-loader releases inFlight, drops stale concurrent syncs, isolates
   assert.equal(fetchCount, 3, 'inFlight must be released after reloadExternalUiPlugins finishes')
   assert.deepEqual(healthyEvents, ['mount'], 'non-forced sync after targeted reload must not remount unchanged plugins')
 
-  // 4. Out-of-order concurrent syncExternalUiPlugins drops the stale earlier response.
+  // 4. Concurrent syncExternalUiPlugins calls run in FIFO order so an earlier slow sync never overwrites a newer one.
   let resolveSlow
+  let slowStartedResolve
+  const slowStarted = new Promise((r) => { slowStartedResolve = r })
   const slowPromise = new Promise((r) => { resolveSlow = r })
   const slowSync = mod.syncExternalUiPlugins(runtime, {
-    fetchImpl: () => slowPromise,
+    fetchImpl: () => {
+      slowStartedResolve()
+      return slowPromise
+    },
     importer: customImporter,
   })
+  await slowStarted
+
   const fastManifest = {
     uiPluginsDir: '/tmp/ui-plugins-v2',
     plugins: [
@@ -1140,16 +1147,23 @@ test('ui-plugin-loader releases inFlight, drops stale concurrent syncs, isolates
       },
     ],
   }
-  await mod.syncExternalUiPlugins(runtime, {
-    fetchImpl: async () => ({ ok: true, status: 200, json: async () => fastManifest }),
+  let fastFetchCalled = false
+  const fastSync = mod.syncExternalUiPlugins(runtime, {
+    fetchImpl: async () => {
+      fastFetchCalled = true
+      return { ok: true, status: 200, json: async () => fastManifest }
+    },
     importer: customImporter,
   })
-  // Now resolve the stale slow fetch with empty plugin list — must be ignored!
+  await Promise.resolve()
+  assert.equal(fastFetchCalled, false, 'later sync must wait in FIFO queue behind in-flight sync')
+
   resolveSlow({ ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/stale', plugins: [] }) })
-  await slowSync
+  await Promise.all([slowSync, fastSync])
   await new Promise(resolve => setTimeout(resolve, 15))
 
-  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-v2', 'stale slow response must not overwrite newer sync')
+  assert.equal(fastFetchCalled, true)
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-v2', 'later queued sync must apply after earlier sync settles')
   assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
   // Combined url+theme plugin without apply/default export fails cleanly; valid combo registers theme + apply.
   const badCombo = runtime.getSnapshot().find(p => p.id === 'local:bad-combo')
@@ -1158,6 +1172,256 @@ test('ui-plugin-loader releases inFlight, drops stale concurrent syncs, isolates
   assert.equal(mod.allThemes()['bad-combo-theme'], undefined)
   assert.equal(runtime.getSnapshot().find(p => p.id === 'local:good-combo')?.status, 'active')
   assert.equal(mod.allThemes()['good-combo-theme']?.label, 'Good Combo')
+
+  mod.resetExternalUiPluginsForTest()
+})
+
+test('ui-plugin-loader serializes targeted retry behind in-flight full refresh without dropping other plugins', async () => {
+  const { mod } = loadMod()
+  mod.resetExternalUiPluginsForTest()
+
+  const imported = []
+  const healthyEvents = []
+  const fetchOrder = []
+  let brokenShouldFail = true
+  const customImporter = async (spec) => {
+    imported.push(spec)
+    if (spec.includes('healthy.js')) {
+      return {
+        apply: () => {
+          healthyEvents.push('mount')
+          return () => healthyEvents.push('dispose')
+        },
+      }
+    }
+    if (spec.includes('broken.js')) {
+      if (brokenShouldFail) throw new Error('broken plugin load failed')
+      return { apply: () => {} }
+    }
+    if (spec.includes('other.js')) {
+      return { apply: () => {} }
+    }
+    throw new Error(`Unexpected module ${spec}`)
+  }
+
+  const runtime = mod.createPluginRuntime({
+    slots: mod.createSlotRegistry(),
+    importer: customImporter,
+  })
+
+  const initialManifest = {
+    uiPluginsDir: '/tmp/ui-plugins',
+    plugins: [
+      { id: 'local:healthy', name: 'Healthy', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Ahealthy/healthy.js' },
+      { id: 'local:broken', name: 'Broken', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Abroken/broken.js' },
+    ],
+  }
+  const refreshedManifest = {
+    uiPluginsDir: '/tmp/ui-plugins-refreshed',
+    plugins: [
+      ...initialManifest.plugins,
+      { id: 'local:other', name: 'Other', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Aother/other.js' },
+    ],
+  }
+
+  await mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => initialManifest }),
+    importer: customImporter,
+  })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'error')
+
+  // Suspend a full refresh mid-fetch, then trigger a targeted retry for local:broken.
+  let resolveFullFetch
+  let fullStartedResolve
+  const fullStarted = new Promise((r) => { fullStartedResolve = r })
+  const fullPromise = new Promise((r) => { resolveFullFetch = r })
+  const fullRefresh = mod.reloadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      fetchOrder.push('full')
+      fullStartedResolve()
+      return fullPromise
+    },
+    importer: customImporter,
+  })
+  await fullStarted
+
+  let resolveRetryFetch
+  let retryStartedResolve
+  let retryStartedFlag = false
+  const retryStarted = new Promise((r) => { retryStartedResolve = r })
+  const retryPromise = new Promise((r) => { resolveRetryFetch = r })
+  const retryTask = mod.reloadExternalUiPlugins(runtime, {
+    onlyId: 'local:broken',
+    fetchImpl: () => {
+      retryStartedFlag = true
+      fetchOrder.push('retry')
+      retryStartedResolve()
+      return retryPromise
+    },
+    importer: customImporter,
+  })
+  await Promise.resolve()
+  assert.equal(retryStartedFlag, false, 'targeted retry must queue behind in-flight full refresh')
+
+  // Resolve full refresh first while broken is still failing; full refresh must update other plugins.
+  resolveFullFetch({ ok: true, status: 200, json: async () => refreshedManifest })
+  await fullRefresh
+  await retryStarted
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:other')?.status, 'active', 'full refresh must NOT be dropped by queued targeted retry')
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-refreshed')
+  const healthyEventsAfterFull = [...healthyEvents]
+
+  // Now allow broken to succeed and resolve the queued targeted retry.
+  brokenShouldFail = false
+  resolveRetryFetch({ ok: true, status: 200, json: async () => refreshedManifest })
+  await retryTask
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.deepEqual(fetchOrder, ['full', 'retry'])
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:other')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
+  assert.deepEqual(healthyEvents, healthyEventsAfterFull, 'targeted retry must not remount healthy plugins refreshed in the preceding full sync')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'active')
+  assert.ok(imported.some(u => u.includes('broken.js?v=2')), 'targeted retry cache-busts after full refresh')
+
+  mod.resetExternalUiPluginsForTest()
+})
+
+test('ui-plugin-loader serializes full refresh behind in-flight targeted retry and isolates test resets', async () => {
+  const { mod } = loadMod()
+  mod.resetExternalUiPluginsForTest()
+
+  const fetchOrder = []
+  let brokenShouldFail = true
+  const customImporter = async (spec) => {
+    if (spec.includes('healthy.js') || spec.includes('fresh.js')) {
+      return { apply: () => {} }
+    }
+    if (spec.includes('broken.js')) {
+      if (brokenShouldFail) throw new Error('broken plugin load failed')
+      return { apply: () => {} }
+    }
+    throw new Error(`Unexpected module ${spec}`)
+  }
+
+  const runtime = mod.createPluginRuntime({
+    slots: mod.createSlotRegistry(),
+    importer: customImporter,
+  })
+
+  const initialManifest = {
+    uiPluginsDir: '/tmp/ui-plugins',
+    plugins: [
+      { id: 'local:healthy', name: 'Healthy', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Ahealthy/healthy.js' },
+      { id: 'local:broken', name: 'Broken', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Abroken/broken.js' },
+    ],
+  }
+  const freshManifest = {
+    uiPluginsDir: '/tmp/ui-plugins-fresh',
+    plugins: [
+      ...initialManifest.plugins,
+      { id: 'local:fresh', name: 'Fresh', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Afresh/fresh.js' },
+    ],
+  }
+
+  // Coalescing check: two concurrent non-forced loads share one fetch.
+  let initFetches = 0
+  let resolveInit
+  const initPromise = new Promise((r) => { resolveInit = r })
+  const loadA = mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      initFetches += 1
+      return initPromise
+    },
+    importer: customImporter,
+  })
+  const loadB = mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      initFetches += 1
+      return initPromise
+    },
+    importer: customImporter,
+  })
+  assert.equal(loadA, loadB, 'concurrent non-forced loadExternalUiPlugins calls must coalesce')
+  resolveInit({ ok: true, status: 200, json: async () => initialManifest })
+  await Promise.all([loadA, loadB])
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(initFetches, 1)
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'error')
+
+  // Suspend a targeted retry mid-fetch, then trigger a full refresh.
+  brokenShouldFail = false
+  let resolveRetryFetch
+  let retryStartedResolve
+  const retryStarted = new Promise((r) => { retryStartedResolve = r })
+  const retryPromise = new Promise((r) => { resolveRetryFetch = r })
+  const retryTask = mod.reloadExternalUiPlugins(runtime, {
+    onlyId: 'local:broken',
+    fetchImpl: () => {
+      fetchOrder.push('retry')
+      retryStartedResolve()
+      return retryPromise
+    },
+    importer: customImporter,
+  })
+  await retryStarted
+
+  let resolveFullFetch
+  let fullStartedFlag = false
+  let fullStartedResolve
+  const fullStarted = new Promise((r) => { fullStartedResolve = r })
+  const fullPromise = new Promise((r) => { resolveFullFetch = r })
+  const fullRefresh = mod.reloadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      fullStartedFlag = true
+      fetchOrder.push('full')
+      fullStartedResolve()
+      return fullPromise
+    },
+    importer: customImporter,
+  })
+  await Promise.resolve()
+  assert.equal(fullStartedFlag, false, 'full refresh must wait behind in-flight targeted retry')
+
+  resolveRetryFetch({ ok: true, status: 200, json: async () => initialManifest })
+  await retryTask
+  await fullStarted
+  resolveFullFetch({ ok: true, status: 200, json: async () => freshManifest })
+  await fullRefresh
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.deepEqual(fetchOrder, ['retry', 'full'])
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:fresh')?.status, 'active')
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-fresh')
+
+  // Reset isolation: an in-flight sync from before resetExternalUiPluginsForTest() must not block or pollute after reset.
+  let resolveDangling
+  let danglingStartedResolve
+  const danglingStarted = new Promise((r) => { danglingStartedResolve = r })
+  const danglingPromise = new Promise((r) => { resolveDangling = r })
+  const danglingSync = mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      danglingStartedResolve()
+      return danglingPromise
+    },
+    importer: customImporter,
+  })
+  await danglingStarted
+  mod.resetExternalUiPluginsForTest()
+
+  await mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/post-reset', plugins: [] }) }),
+    importer: customImporter,
+  })
+  resolveDangling({ ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/leaked-from-prior-test', plugins: initialManifest.plugins }) })
+  await danglingSync
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/post-reset', 'in-flight sync from before reset must be ignored')
+  assert.equal(runtime.getSnapshot().length, 0)
 
   mod.resetExternalUiPluginsForTest()
 })
