@@ -758,8 +758,8 @@ test('Gmail Add distinguishes reachability from authentication without exporting
     if (entry.path === '/api/bot') route = entry
     return register(entry)
   }
-  const address = 'private-user@gmail.com'
-  const password = 'private-app-password'
+  const address = addressAt('gmail.com')
+  const password = 'private-pass'
   const raw = `${address} ${password} cookie=private-cookie token=private-token`
   let failure
   const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => { throw failure } } })
@@ -787,10 +787,12 @@ test('Gmail Add distinguishes reachability from authentication without exporting
     assert.equal(result.error.code, `bot/mail-gmail-${category}`)
     assert.match(result.error.message, hint)
     assert.doesNotMatch(JSON.stringify(result), /private-/)
+    assert.ok(!JSON.stringify(result).includes(address))
   }
   const entries = (await rt.diagnostics.entries()).filter(row => row.text.includes('Gmail Add verification failed'))
   assert.equal(entries.length, 10)
   assert.doesNotMatch(JSON.stringify(entries), /private-/)
+  assert.ok(!JSON.stringify(entries).includes(address))
   assert.deepEqual(rt.mailView().accounts, [])
   assert.equal(rt.secretValue(mailSecretName(address, 'PASSWORD')), undefined)
 })
