@@ -1,6 +1,6 @@
-// Windows and a Linux AppImage download and install updates; macOS and a Linux deb ask before
-// opening the release page. main.mjs asks the questions, in the dialog.update.* copy of
-// start/text.mjs.
+// Windows, macOS (in a writable .app bundle) and a Linux AppImage download and install updates;
+// read-only/translocated macOS installs and Linux debs ask before opening the release page.
+// main.mjs asks the questions, in the dialog.update.* copy of start/text.mjs.
 
 const CHECK_EVERY_MS = 4 * 60 * 60_000
 export const RELEASES_URL = 'https://api.github.com/repos/Fei-Craft/DS-Bot/releases?per_page=20'
@@ -121,14 +121,14 @@ export function summarizeReleaseNotes(raw, { maxItems = 4, maxChars = 280 } = {}
   return out.join('\n')
 }
 
-function parseVersion(version) {
+export function parseVersion(version) {
   if (typeof version !== 'string') return null
   const value = version.replace(/^v/u, '')
   const separator = value.indexOf('-')
   const core = separator < 0 ? value : value.slice(0, separator)
   const pre = separator < 0 ? null : value.slice(separator + 1).split('.')
   const parts = core.split('.')
-  if (parts.length > 3 || parts.some(part => !/^\d+$/u.test(part)) || pre?.some(part => part === '')) return null
+  if (parts.length > 3 || parts.some(part => !/^\d+$/u.test(part)) || pre?.some(part => !/^[0-9A-Za-z-]+$/u.test(part))) return null
   return {
     core: [0, 1, 2].map(index => (index < parts.length ? BigInt(parts[index]) : 0n)),
     pre,

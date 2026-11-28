@@ -156,7 +156,7 @@ function baseLog() {
 const actions = {}
 const bot = roster.byId[sessionId]
 
-function mount() {
+function mount({ classic = false } = {}) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -164,8 +164,8 @@ function mount() {
     container,
     render(log) {
       act(() => root.render(h(SessionTranscript, {
-        log, sessionId, roster, actions, classic: false,
-        bot,
+        log, sessionId, roster, actions, classic,
+        bot: classic ? undefined : bot,
       })))
     },
     text: () => container.textContent,
@@ -182,7 +182,7 @@ const keysFor = (rowKey) => [...renderCounts.keys()].filter(key => key.endsWith(
 
 test('stream chunks re-render only the live row; committed memoized rows render zero extra times', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount({ classic: true })
   let log = baseLog()
   view.render(log)
   // The tree rendered: one of each memoized row.
@@ -223,7 +223,7 @@ test('stream chunks re-render only the live row; committed memoized rows render 
 
 test('a language switch re-renders the memoized rows in the new language, mid-stream or not', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount({ classic: true })
   const log = baseLog()
   view.render(log)
 
@@ -262,7 +262,7 @@ test('a language switch re-renders the memoized rows in the new language, mid-st
 
 test('a language switch during streaming re-renders history once and streaming keeps the memo afterwards', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount({ classic: true })
   let log = baseLog()
   view.render(log)
 
@@ -295,11 +295,12 @@ test('a language switch during streaming re-renders history once and streaming k
     assert.equal(n, afterSwitch.get(key) ?? 0, `${key} stays memoized while streaming in the new language`)
   }
   assert.match(view.text(), /text here/, 'the tail of the reply arrived')
+  act(() => { void locale.setLocale('en') })
   view.unmount()
 })
 
 
-test('a live expanded focused tool card keeps its DOM node and disclosure when its row commits', () => {
+test('a live expanded focused tool card in classic mode keeps its DOM node and disclosure when its row commits', () => {
   resetRenderCounts()
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -324,7 +325,7 @@ test('a live expanded focused tool card keeps its DOM node and disclosure when i
   stream({ type: 'chunk', attemptId: 'tool-live', revision: 2, index: 0, time: T0 + 10, chunk: { type: 'block-start', index: 0, blockType: 'tool-call' } })
   stream({ type: 'chunk', attemptId: 'tool-live', revision: 3, index: 1, time: T0 + 11, chunk: { type: 'tool-call-delta', index: 0, id: 'call-live', name: 'bash', argumentsDelta: '{"command":"ls -la"' } })
   const render = () => act(() => root.render(h(SessionTranscript, {
-    log, sessionId, roster, actions, classic: false, bot,
+    log, sessionId, roster, actions, classic: true,
   })))
   render()
   const head = container.querySelector('.dsb-tool-head')
@@ -347,6 +348,83 @@ test('a live expanded focused tool card keeps its DOM node and disclosure when i
   assert.equal(document.activeElement, head, 'focus survives the commit')
   act(() => root.unmount())
   container.remove()
+})
+
+test('Bot DM mode hides compaction checkpoints and non-Bot/MCP tool cards while still reporting live notes, rendering PTC Bot tools, and loading persisted cua screenshots via real ToolCell', async () => {
+  resetRenderCounts()
+  const liveNotes = []
+  const imageRequests = []
+  const prevFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const parsed = JSON.parse(String(init?.body ?? '{}'))
+    if (url === 'api/bot' && parsed.endpoint === 'image') {
+      imageRequests.push(parsed.payload)
+      if (parsed.payload?.attachmentId === 'shot-persisted-1') {
+        return { ok: true, json: async () => ({ ok: true, value: { mime: 'image/png', data: 'iVBORw0KGgo=' } }) }
+      }
+      return { ok: true, json: async () => ({ ok: true, value: null }) }
+    }
+    return { ok: false, status: 404, json: async () => ({ ok: false }) }
+  }
+  const botActions = {
+    noteLive: (sid, id, entry) => liveNotes.push([sid, id, entry]),
+    computerShot: async (id) => (id === 'shot-live-2' ? { dataUrl: 'data:image/png;base64,LIVE' } : null),
+  }
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    let log = baseLog()
+    // Add settled MCP tool, PTC run_code with bot_remember + MCP sibling, persisted + live cua screenshots, and a running bash call.
+    log = applyFrame(log, ev(10, T0 + 10, 'turn/start', { turn: 4 })).log
+    log = applyFrame(log, ev(11, T0 + 11, 'tool/call', { turn: 4, step: 1, callId: 'mcp-done', name: 'mcp__github__search_issues', arguments: '{"query":"memory scope"}' })).log
+    log = applyFrame(log, ev(12, T0 + 12, 'tool/result', { turn: 4, step: 1, message: { toolCallId: 'mcp-done', isError: true, content: [{ type: 'text', text: 'rate limit' }] } })).log
+    log = applyFrame(log, ev(13, T0 + 13, 'tool/call', { turn: 4, step: 2, callId: 'ptc-mem', name: 'run_code', arguments: '{"code":"..."}' })).log
+    log = applyFrame(log, ev(14, T0 + 14, 'tool/ptc-dispatch-start', { turn: 4, parentCallId: 'ptc-mem', rootCallId: 'ptc-mem', subCallId: 'sub-mcp-1', name: 'mcp__github__get_me', arguments: '{}' })).log
+    log = applyFrame(log, ev(15, T0 + 15, 'tool/ptc-dispatch', { turn: 4, parentCallId: 'ptc-mem', rootCallId: 'ptc-mem', subCallId: 'sub-mcp-1', name: 'mcp__github__get_me', isError: false, content: [] })).log
+    log = applyFrame(log, ev(16, T0 + 16, 'tool/ptc-dispatch-start', { turn: 4, parentCallId: 'ptc-mem', rootCallId: 'ptc-mem', subCallId: 'sub-mem-1', name: 'bot_remember', arguments: '{"scope":"self","text":"prefers concise replies"}' })).log
+    log = applyFrame(log, ev(17, T0 + 17, 'tool/ptc-dispatch', { turn: 4, parentCallId: 'ptc-mem', rootCallId: 'ptc-mem', subCallId: 'sub-mem-1', name: 'bot_remember', isError: false, content: [{ type: 'text', text: 'Saved to memory.' }] })).log
+    log = applyFrame(log, ev(18, T0 + 18, 'tool/result', { turn: 4, step: 2, message: { toolCallId: 'ptc-mem', isError: false, content: [{ type: 'text', text: 'done' }] } })).log
+    log = applyFrame(log, ev(19, T0 + 19, 'tool/call', { turn: 4, step: 3, callId: 'cua-persisted', name: 'cua', arguments: '{"method":"screenshot"}' })).log
+    log = applyFrame(log, ev(20, T0 + 20, 'tool/result', { turn: 4, step: 3, message: { toolCallId: 'cua-persisted', isError: false, content: [{ type: 'image', attachment: { attachmentId: 'shot-persisted-1', name: 'screen.png' } }] } })).log
+    log = applyFrame(log, ev(21, T0 + 21, 'tool/call', { turn: 4, step: 4, callId: 'cua-live', name: 'cua', arguments: '{"method":"screenshot"}' })).log
+    log = applyFrame(log, ev(22, T0 + 22, 'tool/result', { turn: 4, step: 4, message: { toolCallId: 'cua-live', isError: false, content: [{ type: 'image', attachment: { attachmentId: 'shot-live-2', name: 'live.png' } }] } })).log
+    log = applyFrame(log, ev(23, T0 + 23, 'tool/call', { turn: 4, step: 5, callId: 'bash-live', name: 'bash', arguments: '{"command":"ls -la"}' })).log
+    const render = (next) => act(() => root.render(h(SessionTranscript, {
+      log: next, sessionId, roster, actions: botActions, classic: false, bot,
+    })))
+    render(log)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+
+    // Compaction pill and all non-Bot/MCP tool cards stay out of Bot DM DOM.
+    assert.equal(container.querySelector('.dsb-compaction'), null, 'Bot DM hides compaction bar')
+    assert.equal(container.querySelector('.dsb-tool'), null, 'Bot DM hides raw tool cards')
+    assert.doesNotMatch(container.textContent, /mcp__github__search_issues|mcp__github__get_me|run_code|compacted/)
+    // Visible Bot tool nested inside PTC run_code renders its real MemoryEvent cleanly.
+    assert.match(container.textContent, /Memory updated/, 'PTC nested bot_remember renders via real ToolCell')
+    // Both persisted (session `image` endpoint) and live (`actions.computerShot` fallback) cua screenshots render.
+    const shotImgs = [...container.querySelectorAll('.bt-cstep-shot')].map(btn => btn.querySelector('img')).filter(Boolean)
+    assert.equal(shotImgs.length, 2, 'both persisted and live cua screenshots rendered in ComputerCallRow')
+    assert.ok(shotImgs.some(img => img.getAttribute('src') === 'data:image/png;base64,iVBORw0KGgo='), 'persisted cua screenshot loaded via session image endpoint after restart')
+    assert.ok(shotImgs.some(img => img.getAttribute('src') === 'data:image/png;base64,LIVE'), 'live cua screenshot fell back to actions.computerShot')
+    assert.ok(imageRequests.some(req => req.attachmentId === 'shot-persisted-1'), 'session image endpoint called for persisted cua screenshot')
+
+    // Real ToolCell still emitted a live activity note for the running bash call and renders only hidden CellEmpty.
+    assert.ok(liveNotes.some(([sid, id, entry]) => sid === sessionId && id === 'tool:bash-live' && entry !== null), 'running non-Bot tool reports live activity note')
+    const bashWrap = [...container.querySelectorAll('.dsb-tool-wrap')].find(el => el.getAttribute('data-chat-call-id') === 'bash-live')
+    assert.ok(bashWrap && bashWrap.children.length === 1 && bashWrap.children[0].getAttribute('data-bt-empty') !== null, 'running non-Bot tool renders only hidden CellEmpty inside .dsb-tool-wrap')
+
+    // Once the running bash call settles, it unmounts and cleans up its live note.
+    log = applyFrame(log, ev(24, T0 + 24, 'tool/result', { turn: 4, step: 5, message: { toolCallId: 'bash-live', isError: false, content: [{ type: 'text', text: 'ok' }] } })).log
+    render(log)
+    const afterBashWrap = [...container.querySelectorAll('.dsb-tool-wrap')].find(el => el.getAttribute('data-chat-call-id') === 'bash-live')
+    assert.equal(afterBashWrap, undefined, 'settled non-Bot tool leaves zero wrapper nodes in Bot DM')
+    assert.deepEqual(liveNotes.at(-1), [sessionId, 'tool:bash-live', null], 'unmounting settled non-Bot tool clears live note')
+  } finally {
+    globalThis.fetch = prevFetch
+    act(() => root.unmount())
+    container.remove()
+  }
 })
 
 test('a stream chunk never rewrites the turn clock: the noting effect skips when events are unchanged', () => {

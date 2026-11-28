@@ -5,6 +5,7 @@ import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './ico
 import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, useBotApprovals, useBotHandoff, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { LAYOUT_ICONS, layoutMenuItems, layoutOf } from './side-layout-ui.js'
+import { browserPaneMode } from './browser-plugin-mode.js'
 import { drawerMenuKeys } from './side-model.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
 import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
@@ -83,11 +84,18 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     return h('div', { className: 'bt-muted' }, t('The browser is in DSH Desktop and the DS Bot app.'))
   }
   if (state.ids.length === 0) {
+    const paneMode = browserPaneMode(roster.plugins?.slots?.browser)
     return h('div', { className: 'bt-browser-empty-mark' },
       h(BotMark, { bot, size: 40, state: 'idle', live: true }),
       h('div', { className: 'bt-browser-empty-title' }, t("{name}'s browser", { name: bot.name })),
-      h('div', { className: 'bt-muted' }, t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name })),
-      h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => actions.openBrowser(sessionId) }, t('Open browser')))
+      h('div', { className: 'bt-muted' }, paneMode.isExternal
+        ? t('{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.', { plugin: paneMode.activeLabel, name: bot.name })
+        : t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name })),
+      paneMode.isExternal
+        ? (actions.openSettings
+            ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => actions.openSettings('plugins', 'browser') }, t('Switch browser plugin'))
+            : null)
+        : h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => actions.openBrowser(sessionId) }, t('Open browser')))
   }
   return h('div', { className: 'bt-bcards' },
     state.ids.map((tabId, index) => {

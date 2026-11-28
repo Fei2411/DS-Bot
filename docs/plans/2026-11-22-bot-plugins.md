@@ -42,7 +42,6 @@ DS Bot 插件运行时（`ds-bot/src/host/plugins/`）统一纳管三类插件�
   - `builtin:script`：Playwright 单步 JS 脚本执行，复用同等隔离与安全能力。
   - `builtin:task`：Playwright 子任务委派，使用当前 Bot 的模型完成多步任务。
 - 首批目录收录外部可替换插件：
-  - `dsh:dsh-ego-browser`（兼容 `@dshworks/dsh-ego-browser`）：Ego Lite DSH 浏览器插件。
   - `mcp:playwright-mcp`：`@playwright/mcp`（Playwright MCP 服务）。
   - `mcp:chrome-devtools-mcp`：`chrome-devtools-mcp`（Chrome DevTools MCP 服务）。
 - 激活任意非 `readonly` 外部浏览器插件时，自动在 Bot 会话中隐藏 `read_browser` 并注入 `bot-browser` 系统提示词段落，要求将网页内容视为不可信数据。

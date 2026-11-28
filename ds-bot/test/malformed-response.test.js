@@ -212,12 +212,21 @@ test('only Gemini malformed stops among PI_AI_ERROR failures consume malformed r
   assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
 })
 
-test('Gemini malformed stops leave the retry to a policy that already retries PI_AI_ERROR', async () => {
+test('Gemini malformed stops leave the retry to a normal policy that already retries PI_AI_ERROR, and use the 2-retry malformed cap under mode=always', async () => {
   const failure = { code: 'PI_AI_ERROR', message: 'Provider stopped with: UNEXPECTED_TOOL_CALL' }
-  for (const retryPolicy of [{ mode: 'normal', maxRetries: 1, retryableCodes: ['PI_AI_ERROR'] }, { mode: 'always' }]) {
+  const normalPolicy = { mode: 'normal', maxRetries: 1, retryableCodes: ['PI_AI_ERROR'] }
+  {
     const { run, warnings } = handler()
-    assert.equal(await run({ ...payload(), failure, retryPolicy }, next), undefined)
+    assert.equal(await run({ ...payload(), failure, retryPolicy: normalPolicy }, next), undefined)
     assert.equal(warnings.length, 0)
+  }
+  {
+    const { run, warnings } = handler()
+    const p = { ...payload(), failure, retryPolicy: { mode: 'always' } }
+    assert.deepEqual(await run(p, next), { kind: 'retry' })
+    assert.deepEqual(await run(p, next), { kind: 'retry' })
+    assert.equal(await run(p, next), undefined)
+    assert.equal(warnings.length, 2)
   }
   const { run } = handler()
   assert.deepEqual(await run({ ...payload(), failure, retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TIMEOUT'] } }, next), { kind: 'retry' })

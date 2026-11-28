@@ -2,13 +2,20 @@ name: Package & Native
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
   schedule:
     # Daily full cross-platform packaging and mobile native build verification at 19:00 UTC
-    # (03:00 +08:00) so installers, iOS/Android native builds and caches stay verified and warm.
+    # (03:00 +08:00) targeting dev. Caches remain read-only on schedule so dev code never
+    # writes into main's release cache scope.
     - cron: '0 19 * * *'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or ref to package (defaults to workflow branch)'
+        required: false
+        default: ''
+        type: string
   workflow_call:
     inputs:
       force_full:
@@ -18,13 +25,18 @@ on:
 permissions:
   contents: read
 
-# Heavy packaging and native mobile builds run in their own workflow so unit-test retries in
-# test.yml never have to wait for 30-40 minute desktop/iOS builds to finish first.
+# Heavy packaging and native mobile builds run in their own workflow on the daily dev Nightly,
+# release/hotfix PRs to main, packaging workflow edits, and opt-in `ci/full-package` PRs so
+# everyday PRs to dev stay fast and never saturate macOS/Windows runner queues.
 concurrency:
   group: >-
     ${{ inputs.force_full
         && format('full-package-run-{0}', github.ref)
-        || format('package-{0}', github.ref) }}
+        || (github.event_name == 'schedule'
+            && 'package-nightly-dev'
+            || (github.event_name == 'workflow_dispatch'
+                && format('package-dispatch-{0}', github.event.inputs.ref || github.ref)
+                || format('package-{0}', github.ref))) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -32,8 +44,11 @@ jobs:
     name: Detect packaging scope
     runs-on: ubuntu-latest
     outputs:
+      checkout_ref: ${{ steps.filter.outputs.checkout_ref }}
       full: ${{ steps.filter.outputs.full }}
+      hotfix: ${{ steps.filter.outputs.hotfix }}
       app_package_full: ${{ steps.filter.outputs.app_package_full }}
+      app_package_macos_x64: ${{ steps.filter.outputs.app_package_macos_x64 }}
       app_package_linux: ${{ steps.filter.outputs.app_package_linux }}
       app_update: ${{ steps.filter.outputs.app_update }}
       mobile_ios: ${{ steps.filter.outputs.mobile_ios }}
@@ -41,6 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
           fetch-depth: 0
       - name: Classify changed paths
         id: filter
@@ -48,26 +64,48 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_SAME_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
           PR_FULL_PACKAGE: ${{ inputs.force_full || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full-package')) }}
+          PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           full=false
+          explicit_full=false
+          hotfix=false
           main_push=false
-          if [ "$EVENT" = "pull_request" ] && [ "$PR_FULL_PACKAGE" != "true" ] && [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
-            if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'ci/full-package'; then
+
+          if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+            live_labels="$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null || true)"
+            if [ "$PR_FULL_PACKAGE" != "true" ] && grep -qx 'ci/full-package' <<< "$live_labels"; then
               PR_FULL_PACKAGE=true
             fi
+            if [ "$PR_HOTFIX" != "true" ] && grep -qx 'release/hotfix' <<< "$live_labels"; then
+              PR_HOTFIX=true
+            fi
           fi
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ] || [ "$PR_FULL_PACKAGE" = "true" ]; then
+
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            if [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ "$IS_SAME_REPO" = "true" ] && [[ "$HEAD_REF" == hotfix/* || "$HEAD_REF" == fix/hot-* ]]; then
+              hotfix=true
+            fi
+          fi
+
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$PR_FULL_PACKAGE" = "true" ]; then
+            explicit_full=true
+            full=true
+          elif [ "$BASE_REF" = "main" ] && [ "$hotfix" = "false" ]; then
             full=true
           elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
             # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
-            # schedule keeps main caches warm. Running only Linux packaging here prevents
+            # dev Nightly keeps caches warm. Running only Linux packaging here prevents
             # push:main from competing for macOS runners with the Release workflow.
             main_push=true
           fi
@@ -89,8 +127,51 @@ jobs:
             fi
           fi
 
+          # In hotfix fast-lane mode on BASE_REF=main, a pure version bump inside package.json or
+          # package-lock.json must not force 24m iOS, 14m Android, or 4-OS Electron packaging.
+          effective_changed="$changed"
+          if [ "$hotfix" = "true" ] && [ "$full" = "false" ] && [ -n "$changed" ]; then
+            effective_changed="$(BASE_REF="$BASE_REF" CHANGED_FILES="$changed" node -e '
+              const { execFileSync } = require("node:child_process");
+              const fs = require("node:fs");
+              const baseRef = process.env.BASE_REF;
+              const files = process.env.CHANGED_FILES.split(/\r?\n/).filter(Boolean);
+              const VERSION_BUMP_FILES = new Set([
+                "ds-bot/package.json",
+                "ds-bot/package-lock.json",
+                "app/package.json",
+                "app/package-lock.json",
+              ]);
+              function stripVersion(file, obj) {
+                if (!obj || typeof obj !== "object") return obj;
+                const copy = JSON.parse(JSON.stringify(obj));
+                delete copy.version;
+                if (file.endsWith("package-lock.json") && copy.packages && typeof copy.packages === "object") {
+                  if (copy.packages[""]) delete copy.packages[""].version;
+                  if (copy.packages["node_modules/ds-bot"]) delete copy.packages["node_modules/ds-bot"].version;
+                  if (copy.packages["../ds-bot"]) delete copy.packages["../ds-bot"].version;
+                }
+                return copy;
+              }
+              function isVersionOnlyChange(file) {
+                try {
+                  const baseRaw = execFileSync("git", ["show", `origin/${baseRef}:${file}`], {
+                    encoding: "utf8",
+                    maxBuffer: 16 * 1024 * 1024,
+                  });
+                  const headRaw = fs.readFileSync(file, "utf8");
+                  return JSON.stringify(stripVersion(file, JSON.parse(baseRaw))) === JSON.stringify(stripVersion(file, JSON.parse(headRaw)));
+                } catch {
+                  return false;
+                }
+              }
+              const kept = files.filter((file) => !(VERSION_BUMP_FILES.has(file) && isVersionOnlyChange(file)));
+              process.stdout.write(kept.join("\n"));
+            ' 2>/dev/null || printf '%s' "$changed")"
+          fi
+
           has() {
-            grep -qE "$1" <<< "$changed"
+            grep -qE "$1" <<< "$effective_changed"
           }
 
           if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/(package|full-package|release)\.yml$'; then
@@ -109,42 +190,56 @@ jobs:
             app_update=false
             mobile_ios=false
             mobile_android=false
-          else
+          elif [ "$hotfix" = "true" ]; then
+            # Hotfix fast-lane on BASE_REF=main: run Linux packaged smoke by default and trigger
+            # native/4-OS packaging only for genuinely affected paths in origin/main...HEAD.
             app_package_full=false
-            app_package_linux=false
+            app_package_linux=true
             app_update=false
             mobile_ios=false
             mobile_android=false
-            # Full cross-OS packaging runs on packaging/installer/runtime/updater/native changes.
-            # Pure app/ui/ and app/test/ edits are verified by test.yml (vite build + Ubuntu/Windows unit tests).
-            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/update)|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
+            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/(update|mac-updater\.mjs))|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
               app_package_full=true
             fi
-            # Main-process app/src/ and desktop UI bundle config edits get a fast Linux packaged smoke
-            # without blocking on 40m macOS/Windows queues.
-            if [ "$app_package_full" = "true" ] || has '^(app/src/|app/vite\.config\.js$|app/ui/index\.html$)'; then
-              app_package_linux=true
-            fi
-            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/update)'; then
+            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/(update|mac-updater\.mjs))'; then
               app_update=true
             fi
-            # Native iOS / Android builds run on native config, icon assets, or version/dependency changes
-            # (not pure JS/TS edits in mobile/src/).
             if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|ios/|assets/|eas\.json)|ds-bot/package\.json$)'; then
               mobile_ios=true
             fi
             if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|android/|assets/|eas\.json)|ds-bot/package\.json$|\.github/gradle/)'; then
               mobile_android=true
             fi
-            # Always keep Linux packaging smoke & caches warm on push to dev without using macOS runners.
-            if [ "$EVENT" = "push" ]; then
-              app_package_linux=true
-            fi
+          else
+            # Everyday PRs to dev defer heavy installers and native mobile builds to the daily
+            # dev Nightly, release/hotfix PRs to main, or an explicit `ci/full-package` label.
+            app_package_full=false
+            app_package_linux=false
+            app_update=false
+            mobile_ios=false
+            mobile_android=false
+          fi
+
+          # macos-26-intel routinely queues for an hour; skip it on pull_request events unless
+          # explicitly requested via ci/full-package, workflow_dispatch, or daily schedule.
+          app_package_macos_x64=false
+          if [ "$app_package_full" = "true" ] && [ "$explicit_full" = "true" ]; then
+            app_package_macos_x64=true
+          fi
+
+          checkout_ref=""
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+            # Pin every downstream packaging job to one immutable SHA so macOS/Windows queues
+            # cannot build a different commit than Linux within the same Nightly run.
+            checkout_ref="$(git rev-parse HEAD)"
           fi
 
           {
+            echo "checkout_ref=$checkout_ref"
             echo "full=$full"
+            echo "hotfix=$hotfix"
             echo "app_package_full=$app_package_full"
+            echo "app_package_macos_x64=$app_package_macos_x64"
             echo "app_package_linux=$app_package_linux"
             echo "app_update=$app_update"
             echo "mobile_ios=$mobile_ios"
@@ -166,10 +261,12 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: |
             mobile/package-lock.json
             link/package-lock.json
@@ -192,7 +289,7 @@ jobs:
         working-directory: mobile/ios
         run: pod install
       - name: Save CocoaPods
-        if: github.event_name != 'pull_request' && steps.cocoapods-cache.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.cocoapods-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/Library/Caches/CocoaPods
@@ -209,8 +306,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-  # Verifies the Android release APK build on native/release PRs and warms main's Gradle + ccache
-  # caches on the daily schedule so release tag builds do not cold-compile from scratch.
+  # Verifies the Android release APK build on release/opt-in PRs and the daily dev Nightly.
+  # Release-scope Gradle/ccache saves stay restricted to main pushes / default-ref dispatches.
   mobile-android:
     name: Mobile app Android build (APK)
     needs: changes
@@ -223,10 +320,12 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: |
             mobile/package-lock.json
             link/package-lock.json
@@ -253,7 +352,7 @@ jobs:
           restore-keys: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          cache-read-only: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '') }}
       - name: Build release APK (debug-signed)
         env:
           CCACHE_BASEDIR: ${{ github.workspace }}
@@ -268,7 +367,7 @@ jobs:
           (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --init-script "$GITHUB_WORKSPACE/.github/gradle/ccache.init.gradle")
           ccache -s || true
       - name: Save Android C++ ccache
-        if: github.event_name != 'pull_request' && steps.ccache.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.ccache
@@ -315,10 +414,12 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: app/package-lock.json
       # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
       # 504. The key holds the Electron and electron-builder versions and the builder config, which
@@ -360,13 +461,13 @@ jobs:
           ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
       # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
       - name: Save the locked runtime archives
-        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.runtime-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: app/build/runtime-cache
           key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -463,19 +564,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: arm64, runner: macos-latest }
-          - { arch: x64, runner: macos-26-intel }
+        include: ${{ fromJson(needs.changes.outputs.app_package_macos_x64 == 'true' && '[{"arch":"arm64","runner":"macos-latest"},{"arch":"x64","runner":"macos-26-intel"}]' || '[{"arch":"arm64","runner":"macos-latest"}]') }}
     defaults:
       run:
         shell: bash
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: app/package-lock.json
       # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
       # 504. The key holds the Electron and electron-builder versions and the builder config, which
@@ -519,13 +620,13 @@ jobs:
           ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
       # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
       - name: Save the locked runtime archives
-        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.runtime-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: app/build/runtime-cache
           key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -545,7 +646,28 @@ jobs:
           if [ "$expected" = x64 ]; then expected=x86_64; fi
           file -b "$exe" | grep -F "$expected"
           node scripts/check-packed.mjs "$exe"
-          node scripts/check-update.mjs "$exe" 99.0.0
+      # The update builds the app a second time, so it runs only for updater/installer changes
+      # (and full runs). The installed app downloads the new zip, verifies SHA-256 + codesign,
+      # and replaces /Applications/DS Bot.app atomically as it quits.
+      - name: Build the next version
+        if: needs.changes.outputs.app_update == 'true'
+        run: |
+          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
+          echo "NEXT_VERSION=$next" >> "$GITHUB_ENV"
+          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
+      - name: The installed app takes the update
+        if: needs.changes.outputs.app_update == 'true'
+        run: |
+          app="/Applications/DS Bot.app"
+          exe="$app/Contents/MacOS/DS Bot"
+          node scripts/check-update.mjs "$exe" dist-next
+          actual="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+          test "$actual" = "$NEXT_VERSION"
+          codesign --verify --deep --strict "$app"
+          node scripts/check-packed.mjs "$exe"
 
   app-package-linux:
     name: Desktop app package (Linux x64)
@@ -559,10 +681,12 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: ${{ (github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '')) && 'npm' || '' }}
           cache-dependency-path: app/package-lock.json
       # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
       # 504. The key holds the Electron and electron-builder versions and the builder config, which
@@ -599,13 +723,13 @@ jobs:
       - run: npm run dist
       # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
       - name: Save the locked runtime archives
-        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.runtime-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: app/build/runtime-cache
           key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |

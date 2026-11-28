@@ -348,7 +348,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
 
 export const COMPUTER_CSS = `
 .bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-level-pick{max-width:200px}
+.bt-sel.bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}
 .bt-cview{display:flex;flex-direction:column;gap:12px}
@@ -383,4 +383,6 @@ export const COMPUTER_CSS = `
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
+@container (max-width:440px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
+@media (max-width:768px){.bt-sel.bt-level-pick{width:100%;min-width:0;max-width:100%}}
 `

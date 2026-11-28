@@ -1139,3 +1139,192 @@ test('real DSH ReactLoopAgent: background tasks prune task-blocked tools (team +
   assert.equal(chiefSteps[0].includes('post_to_group'), false, 'Step 1 has 0 groups so post_to_group is pruned')
   assert.equal(chiefSteps[1].includes('post_to_group'), true, 'Step 2 immediately unlocks post_to_group after create_group succeeds')
 })
+
+test('connector offFor unmounts and restores Agent-scoped team tools (mail_*) across live toggle, assemble, creation, addTeamTool, and removeTeamTool', async (t) => {
+  const host = start()
+  t.after(() => {
+    for (const name of ['mail_search', 'mail_send', 'mail_read']) rt.removeTeamTool(name)
+    host.stop()
+  })
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+
+  const makeTool = (name) => ({
+    name,
+    description: `${name} test tool`,
+    parameters: { type: 'object', properties: {} },
+    output: { schema: { type: 'string' }, render: () => [] },
+    async execute() { return 'ok' },
+  })
+  rt.addTeamTool(makeTool('mail_search'))
+  rt.addTeamTool(makeTool('mail_send'))
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), true)
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), true)
+
+  // Turn off mail for Bot a only (also with a global MCP tool denied at the same time).
+  host.ctx.tools.schemas = (agent) => [
+    ...scopedNames(host, agent.id).map(name => ({ name })),
+    { name: 'mcp__notion__search' },
+  ]
+  rt.connectorOffFor = (botId) => botId === 'a' ? ['mail_', 'mcp__notion__'] : []
+  rt.reapplyToolMasks()
+
+  // Bot a's scoped mail_* tools are unmounted directly; global MCP tool uses restrict(); Bot b keeps mail_*.
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), false)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), false)
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'b').includes('mail_send'), true)
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes('mcp__notion__search')), true)
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.some(n => n.startsWith('mail_'))), false)
+
+  // Subsequent hideBotUnusedTools (system-prompt/assemble) must NOT re-register hidden mail_* tools.
+  rt.hideBotUnusedTools(host.agentOf('a'))
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), false)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), false)
+
+  // A mail tool added while mail is off for Bot a skips Bot a, registers on Bot b, and joins Bot a once re-enabled.
+  rt.addTeamTool(makeTool('mail_read'))
+  assert.equal(scopedNames(host, 'a').includes('mail_read'), false)
+  assert.equal(scopedNames(host, 'b').includes('mail_read'), true)
+
+  // Removing a hidden mail tool clears it so turning mail back on does not re-register a removed tool.
+  rt.removeTeamTool('mail_send')
+
+  // Re-enabling mail for Bot a restores the remaining mail tools and lifts the MCP mask.
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'a').includes('mail_read'), true)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), false)
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes('mcp__notion__search')), false)
+
+  // A freshly created Agent whose Bot already has mail off never receives mail_* on creation,
+  // and receives them immediately when mail is turned back on.
+  rt.connectorOffFor = (botId) => botId === 'b' ? ['mail_'] : []
+  await host.agentCreated('b')
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), false)
+  assert.equal(scopedNames(host, 'b').includes('mail_read'), false)
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'b').includes('mail_read'), true)
+})
+
+test('real DSH ToolsService + ReactLoopAgent contract: mail_* unmount/restore with synchronous tools/change, global MCP mask, plugin overlap, and fast-path invariant', async (t) => {
+  const host = start()
+  const root = new Context()
+  t.after(async () => {
+    for (const name of ['mail_search', 'mail_send']) rt.removeTeamTool(name)
+    await root.fiber.dispose()
+    host.stop()
+  })
+  await host.call('state', {})
+  await mountAgentLoopTestDependencies(root)
+
+  // Register an inherited global MCP tool on root.tools, and forward real synchronous tools/change to host.ctx.
+  root.tools.register({
+    name: 'mcp__notion__search',
+    description: 'Search Notion',
+    parameters: { type: 'object', properties: {} },
+    output: { schema: { type: 'string' }, render: () => [] },
+    execute: async () => 'ok',
+  })
+  let schemaReads = 0
+  host.ctx.tools.schemas = (agent) => { schemaReads += 1; return root.tools.schemas(agent) }
+  let localCliNotifications = 0
+  rt.notifyLocalAgentToolsChanged = () => { localCliNotifications += 1 }
+  root.on('tools/change', () => {
+    for (const fn of host.ctx.listeners.get('tools/change') ?? []) fn()
+  })
+
+  const seenBySession = new Map()
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100_000 } } }
+    async *stream(options) {
+      const sid = String(options.sessionId)
+      const list = seenBySession.get(sid) ?? []
+      list.push((options.tools ?? []).map(tool => tool.name))
+      seenBySession.set(sid, list)
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  root.llm.registerAdapter(['mail-mask-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  attachHostBuiltinFilters(root, host)
+  const created = host.ctx.listeners.get('agent/created').find(listener => String(listener).includes('hideBotUnusedTools(agent)'))
+
+  const makeMailTool = (name) => ({
+    name,
+    description: `${name} test tool`,
+    parameters: { type: 'object', properties: {} },
+    output: { schema: { type: 'string' }, render: () => [] },
+    execute: async () => 'ok',
+  })
+  rt.addTeamTool(makeMailTool('mail_search'))
+  rt.addTeamTool(makeMailTool('mail_send'))
+
+  const agentA = await root.agentLoop.create(SessionId('a'), { provider: 'mail-mask-test', model: 'test' })
+  const agentB = await root.agentLoop.create(SessionId('b'), { provider: 'mail-mask-test', model: 'test' })
+  await created({ agent: agentA })
+  await created({ agent: agentB })
+
+  const namesOf = (agent) => root.tools.schemas(agent).map(s => s.name)
+  assert.equal(namesOf(agentA).includes('mail_search'), true)
+  assert.equal(namesOf(agentA).includes('mail_send'), true)
+  assert.equal(namesOf(agentA).includes('mcp__notion__search'), true)
+
+  // Turn off both mail (Agent-scoped) and notion (inherited global) for Bot a only.
+  // Real DSH ToolsService synchronously emits tools/change on every dispose()/restrict().
+  localCliNotifications = 0
+  rt.connectorOffFor = (botId) => botId === 'a' ? ['mail_', 'mcp__notion__'] : []
+  rt.reapplyToolMasks()
+  assert.equal(localCliNotifications, 1, 'batched reapplyToolMasks coalesces synchronous tools/change notifications')
+
+  // Verify live schemas (the exact source local-agents/index.js toolsFor reads) and real ReactLoopAgent options.tools.
+  assert.equal(namesOf(agentA).includes('mail_search'), false)
+  assert.equal(namesOf(agentA).includes('mail_send'), false)
+  assert.equal(namesOf(agentA).includes('mcp__notion__search'), false)
+  assert.equal(namesOf(agentB).includes('mail_search'), true)
+  assert.equal(namesOf(agentB).includes('mail_send'), true)
+  assert.equal(namesOf(agentB).includes('mcp__notion__search'), true)
+
+  agentA.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'with mail off' }] }))
+  await agentA.whenIdle()
+  const turnOffTools = seenBySession.get('a').at(-1)
+  assert.equal(turnOffTools.includes('mail_search'), false)
+  assert.equal(turnOffTools.includes('mail_send'), false)
+  assert.equal(turnOffTools.includes('mcp__notion__search'), false)
+
+  // Plugin + connector overlapping denial: lifting plugin first keeps mail_search hidden until connector also lifts.
+  let pluginBlocked = true
+  rt.pluginDeniedRules = (botId) => botId === 'a' && pluginBlocked
+    ? { prefixes: [], exact: [], scopedDenied: new Set(['mail_search']), protectedTools: new Set() }
+    : { prefixes: [], exact: [], scopedDenied: new Set(), protectedTools: new Set() }
+  rt.reapplyToolMasks()
+  pluginBlocked = false
+  rt.reapplyToolMasks()
+  assert.equal(namesOf(agentA).includes('mail_search'), false, 'lifting plugin alone must keep connector-disabled mail_search hidden')
+
+  // Re-enable mail and notion for Bot a: both Agent-scoped mail_* and global mcp__notion__search return immediately.
+  localCliNotifications = 0
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(localCliNotifications, 1)
+  assert.equal(namesOf(agentA).includes('mail_search'), true)
+  assert.equal(namesOf(agentA).includes('mail_send'), true)
+  assert.equal(namesOf(agentA).includes('mcp__notion__search'), true)
+
+  agentA.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'with mail back on' }] }))
+  await agentA.whenIdle()
+  const turnOnTools = seenBySession.get('a').at(-1)
+  assert.equal(turnOnTools.includes('mail_search'), true)
+  assert.equal(turnOnTools.includes('mail_send'), true)
+  assert.equal(turnOnTools.includes('mcp__notion__search'), true)
+
+  // Fast-path invariant after full restore: another reapplyToolMasks() reads 0 schemas.
+  schemaReads = 0
+  rt.reapplyToolMasks()
+  assert.equal(schemaReads, 0, 'fast path must not read ctx.tools.schemas when no connector is off')
+})

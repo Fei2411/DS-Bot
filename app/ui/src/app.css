@@ -19,6 +19,16 @@ body[data-ds-dark-theme]{color-scheme:dark}
 :root{--dsb-band:48px;--dsb-buttons-w:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw));--dsh-frame-overlay-top:calc(var(--dsb-band) + 8px)}
 .dsb-band{position:absolute;inset:0 0 auto;height:var(--dsb-band);pointer-events:none;-webkit-app-region:drag;app-region:drag}
 .dsb-frame :is(button,a,input,textarea,select,label,[role=button]),body>:not(#root){-webkit-app-region:no-drag;app-region:no-drag}
+/* Full-window app-shell modals and scrims cover the caption band, so body > :not(#root)
+   no-drag would otherwise prevent moving the window while they are open. Keep a top drag
+   strip on each layer (or on the scrim child when present, since Chromium collects app-region
+   in layout-tree order) and stack the dialog surface and controls after it as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim)::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer>.dsb-preset-modal-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--dsh-windows-titlebar-height,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop)[data-leaving]::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer[data-leaving]>.dsb-preset-modal-scrim::before{-webkit-app-region:initial;app-region:initial}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop){padding-top:max(20px,var(--dsh-windows-titlebar-height,var(--dsb-band)))}
+:is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-lightbox)>:is(.dsb-shortcuts,.dsb-preset-modal,.dsb-risk-dialog,.dsb-fb-dialog,.dsb-lightbox-fig){position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.dsb-lightbox>.dsb-lightbox-close{z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+html[data-windows-titlebar]:not([data-fullscreen]) .dsb-lightbox>.dsb-lightbox-close{top:calc(var(--dsh-windows-titlebar-height,var(--dsb-band)) + 12px)}
 .bt-panel .bt-drawer-top{padding-top:6px;padding-right:calc(17px + var(--dsb-buttons-w))}
 .bt-panel .bt-ptabs{padding-right:calc(6px + var(--dsb-buttons-w))}
 .bt-pane :is(.bt-to,.bt-create-head){padding-right:calc(12px + var(--dsb-buttons-w))}
@@ -175,7 +185,7 @@ body[data-bt-layout=flat] .dsb-tool{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .dsb-tool-fold:hover{background:var(--bt-hover)}
 .dsb-tool-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-tool-errline{font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
-.dsb-tool-wrap:has(> [data-bt-empty]:only-child){display:none}
+.dsb-tool-wrap:has(> [data-bt-empty]):not(:has(> :not([data-bt-empty]))){display:none}
 .dsb-tool-icon{flex:none;display:inline-flex;align-items:center;color:var(--bt-ink-2)}
 .dsb-tool-icon svg{width:14px;height:14px}
 .dsb-tool-meta{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px}
@@ -571,7 +581,7 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .d
   .dsb-classic-row[data-has-actions] .dsb-classic-btn{padding-right:64px}
 }
 .dsb-classic-editing{padding:4px 4px}
-.dsb-classic-input{width:100%;height:30px;min-height:30px;padding:0 8px;font-size:13px}
+.dsb-classic-input{width:100%;box-sizing:border-box;height:30px;min-height:30px;padding:0 8px;font-size:13px}
 .dsb-classic-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:32px 12px;text-align:center}
 .dsb-classic-empty-mark{display:inline-flex;color:var(--bt-ink-2);opacity:.35}
 .dsb-classic-empty-text{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
@@ -645,7 +655,7 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-classic-chat [data-composer-card] .dsb-send{display:inline-grid;width:32px;height:32px;background:#4d6bfe;color:#fff}
 .dsb-classic-chat [data-composer-card] .dsb-send:hover:not(:disabled){background:#3f5df0}
 .dsb-classic-chat [data-composer-card] .dsb-send:disabled{display:inline-grid;opacity:.36;cursor:default}
-.dsb-classic-chat [data-composer-card][data-running] .dsb-send{display:none}
+.dsb-classic-chat [data-composer-card][data-running] .dsb-send:disabled{display:none}
 .dsb-classic-chat [data-composer-card] .dsb-stop{width:32px;height:32px}
 .dsb-classic-chat .dsb-pending .dsb-dsh-user{opacity:.65}
 
