@@ -80,10 +80,14 @@ test('modal cards, pickers and app-shell dialogs keep a top drag strip in framel
   assert.match(cardBox[1], /-webkit-app-region:no-drag/)
   assert.match(cardBox[1], /var\(--dsb-card-top,16px\)/)
 
+  // Start page explicitly sets data-frame="band" when frameless so page-card.css matches it.
+  const startJs = readFileSync(new URL('../src/start/start.js', import.meta.url), 'utf8')
+  assert.match(startJs, /root\.dataset\.frame = next\.frame === 'system' \? 'system' : 'band'/u)
+
   const appCss = readFileSync(new URL('../ui/src/app.css', import.meta.url), 'utf8')
-  const shellStrip = /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) :is\(([^)]+)\)::before\{([^}]*)\}/u.exec(appCss)
-  assert.ok(shellStrip, 'app.css defines a top drag strip for app-shell modal layers')
-  for (const cls of ['.dsb-lightbox', '.dsb-shortcuts-layer', '.dsb-preset-modal-layer', '.dsb-risk-layer', '.dsb-fb-backdrop', '.dsb-drawer-scrim']) {
+  const shellStrip = /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) :is\(([^)]+)\)::before,html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.dsb-preset-modal-layer>\.dsb-preset-modal-scrim::before\{([^}]*)\}/u.exec(appCss)
+  assert.ok(shellStrip, 'app.css defines a top drag strip for app-shell modal layers and preset scrim')
+  for (const cls of ['.dsb-lightbox', '.dsb-shortcuts-layer', '.dsb-risk-layer', '.dsb-fb-backdrop', '.dsb-drawer-scrim']) {
     assert.ok(shellStrip[1].includes(cls), `app.css drag strip includes ${cls}`)
   }
   assert.match(shellStrip[2], /z-index:1/)

@@ -367,8 +367,8 @@ test('sidebar top stays a single clean row with New section moved to CommandPale
 
 test('full-window modal layers keep a top drag strip in frameless windows while dialogs stay no-drag', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
-  const strip = /(:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)::before)\{([^}]*)\}/.exec(css)
-  assert.ok(strip, 'modal top drag strip rule exists')
+  const strip = /(:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)>:is\(\.bt-scrim,\.bt-backdrop\)::before,:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-opening::before)\{([^}]*)\}/.exec(css)
+  assert.ok(strip, 'modal top drag strip rule exists on scrim/backdrop and opening cover')
   assert.match(strip[2], /position:absolute/)
   assert.match(strip[2], /inset:0 0 auto/)
   assert.match(strip[2], /height:var\(--bt-modal-drag-h,0px\)/)
@@ -376,7 +376,7 @@ test('full-window modal layers keep a top drag strip in frameless windows while 
   assert.match(strip[2], /-webkit-app-region:drag/)
   assert.match(strip[2], /app-region:drag/)
 
-  const leaving = /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)\[data-leaving\]::before\{([^}]*)\}/.exec(css)
+  const leaving = /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)\[data-leaving\]>:is\(\.bt-scrim,\.bt-backdrop\)::before,:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-opening\[data-leaving\]::before\{([^}]*)\}/.exec(css)
   assert.ok(leaving, 'leaving modal layers drop the drag strip')
   assert.match(leaving[1], /-webkit-app-region:initial/)
 
@@ -392,23 +392,43 @@ test('full-window modal layers keep a top drag strip in frameless windows while 
   assert.match(openingCard[1], /z-index:2/)
   assert.match(openingCard[1], /-webkit-app-region:no-drag/)
 
-  // Verify selectors match all modal layers in both frameless modes and skip fullscreen/Linux.
-  const hostSelector = strip[1].replace(/::before$/, '')
-  const layers = ['bt-settings-layer', 'bt-mem-layer', 'bt-palette-layer', 'bt-rn-layer', 'bt-priv-layer', 'bt-opening']
+  // Verify selectors match scrim/backdrop children and opening cover in frameless modes and skip fullscreen/Linux.
+  const hostSelector = strip[1].replace(/::before/g, '')
+  const scrimLayers = [
+    ['bt-settings-layer', 'bt-scrim'],
+    ['bt-mem-layer', 'bt-scrim'],
+    ['bt-palette-layer', 'bt-backdrop'],
+    ['bt-rn-layer', 'bt-scrim'],
+    ['bt-priv-layer', 'bt-scrim'],
+  ]
   for (const attrs of ['data-windows-titlebar=""', 'data-platform="darwin"']) {
-    const { window } = new JSDOM(`<!doctype html><html ${attrs}><body>${layers.map(c => `<div class="${c}"><div role="dialog"></div></div>`).join('')}</body></html>`)
-    for (const c of layers) {
-      assert.equal(window.document.querySelector(`.${c}`).matches(hostSelector), true, `${attrs} matches .${c}`)
+    const html = `<!doctype html><html ${attrs}><body>${scrimLayers.map(([l, s]) => `<div class="${l}"><div class="${s}"></div><div role="dialog"></div></div>`).join('')}<div class="bt-opening"><div class="bt-opening-card"></div></div></body></html>`
+    const { window } = new JSDOM(html)
+    for (const [l, s] of scrimLayers) {
+      assert.equal(window.document.querySelector(`.${l} > .${s}`).matches(hostSelector), true, `${attrs} matches .${l} > .${s}`)
     }
+    assert.equal(window.document.querySelector('.bt-opening').matches(hostSelector), true, `${attrs} matches .bt-opening`)
     window.document.documentElement.dataset.fullscreen = 'true'
-    for (const c of layers) {
-      assert.equal(window.document.querySelector(`.${c}`).matches(hostSelector), false, `fullscreen skips .${c}`)
+    for (const [l, s] of scrimLayers) {
+      assert.equal(window.document.querySelector(`.${l} > .${s}`).matches(hostSelector), false, `fullscreen skips .${l} > .${s}`)
     }
+    assert.equal(window.document.querySelector('.bt-opening').matches(hostSelector), false, 'fullscreen skips .bt-opening')
   }
-  const { window: linuxWin } = new JSDOM('<!doctype html><html><body><div class="bt-settings-layer"><div role="dialog"></div></div></body></html>')
-  assert.equal(linuxWin.document.querySelector('.bt-settings-layer').matches(hostSelector), false)
+  const { window: linuxWin } = new JSDOM('<!doctype html><html><body><div class="bt-settings-layer"><div class="bt-scrim"></div><div role="dialog"></div></div></body></html>')
+  assert.equal(linuxWin.document.querySelector('.bt-settings-layer > .bt-scrim').matches(hostSelector), false)
 
-  // Narrow-viewport fullscreen settings dialog keeps its own top drag strip and shifts close button.
+  // Narrow-viewport fullscreen settings and memory dialogs keep top drag strips, shift overlays, and clear drag on exit.
+  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(var\(--dsh-windows-titlebar-height,0px\) - var\(--dsh-frame-chrome-top,0px\)\)\)/)
+  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(40px - var\(--dsh-frame-chrome-top,0px\)\)\)/)
+  assert.match(css, /\.bt-tour-layer\{-webkit-app-region:initial;app-region:initial\}/)
+  assert.match(css, /:is\(\.bt-set-palette,\.bt-tour-card\)\{z-index:2;-webkit-app-region:no-drag;app-region:no-drag\}/)
   assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-layer\[data-leaving\] \.bt-settings::before\{-webkit-app-region:initial;app-region:initial\}/)
   assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-close\{top:calc\(14px \+ var\(--bt-modal-drag-h,0px\)\)\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-set-palette-layer\{padding-top:calc\(12px \+ var\(--bt-modal-drag-h,0px\)\)\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-set-palette-scrim::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-layer\[data-leaving\] \.bt-set-palette-scrim::before\{-webkit-app-region:initial;app-region:initial\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-mem\{padding-top:var\(--bt-modal-drag-h,0px\);box-sizing:border-box\}/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-mem::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-mem-layer\[data-leaving\] \.bt-mem::before\{-webkit-app-region:initial;app-region:initial\}/)
 })

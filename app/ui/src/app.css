@@ -21,9 +21,10 @@ body[data-ds-dark-theme]{color-scheme:dark}
 .dsb-frame :is(button,a,input,textarea,select,label,[role=button]),body>:not(#root){-webkit-app-region:no-drag;app-region:no-drag}
 /* Full-window app-shell modals and scrims cover the caption band, so body > :not(#root)
    no-drag would otherwise prevent moving the window while they are open. Keep a top drag
-   strip on each layer and stack the dialog surface and controls above it as no-drag. */
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim)::before{content:"";position:absolute;inset:0 0 auto;height:var(--dsh-windows-titlebar-height,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop)[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
+   strip on each layer (or on the scrim child when present, since Chromium collects app-region
+   in layout-tree order) and stack the dialog surface and controls after it as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim)::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer>.dsb-preset-modal-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--dsh-windows-titlebar-height,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop)[data-leaving]::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer[data-leaving]>.dsb-preset-modal-scrim::before{-webkit-app-region:initial;app-region:initial}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop){padding-top:max(20px,var(--dsh-windows-titlebar-height,var(--dsb-band)))}
 :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-lightbox)>:is(.dsb-shortcuts,.dsb-preset-modal,.dsb-risk-dialog,.dsb-fb-dialog,.dsb-lightbox-fig){position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 .dsb-lightbox>.dsb-lightbox-close{z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
