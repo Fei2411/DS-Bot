@@ -7,6 +7,12 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Third-party code in this repository
 ==============================================================================
 
+Android document previews use these MIT-licensed dependencies:
+  - fflate — https://github.com/101arrowz/fflate, Copyright (c) 2026 Arjun Barrett
+  - htmlparser2 — https://github.com/fb55/htmlparser2, Copyright 2010, 2011 Chris Winberry
+  - React Native WebView — https://github.com/react-native-webview/react-native-webview,
+    Copyright (c) 2015-present Facebook, Inc.
+
 DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness)
 MIT License, Copyright (c) 2026 DeepSeek
 

@@ -15,10 +15,9 @@ import { ViewCard } from './view.tsx'
 import { viewHasControls } from './inline-views.ts'
 import { handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote, type RelayReplyData, type SettledQuestionData } from './settled.ts'
 import { viewAnswerText } from 'deep-view/core'
+import type { FileRef } from '../../team/file-preview.ts'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
-
-export interface FileRef { name: string; bytes?: number; description?: string; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
 
 export type { SettledQuestionData }
 
@@ -93,7 +92,7 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin, pendingView, onViewSettled }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; pendingView?: { sessionId: string; view: ShownView }; onViewSettled?: () => void; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onReadLongMessage, onSaveFile, onRetry, stamp, author, admin, pendingView, onViewSettled }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; pendingView?: { sessionId: string; view: ShownView }; onViewSettled?: () => void; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onReadLongMessage?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
   const rowSessionId = item.sessionId ?? sessionId
   const authorBotId = item.botId ?? author?.id
@@ -101,8 +100,8 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
   const chips = (item.files ?? []).map(file => {
     const extMeta = [(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')
     const subMeta = file.description && file.description !== '' ? file.description : extMeta
-    const isPresented = file.attachmentId === undefined && file.seq !== undefined
     const canAct = file.attachmentId !== undefined || file.seq !== undefined
+    const target = { ...file, sessionId: file.sessionId ?? rowSessionId }
     const label = (
       <>
         <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
@@ -113,7 +112,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
       <View key={file.attachmentId ?? `${file.seq ?? 'legacy'}:${file.index ?? 0}:${file.name}`}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
         {canAct ? (
-          <Pressable accessibilityRole="button" onPress={() => (isPresented ? onSaveFile?.(file) : onOpenFile?.(file))}
+          <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(target)}
             style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
             {label}
           </Pressable>
@@ -123,7 +122,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
           </View>
         )}
         {!canAct || onSaveFile === undefined ? null : (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(target)}
             style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
             <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>
           </Pressable>
@@ -132,7 +131,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     )
   })
   const fullMessageLink = wholeFile !== undefined ? (
-    <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
+    <Pressable accessibilityRole="button" onPress={() => onReadLongMessage?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
       <Text style={[type.small, { color: p.accent, fontWeight: '500' }]}>{t('Read full message')}</Text>
     </Pressable>
   ) : null

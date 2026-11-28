@@ -4,6 +4,7 @@ import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import { downloadFile } from '../team/file-download'
+import { fileTarget, previewFormat, readFilePreview, type FilePreview, type FileRef } from '../team/file-preview.ts'
 import { shareFile } from '../team/share-file'
 import type { Agent, Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache, createChatHistory, refreshChatHistory, roomHeadPart } from '../team/chat-cache.ts'
@@ -23,7 +24,8 @@ import { ActionRow, Dock, ViewJumpStrip } from './chat/dock.tsx'
 import { splitChatViews, viewFocusKey, viewReminderLabel } from './chat/inline-views.ts'
 import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
-import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
+import { DocumentView } from './chat/document-view'
+import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
 import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
 import { ownWorkOf, workMarkState } from '../team/mark-state.ts'
@@ -343,19 +345,25 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
   const [readerText, setReaderText] = useState<string | null>(null)
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<{ name: string; body?: FilePreview; error?: string } | null>(null)
+  const previewRequest = useRef<AbortController | null>(null)
+  const closePreview = useCallback(() => {
+    previewRequest.current?.abort()
+    setPreview(null)
+  }, [])
+  useEffect(() => {
+    closePreview()
+    return () => previewRequest.current?.abort()
+  }, [chatKey, closePreview])
   const [photos, setPhotos] = useState<{ sessionId: string; refs: ImageRef[]; index: number } | null>(null)
   // Save hands the file to the phone: the host sends its bytes, the app writes them
   // to a cache file, and the system share sheet lets Android put it in Downloads or
   // open it in a viewer. A refusal names the reason in the same line as file errors.
   const saveFile = useCallback((file: FileRef) => {
     setFileError(null)
-    const targetSession = file.sessionId ?? sessionId
-    const payload = file.attachmentId !== undefined
-      ? { sessionId: targetSession, attachmentId: file.attachmentId }
-      : { sessionId: targetSession, seq: file.seq, index: file.index }
     void (async () => {
       try {
-        const saved = await downloadFile(call, payload)
+        const saved = await downloadFile(call, fileTarget(file, sessionId))
         await shareFile(saved)
       } catch (failure) {
         const msg = (failure as { message?: string })?.message
@@ -363,13 +371,30 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
       }
     })()
   }, [call, sessionId])
-  const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
+  const readLongMessage = useCallback((file: FileRef) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string
       setReaderTitle(file.name)
       setReaderText(typeof read === 'string' ? read : read?.text ?? '')
     }, (failure: { code?: string; message?: string }) => setFileError(failure?.message ?? t('This file cannot be read here')))
   }, [call])
+  const openFile = useCallback((file: FileRef) => {
+    if (Platform.OS !== 'android' || previewFormat(file.name) === undefined) {
+      if (file.attachmentId === undefined) saveFile(file)
+      else readLongMessage(file)
+      return
+    }
+    previewRequest.current?.abort()
+    const request = new AbortController()
+    previewRequest.current = request
+    setFileError(null)
+    setPreview({ name: file.name })
+    void readFilePreview(call, file, sessionId, request.signal).then(body => {
+      if (!request.signal.aborted) setPreview({ name: file.name, body })
+    }, failure => {
+      if (!request.signal.aborted) setPreview({ name: file.name, error: failure?.message === 'This file is too large to preview' ? t('This file is too large to preview') : t('This file cannot be read here') })
+    })
+  }, [call, readLongMessage, saveFile, sessionId])
   // One stable toggle per steps row, so a memoized row is not redrawn for a new closure.
   const toggles = useRef(new Map<string, () => void>())
   const toggleOf = (key: string) => {
@@ -577,10 +602,10 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
         <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
           item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
           pendingView={inlineByKey.get(row.key)} onViewSettled={handleViewSettled}
-          onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+          onLongPress={setMenuText} onOpenFile={openFile} onReadLongMessage={readLongMessage} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
       </ErrorBoundary>
     )
-  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, inlineByKey, handleViewSettled, openFile, saveFile, retry, openSteps])
+  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, inlineByKey, handleViewSettled, openFile, readLongMessage, saveFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
   return (
@@ -690,6 +715,22 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
             <Text style={[type.settingsRow, { color: p.accent }]}>{t('Done')}</Text>
           </Pressable>
         </View>
+      </Modal>
+      <Modal visible={preview !== null} animationType="slide" onRequestClose={closePreview}>
+        {preview !== null ? (
+          <View style={[styles.reader, { backgroundColor: p.main, paddingBottom: insets.bottom }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: p.line }}>
+              <Text accessibilityRole="header" numberOfLines={1} style={[type.settingsRow, { color: p.ink, flex: 1 }]}>{preview.name}</Text>
+              <Pressable accessibilityRole="button" onPress={closePreview} style={{ minHeight: 44, paddingLeft: 16, justifyContent: 'center' }}>
+                <Text style={[type.settingsRow, { color: p.accent }]}>{t('Done')}</Text>
+              </Pressable>
+            </View>
+            {preview.error !== undefined ? <Text accessibilityRole="alert" style={[type.bubble, { color: p.ink, margin: 20 }]}>{preview.error}</Text>
+              : preview.body === undefined ? <ActivityIndicator style={styles.loading} color={p.accent} />
+                : preview.body.kind === 'html' ? <DocumentView content={preview.body.content} p={p} />
+                  : <ScrollView contentContainerStyle={{ padding: 20 }}><Text selectable style={[type.bubble, { color: p.ink }]}>{preview.body.content}</Text></ScrollView>}
+          </View>
+        ) : null}
       </Modal>
       <PhotoViewer open={photos} onClose={() => setPhotos(null)} />
     </KeyboardAvoidingView>
