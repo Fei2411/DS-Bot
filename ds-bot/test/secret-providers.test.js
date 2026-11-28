@@ -660,8 +660,7 @@ test('invalidateExternal keeps redacting previously resolved external values in 
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
   const execute = listeners['tools/execute'].filter(l => l.name !== 'listOwnSchedules' && l.name !== 'computerTrack').at(-1)
-  // The usage meter registers after the secrets listener.
-  const streamHook = listeners['llm/stream'].at(-2)
+  const streamHook = listeners['llm/stream'].find(listener => /redactDeep/.test(String(listener)))
 
   // 1. Initial resolution caches oldToken and redacts it.
   await rt.resolveExternalForBot('b2')

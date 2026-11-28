@@ -1339,7 +1339,7 @@ export function install(rt) {
     })
   }
   ctx.on('llm/stream', (options, next) => {
-    if (!hasRedactions || rewritten.has(options.messages)) return next()
+    if (rt.isCacheAffinityRewritten?.(options) || !hasRedactions || rewritten.has(options.messages)) return next()
     let messages = options.messages
     if (Array.isArray(messages)) {
       let nextMessages = null
