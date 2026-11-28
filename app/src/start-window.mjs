@@ -6,7 +6,10 @@
 import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
 import { within } from './copy-tree.mjs'
+import { redactor } from './logs.mjs'
 import { frameOptions, framelessOn, keepVibrancy } from './window-frame.mjs'
+
+const redactDetail = redactor()
 
 export const START_STATE = 'ds-bot:start-state'
 export const START_ACT = 'ds-bot:start-act'
@@ -547,8 +550,10 @@ export class StartWindow {
       note(`the hand-off waited ${String(Date.now() - this.#heldAt)} ms for the answer`)
       this.ready(this.#readyReport)
     } else if (this.#viewLate) {
+      const kind = this.#viewLate
       this.#viewLate = false
-      this.#teamViewLate()
+      if (kind === 'failed') this.#showViewFailed()
+      else this.#teamViewLate()
     }
   }
 
@@ -587,12 +592,28 @@ export class StartWindow {
     this.#later('teamView', TEAM_VIEW_MS, () => { this.#teamViewLate() })
   }
 
+  /** The team window's loadURL failed: show the team-view failure page now instead of waiting 20 s. */
+  teamViewFailed(error) {
+    if (!this.#open() || !['boot', 'card'].includes(this.#state.view)) return
+    this.#clear('teamView')
+    const rawDetail = error instanceof Error ? error.message : String(error ?? '')
+    const detail = rawDetail ? redactDetail(rawDetail) : ''
+    note(detail ? `the team view failed to load: ${detail}` : 'the team view failed to load')
+    if (this.#asks > 0 || this.#state.view === 'card') { this.#viewLate = 'failed'; return }
+    this.#showViewFailed()
+  }
+
+  #showViewFailed() {
+    if (!['boot', 'card'].includes(this.#state.view)) return
+    this.#update({ view: 'viewFailed', failure: { reason: 'other', log: this.#o.log.tail(FAILURE_LINES) } })
+  }
+
   #teamViewLate() {
     if (!['boot', 'card'].includes(this.#state.view)) return
     // A dialog or a card is up: the verdict waits for the answer (#resume).
-    if (this.#asks > 0 || this.#state.view === 'card') { this.#viewLate = true; return }
+    if (this.#asks > 0 || this.#state.view === 'card') { this.#viewLate = 'timeout'; return }
     note(`the team view did not call ready() within ${String(TEAM_VIEW_MS / 1000)} s`)
-    this.#update({ view: 'viewFailed', failure: { reason: 'other', log: this.#o.log.tail(FAILURE_LINES) } })
+    this.#showViewFailed()
   }
 
   /**
@@ -603,6 +624,7 @@ export class StartWindow {
   ready(report) {
     if (!this.#open() || !['boot', 'card', 'viewFailed'].includes(this.#state.view) || !this.#engineUp) return
     this.#clear('teamView')
+    this.#viewLate = false
     this.#readyReport = report
     if (this.#asks > 0 || this.#state.view === 'card') {
       if (!this.#readyHeld) {
@@ -805,8 +827,8 @@ export class StartWindow {
   #reload() {
     note('reloading the team view')
     this.#update({ view: 'boot', failure: undefined })
-    this.#o.onReload()
     this.teamLoading()
+    this.#o.onReload()
   }
 
   #copyDetails() {

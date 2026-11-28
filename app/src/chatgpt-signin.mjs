@@ -74,13 +74,17 @@ export class ChatGPTSignInError extends Error {
   }
 }
 
-export async function createChatGPTSignIn({ userData, safeStorage, fs, platform, mockKeychain = false,
+export async function createChatGPTSignIn({ userData, safeStorage, fs, platform = process.platform, mockKeychain = false,
   fetch: fetcher = globalThis.fetch, discoveryUrl = 'https://auth.openai.com/.well-known/openid-configuration',
   endpoints = {}, now = Date.now, timeoutMs = 5 * 60_000, onChange = () => {},
 }) {
   const store = createChatGPTStore({ userData, safeStorage, fs, platform, mockKeychain })
   let record
   let state = 'signed-out'
+  // On macOS, safeStorage.isEncryptionAvailable() queries the Login Keychain and can block
+  // when an updated ad-hoc build hits an ACL mismatch (#2415). Defer probing until an encrypted
+  // file actually exists or the user invokes a credential operation.
+  let supportChecked = false
   let publish = () => {}
   const setState = next => { state = next; publish() }
   let refreshInFlight
@@ -95,12 +99,27 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     return result
   }
   const fail = (next, code) => { setState(next); return new ChatGPTSignInError(next, code) }
+  const checkSupported = () => {
+    supportChecked = true
+    return store.supported()
+  }
   const supported = () => {
-    if (!store.supported()) throw fail('unsupported', 'secure-storage-unavailable')
+    if (!checkSupported()) throw fail('unsupported', 'secure-storage-unavailable')
   }
   try {
-    if (!store.supported()) state = 'unsupported'
-    else record = await store.read()
+    if (platform === 'darwin') {
+      if (mockKeychain) {
+        supportChecked = true
+        state = 'unsupported'
+      } else {
+        record = await store.read()
+        if (record !== undefined) supportChecked = true
+      }
+    } else if (!checkSupported()) {
+      state = 'unsupported'
+    } else {
+      record = await store.read()
+    }
   } catch { state = 'temporarily-unavailable' }
   const connectionState = () => record?.tokens ? (record.tokens.scopes.includes(PLAN_SCOPE) ? 'connected' : 'plan-usage-off')
     : record?.needsSignIn ? 'needs-sign-in' : 'signed-out'
@@ -120,7 +139,9 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     await save({ ...mapping, needsSignIn })
   }
   const status = () => ({
-    state: store.supported() ? state : 'unsupported',
+    state: (platform === 'darwin' && !mockKeychain && !supportChecked)
+      ? state
+      : (checkSupported() ? state : 'unsupported'),
     ...(record?.account ? { account: {
       ...(typeof record.account.email === 'string' ? { email: record.account.email } : {}),
       ...(typeof record.account.name === 'string' ? { name: record.account.name } : {}),
