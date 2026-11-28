@@ -718,7 +718,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
       </Modal>
       <Modal visible={preview !== null} animationType="slide" onRequestClose={closePreview}>
         {preview !== null ? (
-          <View style={[styles.reader, { backgroundColor: p.main, paddingBottom: insets.bottom }]}>
+          <View style={[styles.reader, { backgroundColor: p.main, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: p.line }}>
               <Text accessibilityRole="header" numberOfLines={1} style={[type.settingsRow, { color: p.ink, flex: 1 }]}>{preview.name}</Text>
               <Pressable accessibilityRole="button" onPress={closePreview} style={{ minHeight: 44, paddingLeft: 16, justifyContent: 'center' }}>
