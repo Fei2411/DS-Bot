@@ -509,10 +509,14 @@ export default {
         })
         return { messageId: String(sent?.data?.message_id ?? '') }
       },
-      edit: async (chat, messageId, { text, buttons }) => {
+      edit: async (chat, messageId, { text, buttons, sentLength }) => {
+        // `send` spreads a long reply over several messages and returns the last one, so
+        // the edit has to describe that message's own chunk. Slicing the whole reply to
+        // the limit wrote the head of it into the last message, over that message's tail.
+        const last = editedBody(text, sentLength)
         await rest(`/open-apis/im/v1/messages/${messageId}`, {
           method: 'PATCH',
-          body: { msg_type: 'interactive', content: card(toMarkdown(text).slice(0, TEXT_LIMIT), buttons) },
+          body: { msg_type: 'interactive', content: card(toMarkdown(last), buttons) },
         })
       },
       stop: () => {
@@ -660,4 +664,48 @@ async function resource(env, base, token, messageId, key, type, limit = FILE_LIM
     return undefined
   }
   return got.bytes === undefined ? undefined : new Uint8Array(got.bytes.buffer, got.bytes.byteOffset, got.bytes.byteLength)
+}
+
+// The body an edit has to write. `send` spreads a long reply over several messages and
+// answers with the last one, so the edit belongs to that message's own chunk. A settled
+// card arrives as the card plus `\n— <answer>`: cutting the combined text again moves
+// every boundary, and a card already near the limit comes out as the answer alone. Cut
+// the part that was already sent, then append what came after it, giving up the tail of
+// the card only when the answer needs the room.
+function editedBody(text, sentLength) {
+  const whole = String(text ?? '')
+  if (sentLength === undefined || sentLength >= whole.length) return chunkMarkdown(whole, TEXT_LIMIT).at(-1) ?? ''
+  const sent = whole.slice(0, Math.max(0, sentLength))
+  const tail = whole.slice(Math.max(0, sentLength))
+  const room = TEXT_LIMIT - Array.from(tail).length
+  if (room <= 0) return Array.from(tail).slice(-TEXT_LIMIT).join('')
+  const head = chunkMarkdown(sent, TEXT_LIMIT).at(-1) ?? ''
+  let kept = Array.from(head).slice(0, room).join('')
+  // Trimming the settled chunk to make room for the answer can remove the closing fence
+  // of a card that ends in a code block, swallowing the answer into the fence and
+  // truncating the code line. Drop the whole fenced block instead of leaving it open.
+  const openAt = openFenceStart(kept)
+  if (openAt !== null) kept = Array.from(head.slice(0, openAt).trimEnd()).slice(0, room).join('')
+  return kept + tail
+}
+
+// Offset of the last fence still open at the end of `text`, or null when all are closed.
+function openFenceStart(text) {
+  let open = null
+  let start = null
+  let offset = 0
+  for (const line of text.split('\n')) {
+    const fence = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line)
+    if (fence) {
+      if (!open) {
+        open = fence[2]
+        start = offset
+      } else if (fence[2][0] === open[0] && fence[2].length >= open.length && fence[3].trim() === '') {
+        open = null
+        start = null
+      }
+    }
+    offset += line.length + 1
+  }
+  return start
 }

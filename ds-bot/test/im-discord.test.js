@@ -223,3 +223,88 @@ test('edit keeps the Markdown send put in the message', async (t) => {
   assert.equal(patch.params.content, text)
   assert.equal(patch.params.components.length, 0)
 })
+
+test('edit rewrites the chunk the message holds, not the head of the reply', async (t) => {
+  // `send` spreads a long reply over several messages and returns the last one. An edit
+  // that rebuilt the first chunk wrote the head of the reply into that last message, on
+  // top of its own tail: the reply then read 1 2 3 1 instead of 1 2 3.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = Array.from({ length: 120 }, (_, index) => `line ${index} ${'z'.repeat(30)}`).join('\n')
+  assert.ok(text.length > 2000, `fixture is ${text.length} characters`)
+  const { messageId } = await handle.send({ key: 'dm1', kind: 'direct' }, { text })
+  const posts = fake.calls.filter(call => /messages$/.test(call.path) && call.method === 'POST')
+  assert.ok(posts.length > 1, 'the reply spans several messages')
+  const held = posts.at(-1).params.content
+  await handle.edit({ key: 'dm1', kind: 'direct' }, messageId, { text, sentLength: text.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && call.path.endsWith(`/messages/${messageId}`))
+  assert.ok(patch, 'PATCH called on the message send returned')
+  assert.equal(patch.params.content, held, 'the edit keeps the chunk that message already showed')
+})
+
+test('an emoji-heavy reply settles inside the 2000-unit limit', async (t) => {
+  // Discord counts UTF-16 units and rejects an oversize body permanently. The chunker
+  // already measures in units, but the append path used to add the answer in code points:
+  // a nearly full card answered with one emoji produced a 2,001-unit PATCH that Discord
+  // rejected, so the old card with its buttons stayed on screen while the dispatcher had
+  // already marked it edited.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = `a${'\u{1F600}'.repeat(1001)}`
+  assert.ok(text.length > 2000, `fixture is ${text.length} units`)
+  const { messageId } = await handle.send({ key: 'dm1', kind: 'direct' }, { text })
+  const posts = fake.calls.filter(call => /messages$/.test(call.path) && call.method === 'POST')
+  assert.ok(posts.length > 1, 'the reply spans several messages')
+  for (const post of posts) assert.ok(post.params.content.length <= 2000, `POST is ${post.params.content.length} units`)
+  await handle.edit({ key: 'dm1', kind: 'direct' }, messageId, { text: `${text}\n— Yes`, sentLength: text.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && call.path.endsWith(`/messages/${messageId}`))
+  assert.ok(patch, 'PATCH called on the message send returned')
+  assert.ok(patch.params.content.length <= 2000, `PATCH is ${patch.params.content.length} units`)
+  assert.ok(patch.params.content.endsWith('\n— Yes'), 'the answer is the last thing in the message')
+  const kept = patch.params.content.slice(0, -'\n— Yes'.length)
+  assert.ok(!/[\uD800-\uDBFF]$/.test(kept), 'no lone high surrogate before the answer')
+  assert.ok(text.endsWith(kept), 'the edit shows a suffix of the reply, so no head is repeated')
+})
+
+test('a settled card near the limit keeps its body', async (t) => {
+  // Cutting the combined text again moved every boundary: a 1,999-unit card answered
+  // "Yes" came back as the answer alone, so the question the user answered vanished.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const card = `Which branch?\n${'z'.repeat(1985)}`
+  assert.equal(card.length, 1999, 'the card nearly fills the message')
+  await handle.edit({ key: 'dm1', kind: 'direct' }, '77', { text: `${card}\n— Yes`, sentLength: card.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && /messages\/77$/.test(call.path))
+  assert.ok(patch, 'PATCH called')
+  assert.ok(patch.params.content.includes('Which branch?'), 'the card keeps its body')
+  assert.ok(patch.params.content.endsWith('— Yes'), 'the answer still shows')
+  assert.ok(patch.params.content.length <= 2000, `PATCH is ${patch.params.content.length} units`)
+})
+
+test('a fenced near-limit card does not swallow the answer', async (t) => {
+  // Reserving room for the answer by trimming the settled chunk cut off the closing
+  // fence and part of the code line: the answer rendered inside an unclosed code block.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const fenced = '\n```js\nflag = "**FLAGS**"\n```'
+  const prefix = 'Which branch?\n'
+  const card = prefix + 'z'.repeat(1999 - prefix.length - fenced.length) + fenced
+  assert.equal(card.length, 1999, 'the card nearly fills the message')
+  await handle.edit({ key: 'dm1', kind: 'direct' }, '78', { text: `${card}\n— Yes`, sentLength: card.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && /messages\/78$/.test(call.path))
+  assert.ok(patch, 'PATCH called')
+  const body = patch.params.content
+  assert.ok(body.length <= 2000, `PATCH is ${body.length} units`)
+  assert.ok(body.includes('Which branch?'), 'the question stays')
+  assert.ok(body.endsWith('\n— Yes'), 'the answer stays outside the code block')
+  assert.ok(!/```/.test(body.slice(0, -'\n— Yes'.length)), 'no half-open fence is left behind')
+  assert.ok(!body.includes('"**FLAG"'), 'the code line is not cut mid-literal')
+})
