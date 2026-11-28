@@ -749,6 +749,82 @@ test('mail add explains refused and unsafe logins in plain words', async (t) => 
   assert.equal(rt.mailView().accounts.length, 0)
 })
 
+test('Gmail Add distinguishes reachability from authentication without exporting server text', async (t) => {
+  const home = teamHome()
+  const ctx = fakeContext()
+  const register = ctx.connection.fetch.register
+  let route
+  ctx.connection.fetch.register = entry => {
+    if (entry.path === '/api/bot') route = entry
+    return register(entry)
+  }
+  const address = 'private-user@gmail.com'
+  const password = 'private-app-password'
+  const raw = `${address} ${password} cookie=private-cookie token=private-token`
+  let failure
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => { throw failure } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+
+  for (const [fields, category, hint] of [
+    [{ code: 'ENETUNREACH' }, 'network', /check.*network.*proxy/i],
+    [{ code: 'ETIMEOUT' }, 'timeout', /timed out.*check.*network.*proxy/i],
+    [{ code: 'GREETING_TIMEOUT' }, 'timeout', /timed out/i],
+    [{ code: 'EAUTH', responseCode: 535 }, 'auth', /check.*app password/i],
+    [{ authenticationFailed: true }, 'auth', /check.*app password/i],
+    [{}, 'verification', /try again/i],
+  ]) {
+    failure = Object.assign(new Error(raw), { responseText: raw, ...fields })
+    const response = await route.fetch(new Request('http://localhost/api/bot', {
+      method: 'POST', body: JSON.stringify({ endpoint: 'mail-account-add', payload: { address, password } }),
+    }))
+    const result = await response.json()
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, `bot/mail-gmail-${category}`)
+    assert.match(result.error.message, hint)
+    assert.doesNotMatch(JSON.stringify(result), /private-/)
+  }
+  const entries = (await rt.diagnostics.entries()).filter(row => row.text.includes('Gmail Add verification failed'))
+  assert.equal(entries.length, 6)
+  assert.doesNotMatch(JSON.stringify(entries), /private-/)
+  assert.deepEqual(rt.mailView().accounts, [])
+  assert.equal(rt.secretValue(mailSecretName(address, 'PASSWORD')), undefined)
+})
+
+test('Gmail Add times out stalled verification and never saves its late result', async (t) => {
+  const home = teamHome()
+  const ctx = fakeContext()
+  const started = Promise.withResolvers()
+  const stalled = Promise.withResolvers()
+  const closed = Promise.withResolvers()
+  let calls = 0
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async (_account, { signal }) => {
+    if (++calls > 1) return fakeSession()
+    started.resolve({ signal })
+    return stalled.promise
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const address = addressAt('gmail.com')
+  const add = password => rt.connectorEndpoint('mail-account-add', { address, password })
+  const result = add('ORIGINAL').then(() => 'saved', error => error.code)
+  const { signal } = await started.promise
+  t.mock.timers.tick(20_000)
+  try {
+    assert.equal(await Promise.race([result, new Promise(resolve => setImmediate(() => resolve('still pending')))]), 'bot/mail-gmail-timeout')
+    assert.equal(signal.aborted, true)
+    assert.deepEqual(rt.mailView().accounts, [])
+    assert.equal(rt.secretValue(mailSecretName(address, 'PASSWORD')), undefined)
+    assert.equal((await add('RETRY')).accounts.length, 1)
+  } finally {
+    stalled.resolve({ ...fakeSession(), close: async () => { closed.resolve() } })
+    await result
+  }
+  await closed.promise
+  assert.equal(rt.secretValue(mailSecretName(address, 'PASSWORD')), 'RETRY')
+})
+
 test('mail account remove drops the secret and unregisters the tools', async (t) => {
   const home = teamHome()
   const ctx = fakeContext()
