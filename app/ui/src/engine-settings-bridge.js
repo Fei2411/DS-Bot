@@ -4,8 +4,9 @@
 import { Suspense, createElement as h, useEffect, useMemo, useState } from 'react'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
+import { bustImportUrl } from './import-url.js'
 import { LANGUAGE_OPTIONS, getAppLocale } from './locale.js'
-import { bustImportUrl, pluginRuntime, usePlugins } from './plugin-runtime.js'
+import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { createRetryableLazy } from './retryable-lazy.js'
 export { createRetryableLazy }
 import {

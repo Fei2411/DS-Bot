@@ -3,7 +3,7 @@
 // settings-entry-lazy, and settings-pages-lazy.
 import { createElement as h, lazy } from 'react'
 import { requestWindowReload } from '../../../ds-bot/src/client/reload-action.js'
-import { bustImportUrl } from './plugin-runtime.js'
+import { bustImportUrl } from './import-url.js'
 
 /**
  * Flush any debounced composer drafts into browser storage synchronously before
