@@ -58,14 +58,25 @@ export function createLocale(tag, options = {}) {
   let systemActive = resolveLocale(tag)
   let preference = readStoredPreference(storage)
   let active = preference === 'auto' ? systemActive : resolveLocale(preference)
+  // Keep rendering in the previous loaded language while a newly chosen locale's
+  // dictionary chunk is still fetching, avoiding a mid-session flash to English.
+  let displayActive = active
   let revision = 0
   let refreshSeq = 0
   const dictionaries = new Map()
   const listeners = new Set()
 
+  const hasDictionaryFor = (lang) => {
+    const suffix = `:${lang}`
+    for (const key of dictionaries.keys()) {
+      if (key.endsWith(suffix)) return true
+    }
+    return false
+  }
+
   const syncDocumentLang = () => {
     if (typeof document !== 'undefined' && document.documentElement) {
-      document.documentElement.lang = active
+      document.documentElement.lang = displayActive
     }
   }
 
@@ -81,6 +92,9 @@ export function createLocale(tag, options = {}) {
     systemActive = nextSystem
     if (preference !== 'auto' || systemActive === active) return
     active = systemActive
+    if (active === 'en' || hasDictionaryFor(active)) {
+      displayActive = active
+    }
     revision += 1
     syncDocumentLang()
     notify()
@@ -119,6 +133,9 @@ export function createLocale(tag, options = {}) {
       if (changed) {
         preference = clean
         active = nextActive
+        if (nextActive === 'en' || hasDictionaryFor(nextActive)) {
+          displayActive = nextActive
+        }
         revision += 1
         writeStoredPreference(storage, preference)
         syncDocumentLang()
@@ -136,13 +153,15 @@ export function createLocale(tag, options = {}) {
       const key = `${namespace}:${language}`
       const prev = dictionaries.get(key)
       dictionaries.set(key, dictionary)
-      if (prev !== dictionary && resolveLocale(language) === active) {
+      if (resolveLocale(language) === active && (prev !== dictionary || displayActive !== active)) {
+        displayActive = active
         revision += 1
+        syncDocumentLang()
         notify()
       }
       return () => { dictionaries.delete(key) }
     },
-    bind: namespace => (key, params) => fill(dictionaries.get(`${namespace}:${active}`)?.[key] ?? key, params),
+    bind: namespace => (key, params) => fill(dictionaries.get(`${namespace}:${displayActive}`)?.[key] ?? key, params),
     dispose() {
       refreshSeq += 1
       if (typeof target?.removeEventListener === 'function') {

@@ -433,7 +433,8 @@ test('the background and text move the surfaces from where they sat, also across
 test('the Appearance page words are its own, not a word from another page that reads differently', async () => {
   const { readFileSync } = await import('node:fs')
   const page = readFileSync(new URL('../src/client/appearance-page.js', import.meta.url), 'utf8')
-  const { DICTIONARY } = await import('../src/client/i18n.js')
+  const { DICTIONARY, loadAllLocales } = await import('../src/client/i18n.js')
+  await loadAllLocales()
   // Computer use's "Background", mail's "From" and "To", and the "Light" of an amount.
   for (const word of ['Background', 'From', 'To', 'Light']) {
     assert.doesNotMatch(page, new RegExp(`t\\('${word}'\\)|, '${word}'\\]`), word)

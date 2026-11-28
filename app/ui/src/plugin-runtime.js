@@ -7,24 +7,13 @@ import { noteClientError } from '../../../ds-bot/src/client/diagnostics.js'
 import { sanitizeUserSheet } from '../../../ds-bot/src/client/theme-css.js'
 import { registerShape, registerTheme } from '../../../ds-bot/src/client/themes.js'
 import { themeCssLoadsRemoteFiles, themeCssWithoutImports } from '../../../ds-bot/src/shared/theme-css.js'
+import { bustImportUrl } from './import-url.js'
 import { slots as defaultSlots } from './slots.js'
+
+export { bustImportUrl }
 
 const EMPTY_PLUGINS = Object.freeze([])
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' && typeof document !== 'undefined' ? useLayoutEffect : useEffect
-
-export function bustImportUrl(url, attempt = 0) {
-  const raw = String(url ?? '')
-  if (!raw || attempt <= 0) return raw
-  const hashIdx = raw.indexOf('#')
-  const hash = hashIdx >= 0 ? raw.slice(hashIdx) : ''
-  const withoutHash = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw
-  const queryIdx = withoutHash.indexOf('?')
-  if (queryIdx < 0) return `${withoutHash}?retry=${attempt}${hash}`
-  const base = withoutHash.slice(0, queryIdx)
-  const params = new URLSearchParams(withoutHash.slice(queryIdx + 1))
-  params.set('retry', String(attempt))
-  return `${base}?${params.toString()}${hash}`
-}
 
 function defaultImporter(specifier) {
   return import(/* @vite-ignore */ specifier)
