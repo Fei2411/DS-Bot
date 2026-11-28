@@ -1966,6 +1966,8 @@ export const FR = {
   "Verifying…": "Vérification…",
   "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail n'a pas répondu en 20 secondes. Vérifiez que votre réseau ou proxy peut joindre Gmail, puis réessayez.",
   "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Impossible de joindre Gmail. Vérifiez votre réseau, pare-feu ou proxy, puis réessayez.",
+  "Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.": "Impossible d'ouvrir une connexion sécurisée avec Gmail. Vérifiez vos paramètres réseau ou proxy, puis réessayez.",
+  "Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.": "Gmail demande une connexion dans le navigateur. Connectez-vous à Google dans votre navigateur, terminez les vérifications de sécurité, puis réessayez Ajouter.",
   "Gmail refused the sign-in. Check your app password, then try again.": "Gmail a refusé la connexion. Vérifiez votre mot de passe d'application, puis réessayez.",
   "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Impossible de vérifier Gmail. Réessayez ou copiez le diagnostic pour l'assistance.",
   "Checking Gmail. This can take up to 20 seconds.": "Vérification de Gmail. Cela peut prendre jusqu'à 20 secondes.",

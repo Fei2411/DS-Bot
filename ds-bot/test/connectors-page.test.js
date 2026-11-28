@@ -315,6 +315,27 @@ test('copied Gmail diagnostics carry the failure code and no account details', a
   }
 })
 
+for (const [code, step] of [['bot/mail-gmail-signin', /sign in to Google in your browser/i], ['bot/mail-gmail-tls', /secure connection.*proxy settings/]]) {
+  test(`a Gmail add failing with ${code} shows its own next step`, async () => {
+    const actions = {
+      mailAccountAdd: () => Promise.reject(Object.assign(new Error('host text'), { code })),
+      mailAccountRemove: () => Promise.resolve(true),
+    }
+    props = { mail: { accounts: [] }, actions }
+    slots.length = 0
+    render()
+    click('Connect')
+    fill('Email address', addressAt('gmail.com'))
+    fill('App password', 'pw')
+    click('Add')
+    await flush()
+    const alert = flatten(collect(n => n.props?.role === 'alert')[0]).join('')
+    assert.match(alert, step)
+    assert.doesNotMatch(alert, /app password/)
+    assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Copy diagnostics').length, 1)
+  })
+}
+
 test('a mail failure without a Gmail code offers no diagnostics copy', async () => {
   const actions = {
     mailAccountAdd: () => Promise.reject(Object.assign(new Error('Could not verify Gmail.'), { code: 'bot/refused' })),

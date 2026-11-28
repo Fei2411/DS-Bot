@@ -1997,6 +1997,8 @@ export const DE = {
   'Verifying…': 'Wird überprüft…',
   'Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.': 'Gmail hat nicht innerhalb von 20 Sekunden geantwortet. Prüfe, ob dein Netzwerk oder Proxy Gmail erreicht, und versuche es erneut.',
   'Could not reach Gmail. Check your network, firewall, or proxy, then try again.': 'Gmail ist nicht erreichbar. Prüfe Netzwerk, Firewall oder Proxy und versuche es erneut.',
+  'Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.': 'Es konnte keine sichere Verbindung zu Gmail hergestellt werden. Prüfe deine Netzwerk- oder Proxy-Einstellungen und versuche es erneut.',
+  'Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.': 'Gmail verlangt eine Anmeldung im Browser. Melde dich im Browser bei Google an, schließe die Sicherheitsprüfungen ab und tippe dann erneut auf Hinzufügen.',
   'Gmail refused the sign-in. Check your app password, then try again.': 'Gmail hat die Anmeldung abgelehnt. Prüfe dein App-Passwort und versuche es erneut.',
   'Could not verify Gmail. Try again, or copy the diagnostics for support.': 'Gmail konnte nicht überprüft werden. Versuche es erneut oder kopiere die Diagnose für den Support.',
   'Checking Gmail. This can take up to 20 seconds.': 'Gmail wird geprüft. Das kann bis zu 20 Sekunden dauern.',

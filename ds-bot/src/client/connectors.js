@@ -316,7 +316,9 @@ const guessProvider = (address) => {
 const GMAIL_FAILURES = {
   'bot/mail-gmail-timeout': 'Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.',
   'bot/mail-gmail-network': 'Could not reach Gmail. Check your network, firewall, or proxy, then try again.',
+  'bot/mail-gmail-tls': 'Could not open a secure connection to Gmail. Check your network or proxy settings, then try again.',
   'bot/mail-gmail-auth': 'Gmail refused the sign-in. Check your app password, then try again.',
+  'bot/mail-gmail-signin': 'Gmail needs a browser sign-in. Sign in to Google in your browser, complete any security checks, then try Add again.',
   'bot/mail-gmail-verification': 'Could not verify Gmail. Try again, or copy the diagnostics for support.',
 }
 
