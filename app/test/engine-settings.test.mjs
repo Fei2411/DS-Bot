@@ -1841,4 +1841,17 @@ test('PluginsSettingsPage surfaces custom profile plugins, DSH Web UI-only label
   await new Promise(resolve => setTimeout(resolve, 20))
   const roTree = roHarness.render()
   assert.equal(findAll(roTree, n => n.type === 'button' && /Open config file/.test(textOf(n))).length, 0, 'Open config file button is hidden when settingsData.writable is false')
+
+  // Window plugins empty state renders inside a standard `.bt-set-row` with Folder label and path hint.
+  const { mod: emptyMod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-settings-list') return { available: true, writable: true, namespaces: [] }
+    if (endpoint === 'engine-plugins-list') return { available: true, uiPluginsDir: '/tmp/dsh-home/ui-plugins', bundles: [], plugins: [] }
+    return {}
+  })
+  const emptyHarness = createHarness(emptyMod.PluginsSettingsPage, { readOnly: false })
+  emptyHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const emptyTree = emptyHarness.render()
+  const folderRows = findAll(emptyTree, n => n.props?.className === 'bt-set-row' && /Folder/.test(textOf(n)) && /\/tmp\/dsh-home\/ui-plugins/.test(textOf(n)))
+  assert.equal(folderRows.length, 1, 'empty Window plugins card uses standard padded bt-set-row with Folder label')
 })

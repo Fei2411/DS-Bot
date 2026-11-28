@@ -799,8 +799,7 @@ function DeriveColors({ colors, teamAccent, mode, save }) {
 export const APPEARANCE_PAGE_CSS = `
 .bt-look[data-bg] .bt-look-chat{background:var(--bt-pane,var(--bt-main))}
 .bt-look[data-bg] .bt-look-side{background:var(--bt-sidebar)}
-.bt-look-themes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:12px 16px}
-@media (max-width:680px){.bt-look-themes{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.bt-look-themes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px}
 @media (max-width:440px){.bt-look-themes{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .bt-look-theme{display:flex;flex-direction:column;width:100%;padding:0;margin:0;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-card);color:inherit;font:inherit;text-align:left;box-sizing:border-box;transition:border-color .18s ease,box-shadow .18s ease,transform .14s cubic-bezier(.22,1,.36,1)}
 button.bt-look-theme{cursor:pointer}

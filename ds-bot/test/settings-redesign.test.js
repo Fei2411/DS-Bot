@@ -1415,3 +1415,68 @@ test('SettingsDialog passes dsh?.ownWindow to PluginsPage so plugin fallback wit
     }
   })
 })
+
+test('readOnly roster disables General, Team, and Privacy mutating controls', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const mountPage = async (page) => {
+      const harness = makeStatefulReact()
+      const mod = { exports: {} }
+      new Function('module', 'exports', 'require', code)(mod, mod.exports, () => harness.React)
+      const { SettingsDialog } = mod.exports
+      const readOnlyRoster = {
+        ...baseRoster,
+        readOnly: true,
+        prefs: { defaultBotModel: 'deepseek-official/deepseek-flash', approvalModel: 'deepseek-official/deepseek-flash' },
+      }
+      const actions = {
+        openSettings: () => {},
+        closeSettings: () => {},
+        setPrefs: () => Promise.resolve(),
+        setMain: () => Promise.resolve(),
+        folders: () => Promise.resolve({ team: '/work', data: '/data' }),
+        telemetryStatus: () => Promise.resolve({
+          noticeAccepted: true, usage: true, errors: false, dshSessionLog: true, dshFeedbackTelemetry: false,
+          anonId: 'anon-1', anonMonth: '2026-11', envDisabled: false, recentSent: [{ type: 'daily' }],
+        }),
+        telemetryUpdate: () => Promise.resolve(),
+        telemetryResetId: () => Promise.resolve(),
+        telemetryClearLog: () => Promise.resolve(),
+        diagnostics: () => Promise.resolve({}),
+        diagnosticsLog: () => Promise.resolve({ entries: [] }),
+        repoStars: () => Promise.resolve(0),
+      }
+      const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+        page, id: null, roster: readOnlyRoster, actions, dsh: { ownWindow: true, sections: [], renderSlot: () => null }, useUpdate: sel => sel({}),
+      }))
+      draw()
+      await new Promise(r => setTimeout(r, 0))
+      const tree = draw()
+      return { tree, unmount: () => harness.unmount() }
+    }
+
+    const gen = await mountPage('general')
+    const enterSwitch = findAll(gen.tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Enter sends message')[0]
+    assert.equal(enterSwitch?.props?.disabled, true, 'General Enter sends message switch disabled in readOnly')
+    const resetBtn = findAll(gen.tree, n => n.type === 'button' && textOf(n) === 'Reset')[0]
+    assert.equal(resetBtn?.props?.disabled, true, 'General Default model Reset disabled in readOnly')
+    gen.unmount()
+
+    const bots = await mountPage('bots')
+    const newBotBtn = findAll(bots.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-bot')[0]
+    assert.equal(newBotBtn?.props?.disabled, true, 'Team New Bot button disabled in readOnly')
+    const newGroupBtn = findAll(bots.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-group')[0]
+    assert.equal(newGroupBtn?.props?.disabled, true, 'Team Create group chat button disabled in readOnly')
+    bots.unmount()
+
+    const priv = await mountPage('privacy')
+    const privSwitches = findAll(priv.tree, n => n.type === 'button' && n.props?.role === 'switch')
+    assert.ok(privSwitches.length >= 4, 'Privacy switches render')
+    assert.equal(privSwitches.every(s => s.props?.disabled === true), true, 'all Privacy switches disabled in readOnly')
+    const clearBtn = findAll(priv.tree, n => n.type === 'button' && textOf(n) === 'Clear')[0]
+    assert.equal(clearBtn?.props?.disabled, true, 'Privacy Clear button disabled in readOnly')
+    const showBtn = findAll(priv.tree, n => n.type === 'button' && textOf(n) === 'Show')[0]
+    assert.equal(showBtn?.props?.disabled, false, 'Privacy Show log inspection stays enabled in readOnly')
+    priv.unmount()
+  })
+})

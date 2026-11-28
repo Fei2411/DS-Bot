@@ -10,7 +10,7 @@ import { useEscape } from './overlay-hooks.js'
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
-export function PrivacyPage({ actions, run, Section, Row }) {
+export function PrivacyPage({ actions, run, Section, Row, readOnly = false }) {
   const [state, setState] = useState(null)
   const [showLog, setShowLog] = useState(false)
   const [note, setNote] = useState('')
@@ -64,7 +64,7 @@ export function PrivacyPage({ actions, run, Section, Row }) {
       }, h(Switch, {
         label: t('Anonymous usage statistics'),
         on: !disabled && state?.usage === true && state?.noticeAccepted === true,
-        disabled: state === null || disabled,
+        disabled: readOnly || state === null || disabled,
         onChange: usage => save(state?.noticeAccepted === true ? { usage } : { usage, errors: false, noticeAccepted: true }),
       })),
       h(Row, {
@@ -73,19 +73,19 @@ export function PrivacyPage({ actions, run, Section, Row }) {
       }, h(Switch, {
         label: t('Anonymous error reports'),
         on: !disabled && state?.errors === true && state?.noticeAccepted === true,
-        disabled: state === null || disabled,
+        disabled: readOnly || state === null || disabled,
         onChange: errors => save(state?.noticeAccepted === true ? { errors } : { usage: false, errors, noticeAccepted: true }),
       })),
       h(Row, {
         label: t('Anonymous ID'),
         hint: state ? `${state.anonId} · ${t('Rotates monthly on {month}', { month: state.anonMonth })}` : t('Loading…'),
-      }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: state === null, onClick: resetId }, t('Reset'))),
+      }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || state === null, onClick: resetId }, t('Reset'))),
       h(Row, {
         label: t('Recently sent data'),
         hint: t('Inspect the exact JSON sent from this computer (last 20 entries).'),
       },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: state === null, 'aria-expanded': showLog, onClick: () => setShowLog(v => !v) }, showLog ? t('Hide') : t('Show')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: state === null || recent.length === 0, onClick: clearLog }, t('Clear'))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || state === null || recent.length === 0, onClick: clearLog }, t('Clear'))),
       showLog ? h('div', { className: 'bt-set-row bt-fb-preview' }, h('pre', { tabIndex: 0, 'aria-label': t('Recently sent data') }, logText)) : null,
       state?.privacyUrl
         ? h(Row, { label: t('Privacy policy') }, h('a', linkProps(state.privacyUrl), t('Open')))
@@ -98,7 +98,7 @@ export function PrivacyPage({ actions, run, Section, Row }) {
       }, h(Switch, {
         label: t('Upload Session Log to DeepSeek API'),
         on: state?.dshSessionLog === true,
-        disabled: state === null,
+        disabled: readOnly || state === null,
         onChange: dshSessionLog => save({ dshSessionLog }),
       })),
       h(Row, {
@@ -107,7 +107,7 @@ export function PrivacyPage({ actions, run, Section, Row }) {
       }, h(Switch, {
         label: t('Send feedback sessions to DeepSeek'),
         on: state?.dshFeedbackTelemetry === true,
-        disabled: state === null,
+        disabled: readOnly || state === null,
         onChange: dshFeedbackTelemetry => save({ dshFeedbackTelemetry }),
       }))),
   ]

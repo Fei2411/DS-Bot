@@ -26121,10 +26121,10 @@ body[data-ds-dark-theme] .bt-main-pill[aria-pressed=true]{background:color-mix(i
 .bt-key-compact .bt-secret-field{width:220px}
 .bt-key-compact .bt-send{height:32px}
 .bt-ov-section{display:flex;flex-direction:column;gap:10px}
-.bt-ov-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:0 4px}
+.bt-ov-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px}
 .bt-ov-head>h3{margin:0;font-size:13px;line-height:18px;font-weight:600}
-.bt-ov-link{display:inline-flex;gap:12px;border:0;background:none;padding:0;font:inherit;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer}
-.bt-ov-link:hover{color:var(--bt-ink)}
+.bt-ov-link{display:inline-flex;align-items:center;gap:12px;min-height:28px;border:0;border-radius:6px;background:none;padding:0 8px;margin-right:-8px;font:inherit;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-ov-link:hover{color:var(--bt-ink);background:var(--bt-hover)}
 .bt-ov-team{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
 .bt-ov-bot{min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px 12px;border-radius:12px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-card-shadow);color:var(--bt-ink);font:inherit;cursor:pointer;transition:border-color .14s ease,background-color .14s ease}
 .bt-ov-bot:hover{border-color:var(--bt-line-2)}
@@ -26390,7 +26390,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 @keyframes bt-plg-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-plg-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
 .bt-plg-text{min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-plg-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
+.bt-plg-name{display:flex;align-items:center;flex-wrap:wrap;gap:3px 6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
 .bt-plg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-plg-name .bt-tag{flex:none}
 .bt-plg-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -42667,8 +42667,7 @@ function DeriveColors({ colors, teamAccent, mode, save }) {
 var APPEARANCE_PAGE_CSS = `
 .bt-look[data-bg] .bt-look-chat{background:var(--bt-pane,var(--bt-main))}
 .bt-look[data-bg] .bt-look-side{background:var(--bt-sidebar)}
-.bt-look-themes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:12px 16px}
-@media (max-width:680px){.bt-look-themes{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.bt-look-themes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px}
 @media (max-width:440px){.bt-look-themes{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .bt-look-theme{display:flex;flex-direction:column;width:100%;padding:0;margin:0;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-card);color:inherit;font:inherit;text-align:left;box-sizing:border-box;transition:border-color .18s ease,box-shadow .18s ease,transform .14s cubic-bezier(.22,1,.36,1)}
 button.bt-look-theme{cursor:pointer}
@@ -60277,7 +60276,7 @@ var FEEDBACK_CSS = `
 // src/client/privacy-page.js
 var import_react65 = require("react");
 var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href, target: "_blank", rel: "noopener noreferrer" });
-function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
+function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnly = false }) {
   const [state, setState] = (0, import_react65.useState)(null);
   const [showLog, setShowLog] = (0, import_react65.useState)(false);
   const [note, setNote] = (0, import_react65.useState)("");
@@ -60345,7 +60344,7 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
       }, (0, import_react65.createElement)(Switch, {
         label: t("Anonymous usage statistics"),
         on: !disabled && state?.usage === true && state?.noticeAccepted === true,
-        disabled: state === null || disabled,
+        disabled: readOnly || state === null || disabled,
         onChange: (usage) => save(state?.noticeAccepted === true ? { usage } : { usage, errors: false, noticeAccepted: true })
       })),
       (0, import_react65.createElement)(Row4, {
@@ -60354,13 +60353,13 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
       }, (0, import_react65.createElement)(Switch, {
         label: t("Anonymous error reports"),
         on: !disabled && state?.errors === true && state?.noticeAccepted === true,
-        disabled: state === null || disabled,
+        disabled: readOnly || state === null || disabled,
         onChange: (errors) => save(state?.noticeAccepted === true ? { errors } : { usage: false, errors, noticeAccepted: true })
       })),
       (0, import_react65.createElement)(Row4, {
         label: t("Anonymous ID"),
         hint: state ? `${state.anonId} · ${t("Rotates monthly on {month}", { month: state.anonMonth })}` : t("Loading…")
-      }, (0, import_react65.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: state === null, onClick: resetId }, t("Reset"))),
+      }, (0, import_react65.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly || state === null, onClick: resetId }, t("Reset"))),
       (0, import_react65.createElement)(
         Row4,
         {
@@ -60368,7 +60367,7 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
           hint: t("Inspect the exact JSON sent from this computer (last 20 entries).")
         },
         (0, import_react65.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: state === null, "aria-expanded": showLog, onClick: () => setShowLog((v) => !v) }, showLog ? t("Hide") : t("Show")),
-        (0, import_react65.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: state === null || recent.length === 0, onClick: clearLog }, t("Clear"))
+        (0, import_react65.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly || state === null || recent.length === 0, onClick: clearLog }, t("Clear"))
       ),
       showLog ? (0, import_react65.createElement)("div", { className: "bt-set-row bt-fb-preview" }, (0, import_react65.createElement)("pre", { tabIndex: 0, "aria-label": t("Recently sent data") }, logText)) : null,
       state?.privacyUrl ? (0, import_react65.createElement)(Row4, { label: t("Privacy policy") }, (0, import_react65.createElement)("a", linkProps(state.privacyUrl), t("Open"))) : null
@@ -60383,7 +60382,7 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
       }, (0, import_react65.createElement)(Switch, {
         label: t("Upload Session Log to DeepSeek API"),
         on: state?.dshSessionLog === true,
-        disabled: state === null,
+        disabled: readOnly || state === null,
         onChange: (dshSessionLog) => save({ dshSessionLog })
       })),
       (0, import_react65.createElement)(Row4, {
@@ -60392,7 +60391,7 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
       }, (0, import_react65.createElement)(Switch, {
         label: t("Send feedback sessions to DeepSeek"),
         on: state?.dshFeedbackTelemetry === true,
-        disabled: state === null,
+        disabled: readOnly || state === null,
         onChange: (dshFeedbackTelemetry) => save({ dshFeedbackTelemetry })
       }))
     )
@@ -64340,28 +64339,30 @@ var MEMORY_SIZES = [
   { scope: "bot", label: "Bot memory size", size: 8e3 },
   { scope: "team", label: "Team memory size", size: 4e3 }
 ];
-function MemorySize({ label, value, save }) {
+function MemorySize({ label, value, save, disabled = false }) {
   const [text, setText] = (0, import_react76.useState)(String(value));
   (0, import_react76.useEffect)(() => setText(String(value)), [value]);
   const commit = () => {
+    if (disabled) return;
     const number = Number(text);
     if (Number.isInteger(number) && number >= 1e3 && number <= 2e5 && number !== value) save(number);
     else setText(String(value));
   };
-  return (0, import_react76.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 1e3, max: 2e5, step: 1e3, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+  return (0, import_react76.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 1e3, max: 2e5, step: 1e3, disabled, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
     if (event.key === "Enter") event.target.blur();
   } });
 }
 var BACKGROUND_AFTER_SEC = 5;
-function SecondsField({ label, value, save }) {
+function SecondsField({ label, value, save, disabled = false }) {
   const [text, setText] = (0, import_react76.useState)(String(value));
   (0, import_react76.useEffect)(() => setText(String(value)), [value]);
   const commit = () => {
+    if (disabled) return;
     const number = Number(text);
     if (text.trim() !== "" && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number);
     else setText(String(value));
   };
-  return (0, import_react76.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+  return (0, import_react76.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, disabled, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
     if (event.key === "Enter") event.target.blur();
   } });
 }
@@ -64396,6 +64397,7 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
   const basicDsh = BASIC_ITEMS.filter((id) => items.includes(id));
   const more = items.filter((id) => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id) && !PRIVACY_ITEMS.includes(id));
   const prefs = roster.prefs ?? {};
+  const readOnly = Boolean(roster?.readOnly);
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === "agent");
   const [advancedOpen, setAdvancedOpen] = (0, import_react76.useState)(() => Boolean(openAdvanced));
   (0, import_react76.useEffect)(() => {
@@ -64423,15 +64425,16 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
           run: run2,
           wide: true,
           withEfforts: false,
+          disabled: readOnly,
           fallbackModel: roster.defaultModel,
           onPick: (ref) => run2(actions.setPrefs({ defaultBotModel: ref }))
         }),
-        prefs.defaultBotModel ? (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
+        prefs.defaultBotModel ? (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
       ),
       (0, import_react76.createElement)(
         SetRow,
         { label: t("Enter sends message") },
-        (0, import_react76.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+        (0, import_react76.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, disabled: readOnly, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       ),
       basicDsh.includes("composer-enter") ? dshItem(dsh, "composer-enter") : null
     ),
@@ -64448,12 +64451,13 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
           run: run2,
           wide: true,
           withEfforts: false,
+          disabled: readOnly,
           onPick: (ref) => run2(actions.setPrefs({ approvalModel: ref }))
         }),
-        prefs.approvalModel ? (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ approvalModel: null })) }, t("Follow team default")) : null
+        prefs.approvalModel ? (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => run2(actions.setPrefs({ approvalModel: null })) }, t("Follow team default")) : null
       )
     ),
-    (0, import_react76.createElement)(LocationsSection, { key: "places", actions, run: run2 }),
+    (0, import_react76.createElement)(LocationsSection, { key: "places", actions, run: run2, readOnly }),
     actions.setSurface && !inAgentMode ? (0, import_react76.createElement)(
       SetSection,
       { key: "classic-mode", title: t("Mode") },
@@ -64487,24 +64491,24 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
         (0, import_react76.createElement)(
           SetRow,
           { key: "recall", label: t("Bring up related memory") },
-          (0, import_react76.createElement)(Switch, { label: t("Bring up related memory"), on: prefs.memoryAutoRecall !== false, onChange: (memoryAutoRecall) => run2(actions.setPrefs({ memoryAutoRecall })) })
+          (0, import_react76.createElement)(Switch, { label: t("Bring up related memory"), on: prefs.memoryAutoRecall !== false, disabled: readOnly, onChange: (memoryAutoRecall) => run2(actions.setPrefs({ memoryAutoRecall })) })
         ),
         ...MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react76.createElement)(
           SetRow,
           { key: scope, label: t(label) },
-          (0, import_react76.createElement)(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: (value) => run2(actions.setPrefs({ memoryLimits: { [scope]: value } })) })
+          (0, import_react76.createElement)(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, disabled: readOnly, save: (value) => run2(actions.setPrefs({ memoryLimits: { [scope]: value } })) })
         )),
         (0, import_react76.createElement)(
           SetRow,
           { key: "bg", label: t("Background commands after (seconds)") },
-          (0, import_react76.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
+          (0, import_react76.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, disabled: readOnly, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
         ),
         ...more.map((id) => dshItem(dsh, id))
       ] : null
     )
   ];
 }
-function LocationsSection({ actions, run: run2 }) {
+function LocationsSection({ actions, run: run2, readOnly = false }) {
   const app = globalThis.dsBotApp;
   const [team, setTeam] = (0, import_react76.useState)(null);
   const [data, setData] = (0, import_react76.useState)(null);
@@ -64520,7 +64524,7 @@ function LocationsSection({ actions, run: run2 }) {
     });
   }, []);
   const pickTeam = (path2) => {
-    if (busy.current) return void 0;
+    if (busy.current || readOnly) return void 0;
     busy.current = true;
     setMoving(true);
     return run2(Promise.resolve(actions.setTeamWorkspace(path2)).then((answer) => {
@@ -64537,24 +64541,26 @@ function LocationsSection({ actions, run: run2 }) {
     (0, import_react76.createElement)(
       SetRow,
       { label: t("Team workspace") },
-      team === null ? null : (0, import_react76.createElement)(FolderMenu, { value: team, team: true, actions, run: run2, onPick: pickTeam, disabled: moving })
+      team === null ? null : (0, import_react76.createElement)(FolderMenu, { value: team, team: true, actions, run: run2, onPick: pickTeam, disabled: moving || readOnly })
     ),
     data === null ? null : (0, import_react76.createElement)(
       SetRow,
       { label: t("Data location"), hint: data.path },
-      data.fixed ? null : (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: moving, onClick: () => {
-        if (!busy.current) void run2(app.moveData(team ?? void 0));
+      data.fixed ? null : (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: moving || readOnly, onClick: () => {
+        if (!busy.current && !readOnly) void run2(app.moveData(team ?? void 0));
       } }, t("Change…"))
     )
   );
 }
 function MainBotsSection({ roster, actions, run: run2 }) {
+  const readOnly = Boolean(roster?.readOnly);
   const mains = (roster.mainBotIds ?? []).map((id) => roster.byId[id]).filter(Boolean);
   const first = mains[0];
   const [confirmed, setConfirmed] = (0, import_react76.useState)(null);
   const confirmTimer = (0, import_react76.useRef)(0);
   (0, import_react76.useEffect)(() => () => clearTimeout(confirmTimer.current), []);
   const toggleMain = (bot, isMain) => {
+    if (readOnly) return;
     const turningOn = !isMain;
     void Promise.resolve(run2(actions.setMain(bot.id, turningOn))).then((ok) => {
       if (ok === false || !turningOn) return;
@@ -64580,7 +64586,7 @@ function MainBotsSection({ roster, actions, run: run2 }) {
             className: "bt-main-pill",
             "aria-pressed": isMain,
             "data-confirm": confirmed === bot.id ? "" : void 0,
-            disabled: isLastMain,
+            disabled: isLastMain || readOnly,
             title: isLastMain ? t("Keep at least one Main Bot") : void 0,
             onClick: () => toggleMain(bot, isMain)
           },
@@ -64596,16 +64602,18 @@ function MainBotsSection({ roster, actions, run: run2 }) {
       (0, import_react76.createElement)(SelectMenu, {
         "aria-label": t("Primary tile"),
         value: first?.id ?? "",
+        disabled: readOnly,
         options: mains.map((bot) => ({ value: bot.id, label: bot.name })),
         onChange: (id) => {
-          if (id && id !== first?.id) void run2(actions.setMain(id, true, { primary: true }));
+          if (!readOnly && id && id !== first?.id) void run2(actions.setMain(id, true, { primary: true }));
         }
       })
     ) : null
   );
 }
 function BotsPage({ roster, actions, run: run2 }) {
-  const newBotBtn = (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-bot", onClick: () => actions.openSettings("bots", "new") }, (0, import_react76.createElement)(PlusIcon), t("New Bot"));
+  const readOnly = Boolean(roster?.readOnly);
+  const newBotBtn = (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-bot", disabled: readOnly, onClick: () => actions.openSettings("bots", "new") }, (0, import_react76.createElement)(PlusIcon), t("New Bot"));
   return [
     (0, import_react76.createElement)(MainBotsSection, { key: "main", roster, actions, run: run2 }),
     (0, import_react76.createElement)(
@@ -64630,8 +64638,9 @@ function BotsPage({ roster, actions, run: run2 }) {
   ];
 }
 function GroupsPage({ roster, actions, run: run2 }) {
+  const readOnly = Boolean(roster?.readOnly);
   const [creating, setCreating] = (0, import_react76.useState)(false);
-  const newGroupBtn = creating ? null : (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-group", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react76.createElement)(PlusIcon), t("Create group chat"));
+  const newGroupBtn = creating ? null : (0, import_react76.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "new-group", disabled: readOnly || roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react76.createElement)(PlusIcon), t("Create group chat"));
   return [
     creating ? (0, import_react76.createElement)(NewGroupForm, { key: "create", roster, actions, run: run2, onCancel: () => setCreating(false), onCreated: (room2) => actions.openSettings("groups", room2.id) }) : null,
     (0, import_react76.createElement)(
@@ -64807,7 +64816,10 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (!hit) return;
     setPalette(false);
     if (tourRef.current) dismissTour();
-    if (hit.expandAdvanced) setAdvancedToken((token) => token + 1);
+    if (hit.expandAdvanced) {
+      pendingAdvancedScroll.current = true;
+      setAdvancedToken((token) => token + 1);
+    }
     if (hit.page === "dsh") go("dsh", hit.dshId);
     else go(hit.page, hit.target);
   };
@@ -64844,9 +64856,18 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (section || owner?.id !== activeGroup?.id || depth > 0) setTour(null);
   }, [tour, shown, section, depth]);
   const userScrolled = (0, import_react76.useRef)(false);
+  const pendingAdvancedScroll = (0, import_react76.useRef)(false);
   const heading = (0, import_react76.useRef)(null);
   const headingTimer = (0, import_react76.useRef)(0);
   (0, import_react76.useEffect)(() => () => clearTimeout(headingTimer.current), []);
+  const scrollToAdvanced = () => {
+    const box = scrollRef.current ?? dialogRef.current?.querySelector?.(".bt-settings-scroll");
+    const target = box?.querySelector?.('[data-tour="advanced"]');
+    if (!box || !target) return false;
+    const top = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 16;
+    box.scrollTo?.({ top: Math.max(0, top), behavior: "auto" });
+    return true;
+  };
   const scrollToPart = (key, smooth) => {
     const box = scrollRef.current;
     const target = box?.querySelector?.(`[data-part="${key}"]`);
@@ -64854,6 +64875,22 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     const top = key === partKeys[0] ? 0 : target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
     box.scrollTo?.({ top: Math.max(0, top), behavior: smooth && !reducedMotion2() ? "smooth" : "auto" });
   };
+  (0, import_react76.useEffect)(() => {
+    if (shown !== "general" || advancedToken === 0 || !pendingAdvancedScroll.current) return void 0;
+    const settle = () => {
+      if (userScrolled.current) return;
+      scrollToAdvanced();
+    };
+    const frame3 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(settle) : 0;
+    const later = setTimeout(() => {
+      settle();
+      pendingAdvancedScroll.current = false;
+    }, 450);
+    return () => {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame3);
+      clearTimeout(later);
+    };
+  }, [shown, advancedToken]);
   (0, import_react76.useEffect)(() => {
     if (!parts) return void 0;
     if (anchored.current === shown) {
@@ -64865,7 +64902,11 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     setSpied(shown);
     userScrolled.current = false;
     const settle = () => {
-      if (!userScrolled.current) scrollToPart(shown, false);
+      if (userScrolled.current) return;
+      if (shown === "general" && pendingAdvancedScroll.current) {
+        if (scrollToAdvanced()) return;
+      }
+      scrollToPart(shown, false);
     };
     const frame3 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(settle) : 0;
     const later = setTimeout(settle, 420);
@@ -64930,6 +64971,10 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (groupId === "about" && update.available) return (0, import_react76.createElement)("span", { className: "bt-settings-chip" }, t("Update"));
     return null;
   };
+  const goUser = (nextPage, nextId) => {
+    if (tourRef.current) dismissTour();
+    go(nextPage, nextId);
+  };
   const groupButton = (group) => {
     const active = !section && activeGroup.id === group.id;
     return (0, import_react76.createElement)(
@@ -64939,7 +64984,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         type: "button",
         className: "bt-settings-item",
         "aria-current": active ? "page" : void 0,
-        onClick: () => go(group.pages[0][0])
+        onClick: () => goUser(group.pages[0][0])
       },
       (0, import_react76.createElement)(PAGE_ICONS[group.icon]),
       (0, import_react76.createElement)("span", { className: "bt-settings-label" }, t(group.label)),
@@ -65009,7 +65054,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       case "secrets":
         return (0, import_react76.createElement)(SecretsPage, { roster, actions, run: run2, Section: SetSection });
       case "privacy":
-        return (0, import_react76.createElement)(PrivacyPage, { actions, run: run2, Section: SetSection, Row: SetRow });
+        return (0, import_react76.createElement)(PrivacyPage, { actions, run: run2, Section: SetSection, Row: SetRow, readOnly: Boolean(roster?.readOnly) });
       case "feedback":
         return (0, import_react76.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow });
       case "about":
@@ -65075,7 +65120,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           needsModel,
           homeGroups,
           homeStatus: (key) => groupStatus(key),
-          onHomeOpen: (item) => item.page === "dsh" ? go("dsh", item.id) : go(item.page),
+          onHomeOpen: (item) => item.page === "dsh" ? goUser("dsh", item.id) : goUser(item.page),
           onSearch: openPalette,
           narrow: narrowNav,
           keyMissing
@@ -65123,7 +65168,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             type: "button",
             className: "bt-settings-item",
             "aria-current": section?.id === row.id ? "page" : void 0,
-            onClick: () => actions.openSettings("dsh", row.id)
+            onClick: () => goUser("dsh", row.id)
           }, (0, import_react76.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dshIcon(row, 16, section?.id === row.id)), (0, import_react76.createElement)("span", { className: "bt-settings-label" }, row.label))),
           (0, import_react76.createElement)("span", { className: "bt-settings-fill", "aria-hidden": true }),
           lastGroups.map(groupButton)
