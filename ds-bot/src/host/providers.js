@@ -697,6 +697,7 @@ export function install(rt) {
       addable,
       protocols: protocolsOf(piSection),
       reasoningLevels: reasoningLevelsOf(piSection),
+      ...(retryDefaultsOf(piSection, ['providers', '*']) !== undefined ? { retryDefaults: retryDefaultsOf(piSection, ['providers', '*']) } : {}),
       revisions,
       revision: piSection?.revision,
     }
@@ -1042,8 +1043,145 @@ export function install(rt) {
     return providersView()
   }
 
+  // Full catalog or custom provider creation with optional baseURL, full model metadata,
+  // retryPolicy, and API key (preserving env-detected credentials or nativeAuth).
+  async function addProviderConfig(body) {
+    await repairing
+    const { settings, credentials } = usable()
+    assertWritable(settings)
+    const provider = String(body?.provider ?? '').trim()
+    if (provider === '') throw invalid('Choose a provider')
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in to add this connection.')
+    const custom = body?.custom === true
+    const map = sections(settings)
+    const piSection = map.get(PI_AI)
+    const protocols = protocolsOf(piSection)
+    const entry = entryOf(provider)
+    if (entry !== undefined && (entry.settingsNs !== PI_AI || profileOf(entry, map) !== undefined)) {
+      throw invalid(`${provider} is already set up`)
+    }
+    if (!custom && (entry === undefined || entry.declared === true)) {
+      throw invalid(`DSH offers no provider ${provider}`)
+    }
+    if (custom && !ROUTE_ID.test(provider)) {
+      throw invalid('A provider id is lowercase letters, digits and dashes, starting with a letter')
+    }
+    if (custom && entry !== undefined) {
+      throw invalid(`DSH already offers ${provider}; add it from its list`)
+    }
+
+    const key = typeof body.key === 'string' && body.key.trim() !== '' ? checkKey(body.key) : undefined
+    const ref = keyRefFor(provider)
+    const info = await credentials.describe(ref)
+    if (key !== undefined && info.writable === false) {
+      throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
+    }
+    const keyed = key !== undefined || info.configured === true
+
+    let profile
+    if (custom) {
+      const api = typeof body.api === 'string' ? body.api.trim() : ''
+      if (!protocols.includes(api)) throw invalid(`The protocol must be one of ${protocols.join(', ')}`)
+      if (api === GEMINI_PROTOCOL && !keyed) throw invalid('Google Gemini requires an API key')
+      const baseURL = checkEndpoint(body.baseURL)
+      const rawModels = Array.isArray(body.models) ? body.models : []
+      if (rawModels.length === 0) throw invalid('Add at least one model')
+      if (rawModels.length > MAX_MODELS) throw invalid(`At most ${MAX_MODELS} models can be kept`)
+      const models = rawModels.map(item => cleanEditableModel(item, { family: 'pi-ai', protocol: api }))
+      if (new Set(models.map(m => m.id)).size !== models.length) throw invalid('Two models have the same id')
+      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : ''
+      const compat = CUSTOM_COMPAT[api]
+      profile = {
+        ...(name ? { displayName: name } : {}),
+        api,
+        baseURL,
+        ...(compat ? { compat: { ...compat } } : {}),
+        models,
+      }
+    } else {
+      profile = {}
+      const urlText = typeof body.baseURL === 'string' ? body.baseURL.trim() : ''
+      if (urlText !== '') {
+        profile.baseURL = checkEndpoint(urlText)
+      }
+      if (Array.isArray(body.models) && body.models.length > 0) {
+        if (body.models.length > MAX_MODELS) throw invalid(`At most ${MAX_MODELS} models can be kept`)
+        const catApi = catalogProtocol(provider)
+        const models = body.models.map(item => cleanEditableModel(item, { family: 'pi-ai', protocol: catApi }))
+        if (new Set(models.map(m => m.id)).size !== models.length) throw invalid('Two models have the same id')
+        profile.models = models
+      }
+      const nextCompat = compatForRoute(provider, profile)
+      if (nextCompat !== undefined) profile.compat = nextCompat
+    }
+
+    if (body.retryPolicy !== undefined && body.retryPolicy !== null) {
+      profile.retryPolicy = validateRetryPolicyConfig(body.retryPolicy, provider)
+    }
+    if (keyed) profile.apiKeyEnv = ref
+
+    try {
+      await settings.mutate(PI_AI, [{ op: 'set', path: entry?.settingsPath ?? ['providers', provider], value: profile }], body.revision ?? piSection?.revision)
+    } catch (error) {
+      if (error?.code === 'SETTINGS_CONFLICT') {
+        throw stale('The provider settings changed elsewhere; reload and try again')
+      }
+      throw error
+    }
+    if (key !== undefined) await credentials.set(ref, key)
+    rt.dropCatalog()
+    return providersView()
+  }
+
+  // Probe an existing, catalog, or custom endpoint with optional unsaved draft overrides
+  // (baseURL, api, apiKey). The draft key is used only for this probe and never stored.
+  async function discoverProviderModels(body) {
+    const { settings } = usable()
+    const map = sections(settings)
+    const protocols = protocolsOf(map.get(PI_AI))
+    const provider = typeof body?.provider === 'string' && body.provider.trim() !== '' ? body.provider.trim() : undefined
+    const entry = provider === undefined ? undefined : entryOf(provider)
+    const profile = entry !== undefined && entry.settingsNs === PI_AI ? profileOf(entry, map) : undefined
+    const draftBaseURL = typeof body?.baseURL === 'string' && body.baseURL.trim() !== '' ? checkEndpoint(body.baseURL) : undefined
+    const draftApi = typeof body?.api === 'string' && protocols.includes(body.api.trim()) ? body.api.trim() : undefined
+    const draftKey = typeof body?.key === 'string' && body.key.trim() !== '' ? checkKey(body.key) : undefined
+
+    let request
+    if (entry !== undefined && entry.settingsNs === PI_AI && (profile !== undefined || entry.declared === false)) {
+      const effectiveBaseURL = draftBaseURL ?? (typeof profile?.baseURL === 'string' && profile.baseURL !== '' ? profile.baseURL : undefined)
+      const effectiveApi = draftApi ?? (typeof profile?.api === 'string' ? profile.api : undefined)
+      request = {
+        provider,
+        ...(effectiveBaseURL !== undefined ? { baseURL: effectiveBaseURL } : {}),
+        ...(effectiveApi !== undefined ? { api: effectiveApi } : {}),
+        ...(draftKey !== undefined ? { apiKey: draftKey } : {}),
+      }
+    } else {
+      request = {
+        baseURL: draftBaseURL ?? checkEndpoint(body?.baseURL),
+        ...(draftApi !== undefined ? { api: draftApi } : {}),
+        ...(draftKey !== undefined ? { apiKey: draftKey } : {}),
+      }
+    }
+    const models = await ctx.llm.discoverModels(PI_AI, request)
+    const known = request.provider === undefined ? await knownCatalogModels() : undefined
+    return models.slice(0, MAX_MODELS).map((model) => {
+      const match = lookupKnownModel(known, model.id)
+      const contextWindow = model.contextWindow ?? match?.contextWindow
+      const inputModalities = model.inputModalities ?? match?.inputModalities
+      return {
+        id: model.id,
+        ...(model.name ? { name: model.name } : {}),
+        ...(contextWindow ? { contextWindow } : {}),
+        ...(model.maxTokens ? { maxTokens: model.maxTokens } : {}),
+        ...(inputModalities ? { inputModalities: [...inputModalities] } : {}),
+      }
+    })
+  }
+
   Object.assign(rt, {
     keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey,
-    addProvider, discoverModels, saveProviderModels, saveProviderConfig, removeProvider,
+    addProvider, addProviderConfig, discoverModels, discoverProviderModels,
+    saveProviderModels, saveProviderConfig, removeProvider,
   })
 }

@@ -123,6 +123,13 @@ export function isValidRouteId(route) {
 export function validateBaseUrl(text, { strictDeepSeek = false } = {}) {
   const trimmed = String(text ?? '').trim()
   if (trimmed === '') return undefined
+  if (typeof URL !== 'function') {
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) return 'Enter the endpoint as an http or https address'
+    if (strictDeepSeek && (/[?#]/.test(trimmed) || /^https?:\/\/[^/]*@/.test(trimmed))) {
+      return 'Base URL must not include credentials, query, or fragment'
+    }
+    return undefined
+  }
   let url
   try { url = new URL(trimmed) } catch { return 'Enter the endpoint as an http or https address' }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'Enter the endpoint as an http or https address'

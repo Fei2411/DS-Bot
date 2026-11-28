@@ -73,6 +73,8 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   'schedule-enable',
   // Full model provider configuration edits stay on this computer (never remote phone/browser/API/MCP).
   'provider-config-save',
+  'provider-config-add',
+  'provider-config-discover',
 ])
 
 // The only computer-prefixed endpoints a paired phone may use. Every other computer-*

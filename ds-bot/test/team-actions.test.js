@@ -86,6 +86,8 @@ test('every window reaches the host model providers, and key changes read the te
   await actions.providerModels({ baseURL: 'https://gateway.example/v1', api: 'openai-completions', key: '' })
   await actions.removeProvider('router')
   await actions.saveProviderConfig({ provider: 'router', baseURL: 'https://gateway.example/v1' })
+  await actions.addProviderConfig({ provider: 'openai', key: 'sk-1' })
+  await actions.discoverProviderModels({ provider: 'openai' })
   assert.deepEqual(sent, [
     ['providers', undefined],
     ['provider-key', { provider: 'deepseek-official', value: 'sk-test-ok' }],
@@ -94,9 +96,11 @@ test('every window reaches the host model providers, and key changes read the te
     ['provider-models', { baseURL: 'https://gateway.example/v1', api: 'openai-completions', key: '' }],
     ['provider-remove', { provider: 'router' }],
     ['provider-config-save', { provider: 'router', baseURL: 'https://gateway.example/v1' }],
+    ['provider-config-add', { provider: 'openai', key: 'sk-1' }],
+    ['provider-config-discover', { provider: 'openai' }],
   ])
-  // Reads (the list and a model discovery) leave the team as it is.
-  assert.equal(pulls(), 5)
+  // Reads (the list and model discovery) leave the team as it is.
+  assert.equal(pulls(), 6)
 })
 
 test('capability choices send the channel mode and refresh the roster after saving', async () => {
