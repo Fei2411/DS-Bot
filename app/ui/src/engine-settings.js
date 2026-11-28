@@ -20,6 +20,7 @@ import {
   GlobeIcon,
   LayersIcon,
   PaletteIcon,
+  PersonIcon,
   PlusIcon,
   PuzzleIcon,
   SearchIcon,
@@ -32,7 +33,7 @@ import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/s
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
 import { isBlockedEngineBundle } from '../../../ds-bot/src/shared/engine-bundles.js'
-import { getDesktopAccountState, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
+import { authorizeUrlWithTheme, getDesktopAccountState, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
 import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { writeClipboard } from './primitives.js'
 import { reloadExternalUiPlugins } from './ui-plugin-loader.js'
@@ -552,27 +553,98 @@ function StatusAlert({ error, notice }) {
     notice ? h('div', { className: 'dsb-engine-notice', role: 'status' }, notice) : null)
 }
 
-function formatWallets(wallets) {
-  if (!Array.isArray(wallets) || wallets.length === 0) return null
-  return wallets
-    .filter(item => item && typeof item.balance === 'string')
-    .map(item => `${item.currency === 'CNY' ? '¥' : '$'}${item.balance}`)
-    .join(' · ')
+function parseExactDecimal(raw) {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed)
+  if (!match) return null
+  return {
+    neg: match[1] === '-',
+    intPart: match[2].replace(/^0+(?=\d)/, ''),
+    fracPart: match[3] ?? '',
+  }
 }
 
-export function AccountSettingsPage({ readOnly = false }) {
+function addDigitCommas(intStr) {
+  return intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+export function isPositiveDecimal(amount) {
+  const parsed = parseExactDecimal(amount)
+  if (!parsed || parsed.neg) return false
+  return /[1-9]/.test(parsed.intPart) || /[1-9]/.test(parsed.fracPart)
+}
+
+export function formatAccountBalance(amount, symbol) {
+  const parsed = parseExactDecimal(amount)
+  if (!parsed) return null
+  const isZero = !/[1-9]/.test(parsed.intPart) && !/[1-9]/.test(parsed.fracPart)
+  if (isZero) return `${symbol}0.00`
+  const frac2 = parsed.fracPart.padEnd(2, '0')
+  const firstTwo = frac2.slice(0, 2)
+  const rest = frac2.slice(2)
+  const centsFloor = BigInt(parsed.intPart) * 100n + BigInt(firstTwo)
+  if (parsed.neg) {
+    if (centsFloor === 0n) return `-${symbol}0.01`
+    const roundUp = rest.length > 0 && rest[0] >= '5'
+    const rounded = roundUp ? centsFloor + 1n : centsFloor
+    const intOut = (rounded / 100n).toString()
+    const fracOut = (rounded % 100n).toString().padStart(2, '0')
+    return `-${symbol}${addDigitCommas(intOut)}.${fracOut}`
+  }
+  if (centsFloor === 0n) return `<${symbol}0.01`
+  const intOut = (centsFloor / 100n).toString()
+  const fracOut = (centsFloor % 100n).toString().padStart(2, '0')
+  return `${symbol}${addDigitCommas(intOut)}.${fracOut}`
+}
+
+function formatWallets(wallets) {
+  if (!Array.isArray(wallets) || wallets.length === 0) return null
+  const parts = wallets
+    .filter(item => item && typeof item.balance === 'string')
+    .map(item => formatAccountBalance(item.balance, item.currency === 'CNY' ? '¥' : '$'))
+    .filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+function safeHttpsUrl(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return /^https:\/\//i.test(trimmed) ? trimmed : null
+}
+
+function derivePlatformUrl(usageUrl, pathname) {
+  const safe = safeExternalUrl(usageUrl)
+  if (!safe) return null
+  try {
+    return new URL(pathname, safe).href
+  } catch {
+    return null
+  }
+}
+
+export function AccountSettingsPage({ readOnly = false, openModels }) {
   const [data, setData] = useState(() => accountCache ?? getDesktopAccountState())
   const [loading, setLoading] = useState(() => !(accountCache ?? getDesktopAccountState()))
+  const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [copyState, setCopyState] = useState('')
+  const [avatarFailedUrl, setAvatarFailedUrl] = useState('')
+  const [signOutPrompt, setSignOutPrompt] = useState(null)
+  const copyTimer = useRef(0)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false }
+    return () => {
+      mounted.current = false
+      clearTimeout(copyTimer.current)
+    }
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ manual = false } = {}) => {
     if (!accountCache) setLoading(true)
+    if (manual) setRefreshing(true)
     setError('')
     try {
       const next = await call('engine-account-state', {
@@ -585,7 +657,10 @@ export function AccountSettingsPage({ readOnly = false }) {
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
-      if (mounted.current) setLoading(false)
+      if (mounted.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [])
 
@@ -598,19 +673,25 @@ export function AccountSettingsPage({ readOnly = false }) {
       setData(reply)
       setLoading(false)
     }
-    if (reply?.view?.status === 'credential-stored' && !reply.view?.profile && !reply.view?.balance) {
+    if (reply?.view?.status === 'credential-stored' && !reply.profile && !reply.balance) {
       void load()
     }
   }), [load])
 
-  const attemptPhase = data?.view?.attempt?.phase
+  const attempt = data?.view?.attempt ?? null
+  const attemptPhase = attempt?.phase
   const signingIn = attemptPhase === 'initializing' || attemptPhase === 'waiting-browser' || attemptPhase === 'exchanging' || attemptPhase === 'committing'
+  const committing = attemptPhase === 'committing'
+
+  useEffect(() => { setCopyState('') }, [attempt?.id, attempt?.authorizeUrl])
 
   useEffect(() => {
     if (!signingIn) return undefined
     const timer = setInterval(() => { void load() }, 2500)
     return () => clearInterval(timer)
   }, [signingIn, load])
+
+  useEscape(() => setSignOutPrompt(null), Boolean(signOutPrompt), { priority: ESCAPE_PRIORITY.INLINE_ACTION })
 
   const startSignIn = async () => {
     if (busy || readOnly) return
@@ -626,7 +707,7 @@ export function AccountSettingsPage({ readOnly = false }) {
         locale: language(),
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
-      const authorizeUrl = safeExternalUrl(result?.view?.attempt?.authorizeUrl)
+      const authorizeUrl = authorizeUrlWithTheme(result?.view?.attempt?.authorizeUrl)
       if (authorizeUrl && typeof window !== 'undefined') window.open?.(authorizeUrl, '_blank', 'noopener,noreferrer')
       await load()
     } catch (failure) {
@@ -637,8 +718,8 @@ export function AccountSettingsPage({ readOnly = false }) {
   }
 
   const cancelSignIn = async () => {
-    const attemptId = data?.view?.attempt?.id
-    if (busy || readOnly || !attemptId) return
+    const attemptId = attempt?.id
+    if (busy || readOnly || committing || !attemptId) return
     setBusy(true)
     setError('')
     try {
@@ -651,7 +732,23 @@ export function AccountSettingsPage({ readOnly = false }) {
     }
   }
 
-  const signOut = async () => {
+  const requestSignOut = async () => {
+    if (busy || readOnly) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await call('engine-account-running-tasks')
+      if (!mounted.current) return
+      const mode = res?.running ? 'running' : (res?.unknown ? 'unknown' : 'idle')
+      setSignOutPrompt({ mode })
+    } catch {
+      if (mounted.current) setSignOutPrompt({ mode: 'unknown' })
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  const confirmSignOut = async () => {
     if (busy || readOnly) return
     setBusy(true)
     setError('')
@@ -660,12 +757,26 @@ export function AccountSettingsPage({ readOnly = false }) {
         locale: language(),
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
+      if (mounted.current) setSignOutPrompt(null)
       await load()
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
       if (mounted.current) setBusy(false)
     }
+  }
+
+  const themedAuthorizeUrl = authorizeUrlWithTheme(attempt?.authorizeUrl)
+
+  const copySignInLink = async () => {
+    if (!themedAuthorizeUrl) return
+    const ok = await writeClipboard(themedAuthorizeUrl)
+    if (!mounted.current) return
+    setCopyState(ok ? 'copied' : 'failed')
+    clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => {
+      if (mounted.current) setCopyState('')
+    }, 2000)
   }
 
   if (loading && !data) {
@@ -677,33 +788,116 @@ export function AccountSettingsPage({ readOnly = false }) {
 
   const signedIn = data?.view?.status === 'credential-stored'
   const profile = data?.profile?.status === 'ready' ? data.profile.value : null
-  const balanceText = data?.balance?.status === 'ready' ? formatWallets(data.balance.value) : null
-  const bonusText = data?.balance?.status === 'ready' ? formatWallets(data.balance.bonusWallets) : null
+  const balanceReady = data?.balance?.status === 'ready'
+  const balanceText = balanceReady ? formatWallets(data.balance.value) : null
+  const positiveBonusWallets = balanceReady
+    ? (data.balance.bonusWallets ?? []).filter(wallet => wallet && isPositiveDecimal(wallet.balance))
+    : []
+  const bonusText = positiveBonusWallets.length > 0 ? formatWallets(positiveBonusWallets) : null
+  const showBonusRow = !balanceReady || positiveBonusWallets.length > 0
   const usageUrl = safeExternalUrl(data?.view?.links?.usageUrl)
   const topUpUrl = safeExternalUrl(data?.view?.links?.topUpUrl)
-  const authorizeUrl = safeExternalUrl(data?.view?.attempt?.authorizeUrl)
+  const accountInfoUrl = derivePlatformUrl(usageUrl, '/')
+  const apiKeysUrl = derivePlatformUrl(usageUrl, '/api_keys')
+  const avatarUrl = safeHttpsUrl(profile?.avatarUrl)
+  const showAvatarImg = Boolean(avatarUrl && avatarUrl !== avatarFailedUrl)
+
+  const attemptStatusText = attemptPhase === 'initializing'
+    ? t('Starting sign in…')
+    : attemptPhase === 'waiting-browser'
+      ? t('Continue in your browser')
+      : (attemptPhase === 'exchanging' || attemptPhase === 'committing')
+        ? t('Completing sign in…')
+        : undefined
+  const attemptErrorText = !error
+    ? (attemptPhase === 'expired'
+      ? t('Sign in expired. Try again.')
+      : attemptPhase === 'failed'
+        ? (attempt?.errorCode === 'no-response'
+          ? t('Something went wrong. Please check your network connection and try again.')
+          : (attempt?.error ? hostText(String(attempt.error)) : t('Could not sign in')))
+        : '')
+    : ''
+  const copyLabel = copyState === 'copied'
+    ? t('Link copied')
+    : copyState === 'failed'
+      ? t('Copy failed')
+      : t('Copy sign-in link')
+
+  const signOutWarning = signOutPrompt?.mode === 'running'
+    ? t('Some Bots are still working. Signing out will stop them.')
+    : signOutPrompt?.mode === 'unknown'
+      ? t('Signing out may stop running work.')
+      : t('Sign out of your DeepSeek account?')
+
+  const balanceUnavailableNode = usageUrl
+    ? h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: usageUrl, target: '_blank', rel: 'noopener noreferrer', 'data-balance-platform-link': '' }, t('View on Platform'))
+    : h('span', { className: 'bt-set-hint' }, t('View on Platform'))
+
+  const identityTitle = signedIn
+    ? (profile?.name || t('Signed in to DeepSeek'))
+    : t('Not signed in')
+  const identityHint = signedIn
+    ? (profile?.contact || (data?.profile === undefined || data?.profile === null ? t('Loading…') : t('Account details are not available yet.')))
+    : attemptStatusText
 
   return h('div', { className: 'dsb-engine-page', 'data-engine-section': 'account' },
-    h(StatusAlert, { error }),
-    h(EngineSection, {},
-      h(EngineRow, {
-        label: signedIn ? (profile?.name || profile?.contact || t('Signed in')) : t('Not signed in'),
-        hint: signedIn && profile?.name && profile?.contact ? profile.contact : undefined,
-      },
-      signedIn
-        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: signOut }, t('Sign out'))
-        : signingIn
+    h(ReadOnlyBanner, { readOnly }),
+    h(StatusAlert, { error: error || attemptErrorText }),
+    h(EngineSection, {
+      action: signedIn ? h('button', {
+        type: 'button',
+        className: 'bt-soft bt-soft-sm',
+        disabled: refreshing || busy,
+        onClick: () => { void load({ manual: true }) },
+      }, refreshing ? t('Loading…') : t('Refresh')) : null,
+    },
+    h('div', { className: 'bt-set-row dsb-acct-identity' },
+      h('div', { className: 'dsb-acct-who' },
+        signedIn ? h('span', { className: 'dsb-acct-avatar', 'aria-hidden': true },
+          showAvatarImg
+            ? h('img', { src: avatarUrl, alt: '', onError: () => setAvatarFailedUrl(avatarUrl) })
+            : h(PersonIcon)) : null,
+        h('div', { className: 'bt-set-copy' },
+          h('span', null, identityTitle),
+          identityHint ? h('span', { className: 'bt-set-hint', role: signingIn ? 'status' : undefined }, identityHint) : null)),
+      h('div', { className: 'bt-set-control' },
+        signedIn
           ? h('div', { className: 'dsb-engine-inline' },
-            authorizeUrl ? h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: authorizeUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open sign-in')) : null,
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: cancelSignIn }, t('Cancel')))
-          : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || readOnly, onClick: startSignIn }, t('Sign in'))),
-      signedIn && balanceText ? h(EngineRow, { label: t('Balance') }, h('span', { className: 'dsb-engine-val' }, balanceText)) : null,
-      signedIn && bonusText ? h(EngineRow, { label: t('Bonus balance') }, h('span', { className: 'dsb-engine-val' }, bonusText)) : null),
-    (usageUrl || topUpUrl) ? h(EngineSection, { title: t('Billing') },
+            accountInfoUrl ? h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: accountInfoUrl, target: '_blank', rel: 'noopener noreferrer', 'data-account-info-link': '' }, t('More account information')) : null,
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly, onClick: () => { void requestSignOut() } }, t('Sign out')))
+          : signingIn
+            ? h('div', { className: 'dsb-engine-inline' },
+              themedAuthorizeUrl ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-copy-signin-link': '', onClick: () => { void copySignInLink() } }, copyState === 'copied' ? h(CheckIcon) : h(CopyIcon), copyLabel) : null,
+              themedAuthorizeUrl ? h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: themedAuthorizeUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open sign-in')) : null,
+              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || readOnly || committing, onClick: () => { void cancelSignIn() } }, t('Cancel')))
+            : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || readOnly, onClick: () => { void startSignIn() } }, t('Sign in')))),
+    signedIn && signOutPrompt ? h('div', { className: 'dsb-acct-confirm', role: 'alertdialog', 'aria-label': t('Sign out') },
+      h('span', { className: 'dsb-acct-confirm-msg' }, signOutWarning),
+      h('div', { className: 'dsb-engine-inline' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setSignOutPrompt(null) }, t('Cancel')),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-danger', 'data-confirm-signout': '', disabled: busy || readOnly, onClick: () => { void confirmSignOut() } }, t('Confirm sign out')))) : null,
+    signedIn ? h(EngineRow, { label: t('Topped-up balance') },
+      balanceText
+        ? h('span', { className: 'dsb-engine-val', 'data-account-balance': '' }, balanceText)
+        : (data?.balance === undefined || data?.balance === null
+          ? h('span', { className: 'bt-set-hint' }, t('Loading…'))
+          : balanceUnavailableNode)) : null,
+    signedIn && showBonusRow ? h(EngineRow, { label: t('Granted balance') },
+      bonusText
+        ? h('span', { className: 'dsb-engine-val', 'data-account-bonus': '' }, bonusText)
+        : (data?.balance === undefined || data?.balance === null
+          ? h('span', { className: 'bt-set-hint' }, t('Loading…'))
+          : balanceUnavailableNode)) : null),
+    (usageUrl || topUpUrl || apiKeysUrl || typeof openModels === 'function') ? h(EngineSection, { title: t('Billing') },
       usageUrl ? h(EngineRow, { label: t('Usage details') },
         h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: usageUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open'))) : null,
       topUpUrl ? h(EngineRow, { label: t('Top up') },
-        h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: topUpUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open'))) : null) : null)
+        h('a', { className: 'bt-send bt-soft-sm dsb-engine-link', href: topUpUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Top up'))) : null,
+      (apiKeysUrl || typeof openModels === 'function') ? h(EngineRow, { label: t('Manage API keys') },
+        h('div', { className: 'dsb-engine-inline' },
+          apiKeysUrl ? h('a', { className: 'bt-soft bt-soft-sm dsb-engine-link', href: apiKeysUrl, target: '_blank', rel: 'noopener noreferrer', 'data-platform-api-keys': '' }, t('Platform API keys')) : null,
+          typeof openModels === 'function' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'data-open-local-providers': '', onClick: openModels }, t('Local providers')) : null)) : null) : null)
 }
 
 export function resolveLocalizedMetaText(value, lang = language()) {

@@ -793,7 +793,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, ownWindow: dsh?.ownWindow, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
         enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget, jump }, { only: 'plugins' })) : null,
         advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
-        section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget }, { only: section.id })) : null,
+        section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget, openModels: () => actions.openSettings('models') }, { only: section.id })) : null,
         creatingBot ? h('div', { className: 'bt-settings-form' }, h(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings('bots'), onCreated: created => actions.openSettings('bots', created.id) })) : null,
         bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
         room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,

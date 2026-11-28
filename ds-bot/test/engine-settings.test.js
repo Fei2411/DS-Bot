@@ -930,3 +930,40 @@ test('engine-plugins-inventory reads pluginInventory service or falls back to pl
   assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-plugins-inventory')?.code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-plugins-inventory')?.code, 'bot/refused')
 })
+
+test('engine-account-running-tasks inspects deepseekAccount and active workView while staying computer-only and read-only-safe', async () => {
+  let activeTasks = false
+  let throwOnCheck = false
+  const { rt } = makeHarness({
+    services: {
+      deepseekAccount: {
+        async hasRunningAccountTasks() {
+          if (throwOnCheck) throw new Error('check failed')
+          return activeTasks
+        },
+      },
+    },
+  })
+
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false })
+  activeTasks = true
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+  activeTasks = false
+  throwOnCheck = true
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false, unknown: true })
+
+  // Fallback to rt.workView() catches active Bot work even when account service returns false.
+  throwOnCheck = false
+  rt.workView = () => ({ bots: { b1: { kind: 'turn' } }, rooms: {}, agents: {}, turns: {} })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  // Read-only host allows engine-account-running-tasks (in READS), while remote/phone callers are refused.
+  const { rt: roRt } = makeHarness({
+    readOnly: 'Another dsh holds this team',
+    services: { deepseekAccount: { async hasRunningAccountTasks() { return false } } },
+  })
+  const roRes = await roRt.channelCall('engine-account-running-tasks', {})
+  assert.equal(roRes.ok, true)
+  assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-account-running-tasks')?.code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-account-running-tasks')?.code, 'bot/refused')
+})

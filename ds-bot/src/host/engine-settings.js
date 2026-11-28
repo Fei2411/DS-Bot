@@ -598,6 +598,35 @@ export function install(rt) {
         const view = await account.signOut(accountClientOf(body, rt))
         return { available: true, view }
       }
+      case 'account-running-tasks': {
+        const account = accountService()
+        if (account === undefined) return { available: false, running: false }
+        let running = false
+        let unknown = false
+        if (typeof account.hasRunningAccountTasks === 'function') {
+          try {
+            running = Boolean(await account.hasRunningAccountTasks())
+          } catch {
+            unknown = true
+          }
+        }
+        if (!running && typeof rt.workView === 'function') {
+          try {
+            const snap = rt.workView() ?? {}
+            if (
+              Object.keys(snap.bots ?? {}).length > 0
+              || Object.keys(snap.rooms ?? {}).length > 0
+              || Object.keys(snap.agents ?? {}).length > 0
+              || Object.keys(snap.turns ?? {}).length > 0
+            ) {
+              running = true
+            }
+          } catch {
+            unknown = true
+          }
+        }
+        return { available: true, running, ...(unknown ? { unknown: true } : {}) }
+      }
       case 'plugins-list': {
         const pm = pluginManagerService()
         if (pm === undefined) return { available: false, bundles: [], plugins: [] }
