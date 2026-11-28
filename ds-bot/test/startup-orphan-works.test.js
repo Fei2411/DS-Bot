@@ -152,12 +152,29 @@ function seedCoord(home, fn) {
   }
 }
 
-test('restart does not turn empty legacy Bot exchanges into work or wake their sender', async (t) => {
+test('restart skips answered legacy exchange shells but preserves unanswered delegations', async (t) => {
+  const home = tempHome('ds-bot-legacy-exchange-shells-')
+  const ledger = join(home, 'ledger')
+  mkdirSync(ledger)
+  const writeBook = (name, entries) => writeFileSync(join(ledger, `${name}.jsonl`), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n')
+  writeBook('pair-a-deleted-bot', [
+    { id: 'reply-gone', from: 'deleted-bot', to: 'a', role: 'reply', replyTo: 'ex-gone' },
+    { event: 'delivered', id: 'reply-gone' },
+  ])
+  writeBook('pair-b-c', [
+    { id: 'reply-pending', from: 'b', to: 'c', role: 'reply', replyTo: 'ex-pending' },
+  ])
+
   const host = startHost(t, {
+    home,
     team: seedTeam({
+      exchanges: [
+        { id: 'reply-empty', from: 'b', to: 'a', role: 'reply', replyTo: 'ex-empty', text: 'Done' },
+      ],
       works: {
         'ex-empty': { id: 'ex-empty', from: 'a', to: 'b', at: 1000, open: [], results: [] },
         'ex-gone': { id: 'ex-gone', from: 'a', to: 'deleted-bot', at: 1001 },
+        'ex-pending': { from: 'c', to: 'b', at: 1002, open: [], results: [] },
         'w-real': { ref: 'W1', state: 'open', from: 'c', to: 'b', at: 1002, goal: 'Review a change', open: [], results: [] },
       },
     }),
@@ -165,11 +182,14 @@ test('restart does not turn empty legacy Bot exchanges into work or wake their s
   await host.rt.adoptLiveWork()
 
   const db = host.rt.coordDb
-  assert.equal(db.getWork('handoff:ex-empty'), undefined, 'plain exchanges are not work')
-  assert.equal(db.getWork('handoff:ex-gone'), undefined, 'a missing recipient does not turn an exchange into work')
+  assert.equal(db.getWork('handoff:ex-empty'), undefined, 'a recorded reply makes the shell stale')
+  assert.equal(db.getWork('handoff:ex-gone'), undefined, 'a delivered ledger reply counts even after a Bot is gone')
   assert.equal(db.listWaits({ workId: 'fg:a', status: 'open' }).length, 0)
   assert.equal(db.listInbox('fg:a').length, 0)
   assert.deepEqual(host.agentOf('dm-a').calls, [])
+  assert.equal(db.getWork('handoff:ex-pending')?.status, 'waiting')
+  assert.equal(db.getCall('call:ex-pending')?.status, 'open', 'an unconfirmed reply does not end the delegation')
+  assert.ok(db.listWaits({ workId: 'fg:c', status: 'open' }).some(wait => wait.targetWorkId === 'handoff:ex-pending'))
   assert.equal(db.getWork('handoff:w-real')?.title, 'Review a change')
   assert.equal(db.getCall('call:w-real')?.status, 'open')
 })

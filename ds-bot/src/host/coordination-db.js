@@ -2727,6 +2727,7 @@ export function openCoordinationDb({
     inflight: legacyInflight,
     apiRuns: legacyApiRuns,
     includeSettledTasks = false,
+    hasDeliveredReply,
   } = {}) {
     return transaction(() => {
       const imported = { works: 0, calls: 0, inbox: 0, waits: 0, ready: 0 }
@@ -2849,11 +2850,12 @@ export function openCoordinationDb({
         && Object.keys(legacyInflight.turns).length > 0
 
       for (const [id, lw] of legacyWorkEntries) {
-        // Only the legacy exchange bookkeeping fields are present; there is no delegation to migrate.
+        // Older message_bot delegations have the same shape until a reply is delivered.
         if (lw.from && lw.to && (lw.state ?? 'open') === 'open'
           && (lw.open ?? []).length === 0 && (lw.results ?? []).length === 0
           && (lw.worked ?? false) === false && (lw.rounds ?? 0) === 0
-          && Object.keys(lw).every(key => exchangeShellFields.has(key))) continue
+          && Object.keys(lw).every(key => exchangeShellFields.has(key))
+          && hasDeliveredReply?.(lw.to, lw.from, id) === true) continue
         const ownerBot = lw.to ?? lw.from
         if (!ownerBot) continue
         if (lw.toTaskId && taskToWorkId.has(lw.toTaskId)) {

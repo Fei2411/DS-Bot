@@ -184,10 +184,10 @@ export function install(rt) {
     return state.exchanges.length !== before
   }
 
-  function deliveredReplyOf(fromId, toId, replyTo) {
+  function deliveredReplyOf(fromId, toId, replyTo, { allowMissingPeer = false } = {}) {
     if (typeof fromId !== 'string' || fromId === '' || typeof replyTo !== 'string' || replyTo === '') return undefined
     if (typeof toId === 'string' && toId !== '') {
-      if (rt.botOf(fromId) !== undefined && rt.botOf(toId) !== undefined) {
+      if (allowMissingPeer || (rt.botOf(fromId) !== undefined && rt.botOf(toId) !== undefined)) {
         const found = pairRecords(fromId, toId).replies.get(`${fromId}\u0000${toId}\u0000${replyTo}`)
         if (found !== undefined) return found
       }
