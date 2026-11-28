@@ -35,7 +35,7 @@ async function nativeEvidence(ctx, exec) {
     let sessionCwd
     try { sessionCwd = await ctx.get?.('workingDirectory')?.ensure?.(exec.agent, exec.signal) } catch { sessionCwd = undefined }
     const cwd = typeof sessionCwd === 'string' && isAbsolute(sessionCwd) ? sessionCwd : undefined
-    return targets === undefined ? evidence : { ...evidence, targets, ...(cwd === undefined ? {} : { sessionCwd: cwd, cwd }) }
+    return { ...evidence, ...(targets === undefined ? {} : { targets }), ...(cwd === undefined ? {} : { sessionCwd: cwd, cwd }) }
   }
   if (!['bash', 'pwsh'].includes(exec.name)) return evidence
   const directories = ctx.get?.('workingDirectory')
