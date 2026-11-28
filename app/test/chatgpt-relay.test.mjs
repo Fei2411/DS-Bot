@@ -386,3 +386,47 @@ test('unchanged SSE frames pass through with zero JSON.stringify calls and modif
   assert.equal(stringifyCalls, 1, 'a modified SSE frame must serialize once, not twice')
 })
 
+test('lazy ChatGPT bridge defers signIn until first request and relay until route is requested', async () => {
+  let signInInits = 0
+  let relayInits = 0
+  let relayClosed = 0
+  const replies = []
+  const bridge = createChatGPTBridge({
+    getSignIn: async () => {
+      signInInits += 1
+      return {
+        status: () => ({ state: 'signed-out' }),
+        listModels: async () => [],
+        signOut: async () => ({ state: 'signed-out', remoteRevocationConfirmed: false }),
+      }
+    },
+    getRelay: async () => {
+      relayInits += 1
+      return {
+        route: () => ({ baseURL: 'http://127.0.0.1:4242/v1', secret: 'lazy-secret' }),
+        close: async () => { relayClosed += 1 },
+      }
+    },
+    openExternal() {},
+  })
+  // Constructing the bridge initializes nothing.
+  assert.equal(signInInits, 0)
+  assert.equal(relayInits, 0)
+  // Status initializes signIn once without starting the relay server.
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 's1', method: 'chatgpt:status' }, r => replies.push(r))
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 's2', method: 'chatgpt:status' }, r => replies.push(r))
+  await tick()
+  await tick()
+  assert.equal(signInInits, 1)
+  assert.equal(relayInits, 0)
+  assert.deepEqual(replies.find(r => r.id === 's1').result, { state: 'signed-out' })
+  // Route lazily starts the relay once.
+  bridge.handle({ type: 'ds-bot:chatgpt', id: 'r1', method: 'chatgpt:route' }, r => replies.push(r))
+  await tick()
+  await tick()
+  assert.equal(relayInits, 1)
+  assert.equal(replies.find(r => r.id === 'r1').result.secret, 'lazy-secret')
+  await bridge.close()
+  assert.equal(relayClosed, 1)
+})
+

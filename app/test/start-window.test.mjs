@@ -554,6 +554,30 @@ test('the team view has 20 s to call ready(); a late ready() hands over without 
   assert.equal('failure' in s.state(), false)
 })
 
+test('teamViewFailed enters viewFailed immediately without waiting TEAM_VIEW_MS', (t) => {
+  const s = startWindow(t)
+  s.start.open('later')
+  s.start.done('data')
+  s.start.done('engine')
+  s.start.teamLoading()
+  s.start.teamViewFailed(new Error('ERR_CONNECTION_REFUSED'))
+  assert.equal(s.state().view, 'viewFailed')
+  assert.deepEqual(s.state().failure, { reason: 'other', log: ['a log line'] })
+})
+
+test('teamViewFailed waits while a card is open and shows once the card clears', (t) => {
+  const c = startWindow(t)
+  c.start.open('first')
+  c.start.done('data')
+  c.start.done('engine')
+  c.start.teamLoading()
+  c.start.card({ kind: 'picked', path: '/tmp/x' })
+  c.start.teamViewFailed(new Error('ERR_FAILED'))
+  assert.equal(c.state().view, 'card')
+  c.start.card(undefined)
+  assert.equal(c.state().view, 'viewFailed')
+})
+
 for (const [kind, wait] of [['first', 2500], ['later', 800]]) {
   test(`without handoffShow the team window shows by itself after ${String(wait)} ms on a ${kind} start`, async (t) => {
     const s = startWindow(t)

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
 import { state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
-import { startApp, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
+import { startApp, startState, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -22,6 +22,7 @@ test('a first load that never came through does not carry the token again', asyn
   const first = window()
   hostState.release()
   await waitFor(() => first.loaded.some(url => url.includes('token=')), 'try the Host')
+  await waitFor(() => startState()?.view === 'viewFailed', 'enter viewFailed immediately on loadURL failure')
   assert.equal(state.cookies.length, 0, 'the Host left no cookie')
 
   // The window is gone for good; the tray builds a new one.

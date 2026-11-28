@@ -587,6 +587,16 @@ export class StartWindow {
     this.#later('teamView', TEAM_VIEW_MS, () => { this.#teamViewLate() })
   }
 
+  /** The team window's loadURL failed: show the team-view failure page now instead of waiting 20 s. */
+  teamViewFailed(error) {
+    if (!this.#open() || !['boot', 'card'].includes(this.#state.view)) return
+    this.#clear('teamView')
+    const detail = error instanceof Error ? error.message : String(error ?? '')
+    note(detail ? `the team view failed to load: ${detail}` : 'the team view failed to load')
+    if (this.#asks > 0 || this.#state.view === 'card') { this.#viewLate = true; return }
+    this.#update({ view: 'viewFailed', failure: { reason: 'other', log: this.#o.log.tail(FAILURE_LINES) } })
+  }
+
   #teamViewLate() {
     if (!['boot', 'card'].includes(this.#state.view)) return
     // A dialog or a card is up: the verdict waits for the answer (#resume).

@@ -504,3 +504,37 @@ test('isReasoningModel tracks /v1/models reasoning capability and clears on sign
   await f.client.signOut()
   assert.equal(f.client.isReasoningModel('gpt-4o'), undefined)
 })
+
+test('macOS without chatgpt-signin.enc never touches safeStorage on init or status, while sign-in and existing credentials still work', async t => {
+  const userData = await fs.mkdtemp(join(tmpdir(), 'ds-bot-chatgpt-lazy-'))
+  t.after(() => fs.rm(userData, { recursive: true, force: true }))
+  const calls = []
+  let available = true
+  const trackedSafeStorage = {
+    isEncryptionAvailable: () => { calls.push('isEncryptionAvailable'); return available },
+    encryptString: (text) => { calls.push('encryptString'); return safeStorage.encryptString(text) },
+    decryptString: (buf) => { calls.push('decryptString'); return safeStorage.decryptString(buf) },
+  }
+
+  // No chatgpt-signin.enc on macOS: init and status() must not probe the keychain.
+  const emptyClient = await createChatGPTSignIn({ userData, safeStorage: trackedSafeStorage, platform: 'darwin', mockKeychain: false })
+  assert.deepEqual(emptyClient.status(), { state: 'signed-out' })
+  assert.deepEqual(calls, [], 'no safeStorage calls when chatgpt-signin.enc does not exist')
+
+  // Explicitly attempting sign-in when keychain is unavailable probes once and fails closed.
+  available = false
+  await assert.rejects(emptyClient.signIn({ openExternal: () => assert.fail('browser must not open') }), typed('unsupported', 'secure-storage-unavailable'))
+  assert.equal(emptyClient.status().state, 'unsupported')
+  assert.ok(calls.includes('isEncryptionAvailable'))
+
+  // With an existing encrypted file, init decrypts it normally and preserves signed-in state.
+  available = true
+  calls.length = 0
+  const f = await fixture(t)
+  await f.login()
+  const signedIn = await createChatGPTSignIn({ ...f.clientOptions, safeStorage: trackedSafeStorage, platform: 'darwin', mockKeychain: false })
+  assert.equal(signedIn.status().state, 'connected')
+  assert.equal(await signedIn.getAccessToken(), 'synthetic-access')
+  assert.ok(calls.includes('isEncryptionAvailable'))
+  assert.ok(calls.includes('decryptString'))
+})

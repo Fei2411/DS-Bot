@@ -290,6 +290,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   t.after(stop)
   await tick()
   assert.equal(pullCount, 1)
+  assert.equal(team.snapshots.shown(), 'b1', 'Bot mode lands on the Main Bot immediately on first pull without a 400 ms blank delay')
   assert.equal(intervalsStarted, 1)
   assert.ok(intervalCb !== null)
 

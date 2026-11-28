@@ -318,6 +318,8 @@ export function createTeam() {
       void refreshClassicSessions()
     }
     // Follow a Bot or group chat onto its new segment when context rolls over or moves to background.
+    // On first load in Bot mode, land on the Main Bot in the same tick as `roster.set` so the
+    // team window paints the chat immediately instead of sitting 400 ms on a blank main area.
     const open = shown.getSnapshot()
     if (open) {
       const target = indexed.byId[open] ?? indexed.roomsById[open]
@@ -327,6 +329,9 @@ export function createTeam() {
       const firstAgent = (indexed.agents ?? [])[0]
       const latest = firstAgent ? (latestAgentSession(firstAgent.id) ?? firstAgent.sessions?.[0]) : undefined
       if (latest) show(latest)
+    } else {
+      const target = indexed.mainBotId ?? indexed.bots?.[0]?.id
+      if (target) show(partFor(target))
     }
     pruneSessions(indexed)
   }
