@@ -57,15 +57,16 @@ function useEfforts(served, ref, actions) {
     setFetched(undefined)
     if (ref === undefined || served?.reasoning !== undefined || actions?.efforts === undefined) return undefined
     let live = true
-    if (effortCache.has(ref)) setFetched(lruGet(effortCache, ref))
-    else void Promise.resolve(actions.efforts(ref)).then((value) => {
+    if (effortCache.has(ref)) setFetched({ ref, reasoning: lruGet(effortCache, ref) })
+    void Promise.resolve(actions.efforts(ref)).then((value) => {
+      if (!live) return
       const reasoning = value?.efforts ? value : null
       lruSet(effortCache, ref, reasoning, MAX_EFFORT_CACHE)
-      if (live) setFetched(reasoning)
+      setFetched({ ref, reasoning })
     }).catch(() => {})
     return () => { live = false }
-  }, [ref, served?.reasoning !== undefined, actions])
-  return served?.reasoning ?? fetched
+  }, [ref, served?.reasoning !== undefined, actions?.efforts])
+  return served?.reasoning ?? (fetched?.ref === ref ? fetched?.reasoning : undefined)
 }
 
 // The stops along the thinking-level slider: when the model names its default level,
@@ -75,16 +76,18 @@ export function effortStops(reasoning) {
   const efforts = reasoning?.efforts ?? []
   if (efforts.length === 0) return []
   const hasDefault = efforts.some(effort => effort.id === reasoning.defaultEffort)
-  return hasDefault
-    ? efforts.map(effort => ({ effort: effort.id, label: effort.name }))
-    : [{ effort: undefined, label: t('Default') }, ...efforts.map(effort => ({ effort: effort.id, label: effort.name }))]
+  const levels = efforts.map(effort => ({ effort: effort.id, label: effortName(effort.name ?? effort.id) }))
+  return hasDefault ? levels : [{ effort: undefined, label: t('Default') }, ...levels]
 }
+
+const effortNames = new Set(['Minimal', 'Low', 'Medium', 'High', 'Xhigh'])
+const effortName = name => effortNames.has(name) ? t(name) : name
 
 const ResetIcon = () => h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('path', { d: 'M2.8 6.5A5.5 5.5 0 1 1 4 11.8' }),
   h('path', { d: 'M2.5 3.2v3.4h3.4' }))
 
-export function EffortBar({ reasoning, current, onPick, label = t('Thinking level') }) {
+export function EffortBar({ reasoning, current, onPick }) {
   const stops = effortStops(reasoning)
   const track = useRef(null)
   const drag = useRef(null)
@@ -211,9 +214,9 @@ export function EffortBar({ reasoning, current, onPick, label = t('Thinking leve
     const next = stops[nextIndex]
     if (next) commit(next.effort)
   }
-  return h('div', { className: 'bt-effort-bar', role: 'group', 'aria-label': label },
+  return h('div', { className: 'bt-effort-bar', role: 'group', 'aria-label': t('Thinking level') },
     h('div', { className: 'bt-effort-head' },
-      h('span', { className: 'bt-effort-label' }, label),
+      h('span', { className: 'bt-effort-label' }, t('Thinking level')),
       h('span', { className: 'bt-effort-meta' },
         picked === undefined && hasDefault ? h('span', { className: 'bt-effort-tag' }, t('Default')) : null,
         h('span', { className: 'bt-effort-val' }, active.label),
@@ -225,7 +228,7 @@ export function EffortBar({ reasoning, current, onPick, label = t('Thinking leve
           : null)),
     h('div', {
       ref: track, className: 'bt-effort-track', role: 'slider', tabIndex: 0,
-      'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': stops.length - 1,
+      'aria-label': t('Thinking level'), 'aria-valuemin': 0, 'aria-valuemax': stops.length - 1,
       'aria-valuenow': activeIndex, 'aria-valuetext': active.label,
       'data-dragging': dragRatio !== null ? '' : undefined,
       style: { '--bt-effort-p': ratio },
@@ -453,7 +456,7 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   const currentEffort = picked ?? reasoning?.defaultEffort
   const effortLabel = currentEffort === undefined
     ? (reasoning?.efforts?.length > 0 ? t('Default') : undefined)
-    : reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort
+    : effortName(reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort)
   // Each opening is a new number, so the rows start from the current model again even
   // when the previous menu is still playing its exit animation under a quick reopen.
   const [opening, setOpening] = useState(0)
@@ -611,7 +614,7 @@ function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPi
         modelScroll(picker, pick),
         manage ? h('div', { className: 'bt-model-foot' }, manageButton(manage, close)) : null)),
     h(Collapse, { open: hasEfforts },
-      hasEfforts ? h('div', { className: 'bt-model-effort' }, h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null))
+      hasEfforts ? h('div', { className: 'bt-model-effort' }, h(EffortBar, { key: picker.current, reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null))
 }
 
 // The card a Bot's chat opens on while the Bot has no model, or has one that is no

@@ -889,7 +889,11 @@ export const ES = {
   // Model menu
   Default: 'Predeterminado',
   'Thinking level': 'Nivel de razonamiento',
-  'Default thinking level · {model}': 'Nivel de razonamiento predeterminado · {model}',
+  'Minimal': 'Mínimo',
+  'Low': 'Bajo',
+  'Medium': 'Medio',
+  'High': 'Alto',
+  'Xhigh': 'Muy alto',
   'Model: {model}': 'Modelo: {model}',
   none: 'ninguno',
   'Choose a model': 'Elegir un modelo',

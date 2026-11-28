@@ -18,6 +18,7 @@ test('capability lookup shares downloads, uses exact IDs, and keeps the last usa
   const api = 'openai-responses'
   const expected = { low: 'low', max: 'max' }
   assert.deepEqual(await Promise.all([lookup('new-model', api), lookup('openai/new-model', api)]), [expected, expected])
+  assert.deepEqual(await lookup('new-model', api, ['low', 'medium', 'max', 'ultra']), { ...expected, ultra: 'ultra' })
   assert.equal(await lookup('other/new-model', api), undefined)
   assert.equal(await lookup('new-model-preview', api), null)
   assert.equal(calls.length, 1)

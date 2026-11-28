@@ -82,7 +82,7 @@ export function createEffortCatalog(home, fetchCatalog = fetch) {
     return rows
   }
 
-  return async (id, api) => {
+  return async (id, api, engineLevels = LEVELS) => {
     const key = modelKey(id, api)
     if (!home || !key) return
     const [kind, name] = key
@@ -91,8 +91,8 @@ export function createEffortCatalog(home, fetchCatalog = fetch) {
     if (!rows.size) return
     const raw = rows.get(name)
     if (!Array.isArray(raw)) return null
-    const allowed = api === 'google-generative-ai' ? LEVELS.slice(0, 4) : LEVELS
-    const supported = allowed.filter(level => raw.includes(level))
+    const supported = engineLevels.filter(level => level !== 'off' && raw.includes(level)
+      && (api !== 'google-generative-ai' || LEVELS.slice(0, 4).includes(level)))
     return supported.length ? Object.fromEntries(supported.map(level => [level, level])) : null
   }
 }

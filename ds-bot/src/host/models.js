@@ -4,6 +4,7 @@
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
 import { serviceOf } from './services.js'
+import { isLocalAgentRoute } from './local-agents/engines.js'
 import { isMissingSessionError, ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
@@ -267,14 +268,13 @@ export function install(rt) {
     return value
   }
 
-  function providerDefault(ref, reasoning) {
-    const effort = state.prefs?.modelEffortDefaults?.[ref]
-    return effort && reasoning?.efforts.some(level => level.id === effort) ? effort : undefined
+  function mediumDefault(ref, reasoning) {
+    if (reasoning?.efforts.some(level => level.id === 'medium') && !isLocal(ref)) return 'medium'
   }
 
   async function botReasoningOf(ref) {
     const reasoning = await reasoningOf(ref)
-    const effort = providerDefault(ref, reasoning)
+    const effort = mediumDefault(ref, reasoning)
     return effort === undefined ? reasoning : { ...reasoning, defaultEffort: effort }
   }
 
@@ -331,7 +331,7 @@ export function install(rt) {
   }
   // A model whose provider has no key fails every turn, so no Bot is given one unasked.
   const keyed = entries => entries.filter(entry => entry.needsKey !== true)
-  const isLocal = ref => rt.isLocalAgentRef?.(ref) === true
+  const isLocal = ref => rt.isLocalAgentRef?.(ref) ?? isLocalAgentRoute(splitRef(ref)?.provider)
   // Matches DSH's attachment admission (commands.js): a model rejects images only when
   // its resolved `inputModalities` is defined and omits 'image'. When `listModels` omits
   // `inputModalities`, confirm via `resolveModelInfo` before picking the route for a room.
@@ -423,13 +423,11 @@ export function install(rt) {
     return usableOf(entries).some(entry => entry.ref === bot.appliedModel) ? bot.appliedModel : pickDefault(entries)
   }
 
-  // The thinking level a Bot asked for, when the model it runs on serves it; else the
-  // model's own default applies. A level the model does not have is ignored, never
-  // sent: an explicit effort a provider does not know is a hard refusal there.
+  // Sending a level the model does not offer can make the whole request fail.
   async function desiredEffort(bot, ref) {
-    if (ref === undefined || (bot.effort === undefined && !state.prefs?.modelEffortDefaults?.[ref])) return undefined
+    if (ref === undefined || (!bot.effort && isLocal(ref))) return undefined
     const reasoning = await reasoningOf(ref)
-    return reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : providerDefault(ref, reasoning)
+    return reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : mediumDefault(ref, reasoning)
   }
 
   // A thinking level id, or a name only one level of the model has, like resolveModel.
@@ -451,7 +449,7 @@ export function install(rt) {
   async function defaultEffort(ref) {
     const wanted = ctx.get?.('agentDefaultModel')?.currentSelection?.()?.reasoningEffort
     if (ref === undefined || wanted === undefined) return undefined
-    if (state.prefs?.modelEffortDefaults?.[ref] && providerDefault(ref, await reasoningOf(ref))) return undefined
+    if (mediumDefault(ref, await reasoningOf(ref))) return undefined
     return resolveEffort(ref, wanted).catch(() => undefined)
   }
 
@@ -834,7 +832,7 @@ export function install(rt) {
   const healDue = () => hasMissingSessions() && !healCheckPending && (lastHealCheckAt === 0 || Date.now() - lastHealCheckAt >= HEAL_POLL_MS)
   const syncModels = () => {
     if (readOnly()) return modelsSynced ?? Promise.resolve()
-    const key = JSON.stringify(answerable(catalogCache.value).map(({ ref }) => [ref, state.prefs?.modelEffortDefaults?.[ref]]))
+    const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) {
       syncedKey = key
       retryQueued = false

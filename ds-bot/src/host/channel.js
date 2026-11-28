@@ -535,8 +535,6 @@ export function install(rt) {
           return ok(await rt.discoverModels(body))
         case 'provider-models-save':
           return ok(await rt.saveProviderModels(body))
-        case 'provider-model-effort':
-          return ok(await rt.setProviderModelEffort(body))
         case 'provider-remove':
           return ok(await rt.removeProvider(String(body.provider ?? '')))
         case 'duplicate-bot':
