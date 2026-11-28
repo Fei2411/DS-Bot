@@ -892,6 +892,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
     'icons.js': 'export const SidebarIcon = () => ({ type: "svg", props: { children: [] } })',
     'motion.js': 'export const useLinger = (v) => [v, false]',
     'overlays.js': 'export const Overlays = () => null',
+    'reload-recovery.js': 'export const ReloadConfirmHost = () => null',
     'overlay-hooks.js': 'export const ESCAPE_PRIORITY = { DRAWER: 10 }; export const useEscape = (fn, active) => { globalThis.__testEscape = active ? fn : null }',
     'sidebar.js': 'export const BotReturn = () => null; export const YouAvatar = () => null; export const TeamSidebar = (props) => ({ type: "team-sidebar", props })',
     'themes.js': 'export const allThemes = () => ({ deepseek: {} }); export const effectsOf = () => "full"; export const flatWidthOf = () => 100; export const layoutOf = () => "bubbles"; export const themeCss = () => ""; export const themesOf = () => ({}); export const widthOf = () => 100',
