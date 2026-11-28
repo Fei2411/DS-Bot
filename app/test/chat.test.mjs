@@ -955,3 +955,110 @@ test('adaptRoomItem preserves presented files on group Bot messages for ChatRows
   assert.equal(adapted.kind, 'post')
   assert.deepEqual(adapted.presented, [file])
 })
+
+test('composer stays editable when bot.waiting has a model, focuses on card click, and respects IME composition end', async () => {
+  const sent = []
+  const roster = {
+    ready: true,
+    readOnly: null,
+    bots: [
+      { id: 'b-with-model', name: 'Chief', color: 'blue', sessionId: 'b-with-model', waiting: true, model: 'deepseek/deepseek-chat' },
+      { id: 'b-no-model', name: 'Newbie', color: 'green', sessionId: 'b-no-model', waiting: true },
+    ],
+    rooms: [],
+    byId: {},
+    roomsById: {},
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+  }
+  roster.byId['b-with-model'] = roster.bots[0]
+  roster.byId['b-no-model'] = roster.bots[1]
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      send: async (_sid, text) => { sent.push(text) },
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+    },
+    hooks: {
+      useRoster: select => select(roster),
+      useUi: select => select({}),
+      useSessionStatus: select => select(new Map()),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  // 1. Bot waiting with no model still locks composer and asks to pick a model.
+  const noModelInst = mount({ sessionId: 'b-no-model', team })
+  try {
+    const tree = noModelInst.render()
+    assert.equal(textarea(tree).props.disabled, true)
+    assert.match(textarea(tree).props.placeholder, /Pick a model/)
+  } finally {
+    noModelInst.unmount()
+  }
+
+  // 2. Bot waiting WITH a model (e.g. kickoff held after quota/auth failure) stays editable.
+  const inst = mount({ sessionId: 'b-with-model', team })
+  try {
+    let tree = inst.render()
+    const ta = textarea(tree)
+    assert.equal(ta.props.disabled, false, 'waiting bot with an assigned model must keep composer enabled')
+    assert.match(ta.props.placeholder, /Message Chief/)
+
+    // Clicking padding on [data-composer-card] focuses the textarea; clicking a button, label,
+    // slider, or a React portal child rendered outside currentTarget does not.
+    let focused = 0
+    ta.props.ref.current = { focus() { focused += 1 }, style: {}, scrollHeight: 30 }
+    const card = all(tree, n => n.props?.['data-composer-card'] !== undefined)[0]
+    assert.ok(card)
+    let prevented = 0
+    const insideTarget = { closest: () => null }
+    const cardDom = { contains: el => el === insideTarget }
+    card.props.onMouseDown({ button: 0, currentTarget: cardDom, target: insideTarget, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1)
+    assert.equal(prevented, 1)
+    card.props.onMouseDown({ button: 0, currentTarget: { contains: () => true }, target: { closest: sel => (sel.includes('button') ? {} : null) }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'clicking an interactive control inside composer card must not hijack focus')
+    card.props.onMouseDown({ button: 0, currentTarget: { contains: () => true }, target: { closest: sel => (sel.includes('label') ? {} : null) }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'clicking a label inside composer card must not hijack focus')
+    card.props.onMouseDown({ button: 0, currentTarget: cardDom, target: { closest: () => null }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'portal events bubbling from outside currentTarget DOM must not hijack focus')
+
+    // Real IME order: compositionStart -> compositionEnd -> onChange -> immediate Enter must NOT submit;
+    // Enter after Enter keyUp submits.
+    textarea(tree).props.onCompositionStart()
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(sent.length, 0, 'Enter during active IME composition must not submit')
+    textarea(tree).props.onCompositionEnd()
+    textarea(tree).props.onChange({ target: { value: '你好', selectionStart: 2 } })
+    tree = inst.render()
+    textarea(tree).props.onKeyUp({ key: 'a', target: { selectionStart: 2 } })
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(sent.length, 0, 'Enter fired immediately after compositionend + onChange must not submit')
+    textarea(tree).props.onKeyUp({ key: 'Enter', target: { selectionStart: 2 } })
+    textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    await tick()
+    assert.deepEqual(sent, ['你好'])
+
+    // In-place chatKey flip (e.g. startup roster hydration) must not steal focus from another input/terminal.
+    const prevActive = sandbox.document.activeElement
+    let hydrationFocusCalls = 0
+    ta.props.ref.current = { focus() { hydrationFocusCalls += 1 }, style: {}, scrollHeight: 30 }
+    sandbox.document.activeElement = { closest: sel => (sel.includes('.dsb-term') ? {} : null) }
+    try {
+      roster.byId['b-with-model'] = { ...roster.bots[0], id: 'b-hydrated' }
+      inst.render()
+      assert.equal(hydrationFocusCalls, 0, 'in-place chatKey flip must not steal focus from terminal/input')
+    } finally {
+      roster.byId['b-with-model'] = roster.bots[0]
+      sandbox.document.activeElement = prevActive
+    }
+  } finally {
+    inst.unmount()
+  }
+})

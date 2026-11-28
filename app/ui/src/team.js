@@ -124,6 +124,7 @@ export function createTeam() {
   // Remember positions in both modes so switching Bot <-> Classic preserves each side.
   let lastTeamSession = null
   let lastAgentSession = null
+  let terminalNonceSeq = 0
   const agentNewInFlight = new Map()
   let classicSeq = 0
   const sessionHooks = new Map()
@@ -798,7 +799,14 @@ export function createTeam() {
       if (!available) { actions.notice?.(t('These changes are no longer available')); return }
       openWorkspaceTab('changes', prev => ({ ...prev, changes }), changes.sessionId)
     },
-    newTerminal: () => openWorkspaceTab('terminal', prev => ({ ...prev, terminalNonce: (prev?.terminalNonce ?? 0) + 1 })),
+    newTerminal: () => openWorkspaceTab('terminal', prev => ({ ...prev, terminalNonce: ++terminalNonceSeq })),
+    consumeTerminalNonce: (nonce) => {
+      if (!nonce) return
+      ui.set((state) => {
+        if (!state.rightPanel || state.rightPanel.terminalNonce !== nonce) return state
+        return { ...state, rightPanel: { ...state.rightPanel, terminalNonce: 0 } }
+      })
+    },
     setRightPanelTab: (tabId) => openWorkspaceTab(tabId),
     closeWorkspaceTab: (tabId) => {
       if (typeof tabId !== 'string' || tabId === '') return
@@ -816,6 +824,7 @@ export function createTeam() {
               tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
               ...(tabId === 'preview' ? { file: null, fileLine: null, fileSessionId: null, fileRoot: null, fileFallback: null } : {}),
               ...(tabId === 'changes' ? { changes: null } : {}),
+              ...(tabId === 'terminal' ? { terminalNonce: 0 } : {}),
             },
           }
         }

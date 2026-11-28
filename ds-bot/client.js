@@ -721,6 +721,11 @@ var JA = {
   "Top up ↗": "チャージする ↗",
   "Retry": "再試行",
   "Retrying…": "再試行中…",
+  "Continuing…": "再開中…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} は連続して複数回の自動パート切り替えを行ったため一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "Paused to prevent a repeating loop": "反復ループを防ぐため一時停止しました",
+  "Paused after repeated automatic part switches": "連続した自動パート切り替え後に一時停止しました",
   "Technical details": "技術的な詳細",
   "Code": "コード",
   "HTTP status": "HTTP ステータス",
@@ -4350,6 +4355,11 @@ var KO = {
   "Top up ↗": "충전하기 ↗",
   Retry: "재시도",
   "Retrying…": "재시도 중…",
+  "Continuing…": "계속하는 중…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name}이(가) 여러 번 연속으로 대화 구간을 전환해 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "Paused to prevent a repeating loop": "반복 루프를 방지하기 위해 일시 중지됨",
+  "Paused after repeated automatic part switches": "반복된 자동 대화 구간 전환 후 일시 중지됨",
   "Technical details": "기술 세부 정보",
   Code: "코드",
   "HTTP status": "HTTP 상태 코드",
@@ -8018,6 +8028,11 @@ var ES = {
   "Top up ↗": "Recargar ↗",
   Retry: "Reintentar",
   "Retrying…": "Reintentando…",
+  "Continuing…": "Continuando…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} se pausó tras cambiar de segmento varias veces seguidas. Responde con indicaciones o haz clic en Continuar.",
+  "Paused to prevent a repeating loop": "Pausado para evitar un bucle repetitivo",
+  "Paused after repeated automatic part switches": "Pausado tras varios cambios automáticos de segmento",
   "Technical details": "Detalles técnicos",
   Code: "Código",
   "HTTP status": "Estado HTTP",
@@ -11680,6 +11695,11 @@ var FR = {
   "Top up ↗": "Recharger ↗",
   "Retry": "Réessayer",
   "Retrying…": "Nouvelle tentative…",
+  "Continuing…": "Reprise…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} s’est mis en pause après plusieurs changements automatiques de segment consécutifs. Répondez avec des instructions ou cliquez sur Continuer.",
+  "Paused to prevent a repeating loop": "Mis en pause pour éviter une boucle répétitive",
+  "Paused after repeated automatic part switches": "Mis en pause après plusieurs changements automatiques de segment",
   "Technical details": "Détails techniques",
   "Code": "Code",
   "HTTP status": "Statut HTTP",
@@ -15309,6 +15329,11 @@ var DE = {
   "Top up ↗": "Aufladen ↗",
   Retry: "Erneut versuchen",
   "Retrying…": "Wird erneut versucht…",
+  "Continuing…": "Wird fortgesetzt…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} wurde pausiert, weil Tool-Aufrufe wiederholt fehlschlugen oder sich wiederholten. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} wurde nach mehreren automatischen Abschnittswechseln pausiert. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "Paused to prevent a repeating loop": "Pausiert, um eine Wiederholungsschleife zu verhindern",
+  "Paused after repeated automatic part switches": "Nach wiederholten automatischen Abschnittswechseln pausiert",
   "Technical details": "Technische Details",
   Code: "Code",
   "HTTP status": "HTTP-Status",
@@ -18852,6 +18877,11 @@ var ZH = {
   "Top up ↗": "去充值 ↗",
   Retry: "重试",
   "Retrying…": "正在重试…",
+  "Continuing…": "正在继续…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} 已连续多次自动换段仍未结束，已自动暂停。回复指导或点击「继续」。",
+  "Paused to prevent a repeating loop": "已自动暂停以防重复循环",
+  "Paused after repeated automatic part switches": "连续多次自动换段后已暂停",
   "Technical details": "技术详情",
   Code: "代码",
   "HTTP status": "HTTP 状态码",
@@ -21665,6 +21695,8 @@ var FAILURES = {
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
+  TURN_PAUSED_LOOP: "Paused to prevent a repeating loop",
+  TURN_PAUSED_SWITCH_LIMIT: "Paused after repeated automatic part switches",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -25534,7 +25566,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 @keyframes bt-create-pop{from{transform:scale(.72);opacity:.4}}
 .bt-create-name{font-size:17px;line-height:24px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-create-step{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-bottom:-10px}
-.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);box-sizing:border-box}
 .bt-create-lookbar{justify-content:center}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
@@ -26016,6 +26048,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
+.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-control{flex:none}
 .bt-set-row:where(:not(.bt-bs-stack))>.bt-set-control:where(:has(>.bt-seg)){max-width:72%}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
@@ -26724,7 +26757,7 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
   .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
   .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
@@ -26777,7 +26810,7 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%}
   .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 0%;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
   .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
@@ -50963,7 +50996,7 @@ var SIDEBAR_CSS = `
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-agent-sub[data-open]{grid-template-rows:1fr}
 .bt-agent-sub-in{overflow:hidden;min-height:0;margin-left:44px}
-.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+.bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
 /* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
@@ -50973,7 +51006,7 @@ var SIDEBAR_CSS = `
 .bt-agent-new{color:var(--bt-ink-3)}
 .bt-agent-new svg{width:14px;height:14px;flex:none}
 .bt-agent-edit{padding:3px 10px 3px 4px}
-.bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
+.bt-agent-edit input{width:100%;box-sizing:border-box;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
 @keyframes bt-agent-row-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
@@ -51017,7 +51050,7 @@ var SIDEBAR_CSS = `
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-sec-act svg{width:13px;height:13px}
 .bt-sec-edit{display:flex;align-items:center;height:30px;padding:0 4px}
-.bt-sec-edit input{width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-sec-edit input{width:100%;box-sizing:border-box;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-sec-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-sec[data-collapsed=true] .bt-sec-body{grid-template-rows:0fr}
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
@@ -60743,7 +60776,8 @@ var PROVIDERS_CSS = `
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
-@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto}}
+@container (max-width:440px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto;flex:1 1 120px;min-width:0}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `;
 
@@ -68170,6 +68204,7 @@ var ACCOUNT_MODELS_WAIT_MS = 2e4;
 var SIGNED_OUT = /* @__PURE__ */ new Set(["ACCOUNT_SIGN_IN_REQUIRED", "ACCOUNT_SIGNED_OUT", "ACCOUNT_TOKEN_INVALID"]);
 var KEY_CODES = /* @__PURE__ */ new Set(["MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "AUTH"]);
 var CREDENTIAL_CODES = /* @__PURE__ */ new Set([...KEY_CODES, ...SIGNED_OUT]);
+var PAUSED_CODES = /* @__PURE__ */ new Set(["TURN_PAUSED_LOOP", "TURN_PAUSED_SWITCH_LIMIT"]);
 function failureText2(code, { name, provider, status }) {
   switch (code) {
     case "MISSING_CREDENTIAL":
@@ -68203,6 +68238,10 @@ function failureText2(code, { name, provider, status }) {
       return t("This conversation no longer fits in the context window. Start a new part to continue.");
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return t("The conversation could not be compacted for this model. Try again or choose another model.");
+    case "TURN_PAUSED_LOOP":
+      return t("{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.", { name });
+    case "TURN_PAUSED_SWITCH_LIMIT":
+      return t("{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.", { name });
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -68411,7 +68450,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     const toggles = keyHere && (fix === "key" || fix === "rekey");
     return (0, import_react85.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
-  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
+  const paused = PAUSED_CODES.has(data.code);
+  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? paused ? t("Continue") : t("Retry") : paused ? t("Continuing…") : t("Retrying…"));
   const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
   return (0, import_react85.createElement)(

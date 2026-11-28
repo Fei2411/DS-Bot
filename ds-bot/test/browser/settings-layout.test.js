@@ -407,6 +407,8 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
     stdin: {
       contents: `
         import { SHELL_CSS } from './src/client/styles.js'
+        import { SECRET_CSS } from './src/client/secret-card.js'
+        import { PROVIDERS_CSS } from './src/client/providers-page.js'
         import { AGENT_PRESET_CSS } from './src/client/agent-preset-menu.js'
         import { MODEL_CSS } from './src/client/model-menu.js'
         import { FOLDER_CSS } from './src/client/folder-menu.js'
@@ -420,6 +422,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
         export const SHEETS = [
           COMPUTER_CSS,
           SHELL_CSS,
+          SECRET_CSS + PROVIDERS_CSS,
           AGENT_PRESET_CSS,
           MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS,
           SCHEDULE_CSS,
@@ -515,6 +518,30 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           </div>
         </div>
       </section>
+      <section class="bt-set-section">
+        <div class="bt-set-card" data-card="privacy-switch">
+          <div class="bt-set-row" id="row-privacy-switch">
+            <div class="bt-set-copy"><span>Upload Session Log to DeepSeek API</span><span class="bt-set-hint">Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.</span></div>
+            <div class="bt-set-control"><button type="button" role="switch" aria-checked="false" class="bt-switch"><span class="bt-switch-knob"></span></button></div>
+          </div>
+        </div>
+      </section>
+      <section class="bt-set-section">
+        <div class="bt-set-card" data-card="provider-summary">
+          <div class="bt-secret-item bt-provider">
+            <button type="button" class="bt-set-row bt-secret-summary" id="row-provider-summary">
+              <span style="flex:none;width:32px;height:32px;display:inline-block"></span>
+              <span class="bt-set-copy"><span class="bt-secret-title">DeepSeek OpenAI</span><span class="bt-set-hint">deepseek.com</span></span>
+              <span class="bt-set-control"><span class="bt-provider-state">Key set outside DS Bot</span><span class="bt-chevron">▾</span></span>
+            </button>
+          </div>
+        </div>
+      </section>
+      <div class="bt-create-inline">
+        <div class="bt-create-card" id="create-card-probe">
+          <div class="bt-create-looks"><div class="bt-shapes"></div></div>
+        </div>
+      </div>
     </div>
   `
   const inspectScript = () => {
@@ -522,7 +549,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
       const scope = document.getElementById(scopeId)
       const cards = [...scope.querySelectorAll('.bt-set-card')]
       const overflowCards = cards.filter(card => card.scrollWidth > card.clientWidth + 1).map(card => card.dataset.card)
-      const rowIds = ['row-name', 'row-label', 'row-label-de', 'row-group-name', 'row-instructions', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-computer-page', 'row-task-target', 'row-task-name', 'row-im']
+      const rowIds = ['row-name', 'row-label', 'row-label-de', 'row-group-name', 'row-instructions', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-privacy-switch', 'row-computer-page', 'row-task-target', 'row-task-name', 'row-im']
       const rows = {}
       for (const id of rowIds) {
         const row = scope.querySelector(`#${id}`)
@@ -550,7 +577,14 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           clipped: ctrlRect.right > cardRect.right + 1 || innerCtrlRect.right > cardRect.right + 1 || copyRect.right > cardRect.right + 1,
         }
       }
-      return { overflowCards, rows }
+      const createCard = scope.querySelector('#create-card-probe')
+      const createCardOverflow = createCard ? createCard.scrollWidth > createCard.clientWidth + 1 : false
+      const provRow = scope.querySelector('#row-provider-summary')
+      const provCopy = provRow.querySelector('.bt-set-copy').getBoundingClientRect()
+      const provCtrl = provRow.querySelector('.bt-set-control').getBoundingClientRect()
+      const provOverlap = provCopy.right > provCtrl.left + 1 && provCopy.bottom > provCtrl.top + 1 && provCtrl.bottom > provCopy.top + 1
+      const providerSummary = { copyW: Math.round(provCopy.width), overlap: provOverlap }
+      return { overflowCards, createCardOverflow, providerSummary, rows }
     }
     return Object.fromEntries([...document.querySelectorAll('.wrap')].map(el => [el.id, inspect(el.id)]))
   }
@@ -571,6 +605,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
 
       for (const scopeName of ['narrow', 'edge440', 'edge441', 'wide']) {
         assert.deepEqual(report[scopeName].overflowCards, [], `${scopeName}: ${JSON.stringify(report[scopeName])}`)
+        assert.equal(report[scopeName].createCardOverflow, false, `${scopeName} create card overflowed`)
         // Multiline .bt-bs-area must stay full-width at every card width (never capped at 58%).
         const area = report[scopeName].rows['row-instructions']
         assert.equal(area.stacked, true, `${scopeName} instructions should stack: ${JSON.stringify(area)}`)
@@ -587,12 +622,15 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           assert.ok(r.innerCtrlW >= r.innerW - 2, `${scopeName} ${id} control width too small: ${JSON.stringify(r)}`)
           assert.ok(r.labelH <= 24, `${scopeName} ${id} label wrapped vertically: ${JSON.stringify(r)}`)
         }
-        for (const id of ['row-engine', 'row-switch']) {
+        for (const id of ['row-engine', 'row-switch', 'row-privacy-switch']) {
           const r = report[scopeName].rows[id]
           assert.equal(r.stacked, false, `${scopeName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${scopeName} ${id} clipped: ${JSON.stringify(r)}`)
+          assert.ok(r.ctrlW >= r.innerCtrlW - 1, `${scopeName} ${id} control compressed: ${JSON.stringify(r)}`)
           assert.ok(r.copyW >= 120, `${scopeName} ${id} copy squeezed: ${JSON.stringify(r)}`)
         }
+        assert.equal(report[scopeName].providerSummary.overlap, false, `${scopeName} provider summary overlapped: ${JSON.stringify(report[scopeName].providerSummary)}`)
+        assert.ok(report[scopeName].providerSummary.copyW >= 100, `${scopeName} provider summary copy squeezed: ${JSON.stringify(report[scopeName].providerSummary)}`)
       }
       assert.ok(report.narrow.rows['row-label'].hintH <= 24, `narrow label hint wrapped excessively: ${JSON.stringify(report.narrow.rows['row-label'])}`)
       assert.ok(report.narrow.rows['row-group-name'].hintH <= 24, `narrow group name hint wrapped excessively: ${JSON.stringify(report.narrow.rows['row-group-name'])}`)
@@ -627,17 +665,21 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
         await page.setContent(docHtml([[vpName, cardWidth]]))
         const vpReport = (await page.evaluate(inspectScript))[vpName]
         assert.deepEqual(vpReport.overflowCards, [], `${vpName}: ${JSON.stringify(vpReport)}`)
+        assert.equal(vpReport.createCardOverflow, false, `${vpName} create card overflowed`)
         for (const id of [...stackedInNarrow, 'row-instructions']) {
           const r = vpReport.rows[id]
           assert.equal(r.stacked, true, `${vpName} ${id} should stack: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${vpName} ${id} clipped: ${JSON.stringify(r)}`)
           assert.ok(r.innerCtrlW >= r.innerW - 2, `${vpName} ${id} control width too small: ${JSON.stringify(r)}`)
         }
-        for (const id of ['row-engine', 'row-switch']) {
+        for (const id of ['row-engine', 'row-switch', 'row-privacy-switch']) {
           const r = vpReport.rows[id]
           assert.equal(r.stacked, false, `${vpName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${vpName} ${id} clipped: ${JSON.stringify(r)}`)
+          assert.ok(r.ctrlW >= r.innerCtrlW - 1, `${vpName} ${id} control compressed: ${JSON.stringify(r)}`)
         }
+        assert.equal(vpReport.providerSummary.overlap, false, `${vpName} provider summary overlapped: ${JSON.stringify(vpReport.providerSummary)}`)
+        assert.ok(vpReport.providerSummary.copyW >= 100, `${vpName} provider summary copy squeezed: ${JSON.stringify(vpReport.providerSummary)}`)
       }
     } finally { await page.close() }
   } finally { await browser.close() }

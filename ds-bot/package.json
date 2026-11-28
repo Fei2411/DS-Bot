@@ -30,6 +30,7 @@
     "./plugin-sdk": "./src/host/plugins/sdk.js",
     "./browser-provider": "./src/host/plugins/sdk.js",
     "./web-search": "./web-search.js",
+    "./web-fetch": "./web-fetch.js",
     "./code-mode": "./code-mode.js",
     "./package.json": "./package.json"
   },
@@ -48,6 +49,7 @@
     "link.js",
     "office.js",
     "web-search.js",
+    "web-fetch.js",
     "code-mode.js",
     "cordis.patch.yml",
     "assets/pwa/",
