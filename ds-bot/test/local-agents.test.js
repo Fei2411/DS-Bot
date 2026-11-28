@@ -29,7 +29,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView, secretEnvForSession } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView, secretEnvForSession, idleCloseMs, activeToolCloseMs } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -38,6 +38,8 @@ function makeAdapter({ records = {}, preset = 'workspace-write', review = false,
     fs,
     freshMemoryView,
     secretEnvForSession,
+    idleCloseMs,
+    activeToolCloseMs,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
@@ -276,6 +278,55 @@ test('acp: tool output without a label or status change keeps the turn alive', a
   assert.match(outcome.thinking, /Run tests/)
 })
 
+// #2414: a tool call still running is not a stall; only one silent past the
+// longer tool timeout is.
+test('acp: a tool call running past the idle timeout keeps the turn alive', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  const promptId = peer.nextId
+  const update = (sessionUpdate, fields) => peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate, toolCallId: 'sleep', ...fields } },
+  }))
+  update('tool_call', { kind: 'execute', title: 'sleep 660 && echo done', status: 'in_progress' })
+  await delay(0)
+  t.mock.timers.tick(11 * 60_000)
+  await delay(0)
+  assert.equal(adapter.live.has('s1'), true)
+  assert.equal(live.engineSession.running, true)
+  update('tool_call_update', { status: 'completed' })
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } }))
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'stop')
+})
+
+test('acp: a tool call silent past the tool timeout still fails as stalled', async (t) => {
+  const adapter = makeAdapter({ idleCloseMs: 500, activeToolCloseMs: 3_000 })
+  t.after(() => adapter.dispose())
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate: 'tool_call', toolCallId: 'stuck', kind: 'execute', title: 'Run build', status: 'in_progress' } },
+  }))
+  const sent = Date.now()
+  await delay(1_000)
+  assert.equal(adapter.live.has('s1'), true)
+  const outcome = await pending
+  assert.ok(Date.now() - sent >= 2_900, `closed after ${Date.now() - sent} ms`)
+  assert.equal(outcome.error?.code, 'LOCAL_AGENT_EXIT')
+  assert.match(outcome.error.message, /stalled/)
+})
+
 test('acp: a stall after approval leaves the queued follow-up for explicit retry', async (t) => {
   const records = {}
   const adapter = makeAdapter({ records, review: true, acpArgs: ['--stall-after-permission'] })
@@ -295,7 +346,9 @@ test('acp: a stall after approval leaves the queued follow-up for explicit retry
   assert.equal(live.engineSession.running, true)
   assert.equal(live.queue.length, 1)
   assert.equal(records.s1.handedId, 'm1')
+  // The approved call is still open, so only the longer tool timeout ends the turn.
   t.mock.timers.tick(10 * 60_000)
+  t.mock.timers.tick(50 * 60_000)
   await stalled
   t.mock.timers.reset()
   const retry = { ...user('m4', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
