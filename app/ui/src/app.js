@@ -304,7 +304,9 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [sidebarPanelId, setSidebarPanelId] = useState(null)
   const sidebarPanel = useSidebarPanel(slots, sidebarPanelId)
+  const sidebarPanelOpen = Boolean(sidebarPanel)
   const closeSidebarPanel = useCallback(() => setSidebarPanelId(null), [])
+  useLayoutEffect(() => { actions.setChatCovered(sidebarPanelOpen) }, [actions, sidebarPanelOpen])
   useEffect(() => { closeSidebarPanel() }, [shown, surfaceMode, closeSidebarPanel])
   useEffect(() => {
     if (sidebarPanelId !== null && !sidebarPanel) closeSidebarPanel()
@@ -867,7 +869,7 @@ export function App() {
       onClick: openDrawer,
     }, h(SidebarIcon)) : null,
     sidebarPanel ? h(SidebarMainPanel, { entry: sidebarPanel, onClose: closeSidebarPanel }) : null,
-    h('div', { className: 'dsb-conversation-seat', hidden: Boolean(sidebarPanel) },
+    h('div', { className: 'dsb-conversation-seat', hidden: sidebarPanelOpen },
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },
         shownAgent

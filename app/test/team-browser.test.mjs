@@ -994,6 +994,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   let shownId = 'chat-1'
   let settingsOpens = 0
   let inboxOpens = 0
+  let chatCovered = false
   const team = {
     start: () => () => {},
     sessionHook: () => selector => selector({}),
@@ -1018,6 +1019,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
       useConnection: selector => selector({ status: 'connected' }),
     },
     actions: {
+      setChatCovered(covered) { chatCovered = covered },
       setSidebarPref() {},
       setSidebarWidth() {},
       setLeftDrawer() {},
@@ -1257,10 +1259,12 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   tree = render()
   assert.equal(panelNode().props.entry.key, 'sample')
   assert.equal(chatSeat().props.hidden, true)
+  assert.equal(chatCovered, true)
   panelNode().props.onClose()
   tree = render()
   assert.equal(panelNode(), undefined)
   assert.equal(chatSeat().props.hidden, false)
+  assert.equal(chatCovered, false)
 
   surfaceMode = 'agent'
   tree = render()
@@ -1271,4 +1275,5 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   sandbox.__testSidebarPanels.delete('sample')
   tree = render()
   assert.equal(panelNode(), undefined)
+  assert.equal(chatCovered, false)
 })
