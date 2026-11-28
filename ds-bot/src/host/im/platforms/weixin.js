@@ -193,9 +193,16 @@ export default {
       const explicitId = [msg.client_id, msg.message_id, msg.msg_id, msg.msgid, msg.seq]
         .find(value => (typeof value === 'string' && value.trim() !== '') || (typeof value === 'number' && Number.isFinite(value)))
       const joinedText = texts.join('\n').trim()
+      const rawItems = (msg.item_list ?? []).map(item => [
+        item?.type ?? 0,
+        item?.text_item?.text ?? item?.voice_item?.text ?? '',
+        item?.image_item?.media?.encrypt_query_param ?? item?.image_item?.media?.file_id ?? item?.image_item?.aeskey ?? '',
+        item?.file_item?.file_name ?? '',
+        item?.file_item?.media?.encrypt_query_param ?? item?.file_item?.media?.file_id ?? item?.file_item?.aeskey ?? '',
+      ])
       const messageId = explicitId !== undefined
         ? String(explicitId)
-        : `wx:${createHash('sha256').update(JSON.stringify([userId, pollCursor, msgIndex, msg.create_time ?? msg.timestamp ?? '', joinedText, images.length, files.length])).digest('hex').slice(0, 24)}`
+        : `wx:${createHash('sha256').update(JSON.stringify([userId, pollCursor, msgIndex, msg.create_time ?? msg.timestamp ?? '', joinedText, rawItems])).digest('hex').slice(0, 24)}`
       await handlers.onMessage({
         chat: { key: userId, kind: 'direct', title: '' },
         sender: { id: userId, name: userId },

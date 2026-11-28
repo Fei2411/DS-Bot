@@ -601,6 +601,8 @@ export const KO = {
   'Continuing…': '계속하는 중…',
   '{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.': '{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.',
   '{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.': '{name}이(가) 여러 번 연속으로 대화 구간을 전환해 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.',
+  'Paused to prevent a repeating loop': '반복 루프를 방지하기 위해 일시 중지됨',
+  'Paused after repeated automatic part switches': '반복된 자동 대화 구간 전환 후 일시 중지됨',
   'Technical details': '기술 세부 정보',
   Code: '코드',
   'HTTP status': 'HTTP 상태 코드',

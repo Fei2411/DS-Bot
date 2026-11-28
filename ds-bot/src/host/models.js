@@ -170,7 +170,7 @@ export function install(rt) {
     let decided
     if (!signal?.aborted && rt.isBotSession(agent.id) && policy?.mode === 'always') {
       if (NON_RETRYABLE_ALWAYS_CODES.has(code)) return undefined
-      if (failure?.code === 'MALFORMED_RESPONSE') {
+      if (code === 'MALFORMED_RESPONSE') {
         decided = undefined
       } else {
         let retries = alwaysRetries.get(agent)
@@ -194,7 +194,7 @@ export function install(rt) {
       retries = { turn, step, count: 0 }
       malformedRetries.set(agent, retries)
     }
-    if (code !== failure.code && dshRetries(policy, failure.code)) return undefined
+    if (code !== failure.code && policy?.mode !== 'always' && dshRetries(policy, failure.code)) return undefined
     if (!canRetryPolicy(policy, code, retries.count + 1)) return undefined
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)

@@ -215,6 +215,41 @@ test('repeating identical calls, 2-step cycles, and failing run_code programs pa
     err => err instanceof LlmError && err.code === 'TURN_PAUSED_LOOP',
     'repeated failing run_code programs must trigger TURN_PAUSED_LOOP',
   )
+
+  // A single `run_code` step executing many identical `tool/ptc-dispatch` sub-calls must NOT
+  // trigger cross-step TURN_PAUSED_LOOP; repeating identical top-level `run_code` across steps DOES.
+  await emit(sid, { type: 'turn/start', data: { turn: 4 } })
+  await emit(sid, { type: 'tool/call', data: { callId: 'ptc-batch', name: 'run_code', arguments: '{"code":"for (let i=0;i<14;i++) scroll()"}' } })
+  for (let i = 1; i <= REPEAT_TOOL_CALL_PAUSE + 2; i += 1) {
+    await emit(sid, { type: 'tool/ptc-dispatch-start', data: { subCallId: `sub-${i}`, name: 'scroll', arguments: { deltaY: 200 } } })
+    await emit(sid, { type: 'tool/ptc-dispatch', data: { subCallId: `sub-${i}`, ok: true } })
+  }
+  await emit(sid, toolResultEvent('ptc-batch', { isError: false, turn: 4, step: 1 }))
+  await runPreStep(sid, { turn: 4, step: 2 })
+
+  // Long tool arguments (>2000 chars) differing only past char 2000 must not collide.
+  const prefix = 'x'.repeat(2100)
+  for (let i = 1; i <= REPEAT_TOOL_CALL_PAUSE + 1; i += 1) {
+    await emit(sid, { type: 'tool/call', data: { callId: `long-${i}`, name: 'write_file', arguments: JSON.stringify({ content: `${prefix}-${i}` }) } })
+    await emit(sid, toolResultEvent(`long-${i}`, { isError: false, turn: 4, step: i + 2 }))
+    await runPreStep(sid, { turn: 4, step: i + 3 })
+  }
+
+  // Carried runaway guard must survive an automatic handoff message with `role: 'continue', handoff: true`.
+  const nextPart = `${sid}-part2`
+  rt.chatOwners.set(nextPart, botId)
+  rt.carryRunawayGuard(sid, nextPart)
+  for (let i = 1; i <= REPEAT_TOOL_CALL_PAUSE; i += 1) {
+    await emit(nextPart, { type: 'tool/call', data: { callId: `carry-${i}`, name: 'read_file', arguments: '{"path":"same.txt"}' } })
+    await emit(nextPart, toolResultEvent(`carry-${i}`, { isError: false, turn: 5, step: i }))
+    if (i < REPEAT_TOOL_CALL_PAUSE) await runPreStep(nextPart, { turn: 5, step: i + 1 })
+  }
+  await emit(nextPart, { type: 'user/message', data: { source: { kind: 'ds-bot', role: 'continue', handoff: true } } })
+  await assert.rejects(
+    () => runPreStep(nextPart, { turn: 5, step: REPEAT_TOOL_CALL_PAUSE + 1 }),
+    err => err instanceof LlmError && err.code === 'TURN_PAUSED_LOOP',
+    'handoff user/message carrying continue role must not reset runaway guard',
+  )
 })
 
 test('failed work tool calls do not mark workToolCount; succeeded real tool/result calls do', async (t) => {
@@ -290,6 +325,23 @@ test('retryPolicy.mode=always short-circuits fatal codes, isolates MALFORMED_RES
     else break
   }
   assert.equal(malformedRetried, 2, 'MALFORMED_RESPONSE under mode=always keeps its own independent 2-retry cap')
+
+  // Gemini PI_AI_ERROR malformed stop on a fresh step after SERVER retries exhausted also gets the 2-retry malformed cap.
+  let geminiRetried = 0
+  for (let i = 0; i < 5; i += 1) {
+    const decision = await ctx.waterfall('agent/request-error', {
+      agent,
+      turn: 1,
+      step: 3,
+      signal,
+      provider: 'mock',
+      retryPolicy: alwaysPolicy,
+      failure: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_FUNCTION_CALL' },
+    }, () => undefined)
+    if (decision?.kind === 'retry') geminiRetried += 1
+    else break
+  }
+  assert.equal(geminiRetried, 2, 'Gemini PI_AI_ERROR malformed stop under mode=always must cap at 2 malformed retries')
 
   // Auxiliary stream helper `assembleLlmStream` must also cap retries under mode=always.
   let streamAttempts = 0

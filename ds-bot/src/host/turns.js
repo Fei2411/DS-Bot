@@ -2,7 +2,7 @@
 // triggered, the waiters and inboxes of group rounds, and routing a finished turn's reply.
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { symbols as cordisSymbols } from '@deepseek-ai/cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
@@ -1107,7 +1107,7 @@ export function install(rt) {
   }
   const callSignatureOf = (name, rawArgs) => {
     const text = typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs ?? '')
-    return `${name}:${text.slice(0, 2000)}`
+    return `${name}:${createHash('sha256').update(text).digest('hex').slice(0, 24)}`
   }
   const detectRepeatLoop = (recentCalls) => {
     const len = recentCalls.length
@@ -1320,8 +1320,6 @@ export function install(rt) {
             const taskOwner = rt.taskOwners?.get(id)
             if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
           }
-          guard.recentCalls.push(meta.sig)
-          if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
         }
         break
       }
@@ -1338,13 +1336,15 @@ export function install(rt) {
           const isError = message?.isError === true || event.data?.isError === true || event.data?.error !== undefined
           if (meta.program) {
             // Only failed `run_code` executions (e.g. syntax/sandbox errors with no sub-calls)
-            // feed the runaway guard; successful programs are accounted for by their sub-calls.
+            // feed step error counts; successful programs are accounted for by their sub-calls.
+            // Always record the top-level `run_code` signature for cross-step repeat detection
+            // while avoiding polluting `recentCalls` with legitimate loops inside a single script.
             if (isError) {
               guard.stepTotal += 1
               guard.stepErrors += 1
-              guard.recentCalls.push(meta.sig)
-              if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
             }
+            guard.recentCalls.push(meta.sig)
+            if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
           } else {
             guard.stepTotal += 1
             if (isError) guard.stepErrors += 1
@@ -1446,7 +1446,7 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
-        if (source?.kind === 'user' || (source?.kind === SOURCE_KIND && source.role === 'continue')) {
+        if (source?.handoff !== true && (source?.kind === 'user' || (source?.kind === SOURCE_KIND && source.role === 'continue'))) {
           clearRunawayGuard(id)
           rt.clearAutoSwitchChain?.(id)
         }
