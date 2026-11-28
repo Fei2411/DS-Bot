@@ -12,6 +12,7 @@ import { lookOf } from '../../../ds-bot/src/client/mark.js'
 import { DeepSeekSignIn } from '../../../ds-bot/src/client/model-menu.js'
 import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
+import { ReloadConfirmHost } from '../../../ds-bot/src/client/reload-recovery.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
 import { installStyles } from '../../../ds-bot/src/client/styles.js'
@@ -767,5 +768,6 @@ export function App() {
       onClose: actions.closeShortcuts,
     }),
     h(ShellOverlayHost, { registry: slots, views })),
+  h(ReloadConfirmHost),
   h(ErrorToast, views))
 }
