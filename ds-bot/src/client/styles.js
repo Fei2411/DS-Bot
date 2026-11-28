@@ -358,6 +358,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--bt-titlebar-h,0px) - var(--bt-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=windows] .bt-panel::before{border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
 /* Full-window modal layers and opening covers sit directly under body, which frameless hosts
    mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
    regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
@@ -429,9 +430,14 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-panel-grip:hover,.bt-panel[data-dragging] .bt-panel-grip{background:linear-gradient(to right,transparent 4px,var(--bt-line-2) 4px,var(--bt-line-2) 6px,transparent 6px)}
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
-.bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
-.bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
-.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}
+.bt-drawer-top{display:flex;justify-content:flex-end;align-items:center;gap:4px;padding:10px 12px 4px}
+:is(.bt-drawer-top,.bt-subhead)[data-window-drag]{padding-top:16px}
+.bt-drawer-top>span{display:inline-flex;align-items:center}
+.bt-drawer-top .bt-round{width:30px;height:30px;border:0;background:transparent;color:var(--bt-ink-2)}
+.bt-drawer-top .bt-round:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-drawer-top .bt-round svg{width:16px;height:16px}
+.bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:8px 16px 0}
+.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:12px}
 .bt-pile{display:flex;align-items:center;justify-content:center;line-height:0}
 .bt-pile-face{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 3px var(--bt-main);animation:bt-pile-in .36s cubic-bezier(.34,1.56,.64,1) backwards}
 .bt-pile-face+.bt-pile-face{margin-left:-10px}
@@ -442,11 +448,12 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
 .bt-drawer-role{font-size:12px;line-height:16px;color:var(--bt-ink-3);margin-top:6px;text-align:center}
-.bt-drawer-role-input{width:min(100%,220px);min-height:28px;box-sizing:border-box;margin-top:4px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
-.bt-drawer-role-input:hover{background:var(--bt-hover)}
-.bt-drawer-role-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-drawer-role-input{width:min(100%,220px);max-width:min(100%,220px);min-height:24px;box-sizing:border-box;margin-top:4px;padding:2px 10px;border:1px solid transparent;border-radius:999px;background:transparent;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+@supports (field-sizing:content){.bt-drawer-role-input{width:auto;field-sizing:content;min-width:64px}.bt-drawer-role-input:focus{min-width:min(100%,140px)}}
+.bt-drawer-role-input:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-drawer-role-input:focus{background:var(--bt-card);border-color:var(--bt-line-2);border-radius:8px;color:var(--bt-ink)}
 .bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
+.bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.72}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}

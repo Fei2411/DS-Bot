@@ -14,9 +14,9 @@ body[data-ds-dark-theme]{color-scheme:dark}
 
 /* The window has no title bar. A band along the top of the sidebar and of the conversation
    moves the window (BAND in src/main.mjs); its first row of controls sits centered in it.
-   The system draws its window buttons over the band: at the right end on Windows and Linux
-   (--dsb-buttons-w wide), at the left end on macOS. */
-:root{--dsb-band:48px;--dsb-buttons-w:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw));--bt-overlay-top:calc(var(--dsb-band) + 8px)}
+   The system draws its window buttons over the band: at the right end on Windows and Linux,
+   at the left end on macOS. */
+:root{--dsb-band:48px;--bt-overlay-top:calc(var(--dsb-band) + 8px)}
 .dsb-band{position:absolute;inset:0 0 auto;height:var(--dsb-band);pointer-events:none;-webkit-app-region:drag;app-region:drag}
 .dsb-frame :is(button,a,input,textarea,select,label,[role=button]),body>:not(#root){-webkit-app-region:no-drag;app-region:no-drag}
 /* Full-window app-shell modals and scrims cover the caption band, so body > :not(#root)
@@ -29,9 +29,9 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb
 :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-lightbox,.dsb-signin-mask)>:is(.dsb-shortcuts,.dsb-preset-modal,.dsb-risk-dialog,.dsb-fb-dialog,.dsb-lightbox-fig,.dsb-signin-dialog){position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 .dsb-lightbox>.dsb-lightbox-close{z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 html[data-windows-titlebar]:not([data-fullscreen]) .dsb-lightbox>.dsb-lightbox-close{top:calc(var(--bt-titlebar-h,var(--dsb-band)) + 12px)}
-.bt-panel .bt-drawer-top{padding-top:6px;padding-right:calc(17px + var(--dsb-buttons-w))}
-.bt-panel .bt-ptabs{padding-right:calc(6px + var(--dsb-buttons-w))}
-.bt-pane :is(.bt-to,.bt-create-head){padding-right:calc(12px + var(--dsb-buttons-w))}
+/* Side panels and full panes already clear the caption band vertically via styles.js
+   (--bt-caption-band), so their top rows sit below the Windows caption buttons and must
+   not also reserve horizontal right padding for them. */
 
 /* Classic sidebar; collapses cleanly to 0px rather than a narrow stub. */
 .dsb-side{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0 12px 6px;background:var(--bt-sidebar);border-right:1px solid color-mix(in srgb,var(--bt-ink) 12%,transparent);box-sizing:border-box}

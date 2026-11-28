@@ -26103,6 +26103,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--bt-titlebar-h,0px) - var(--bt-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=windows] .bt-panel::before{border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
 /* Full-window modal layers and opening covers sit directly under body, which frameless hosts
    mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
    regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
@@ -26174,9 +26175,14 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-panel-grip:hover,.bt-panel[data-dragging] .bt-panel-grip{background:linear-gradient(to right,transparent 4px,var(--bt-line-2) 4px,var(--bt-line-2) 6px,transparent 6px)}
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
-.bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
-.bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
-.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}
+.bt-drawer-top{display:flex;justify-content:flex-end;align-items:center;gap:4px;padding:10px 12px 4px}
+:is(.bt-drawer-top,.bt-subhead)[data-window-drag]{padding-top:16px}
+.bt-drawer-top>span{display:inline-flex;align-items:center}
+.bt-drawer-top .bt-round{width:30px;height:30px;border:0;background:transparent;color:var(--bt-ink-2)}
+.bt-drawer-top .bt-round:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-drawer-top .bt-round svg{width:16px;height:16px}
+.bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:8px 16px 0}
+.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:12px}
 .bt-pile{display:flex;align-items:center;justify-content:center;line-height:0}
 .bt-pile-face{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 3px var(--bt-main);animation:bt-pile-in .36s cubic-bezier(.34,1.56,.64,1) backwards}
 .bt-pile-face+.bt-pile-face{margin-left:-10px}
@@ -26187,11 +26193,12 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
 .bt-drawer-role{font-size:12px;line-height:16px;color:var(--bt-ink-3);margin-top:6px;text-align:center}
-.bt-drawer-role-input{width:min(100%,220px);min-height:28px;box-sizing:border-box;margin-top:4px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
-.bt-drawer-role-input:hover{background:var(--bt-hover)}
-.bt-drawer-role-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-drawer-role-input{width:min(100%,220px);max-width:min(100%,220px);min-height:24px;box-sizing:border-box;margin-top:4px;padding:2px 10px;border:1px solid transparent;border-radius:999px;background:transparent;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+@supports (field-sizing:content){.bt-drawer-role-input{width:auto;field-sizing:content;min-width:64px}.bt-drawer-role-input:focus{min-width:min(100%,140px)}}
+.bt-drawer-role-input:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-drawer-role-input:focus{background:var(--bt-card);border-color:var(--bt-line-2);border-radius:8px;color:var(--bt-ink)}
 .bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
+.bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.72}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
@@ -38807,8 +38814,8 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   const ratioAt = (clientX) => {
     const rect = track.current?.getBoundingClientRect();
     if (!rect || stops.length <= 1) return 1;
-    const span = Math.max(1, rect.width - 22);
-    return Math.max(0, Math.min(1, (clientX - rect.left - 11) / span));
+    const span = Math.max(1, rect.width - 16);
+    return Math.max(0, Math.min(1, (clientX - rect.left - 8) / span));
   };
   const nearestStop = (r) => stops[Math.round(r * (stops.length - 1))] ?? stops[0];
   const onPointerDown = (event) => {
@@ -39502,15 +39509,15 @@ var MODEL_CSS = `
 .bt-collapse[data-open]{grid-template-rows:1fr}
 .bt-collapse:not([data-open]){pointer-events:none}
 .bt-collapse-in{min-height:0;overflow:hidden}
-/* The collapse clips at its box: the extra 3px keeps the slider's focus ring inside it. */
-.bt-model-effort{padding:2px 0 3px}
-.bt-model-effort .bt-effort-bar{padding:4px 12px 5px}
-.bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:4px 6px 5px}
-.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:18px;padding:0 2px}
-.bt-effort-label{font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3)}
-.bt-effort-meta{display:inline-flex;align-items:center;gap:5px;min-width:0}
+/* The collapse clips at its box: bottom padding matches the track's negative margin and an inset focus ring stays unclipped while keeping the slider flush with the trigger above. */
+.bt-model-effort{padding:10px 0 6px}
+.bt-model-effort .bt-effort-bar{padding:0}
+.bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:6px 8px 4px}
+.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
+.bt-effort-label{font-size:12px;line-height:16px;font-weight:450;color:var(--bt-ink-2)}
+.bt-effort-meta{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .bt-effort-tag{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
-.bt-effort-val{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap}
+.bt-effort-val{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink);white-space:nowrap}
 .bt-effort-bar button.bt-effort-reset{flex:none;position:relative;width:28px;height:28px;min-height:0;margin:-5px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing};transition:color .12s ease}
 .bt-effort-bar button.bt-effort-reset::before{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--bt-hover);transition:background-color .12s ease}
 .bt-effort-bar button.bt-effort-reset svg{position:relative;width:11px;height:11px;margin:0}
@@ -39519,13 +39526,13 @@ var MODEL_CSS = `
 .bt-effort-bar button.bt-effort-reset:disabled{opacity:.35;cursor:default}
 .bt-effort-bar button.bt-effort-reset:disabled::before{background:none}
 .bt-effort-bar button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-effort-track{position:relative;height:28px;margin:-3px 0;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
-.bt-effort-track::before{content:"";position:absolute;left:0;right:0;top:3px;bottom:3px;border-radius:999px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line)}
-.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-effort-fill{position:absolute;left:0;top:3px;bottom:3px;width:calc(22px + (100% - 22px) * var(--bt-effort-p,0));border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--bt-accent) 76%,var(--bt-main)),var(--bt-accent));transition:${spring(SPRING_TAP, "width")}}
-.bt-effort-dot{position:absolute;top:50%;left:calc(11px + (100% - 22px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-3) 45%,transparent);pointer-events:none;transition:background-color .12s ease}
-.bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 65%,transparent)}
-.bt-effort-knob{position:absolute;top:5px;left:calc(11px + (100% - 22px) * var(--bt-effort-p,0) - 9px);width:18px;height:18px;border-radius:50%;background:var(--bt-accent-ink);box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.06);pointer-events:none;transition:${spring(SPRING_TAP, "left")},${spring(SPRING_TAP, "scale")}}
+.bt-effort-track{position:relative;height:28px;margin:-6px 0;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
+.bt-effort-track::before{content:"";position:absolute;left:0;right:0;top:11px;height:6px;border-radius:999px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line)}
+.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-effort-fill{position:absolute;left:0;top:11px;height:6px;width:calc(8px + (100% - 16px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);transition:${spring(SPRING_TAP, "width")}}
+.bt-effort-dot{position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:var(--bt-line-2);pointer-events:none;transition:background-color .12s ease}
+.bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 72%,transparent)}
+.bt-effort-knob{position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-effort-p,0));width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;corner-shape:round;background:var(--bt-card);box-shadow:inset 0 0 0 1.5px var(--bt-accent),0 1px 3px rgba(0,0,0,.16);pointer-events:none;transition:${spring(SPRING_TAP, "left")},${spring(SPRING_TAP, "scale")}}
 .bt-effort-track[data-dragging] .bt-effort-fill,.bt-effort-track[data-dragging] .bt-effort-knob{transition:none}
 .bt-effort-track:hover .bt-effort-knob,.bt-effort-track[data-dragging] .bt-effort-knob{scale:1.08}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
@@ -71370,7 +71377,19 @@ function sectionMoveItems(entry, roster, actions) {
   ].filter(Boolean);
 }
 var useNullWork2 = () => "null";
-function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
+var useNullSessions = () => null;
+function transcriptOf(list, id, name, hiddenTurns = []) {
+  const outline2 = list?.projectionsBySession?.[id]?.values?.turnOutline ?? list?.byId?.[id]?.projectionValues?.turnOutline;
+  if (!Array.isArray(outline2)) return "";
+  const lines = [];
+  for (const entry of outline2) {
+    if (hiddenTurns.includes(entry.turn)) continue;
+    if (entry.prompt && !HEADER.test(entry.prompt)) lines.push(`**${t("You")}:** ${entry.prompt.trim()}`);
+    if (entry.response) lines.push(`**${name}:** ${stripHeader(entry.response).trim()}`);
+  }
+  return lines.join("\n\n");
+}
+function ContextMenu({ menu, roster, actions, useWork, useSessions, leaving = false }) {
   useEscape(() => actions.closeMenu(), !leaving, { priority: ESCAPE_PRIORITY.MENU });
   const ref = (0, import_react92.useRef)(null);
   const trigger = (0, import_react92.useRef)(typeof document === "undefined" ? null : document.activeElement);
@@ -71402,6 +71421,12 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   const useReadWork = useWork ?? useNullWork2;
   const waitsRaw = useReadWork((work) => JSON.stringify(bot ? work.waiting?.[bot.id] ?? null : null));
   const waits = (0, import_react92.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
+  const sessionsRef = (0, import_react92.useRef)(null);
+  const useReadSessions = useSessions ?? useNullSessions;
+  useReadSessions((list) => {
+    sessionsRef.current = list;
+    return null;
+  });
   if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react92.createElement)(AgentMenu, { menu, roster, actions, leaving });
   if (menu.kind === "section" || menu.kind === "section-add") return (0, import_react92.createElement)(SectionMenu, { menu, roster, actions, leaving });
   const entry = bot ?? room2;
@@ -71429,7 +71454,14 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
       bot && !isMainBot ? [t("Make Main Bot"), StarLineIcon, () => actions.setMain(bot.id, true)] : null,
       bot && isMainBot && mainCount > 1 ? [t("Remove Main Bot role"), StarLineIcon, () => actions.setMain(bot.id, false)] : null
     ],
-    [[t("Copy conversation ID"), CopyIcon, () => navigator.clipboard?.writeText(bot ? currentPart(bot) : menu.id)]],
+    [
+      [t("Copy conversation as Markdown"), CopyIcon, () => {
+        const part = bot ? currentPart(bot) : menu.id;
+        const transcript = transcriptOf(sessionsRef.current, part, bot?.name ?? room2?.name ?? t("Bot"), roster.exchangeTurns?.[part]);
+        if (transcript) return navigator.clipboard?.writeText(transcript);
+      }],
+      [t("Copy conversation ID"), CopyIcon, () => navigator.clipboard?.writeText(bot ? currentPart(bot) : menu.id)]
+    ],
     bot ? (waits?.waits ?? []).map((item) => [t("Give up waiting for {name}", { name: item.name ?? t("a Bot") }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t("Hide from sidebar"), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
@@ -71942,17 +71974,6 @@ var TASK_CSS = `
 
 // src/client/details-drawer.js
 var import_react94 = require("react");
-function transcriptOf(list, id, name, hiddenTurns = []) {
-  const outline2 = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
-  if (!Array.isArray(outline2)) return "";
-  const lines = [];
-  for (const entry of outline2) {
-    if (hiddenTurns.includes(entry.turn)) continue;
-    if (entry.prompt && !HEADER.test(entry.prompt)) lines.push(`**${t("You")}:** ${entry.prompt.trim()}`);
-    if (entry.response) lines.push(`**${name}:** ${stripHeader(entry.response).trim()}`);
-  }
-  return lines.join("\n\n");
-}
 var TAB_LABELS = { details: "Details", tasks: "Tasks", browser: "Browser", computer: "Computer" };
 var hostOf2 = (url) => {
   try {
@@ -72246,7 +72267,6 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     setEditing(false);
   };
   useEscape(cancelRename, editing);
-  const [copied, setCopied] = (0, import_react94.useState)(false);
   const [error, setError] = (0, import_react94.useState)("");
   const bot = owner;
   const chatTasks = bot || room2 ? tasksForChat({ bot, room: room2, roster }) : [];
@@ -72282,11 +72302,6 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     handoff,
     pending: botPendingOf(roster, bot)
   }) : "idle";
-  const sessionsRef = (0, import_react94.useRef)(null);
-  useSessions((list) => {
-    sessionsRef.current = list;
-    return null;
-  });
   const usage = useSessions((list) => usageOf(list, [part, ...bot?.parts ?? room2?.parts ?? []]));
   const run2 = (promise) => Promise.resolve(promise).then(() => {
     setError("");
@@ -72295,13 +72310,6 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     setError(failure?.message ?? String(failure));
     return false;
   });
-  const share = () => {
-    const transcript = sessionsRef.current ? transcriptOf(sessionsRef.current, part, bot?.name ?? room2?.name ?? t("Bot"), roster.exchangeTurns[part]) : "";
-    void navigator.clipboard?.writeText(transcript).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    });
-  };
   const errorLine = error ? (0, import_react94.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
   if ((bot || room2) && view === "settings") {
     return [
@@ -72332,7 +72340,6 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     { className: "bt-drawer-top", "data-move": side2, "data-window-drag": !hasStrip || void 0 },
     bot || room2 ? (0, import_react94.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react94.createElement)(GearIcon)) : null,
     more.length > 0 ? (0, import_react94.createElement)("span", { "data-info-row": "more" }, (0, import_react94.createElement)(PanelMenu, { items: more, className: "bt-round", "aria-label": t("New tab") })) : null,
-    bot || room2 ? (0, import_react94.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react94.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react94.createElement)(ShareIcon)) : null,
     hasStrip ? null : (0, import_react94.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Close details"), onClick: close }, (0, import_react94.createElement)(CloseIcon))
   );
   if (!bot && !room2) {
@@ -74113,7 +74120,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`,
       onDismiss: () => actions.closeMenu?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body)) : null,
+    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, useSessions, leaving: menuLeaving }), document.body)) : null,
     settings ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "settings",
       active: !settingsLeaving,

@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useR
 import { isMuted, toggleMuted } from './notifications.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
-import { currentPart } from './text.js'
+import { HEADER, currentPart, stripHeader } from './text.js'
 import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, FolderIcon, PlusIcon, CheckIcon, PeopleIcon, SignOutIcon } from './icons.js'
 import { BotMark, RoomAvatar } from './mark.js'
 import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
@@ -30,8 +30,21 @@ function sectionMoveItems(entry, roster, actions) {
 }
 
 const useNullWork = () => 'null'
+const useNullSessions = () => null
 
-export function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
+function transcriptOf(list, id, name, hiddenTurns = []) {
+  const outline = list?.projectionsBySession?.[id]?.values?.turnOutline ?? list?.byId?.[id]?.projectionValues?.turnOutline
+  if (!Array.isArray(outline)) return ''
+  const lines = []
+  for (const entry of outline) {
+    if (hiddenTurns.includes(entry.turn)) continue
+    if (entry.prompt && !HEADER.test(entry.prompt)) lines.push(`**${t('You')}:** ${entry.prompt.trim()}`)
+    if (entry.response) lines.push(`**${name}:** ${stripHeader(entry.response).trim()}`)
+  }
+  return lines.join('\n\n')
+}
+
+export function ContextMenu({ menu, roster, actions, useWork, useSessions, leaving = false }) {
   useEscape(() => actions.closeMenu(), !leaving, { priority: ESCAPE_PRIORITY.MENU })
   const ref = useRef(null)
   const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
@@ -57,6 +70,9 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
   const useReadWork = useWork ?? useNullWork
   const waitsRaw = useReadWork(work => JSON.stringify(bot ? (work.waiting?.[bot.id] ?? null) : null))
   const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
+  const sessionsRef = useRef(null)
+  const useReadSessions = useSessions ?? useNullSessions
+  useReadSessions((list) => { sessionsRef.current = list; return null })
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'section' || menu.kind === 'section-add') return h(SectionMenu, { menu, roster, actions, leaving })
   const entry = bot ?? room
@@ -83,7 +99,14 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
       bot && !isMainBot ? [t('Make Main Bot'), StarLineIcon, () => actions.setMain(bot.id, true)] : null,
       bot && isMainBot && mainCount > 1 ? [t('Remove Main Bot role'), StarLineIcon, () => actions.setMain(bot.id, false)] : null,
     ],
-    [[t('Copy conversation ID'), CopyIcon, () => navigator.clipboard?.writeText(bot ? currentPart(bot) : menu.id)]],
+    [
+      [t('Copy conversation as Markdown'), CopyIcon, () => {
+        const part = bot ? currentPart(bot) : menu.id
+        const transcript = transcriptOf(sessionsRef.current, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns?.[part])
+        if (transcript) return navigator.clipboard?.writeText(transcript)
+      }],
+      [t('Copy conversation ID'), CopyIcon, () => navigator.clipboard?.writeText(bot ? currentPart(bot) : menu.id)],
+    ],
     bot ? (waits?.waits ?? []).map(item => [t('Give up waiting for {name}', { name: item.name ?? t('a Bot') }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t('Hide from sidebar'), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],

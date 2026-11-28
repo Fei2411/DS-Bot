@@ -436,6 +436,9 @@ test('the popup can open before models load, then focus a model row from search'
 test('wide select triggers fill stacked drawer and form fields while keeping settings controls capped', () => {
   assert.match(MODEL_CSS, /\.bt-model-trigger\[data-wide\]\{[^}]*max-width:min\(340px,100%\)/)
   assert.match(MODEL_CSS, /:is\(\.bt-drawer-model,\.bt-field\)\s+\.bt-model-trigger\[data-wide\]\{width:100%;max-width:100%\}/)
+  assert.match(MODEL_CSS, /\.bt-model-effort\{padding:10px 0 6px\}/)
+  assert.match(MODEL_CSS, /\.bt-model-effort \.bt-effort-bar\{padding:0\}/)
+  assert.match(MODEL_CSS, /\.bt-effort-track:focus-visible\{outline:2px solid var\(--bt-accent\);outline-offset:-2px\}/)
 })
 
 test('reopening the model picker clears stale effortCache entries (empty and non-empty) and requeries efforts', async () => {
