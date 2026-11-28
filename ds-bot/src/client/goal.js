@@ -272,8 +272,8 @@ export function GoalIslandPod({ room, goal, view, open, composing, roomWork, ros
 export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, taskPod = null, taskOpen = false, taskCount = 0, taskHoverReveal = false, taskBadge = null, extraPods = [], extraOpen = false, onCloseExtra = null, roomWork, roster, actions, pill }) {
   const hasApprovals = approvalPod !== null
   const hasTasks = taskPod !== null
-  const apvExpanded = approvalOpen && hasApprovals
-  const taskExpanded = taskOpen && hasTasks && !apvExpanded
+  const apvExpanded = approvalOpen && hasApprovals && !extraOpen
+  const taskExpanded = taskOpen && hasTasks && !apvExpanded && !extraOpen
   const goalExpanded = open && !apvExpanded && !taskExpanded && !extraOpen
   const hasGoalRow = composing || view !== null
   const pods = [
@@ -350,6 +350,9 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island::before{disp
 .bt-pill-count{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
 .bt-goal-pod{display:flex;flex-direction:column;min-width:0}
 .bt-goal-pod::before{content:"";flex:none;height:.5px;margin:0 12px;background:var(--bt-line)}
+.bt-island[data-no-pill] .bt-goal-pod::before{display:none}
+.bt-island[data-no-pill] .bt-goal-pod>*:first-child{border-radius:20px 20px 0 0}
+.bt-island[data-no-pill] .bt-goal-pod>*:only-child{border-radius:20px}
 .bt-goal-bar{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;text-align:left;transition:background-color .12s ease}
 .bt-goal-bar:hover{background:var(--bt-hover)}
 .bt-goal-bar:focus-visible,.bt-apv-bar:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}

@@ -67,7 +67,7 @@ function ProfileForm({ initial, detected, submit, close }) {
         : h('div', { className: 'bt-set-field' },
           h('span', null, t('Agent')),
           h(SelectMenu, {
-            label: t('Agent'),
+            'aria-label': t('Agent'),
             value: selectedBaseRoute,
             disabled: saving || detected.length === 0,
             options: detected.map(agent => ({ value: agent.route, label: agent.name })),

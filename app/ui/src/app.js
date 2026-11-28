@@ -177,12 +177,15 @@ function ClassicTitleToggle({ hidden, onToggle }) {
   }, h(SidebarIcon)), document.body)
 }
 
+const noConn = () => null
+
 // Fallback DynamicIsland connection indicator when HeaderPill is not mounted (Classic mode or empty state).
 function StandaloneConnectionIsland({ useConnection, onReconnect }) {
-  const conn = useConnection ? useConnection(state => state) : null
+  const useReadConn = useConnection ?? noConn
+  const conn = useReadConn(state => state)
   const status = conn && conn.status !== 'connected' ? conn.status : null
   if (!status) return null
-  return h('div', { className: 'dsb-head dsb-head-conn' },
+  return h('div', { className: 'dsb-head-conn' },
     h(DynamicIsland, {
       pill: null,
       morphKey: `conn:${status}`,

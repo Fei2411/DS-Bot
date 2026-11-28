@@ -23,13 +23,11 @@ function useRestingValue(value, onCommit, delay) {
   const [shown, setShown] = useState(value)
   const pending = useRef(undefined)
   const timer = useRef(0)
-  const commitRef = useRef(onCommit)
-  commitRef.current = onCommit
   const flush = () => {
     clearTimeout(timer.current)
     const next = pending.current
     pending.current = undefined
-    if (next !== undefined) commitRef.current?.(next)
+    if (next !== undefined) next.commit?.(next.value)
   }
   useEffect(() => {
     if (pending.current === undefined) setShown(value)
@@ -40,10 +38,10 @@ function useRestingValue(value, onCommit, delay) {
     if (!delay || immediate) {
       clearTimeout(timer.current)
       pending.current = undefined
-      commitRef.current?.(next)
+      onCommit?.(next)
       return
     }
-    pending.current = next
+    pending.current = { value: next, commit: onCommit }
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, delay)
   }
@@ -76,6 +74,7 @@ export function Slider({
   disabled = false,
   onChange = null,
   onCommit = null,
+  onDragChange = null,
   className = '',
   trackClassName = '',
 }) {
@@ -85,7 +84,7 @@ export function Slider({
   const [dragRatio, setDragRatio] = useState(null)
   const [shownContinuous, pickContinuous] = useRestingValue(
     isStepped ? 0 : value,
-    next => { onChange?.(next); onCommit?.(next) },
+    onCommit,
     delay,
   )
 
@@ -122,6 +121,7 @@ export function Slider({
     }
     const next = snapContinuous(r, min, max, step)
     setDragRatio(isDragMove ? r : null)
+    onChange?.(next)
     pickContinuous(next, false)
     return next
   }
@@ -129,7 +129,9 @@ export function Slider({
   const onPointerDown = (event) => {
     if (disabled || event.button !== 0) return
     event.preventDefault()
+    event.currentTarget.focus?.({ preventScroll: true })
     try { event.currentTarget.setPointerCapture?.(event.pointerId) } catch {}
+    onDragChange?.(true)
     const r = ratioAt(event.clientX)
     const val = updateFromRatio(r, false)
     drag.current = { id: event.pointerId, startX: event.clientX, moved: false, value: val }
@@ -148,10 +150,9 @@ export function Slider({
     if (!state || (event && state.id !== event.pointerId)) return
     drag.current = null
     setDragRatio(null)
+    onDragChange?.(false)
     if (isStepped) {
       onCommit?.(state.value)
-    } else {
-      pickContinuous(state.value, delay === 0)
     }
   }
 
@@ -182,6 +183,7 @@ export function Slider({
     const next = event.key === 'Home' ? min
       : event.key === 'End' ? max
         : clamp(Number((shownContinuous + delta).toFixed(4)), min, max)
+    onChange?.(next)
     pickContinuous(next, false)
   }
 
@@ -248,14 +250,14 @@ export function Slider({
 }
 
 export const SLIDER_CSS = `
-.bt-slider-row{display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
-.bt-slider-track-slim{flex:1;min-width:0;position:relative;height:28px;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
-.bt-slider-track-slim::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);border-radius:999px;background:var(--bt-hover)}
-.bt-slider-track-slim:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-slider-track-slim[aria-disabled=true]{opacity:.45;cursor:default}
-.bt-slider-fill-slim{position:absolute;left:0;top:50%;height:4px;transform:translateY(-50%);width:calc(8px + (100% - 16px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);pointer-events:none;transition:${spring(SPRING_SHAPE, 'width')}}
-.bt-slider-knob-slim{position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-effort-p,0));width:16px;height:16px;transform:translate(-50%,-50%);border-radius:50%;corner-shape:round;background:var(--bt-knob);box-shadow:0 1px 4px rgba(0,0,0,.24),0 0 0 .5px var(--bt-line-2);pointer-events:none;transition:${spring(SPRING_SHAPE, 'left')},${spring(SPRING_TAP, 'scale')}}
-.bt-slider-track-slim[data-dragging] .bt-slider-fill-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim{transition:none}
-.bt-slider-track-slim:hover .bt-slider-knob-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim{scale:1.12}
-@media (prefers-reduced-motion:reduce){.bt-slider-fill-slim,.bt-slider-knob-slim{transition:none}}
+:where(.bt-slider-row){display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
+:where(.bt-slider-track-slim){flex:1;min-width:0;position:relative;height:28px;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
+:where(.bt-slider-track-slim)::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);border-radius:999px;background:var(--bt-active)}
+:where(.bt-slider-track-slim:focus-visible){outline:2px solid var(--bt-accent);outline-offset:2px}
+:where(.bt-slider-track-slim[aria-disabled=true]){opacity:.45;cursor:default}
+:where(.bt-slider-fill-slim){position:absolute;left:0;top:50%;height:4px;transform:translateY(-50%);width:calc(8px + (100% - 16px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);pointer-events:none;transition:${spring(SPRING_SHAPE, 'width')}}
+:where(.bt-slider-knob-slim){position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-effort-p,0));width:16px;height:16px;transform:translate(-50%,-50%);border-radius:50%;corner-shape:round;background:var(--bt-knob);box-shadow:0 1px 4px rgba(0,0,0,.24),0 0 0 .5px var(--bt-line-2);pointer-events:none;transition:${spring(SPRING_SHAPE, 'left')},${spring(SPRING_TAP, 'scale')}}
+:where(.bt-slider-track-slim[data-dragging] .bt-slider-fill-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim){transition:none}
+:where(.bt-slider-track-slim:hover .bt-slider-knob-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim){scale:1.12}
+@media (prefers-reduced-motion:reduce){:where(.bt-slider-fill-slim,.bt-slider-knob-slim){transition:none}}
 `

@@ -103,6 +103,7 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
     open: true,
     leaving,
     as: 'section',
+    size: 'sm',
     portal: true,
     focusTrap: true,
     initialFocusRef: closeRef,

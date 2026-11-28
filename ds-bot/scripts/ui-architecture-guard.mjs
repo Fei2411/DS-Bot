@@ -30,19 +30,75 @@ const SCAN_ROOTS = [
   { prefix: 'app/ui/src', dir: join(REPO, 'app', 'ui', 'src'), exts: ['.js', '.css'] },
 ]
 
-// Comments are not code. Strip line comments while preserving URLs (`://`).
-const stripComments = text => text.split(/\r?\n/)
-  .map(line => (/^\s*(\/\/|\/\*|\*\/|\*\s|\*$)/.test(line) ? '' : line.replace(/\s\/\/\s.*$/, '')))
-  .join('\n')
+// Comments are not code. Strip JS/CSS line and block comments while preserving
+// single-quoted, double-quoted, and template string literals (and URLs inside them).
+export function stripComments(text) {
+  let out = ''
+  let i = 0
+  const n = text.length
+  let state = 'code' // 'code' | 'single' | 'double' | 'template' | 'line' | 'block'
+  while (i < n) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (state === 'line') {
+      if (ch === '\n' || ch === '\r') {
+        state = 'code'
+        out += ch
+      }
+      i += 1
+      continue
+    }
+    if (state === 'block') {
+      if (ch === '*' && next === '/') {
+        state = 'code'
+        out += ' '
+        i += 2
+      } else {
+        if (ch === '\n') out += '\n'
+        i += 1
+      }
+      continue
+    }
+    if (state === 'single' || state === 'double' || state === 'template') {
+      out += ch
+      if (ch === '\\' && i + 1 < n) {
+        out += next
+        i += 2
+        continue
+      }
+      if ((state === 'single' && ch === "'") || (state === 'double' && ch === '"') || (state === 'template' && ch === '`')) {
+        state = 'code'
+      }
+      i += 1
+      continue
+    }
+    if (ch === '/' && next === '/') {
+      state = 'line'
+      i += 2
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      state = 'block'
+      i += 2
+      continue
+    }
+    if (ch === "'") state = 'single'
+    else if (ch === '"') state = 'double'
+    else if (ch === '`') state = 'template'
+    out += ch
+    i += 1
+  }
+  return out
+}
 
 const isUiCarrier = file => file.startsWith('ds-bot/src/client/ui/')
 
-const SWITCH_RE = /\brole\s*:\s*['"]switch['"]|role=["']switch["']/g
-const SLIDER_RE = /\btype\s*:\s*['"]range['"]|\brole\s*:\s*['"]slider['"]/g
-const SELECT_RE = /\bh\(\s*['"]select['"]/g
-const DIALOG_RE = /\brole\s*:\s*['"]dialog['"]/g
-// Match JS className strings that build a bare raised/dock/settled card shell outside ui/card.js & deep-view.js.
-const CARD_SHELL_RE = /\bclassName\s*:\s*['"`][^'"`\n]*\b(?:bt-q-raised|bt-q-dock|bt-q-settled)\b/g
+const SWITCH_RE = /\brole\s*:\s*['"]switch['"]|(?<!\[)\brole=["']switch["']/g
+const SLIDER_RE = /\btype\s*:\s*['"]range['"]|(?<!\[)\btype=["']range["']|\brole\s*:\s*['"]slider['"]|(?<!\[)\brole=["']slider["']/g
+const SELECT_RE = /\b(?:h|createElement)\(\s*['"]select['"]/g
+const DIALOG_RE = /\brole\s*:\s*['"](?:dialog|alertdialog)['"]|(?<!\[)\brole=["'](?:dialog|alertdialog)["']/g
+// Match JS className expressions (string literals, template literals, or ternaries) that build a bare raised/dock/settled card shell outside ui/card.js & deep-view.js.
+const CARD_SHELL_RE = /\bclassName\s*:[^\n;]*\b(bt-q-raised|bt-q-dock|bt-q-settled)\b/g
 const TOP_BANNER_RE = /\bdsb-conn-banner\b|\bbt-top-banner\b/g
 const CURVE_RE = /\bcubic-bezier\([^)]*\)/g
 
@@ -57,14 +113,14 @@ export const checks = {
     file === 'ds-bot/src/client/ui/controls.js' ? [] : [...text.matchAll(SELECT_RE)].map(() => "h('select')")
   ),
   dialogs: (file, text) => (
-    file === 'ds-bot/src/client/ui/dialog.js' ? [] : [...text.matchAll(DIALOG_RE)].map(() => "role:'dialog'")
+    file === 'ds-bot/src/client/ui/dialog.js' ? [] : [...text.matchAll(DIALOG_RE)].map(m => (
+      m[0].includes('alertdialog') ? "role:'alertdialog'" : "role:'dialog'"
+    ))
   ),
   cards: (file, text) => {
     if (!file.endsWith('.js')) return []
     if (file === 'ds-bot/src/client/ui/card.js' || file === 'ds-bot/src/client/deep-view.js' || file === 'ds-bot/src/client/widget-cell.js') return []
-    return [...text.matchAll(CARD_SHELL_RE)].map(m => (
-      m[0].includes('bt-q-settled') ? 'bt-q-settled' : m[0].includes('bt-q-dock') ? 'bt-q-dock' : 'bt-q-raised'
-    ))
+    return [...text.matchAll(CARD_SHELL_RE)].map(m => m[1])
   },
   topBanners: (file, text) => (
     file === 'ds-bot/src/client/ui/island.js' ? [] : [...text.matchAll(TOP_BANNER_RE)].map(m => m[0])

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { checks, findViolations, lowered, readDebt } from '../scripts/ui-architecture-guard.mjs'
+import { checks, findViolations, lowered, readDebt, stripComments } from '../scripts/ui-architecture-guard.mjs'
 
 const found = findViolations()
 const debt = readDebt()
@@ -58,11 +58,17 @@ test('guard detectors catch disallowed patterns and allow canonical carriers', (
   assert.deepEqual(checks.sliders('ds-bot/src/client/foo.js', "h('input', { type: 'range' })"), ["type:'range'"])
   assert.deepEqual(checks.sliders('ds-bot/src/client/ui/slider.js', "h('div', { role: 'slider' })"), [])
   assert.deepEqual(checks.selects('app/ui/src/foo.js', "h('select', {})"), ["h('select')"])
+  assert.deepEqual(checks.selects('app/ui/src/foo.js', "createElement('select', {})"), ["h('select')"])
   assert.deepEqual(checks.selects('ds-bot/src/client/ui/controls.js', "h('select', {})"), [])
   assert.deepEqual(checks.dialogs('app/ui/src/foo.js', "h('div', { role: 'dialog' })"), ["role:'dialog'"])
+  assert.deepEqual(checks.dialogs('app/ui/src/foo.js', "h('div', { role: 'alertdialog' })"), ["role:'alertdialog'"])
+  assert.deepEqual(checks.dialogs('app/ui/src/foo.js', "el.closest('[role=\"dialog\"]')"), [])
   assert.deepEqual(checks.dialogs('ds-bot/src/client/ui/dialog.js', "h('div', { role: 'dialog' })"), [])
   assert.deepEqual(checks.cards('app/ui/src/foo.js', "h('div', { className: 'bt-q bt-q-raised' })"), ['bt-q-raised'])
+  assert.deepEqual(checks.cards('app/ui/src/foo.js', "h('div', { className: inline ? 'bt-q-inline' : 'bt-q-dock' })"), ['bt-q-dock'])
   assert.deepEqual(checks.cards('ds-bot/src/client/ui/card.js', "h('div', { className: 'bt-q bt-q-raised' })"), [])
+  assert.deepEqual(checks.sliders('app/ui/src/foo.js', "el.closest('[role=\"slider\"]')"), [])
+  assert.equal(stripComments("const url = 'https://example.com' /* inline */ + 1 // tail\n/* multi\nline */const x = 2"), "const url = 'https://example.com'   + 1 \n\n const x = 2")
   assert.deepEqual(checks.topBanners('app/ui/src/app.css', '.dsb-conn-banner{top:0}'), ['dsb-conn-banner'])
   assert.deepEqual(checks.curves('ds-bot/src/client/foo.js', 'transition:transform .2s cubic-bezier(.2,0,0,1)'), ['cubic-bezier(.2,0,0,1)'])
   assert.deepEqual(checks.curves('ds-bot/src/client/motion.js', 'cubic-bezier(.2,0,0,1)'), [])

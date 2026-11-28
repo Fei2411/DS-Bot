@@ -144,7 +144,7 @@ export function EmptyState({ children, className = '' }) {
 }
 
 export function SearchInput({ value, onChange, placeholder = '', label = '', className = '', autoFocus = false }) {
-  return h('label', { className: className ? `bt-ui-search ${className}` : 'bt-ui-search' },
+  return h('div', { className: className ? `bt-ui-search ${className}` : 'bt-ui-search' },
     h('span', { className: 'bt-ui-search-ico', 'aria-hidden': true }, h(SearchIcon)),
     h('input', {
       type: 'search',
@@ -165,14 +165,14 @@ export function SearchInput({ value, onChange, placeholder = '', label = '', cla
 }
 
 export const CONTROLS_CSS = `
-.bt-ui-search{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px 0 10px;border:1px solid var(--bt-line);border-radius:8px;background:var(--bt-card);box-sizing:border-box;transition:border-color .12s ease}
-.bt-ui-search:focus-within{border-color:var(--bt-accent)}
-.bt-ui-search-ico{flex:none;display:inline-flex;color:var(--bt-ink-3)}
-.bt-ui-search-ico svg{width:14px;height:14px}
-.bt-ui-search-input{flex:1;min-width:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none}
-.bt-ui-search-input::placeholder{color:var(--bt-ink-3)}
-.bt-ui-search-input::-webkit-search-cancel-button{display:none}
-.bt-ui-search-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;corner-shape:round;background:none;color:var(--bt-ink-3);cursor:pointer}
-.bt-ui-search-clear:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-ui-search-clear svg{width:12px;height:12px}
+:where(.bt-ui-search){display:flex;align-items:center;gap:6px;height:32px;padding:0 8px 0 10px;border:1px solid var(--bt-line);border-radius:8px;background:var(--bt-card);box-sizing:border-box;transition:border-color .12s ease}
+:where(.bt-ui-search:focus-within){border-color:var(--bt-accent)}
+:where(.bt-ui-search-ico){flex:none;display:inline-flex;color:var(--bt-ink-3)}
+:where(.bt-ui-search-ico svg){width:14px;height:14px}
+:where(.bt-ui-search-input){flex:1;min-width:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none}
+:where(.bt-ui-search-input::placeholder){color:var(--bt-ink-3)}
+:where(.bt-ui-search-input::-webkit-search-cancel-button){display:none}
+:where(.bt-ui-search-clear){flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;corner-shape:round;background:none;color:var(--bt-ink-3);cursor:pointer}
+:where(.bt-ui-search-clear:hover){background:var(--bt-hover);color:var(--bt-ink)}
+:where(.bt-ui-search-clear svg){width:12px;height:12px}
 `

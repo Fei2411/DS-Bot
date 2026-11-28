@@ -2,7 +2,6 @@
 // Account, Plugins (with in-page built-in plugin settings), Agent presets,
 // and Archived sessions.
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { SettingRow as EngineRow, SettingSection as EngineSection, Switch } from '../../../ds-bot/src/client/ui/controls.js'
 import { Dialog } from '../../../ds-bot/src/client/ui/dialog.js'
@@ -28,7 +27,7 @@ import {
 } from '../../../ds-bot/src/client/icons.js'
 import { toTraditional } from '../../../ds-bot/src/client/locales/zh-tw.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
-import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
 import { isBlockedEngineBundle } from '../../../ds-bot/src/shared/engine-bundles.js'
@@ -2561,9 +2560,7 @@ function presetDisplayCopy(preset) {
 function PresetConfigModal({ doc, onClose }) {
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef(0)
-  const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-  useModalFocusTrap(modalRef, true, { initialFocusRef: closeBtnRef })
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
   const copyYaml = async () => {
@@ -2574,14 +2571,16 @@ function PresetConfigModal({ doc, onClose }) {
     }
   }
 
-  const modal = h(Dialog, {
+  return h(Dialog, {
     open: true,
-    dialogRef: modalRef,
+    size: 'lg',
+    portal: true,
+    focusTrap: true,
+    initialFocusRef: closeBtnRef,
     maskClassName: 'dsb-preset-modal-layer',
     className: 'dsb-preset-modal',
     label: `${t('View configuration')} · ${doc.title}`,
     escapePriority: ESCAPE_PRIORITY.MODAL_CHILD,
-    autoFocus: false,
     onClose,
     header: h('div', { className: 'dsb-preset-modal-head' },
       h('div', { className: 'dsb-preset-modal-titles' },
@@ -2594,8 +2593,6 @@ function PresetConfigModal({ doc, onClose }) {
         h('button', { ref: closeBtnRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
   },
   h('pre', { className: 'dsb-preset-code' }, doc.content || t('No configuration content.')))
-  const target = typeof document !== 'undefined' && document.body ? document.body : null
-  return target ? createPortal(modal, target) : modal
 }
 
 export function AgentPresetsSettingsPage({ readOnly = false, close, onStartPresetCreator }) {

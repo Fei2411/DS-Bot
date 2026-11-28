@@ -72,7 +72,8 @@ html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-le
 .dsb-pending-meta[data-reconnecting]{color:var(--bt-warn)}
 .dsb-pending-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:currentColor;animation:dsb-tool-pulse 1.3s ease-in-out infinite}
 
-.dsb-head-conn{position:absolute;top:14px;left:0;right:0;z-index:20;display:flex;justify-content:center;pointer-events:none}
+.dsb-head-conn{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:0;right:0;z-index:20;display:flex;justify-content:center;pointer-events:none}
+.dsb-main[data-classic] .dsb-head-conn{top:calc(var(--bt-titlebar-h,var(--dsb-band,48px)) + 8px)}
 .dsb-head-conn>*{pointer-events:auto}
 
 .dsb-dropzone{position:absolute;inset:12px;z-index:25;display:grid;place-items:center;border-radius:18px;border:1.5px dashed var(--bt-accent);background:color-mix(in srgb,var(--bt-main) 82%,transparent);pointer-events:none}
@@ -344,7 +345,7 @@ button.dsb-sub-crumb:focus-visible{outline:2px solid var(--bt-accent);outline-of
 
 /* Foreground DM tool approval dock (extends canonical ActionCard `.bt-q.bt-q-raised`). */
 .dsb-approval-dock{width:100%;max-width:min(992px,100%);display:flex;flex-direction:column;gap:8px}
-.dsb-approval{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-star) 35%,var(--bt-line)),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}
+.bt-q.bt-q-raised.dsb-approval{width:100%;max-width:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-star) 35%,var(--bt-line)),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}
 .dsb-approval:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-approval-tool{margin-left:auto;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 8px;border-radius:999px;background:var(--bt-hover);font-family:var(--bt-mono);font-size:11px;line-height:16px;color:var(--bt-ink-2)}
 .dsb-approval-code{margin:0 16px 8px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-ink) 4%,var(--bt-main));font-family:var(--bt-mono);font-size:12px;line-height:18px;color:var(--bt-ink);max-height:160px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}

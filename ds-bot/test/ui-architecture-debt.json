@@ -4,7 +4,7 @@
       "bt-q-dock": 2
     },
     "ds-bot/src/client/questions.js": {
-      "bt-q-dock": 1
+      "bt-q-dock": 2
     },
     "ds-bot/src/client/secret-card.js": {
       "bt-q-dock": 1
@@ -103,6 +103,9 @@
     "ds-bot/src/client/palette.js": {
       "role:'dialog'": 1
     },
+    "ds-bot/src/client/reload-recovery.js": {
+      "role:'alertdialog'": 1
+    },
     "ds-bot/src/client/settings-palette.js": {
       "role:'dialog'": 1
     },
@@ -113,6 +116,7 @@
       "role:'dialog'": 1
     },
     "ds-bot/src/client/sidebar.js": {
+      "role:'alertdialog'": 1,
       "role:'dialog'": 1
     },
     "ds-bot/src/client/usage-page.js": {

@@ -28246,18 +28246,21 @@ function CardDock({ className = "", children }) {
   return (0, import_react3.createElement)("div", { className: className ? `bt-card-dock ${className}` : "bt-card-dock" }, children);
 }
 var CARD_CSS = `
-.bt-card-dock{display:flex;flex-direction:column;width:100%;min-width:0}
-.bt-card-icon{flex:none;display:inline-flex;align-items:center;justify-content:center}
-.bt-card-dot{flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
-.bt-card-dot[data-tone=star]{background:var(--bt-star)}
-.bt-card-dot[data-tone=warn]{background:var(--bt-warn)}
-.bt-card-dot[data-tone=danger]{background:var(--bt-danger)}
-.bt-card-dot[data-tone=green]{background:var(--bt-green)}
-.bt-card-error{margin:8px 16px 0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);font-size:12px;line-height:16px;overflow-wrap:anywhere}
-.bt-card-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:4px;background:color-mix(in srgb,currentColor 14%,transparent);font:500 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:.8}
-.bt-card-btn-danger{color:var(--bt-danger)}
-.bt-card-btn-danger:hover:not(:disabled){background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
-.bt-q-foot>button{transition:background-color .12s ease,color .12s ease,opacity .12s ease,${spring(SPRING_SHAPE, "transform")}}
+:where(.bt-card-dock){display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;min-width:0}
+:where(.bt-card-dock:empty){display:none}
+:where(.bt-card-icon){flex:none;display:inline-flex;align-items:center;justify-content:center}
+:where(.bt-card-dot){flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
+:where(.bt-card-dot[data-tone=star]){background:var(--bt-star)}
+:where(.bt-card-dot[data-tone=warn]){background:var(--bt-warn)}
+:where(.bt-card-dot[data-tone=danger]){background:var(--bt-danger)}
+:where(.bt-card-dot[data-tone=green]){background:var(--bt-green)}
+:where(.bt-card-error){margin:8px 16px 0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);font-size:12px;line-height:16px;overflow-wrap:anywhere}
+:where(.bt-card-kbd){display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:4px;background:color-mix(in srgb,currentColor 14%,transparent);font:500 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:.8}
+:where(.bt-card-btn-danger){color:var(--bt-danger)}
+:where(.bt-card-btn-danger:hover:not(:disabled)){background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
+:where(.bt-q-foot){flex-wrap:wrap}
+:where(.bt-q-foot>button){display:inline-flex;align-items:center;justify-content:center;gap:4px}
+@media (prefers-reduced-motion:reduce){:where(.bt-q-foot>button){transition:none}}
 `;
 
 // src/client/popup-ownership.js
@@ -28354,7 +28357,7 @@ function hasHigherModalThan(container, doc) {
   }
   return false;
 }
-function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}) {
+function useModalFocusTrap(containerRef, active = true, { initialFocusRef, isolateRootRef } = {}) {
   useSafeLayoutEffect(() => {
     if (!active) return void 0;
     const container = containerRef?.current ?? null;
@@ -28424,8 +28427,11 @@ function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}
         allowedRoots = [container];
         return;
       }
-      allowedRoots = [container, ...ownedPopups([container])];
-      isolateBody(allowedRoots);
+      const popups = ownedPopups([container]);
+      allowedRoots = [container, ...popups];
+      const isolationRoot = isolateRootRef?.current;
+      const isolationRoots = isolationRoot && typeof isolationRoot.contains === "function" && isolationRoot.contains(container) ? [isolationRoot, ...popups] : allowedRoots;
+      isolateBody(isolationRoots);
       if (!isAllowed(doc.activeElement)) focusInside();
     };
     const onFocusIn = () => {
@@ -28470,12 +28476,13 @@ function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}
       releaseAll();
       restorePreviousFocus();
     };
-  }, [active, containerRef, initialFocusRef]);
+  }, [active, containerRef, initialFocusRef, isolateRootRef]);
 }
 var ESCAPE_PRIORITY = {
   PANEL: -1,
   DRAWER: 0,
   DIALOG: 0,
+  ISLAND: 2,
   TOUR: 5,
   PALETTE: 10,
   INLINE_ACTION: 12,
@@ -28750,10 +28757,12 @@ function SelectMenu({
   id,
   title,
   minMenuWidth,
+  label,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledby,
   "data-tour": dataTour
 }) {
+  const resolvedAriaLabel = ariaLabel ?? label;
   const listboxId = (0, import_react5.useId)();
   const button = (0, import_react5.useRef)(null);
   const menu = (0, import_react5.useRef)(null);
@@ -28956,7 +28965,7 @@ function SelectMenu({
         "aria-haspopup": "listbox",
         "aria-expanded": isOpen,
         "aria-controls": isOpen ? listboxId : void 0,
-        "aria-label": ariaLabel,
+        "aria-label": resolvedAriaLabel,
         "aria-labelledby": ariaLabelledby,
         title: title ?? (typeof displayLabel === "string" && displayLabel !== "" ? displayLabel : void 0),
         disabled: isDisabled,
@@ -28989,7 +28998,7 @@ function SelectMenu({
       role: "listbox",
       tabIndex: -1,
       className: popupClass,
-      "aria-label": ariaLabel,
+      "aria-label": resolvedAriaLabel,
       "aria-labelledby": ariaLabelledby,
       "data-compact": variant === "compact" ? "" : void 0,
       "data-leaving": leaving ? "" : void 0,
@@ -29154,7 +29163,7 @@ function EmptyState({ children, className = "" }) {
 }
 function SearchInput({ value, onChange, placeholder = "", label = "", className = "", autoFocus = false }) {
   return (0, import_react6.createElement)(
-    "label",
+    "div",
     { className: className ? `bt-ui-search ${className}` : "bt-ui-search" },
     (0, import_react6.createElement)("span", { className: "bt-ui-search-ico", "aria-hidden": true }, (0, import_react6.createElement)(SearchIcon)),
     (0, import_react6.createElement)("input", {
@@ -29176,16 +29185,16 @@ function SearchInput({ value, onChange, placeholder = "", label = "", className 
   );
 }
 var CONTROLS_CSS = `
-.bt-ui-search{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px 0 10px;border:1px solid var(--bt-line);border-radius:8px;background:var(--bt-card);box-sizing:border-box;transition:border-color .12s ease}
-.bt-ui-search:focus-within{border-color:var(--bt-accent)}
-.bt-ui-search-ico{flex:none;display:inline-flex;color:var(--bt-ink-3)}
-.bt-ui-search-ico svg{width:14px;height:14px}
-.bt-ui-search-input{flex:1;min-width:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none}
-.bt-ui-search-input::placeholder{color:var(--bt-ink-3)}
-.bt-ui-search-input::-webkit-search-cancel-button{display:none}
-.bt-ui-search-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;corner-shape:round;background:none;color:var(--bt-ink-3);cursor:pointer}
-.bt-ui-search-clear:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-ui-search-clear svg{width:12px;height:12px}
+:where(.bt-ui-search){display:flex;align-items:center;gap:6px;height:32px;padding:0 8px 0 10px;border:1px solid var(--bt-line);border-radius:8px;background:var(--bt-card);box-sizing:border-box;transition:border-color .12s ease}
+:where(.bt-ui-search:focus-within){border-color:var(--bt-accent)}
+:where(.bt-ui-search-ico){flex:none;display:inline-flex;color:var(--bt-ink-3)}
+:where(.bt-ui-search-ico svg){width:14px;height:14px}
+:where(.bt-ui-search-input){flex:1;min-width:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none}
+:where(.bt-ui-search-input::placeholder){color:var(--bt-ink-3)}
+:where(.bt-ui-search-input::-webkit-search-cancel-button){display:none}
+:where(.bt-ui-search-clear){flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;corner-shape:round;background:none;color:var(--bt-ink-3);cursor:pointer}
+:where(.bt-ui-search-clear:hover){background:var(--bt-hover);color:var(--bt-ink)}
+:where(.bt-ui-search-clear svg){width:12px;height:12px}
 `;
 
 // src/client/ui/dialog.js
@@ -29220,13 +29229,19 @@ function Dialog({
 }) {
   const internalRef = (0, import_react7.useRef)(null);
   const ref = externalRef ?? internalRef;
+  const maskRef = (0, import_react7.useRef)(null);
+  const setMaskRef = (node2) => {
+    maskRef.current = node2;
+    if (typeof layerRef === "function") layerRef(node2);
+    else if (layerRef && typeof layerRef === "object") layerRef.current = node2;
+  };
   useEscape(() => {
     onClose?.();
   }, open && !leaving && typeof onClose === "function", { priority: escapePriority });
-  useModalFocusTrap(ref, open && !leaving && focusTrap, { initialFocusRef });
+  useModalFocusTrap(ref, open && !leaving && focusTrap, { initialFocusRef, isolateRootRef: maskRef });
   (0, import_react7.useEffect)(() => {
     if (!open || leaving || !autoFocus || focusTrap) return;
-    ref.current?.focus?.();
+    ref.current?.focus?.({ preventScroll: true });
   }, [open, leaving, autoFocus, focusTrap, ref]);
   if (!open && !leaving) return null;
   const sizeClass = size === "sm" ? "bt-ui-dialog-sm" : size === "lg" ? "bt-ui-dialog-lg" : "";
@@ -29238,12 +29253,13 @@ function Dialog({
   const node = (0, import_react7.createElement)(
     "div",
     {
-      ref: layerRef,
+      ref: setMaskRef,
       className: maskClasses,
       "data-bt-dialog-mask": "",
+      "data-has-scrim": scrimClassName ? "" : void 0,
       "data-leaving": leaving ? "" : void 0,
       onMouseDown: !scrimClassName ? (event) => {
-        if (event.target === event.currentTarget) handleBackdrop();
+        if (event.button === 0 && event.target === event.currentTarget) handleBackdrop();
       } : void 0,
       onClick: !scrimClassName ? (event) => {
         if (event.target === event.currentTarget && event.detail === 0) handleBackdrop();
@@ -29251,6 +29267,7 @@ function Dialog({
     },
     scrimClassName ? (0, import_react7.createElement)("div", {
       className: scrimClassName,
+      "data-bt-dialog-scrim": "",
       onClick: handleBackdrop
     }) : null,
     (0, import_react7.createElement)(
@@ -29290,21 +29307,22 @@ function Dialog({
   return node;
 }
 var DIALOG_CSS = `
-.bt-ui-dialog-mask{position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.32);box-sizing:border-box;animation:bt-veil-in .18s ease-out backwards}
-.bt-ui-dialog-mask[data-leaving]{opacity:0;pointer-events:none;transition:opacity .16s ease}
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-ui-dialog-mask{padding-top:max(20px,var(--bt-titlebar-h,40px))}
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-ui-dialog-mask::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-titlebar-h,40px);-webkit-app-region:drag;app-region:drag;z-index:1}
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-ui-dialog-mask[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
-.bt-ui-dialog{position:relative;z-index:2;display:flex;flex-direction:column;width:min(520px,100%);max-height:min(760px,calc(100% - 16px));border-radius:16px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);color:var(--bt-ink);outline:none;overflow:hidden;-webkit-app-region:no-drag;app-region:no-drag;animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards}
-.bt-ui-dialog-sm{width:min(420px,100%)}
-.bt-ui-dialog-lg{width:min(680px,100%)}
-.bt-ui-dialog-mask[data-leaving]>.bt-ui-dialog{animation:bt-dialog-sink .16s ease forwards}
-.bt-ui-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 16px 0}
-.bt-ui-dialog-title{margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--bt-ink)}
-.bt-ui-dialog-close{flex:none}
-.bt-ui-dialog-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
-.bt-ui-dialog-mask button{transition:background-color .12s ease,color .12s ease,${spring(SPRING_SHAPE, "transform")}}
-@media (prefers-reduced-motion:reduce){.bt-ui-dialog-mask,.bt-ui-dialog,.bt-ui-dialog-mask[data-leaving]>.bt-ui-dialog{animation:none;transition:none}}
+:where(.bt-ui-dialog-mask){position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.32);box-sizing:border-box;animation:bt-veil-in .18s ease-out backwards}
+:where(.bt-ui-dialog-mask[data-has-scrim]){background:transparent}
+:where(.bt-ui-dialog-mask[data-leaving]){opacity:0;pointer-events:none;transition:opacity .16s ease}
+:where(:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-ui-dialog-mask){padding-top:max(20px,var(--bt-titlebar-h,var(--dsb-band,40px)))}
+:where(:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-ui-dialog-mask:not([data-has-scrim]))::before,:where(:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-ui-dialog-mask[data-has-scrim]>[data-bt-dialog-scrim])::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-titlebar-h,var(--dsb-band,40px));-webkit-app-region:drag;app-region:drag;z-index:1}
+:where(:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-ui-dialog-mask[data-leaving]:not([data-has-scrim]))::before,:where(:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-ui-dialog-mask[data-leaving][data-has-scrim]>[data-bt-dialog-scrim])::before{-webkit-app-region:initial;app-region:initial}
+:where(.bt-ui-dialog){position:relative;z-index:2;display:flex;flex-direction:column;width:min(520px,100%);max-height:min(760px,calc(100% - 16px));border-radius:16px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);color:var(--bt-ink);outline:none;overflow:hidden;-webkit-app-region:no-drag;app-region:no-drag;animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards}
+:where(.bt-ui-dialog-sm){width:min(420px,100%)}
+:where(.bt-ui-dialog-lg){width:min(680px,100%)}
+:where(.bt-ui-dialog-mask[data-leaving]>.bt-ui-dialog){animation:bt-dialog-sink .16s ease forwards}
+:where(.bt-ui-dialog-head){display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 16px 0}
+:where(.bt-ui-dialog-title){margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--bt-ink)}
+:where(.bt-ui-dialog-close){flex:none}
+:where(.bt-ui-dialog-foot){display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+:where(.bt-ui-dialog-mask button){transition:background-color .12s ease,color .12s ease,${spring(SPRING_SHAPE, "transform")}}
+@media (prefers-reduced-motion:reduce){:where(.bt-ui-dialog-mask,.bt-ui-dialog,.bt-ui-dialog-mask[data-leaving]>.bt-ui-dialog){animation:none;transition:none}}
 `;
 
 // src/client/ui/island.js
@@ -29380,22 +29398,25 @@ function IslandPanel({ label, className = "", footer = null, children }) {
   );
 }
 function IslandPager({ count, index, onStep, onSelect = null, label = "", keyboard = true }) {
+  const stepRef = (0, import_react8.useRef)(onStep);
+  stepRef.current = onStep;
   (0, import_react8.useEffect)(() => {
     if (!keyboard || count <= 1 || typeof window === "undefined") return void 0;
     const onKey = (event) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       const target = event.target;
       const typing = target && typeof target === "object" && (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable);
-      if (event.key === "ArrowLeft" && (!typing || event.altKey)) {
-        event.preventDefault();
-        onStep(-1);
-      } else if (event.key === "ArrowRight" && (!typing || event.altKey)) {
-        event.preventDefault();
-        onStep(1);
-      }
+      if (typing) return;
+      if (typeof target?.closest === "function" && target.closest('[role="dialog"],[role="alertdialog"],[role="slider"],[role="listbox"],[role="menu"]')) return;
+      if (typeof document !== "undefined" && typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]:not([data-leaving]),[role="alertdialog"]:not([data-leaving])')) return;
+      event.preventDefault();
+      stepRef.current(event.key === "ArrowLeft" ? -1 : 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keyboard, count, onStep]);
+  }, [keyboard, count]);
   if (count <= 1) return null;
   return (0, import_react8.createElement)(
     "div",
@@ -29428,14 +29449,16 @@ function IslandPager({ count, index, onStep, onSelect = null, label = "", keyboa
   );
 }
 function IslandDismiss({ island, close }) {
-  useEscape(close, true, { priority: ESCAPE_PRIORITY.PANEL });
+  const closeRef = (0, import_react8.useRef)(close);
+  closeRef.current = close;
+  useEscape(() => closeRef.current?.(), true, { priority: ESCAPE_PRIORITY.ISLAND });
   (0, import_react8.useEffect)(() => {
     const onDown = (event) => {
-      if (!island.current?.contains(event.target)) close();
+      if (!island.current?.contains(event.target)) closeRef.current?.();
     };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [island, close]);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [island]);
   return null;
 }
 function DynamicIsland({
@@ -29480,6 +29503,7 @@ function DynamicIsland({
     }, 180);
   } : void 0;
   const canDismiss = (anyOpen || dismissible) && typeof onClose === "function";
+  const hasTop = pill !== null && pill !== void 0 || Boolean(compact2 && compactBadge);
   return (0, import_react8.createElement)(
     "div",
     {
@@ -29487,12 +29511,13 @@ function DynamicIsland({
       className: className ? `bt-island ${className}` : "bt-island",
       "data-open": anyOpen || void 0,
       "data-compact": compact2 || void 0,
+      "data-no-pill": hasTop ? void 0 : "",
       onMouseEnter: onEnter,
       onMouseLeave: onLeave,
       ...dataAttrs
     },
     canDismiss ? (0, import_react8.createElement)(IslandDismiss, { island, close: onClose }) : null,
-    (0, import_react8.createElement)("div", { className: "bt-island-top" }, pill, compact2 ? compactBadge : null),
+    hasTop ? (0, import_react8.createElement)("div", { className: "bt-island-top" }, pill, compact2 ? compactBadge : null) : null,
     compact2 || !hasPods ? null : (0, import_react8.createElement)(
       "div",
       { className: "bt-goal-pod" },
@@ -29506,36 +29531,36 @@ function DynamicIsland({
   );
 }
 var ISLAND_CSS = `
-.bt-island-pod-bar{display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:36px;padding:6px 12px 6px 14px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;box-sizing:border-box;cursor:pointer;transition:background-color .12s ease}
-div.bt-island-pod-bar{cursor:default}
-button.bt-island-pod-bar:hover{background:color-mix(in srgb,var(--bt-ink) 5%,transparent)}
-button.bt-island-pod-bar:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px;border-radius:12px}
-.bt-island-pod-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
-.bt-island-pod-dot[data-tone=star]{background:var(--bt-star)}
-.bt-island-pod-dot[data-tone=warn]{background:var(--bt-warn)}
-.bt-island-pod-dot[data-tone=danger]{background:var(--bt-danger)}
-.bt-island-pod-dot[data-tone=green]{background:var(--bt-green)}
-.bt-island-pod-ico{flex:none;display:inline-flex;width:15px;height:15px;color:var(--bt-ink-2)}
-.bt-island-pod-label{flex:1 1 auto;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-island-pod-meta{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-island-pod-count{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:16px;font-weight:600;font-variant-numeric:tabular-nums}
-.bt-island-panel{display:flex;flex-direction:column;border-top:.5px solid var(--bt-line);animation:bt-veil-in .22s ease-out backwards}
-.bt-island-panel-body{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px;max-height:min(60vh,520px);overflow:auto}
-.bt-island-panel-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:6px 12px;border-top:.5px solid var(--bt-line);box-sizing:border-box}
-.bt-island-pager{display:inline-flex;align-items:center;gap:4px;flex:none}
-.bt-island-page-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-island-page-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-island-page-btn:active{scale:.92}
-.bt-island-page-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-island-page-dots{display:inline-flex;align-items:center;gap:4px;padding:0 2px}
-.bt-island-page-dot{width:6px;height:6px;padding:0;border:0;border-radius:50%;corner-shape:round;background:var(--bt-line-2);cursor:pointer;transition:background-color .12s ease,${spring(SPRING_SHAPE, "width")}}
-.bt-island-page-dot[data-active]{width:14px;border-radius:999px;background:var(--bt-accent)}
-.bt-island-page-num{font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;padding:0 2px}
-.bt-island-conn-btn{flex:none;margin-left:auto}
-.bt-island-panel .bt-q{border-radius:12px}
-.bt-island-panel .bt-q-head{flex-wrap:wrap}
-.bt-island-panel .bt-q-text{flex-basis:140px}
-@media (prefers-reduced-motion:reduce){.bt-island-panel{animation:none}.bt-island-page-btn,.bt-island-page-dot{transition:none}}
+:where(.bt-island-pod-bar){display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:36px;padding:6px 12px 6px 14px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;box-sizing:border-box;cursor:pointer;transition:background-color .12s ease}
+:where(div.bt-island-pod-bar){cursor:default}
+:where(button.bt-island-pod-bar:hover){background:color-mix(in srgb,var(--bt-ink) 5%,transparent)}
+:where(button.bt-island-pod-bar:focus-visible){outline:2px solid var(--bt-accent);outline-offset:-2px;border-radius:12px}
+:where(.bt-island-pod-dot){flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
+:where(.bt-island-pod-dot[data-tone=star]){background:var(--bt-star)}
+:where(.bt-island-pod-dot[data-tone=warn]){background:var(--bt-warn)}
+:where(.bt-island-pod-dot[data-tone=danger]){background:var(--bt-danger)}
+:where(.bt-island-pod-dot[data-tone=green]){background:var(--bt-green)}
+:where(.bt-island-pod-ico){flex:none;display:inline-flex;width:15px;height:15px;color:var(--bt-ink-2)}
+:where(.bt-island-pod-label){flex:1 1 auto;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+:where(.bt-island-pod-meta){flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
+:where(.bt-island-pod-count){flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:16px;font-weight:600;font-variant-numeric:tabular-nums}
+:where(.bt-island-panel){display:flex;flex-direction:column;border-top:.5px solid var(--bt-line);animation:bt-veil-in .22s ease-out backwards}
+:where(.bt-island-panel-body){display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px;max-height:min(60vh,520px);overflow:auto}
+:where(.bt-island-panel-foot){display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:6px 12px;border-top:.5px solid var(--bt-line);box-sizing:border-box}
+:where(.bt-island-pager){display:inline-flex;align-items:center;gap:4px;flex:none}
+:where(.bt-island-page-btn){display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+:where(.bt-island-page-btn:hover){background:var(--bt-hover);color:var(--bt-ink)}
+:where(.bt-island-page-btn:active){scale:.92}
+:where(.bt-island-page-btn:focus-visible){outline:2px solid var(--bt-accent);outline-offset:1px}
+:where(.bt-island-page-dots){display:inline-flex;align-items:center;gap:4px;padding:0 2px}
+:where(.bt-island-page-dot){width:6px;height:6px;padding:0;border:0;border-radius:50%;corner-shape:round;background:var(--bt-line-2);cursor:pointer;transition:background-color .12s ease,${spring(SPRING_SHAPE, "width")}}
+:where(.bt-island-page-dot[data-active]){width:14px;border-radius:999px;background:var(--bt-accent)}
+:where(.bt-island-page-num){font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;padding:0 2px}
+:where(.bt-island-conn-btn){flex:none;margin-left:auto}
+:where(.bt-island-panel .bt-q){border-radius:12px}
+:where(.bt-island-panel .bt-q-head){flex-wrap:wrap}
+:where(.bt-island-panel .bt-q-text){flex-basis:140px}
+@media (prefers-reduced-motion:reduce){:where(.bt-island-panel){animation:none}:where(.bt-island-page-btn,.bt-island-page-dot){transition:none}}
 `;
 
 // src/client/ui/slider.js
@@ -29553,13 +29578,11 @@ function useRestingValue(value, onCommit, delay) {
   const [shown, setShown] = (0, import_react9.useState)(value);
   const pending = (0, import_react9.useRef)(void 0);
   const timer2 = (0, import_react9.useRef)(0);
-  const commitRef = (0, import_react9.useRef)(onCommit);
-  commitRef.current = onCommit;
   const flush = () => {
     clearTimeout(timer2.current);
     const next = pending.current;
     pending.current = void 0;
-    if (next !== void 0) commitRef.current?.(next);
+    if (next !== void 0) next.commit?.(next.value);
   };
   (0, import_react9.useEffect)(() => {
     if (pending.current === void 0) setShown(value);
@@ -29570,10 +29593,10 @@ function useRestingValue(value, onCommit, delay) {
     if (!delay || immediate) {
       clearTimeout(timer2.current);
       pending.current = void 0;
-      commitRef.current?.(next);
+      onCommit?.(next);
       return;
     }
-    pending.current = next;
+    pending.current = { value: next, commit: onCommit };
     clearTimeout(timer2.current);
     timer2.current = setTimeout(flush, delay);
   };
@@ -29604,6 +29627,7 @@ function Slider({
   disabled = false,
   onChange = null,
   onCommit = null,
+  onDragChange = null,
   className = "",
   trackClassName = ""
 }) {
@@ -29613,10 +29637,7 @@ function Slider({
   const [dragRatio, setDragRatio] = (0, import_react9.useState)(null);
   const [shownContinuous, pickContinuous] = useRestingValue(
     isStepped ? 0 : value,
-    (next) => {
-      onChange?.(next);
-      onCommit?.(next);
-    },
+    onCommit,
     delay
   );
   const count = isStepped ? stops.length : 0;
@@ -29644,16 +29665,19 @@ function Slider({
     }
     const next = snapContinuous(r, min, max, step);
     setDragRatio(isDragMove ? r : null);
+    onChange?.(next);
     pickContinuous(next, false);
     return next;
   };
   const onPointerDown = (event) => {
     if (disabled || event.button !== 0) return;
     event.preventDefault();
+    event.currentTarget.focus?.({ preventScroll: true });
     try {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     } catch {
     }
+    onDragChange?.(true);
     const r = ratioAt(event.clientX);
     const val = updateFromRatio(r, false);
     drag.current = { id: event.pointerId, startX: event.clientX, moved: false, value: val };
@@ -29670,10 +29694,9 @@ function Slider({
     if (!state || event && state.id !== event.pointerId) return;
     drag.current = null;
     setDragRatio(null);
+    onDragChange?.(false);
     if (isStepped) {
       onCommit?.(state.value);
-    } else {
-      pickContinuous(state.value, delay === 0);
     }
   };
   const onKeyDown = (event) => {
@@ -29694,6 +29717,7 @@ function Slider({
     const bigStep = step * 5;
     const delta = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -step : event.key === "ArrowRight" || event.key === "ArrowUp" ? step : event.key === "PageDown" ? -bigStep : event.key === "PageUp" ? bigStep : 0;
     const next = event.key === "Home" ? min : event.key === "End" ? max : clamp(Number((shownContinuous + delta).toFixed(4)), min, max);
+    onChange?.(next);
     pickContinuous(next, false);
   };
   const trackNode = (0, import_react9.createElement)(
@@ -29771,16 +29795,16 @@ function Slider({
   );
 }
 var SLIDER_CSS = `
-.bt-slider-row{display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
-.bt-slider-track-slim{flex:1;min-width:0;position:relative;height:28px;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
-.bt-slider-track-slim::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);border-radius:999px;background:var(--bt-hover)}
-.bt-slider-track-slim:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-slider-track-slim[aria-disabled=true]{opacity:.45;cursor:default}
-.bt-slider-fill-slim{position:absolute;left:0;top:50%;height:4px;transform:translateY(-50%);width:calc(8px + (100% - 16px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);pointer-events:none;transition:${spring(SPRING_SHAPE, "width")}}
-.bt-slider-knob-slim{position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-effort-p,0));width:16px;height:16px;transform:translate(-50%,-50%);border-radius:50%;corner-shape:round;background:var(--bt-knob);box-shadow:0 1px 4px rgba(0,0,0,.24),0 0 0 .5px var(--bt-line-2);pointer-events:none;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_TAP, "scale")}}
-.bt-slider-track-slim[data-dragging] .bt-slider-fill-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim{transition:none}
-.bt-slider-track-slim:hover .bt-slider-knob-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim{scale:1.12}
-@media (prefers-reduced-motion:reduce){.bt-slider-fill-slim,.bt-slider-knob-slim{transition:none}}
+:where(.bt-slider-row){display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
+:where(.bt-slider-track-slim){flex:1;min-width:0;position:relative;height:28px;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
+:where(.bt-slider-track-slim)::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);border-radius:999px;background:var(--bt-active)}
+:where(.bt-slider-track-slim:focus-visible){outline:2px solid var(--bt-accent);outline-offset:2px}
+:where(.bt-slider-track-slim[aria-disabled=true]){opacity:.45;cursor:default}
+:where(.bt-slider-fill-slim){position:absolute;left:0;top:50%;height:4px;transform:translateY(-50%);width:calc(8px + (100% - 16px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);pointer-events:none;transition:${spring(SPRING_SHAPE, "width")}}
+:where(.bt-slider-knob-slim){position:absolute;top:50%;left:calc(8px + (100% - 16px) * var(--bt-effort-p,0));width:16px;height:16px;transform:translate(-50%,-50%);border-radius:50%;corner-shape:round;background:var(--bt-knob);box-shadow:0 1px 4px rgba(0,0,0,.24),0 0 0 .5px var(--bt-line-2);pointer-events:none;transition:${spring(SPRING_SHAPE, "left")},${spring(SPRING_TAP, "scale")}}
+:where(.bt-slider-track-slim[data-dragging] .bt-slider-fill-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim){transition:none}
+:where(.bt-slider-track-slim:hover .bt-slider-knob-slim,.bt-slider-track-slim[data-dragging] .bt-slider-knob-slim){scale:1.12}
+@media (prefers-reduced-motion:reduce){:where(.bt-slider-fill-slim,.bt-slider-knob-slim){transition:none}}
 `;
 
 // src/client/ui/popover.js
@@ -29975,9 +29999,6 @@ header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;z-index:1;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
-header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
-header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
-header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
 html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head),header[class*="_header"][data-dsh-mobile-header]:has(.bt-head){width:auto!important;margin:0!important;padding:calc(10px + env(safe-area-inset-top,0px)) 0 10px!important;background:var(--bt-main)!important;pointer-events:auto}
 html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)::before,header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)::before{content:none}
 html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"],header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)>[class*="_headerLeading"]{top:calc(10px + env(safe-area-inset-top,0px))}
@@ -34576,8 +34597,8 @@ function GoalIslandPod({ room: room2, goal, view, open, composing, roomWork, ros
 function GoalIsland({ room: room2, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, taskPod = null, taskOpen = false, taskCount = 0, taskHoverReveal = false, taskBadge = null, extraPods = [], extraOpen = false, onCloseExtra = null, roomWork, roster, actions, pill }) {
   const hasApprovals = approvalPod !== null;
   const hasTasks = taskPod !== null;
-  const apvExpanded = approvalOpen && hasApprovals;
-  const taskExpanded = taskOpen && hasTasks && !apvExpanded;
+  const apvExpanded = approvalOpen && hasApprovals && !extraOpen;
+  const taskExpanded = taskOpen && hasTasks && !apvExpanded && !extraOpen;
   const goalExpanded = open && !apvExpanded && !taskExpanded && !extraOpen;
   const hasGoalRow = composing || view !== null;
   const pods = [
@@ -34653,6 +34674,9 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island::before{disp
 .bt-pill-count{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
 .bt-goal-pod{display:flex;flex-direction:column;min-width:0}
 .bt-goal-pod::before{content:"";flex:none;height:.5px;margin:0 12px;background:var(--bt-line)}
+.bt-island[data-no-pill] .bt-goal-pod::before{display:none}
+.bt-island[data-no-pill] .bt-goal-pod>*:first-child{border-radius:20px 20px 0 0}
+.bt-island[data-no-pill] .bt-goal-pod>*:only-child{border-radius:20px}
 .bt-goal-bar{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;text-align:left;transition:background-color .12s ease}
 .bt-goal-bar:hover{background:var(--bt-hover)}
 .bt-goal-bar:focus-visible,.bt-apv-bar:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -37530,10 +37554,8 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, onOwnChange, 
       titleId,
       busy,
       title: [question.header ? `${question.header} · ` : "", question.question],
-      detail: question.detail || raised && multi ? [
-        question.detail || null,
-        raised && multi ? (0, import_react21.createElement)("div", { key: "multi", className: "bt-q-detail" }, t("Choose all that apply")) : null
-      ] : null,
+      detail: question.detail || null,
+      headMeta: raised && multi ? (0, import_react21.createElement)("div", { className: "bt-q-detail" }, t("Choose all that apply")) : null,
       onDismiss,
       dismissLabel: t("Dismiss question"),
       dismissTitle: t("Dismiss"),
@@ -38309,15 +38331,13 @@ function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }) {
     onFocusCapture: keep,
     onPointerDownCapture: keep,
     title: handoffTitle(hold),
-    detail: hold.note || taken ? [
-      hold.note || null,
-      taken ? (0, import_react24.createElement)(
-        "div",
-        { key: "state", className: "bt-handoff-state", role: "status" },
-        (0, import_react24.createElement)("span", { className: "bt-handoff-dot", "aria-hidden": true }),
-        t("You control the computer")
-      ) : null
-    ] : null,
+    detail: hold.note || null,
+    headMeta: taken ? (0, import_react24.createElement)(
+      "div",
+      { className: "bt-handoff-state", role: "status" },
+      (0, import_react24.createElement)("span", { className: "bt-handoff-dot", "aria-hidden": true }),
+      t("You control the computer")
+    ) : null,
     buttons: [
       { key: "skip", label: t("Skip"), variant: "secondary", onClick: () => answer("skip") },
       taken ? null : { key: "takeover", label: t("Take over"), variant: "secondary", onClick: takeOver },
@@ -39658,6 +39678,7 @@ var SECRET_CSS = `
 .bt-secret-input[data-masked="blur"]{color:transparent;text-shadow:0 0 7px var(--bt-ink);caret-color:var(--bt-ink)}
 .bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0;-webkit-text-security:none;text-shadow:none}
 .bt-secret-scope{position:relative;display:inline-grid;grid-template-columns:1fr 1fr;align-self:flex-start;padding:2px;border-radius:999px;background:var(--bt-hover)}
+.bt-secret-scope-seg{align-self:flex-start}
 .bt-secret-glide{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);border-radius:999px;background:var(--bt-main);box-shadow:0 1px 3px rgba(20,20,20,.08),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 6%,transparent);transition:${spring(SPRING_SHAPE, "transform")}}
 .bt-secret-glide[data-at="1"]{transform:translateX(100%)}
 .bt-secret-seg{position:relative;z-index:1;height:28px;padding:0 14px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:color .16s ease}
@@ -39773,6 +39794,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   const stops = effortStops(reasoning);
   const [picked, setPicked] = (0, import_react28.useState)(current2);
   const queue2 = (0, import_react28.useRef)({ busy: false, hasPending: false, pending: void 0 });
+  const dragging = (0, import_react28.useRef)(false);
   const chosen = (0, import_react28.useRef)(void 0);
   const latest = (0, import_react28.useRef)(current2);
   const pick2 = (0, import_react28.useRef)(onPick);
@@ -39780,7 +39802,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   pick2.current = onPick;
   const same = (a, b2) => (a ?? null) === (b2 ?? null);
   (0, import_react28.useEffect)(() => {
-    if (queue2.current.busy || queue2.current.hasPending) return;
+    if (dragging.current || queue2.current.busy || queue2.current.hasPending) return;
     if (chosen.current !== void 0 && !same(current2, chosen.current)) return;
     chosen.current = void 0;
     setPicked(current2);
@@ -39831,7 +39853,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
     if (failed) {
       state.hasPending = false;
       chosen.current = void 0;
-      setPicked(latest.current);
+      if (!dragging.current) setPicked(latest.current);
       return;
     }
     if (didWrite) chosen.current = written;
@@ -39855,6 +39877,9 @@ function EffortBar({ reasoning, current: current2, onPick }) {
     defaultTag: picked === void 0 && hasDefault ? t("Default") : "",
     valueLabel: active.label,
     showDots: true,
+    onDragChange: (activeDrag) => {
+      dragging.current = activeDrag;
+    },
     onChange: (effort) => setPicked(effort),
     onCommit: (effort) => commit(effort),
     onReset: picked !== void 0 || !hasDefault ? () => commit(void 0) : null,
@@ -43820,7 +43845,7 @@ button.bt-look-theme:active,.bt-look-theme-pick:active{transform:scale(.98)}
 .bt-swatch:active{transform:scale(.92)}
 @keyframes bt-swatch-pop{0%{transform:scale(.84)}60%{transform:scale(1.14)}100%{transform:scale(1)}}
 .bt-swatch[aria-pressed=true],.bt-swatch[data-on=true]{animation:bt-swatch-pop .24s cubic-bezier(.22,1,.36,1)}
-body[data-bt-color-morph]:not([data-bt-effects=off]) :is(.bt-settings,.bt-settings-rail,.bt-settings-main,.bt-settings-item,.bt-settings-nav>.bt-thumb,.bt-set-card,.bt-send,.bt-voice,.bt-switch,.bt-look,.bt-look-side,.bt-look-chat,.bt-look-user,.bt-look-bot,.bt-look-think,.bt-look-composer,.bt-look-send,.bt-look-theme,.bt-look-kind,.bt-main-pill,.bt-range input,.bt-anchor,.bt-seg,.bt-seg>.bt-thumb,.bt-sel-tick){transition:background-color .22s cubic-bezier(.22,1,.36,1),color .22s cubic-bezier(.22,1,.36,1),border-color .22s cubic-bezier(.22,1,.36,1),box-shadow .22s cubic-bezier(.22,1,.36,1),fill .22s cubic-bezier(.22,1,.36,1),stroke .22s cubic-bezier(.22,1,.36,1)}
+body[data-bt-color-morph]:not([data-bt-effects=off]) :is(.bt-settings,.bt-settings-rail,.bt-settings-main,.bt-settings-item,.bt-settings-nav>.bt-thumb,.bt-set-card,.bt-send,.bt-voice,.bt-switch,.bt-look,.bt-look-side,.bt-look-chat,.bt-look-user,.bt-look-bot,.bt-look-think,.bt-look-composer,.bt-look-send,.bt-look-theme,.bt-look-kind,.bt-main-pill,.bt-slider-track-slim,.bt-anchor,.bt-seg,.bt-seg>.bt-thumb,.bt-sel-tick){transition:background-color .22s cubic-bezier(.22,1,.36,1),color .22s cubic-bezier(.22,1,.36,1),border-color .22s cubic-bezier(.22,1,.36,1),box-shadow .22s cubic-bezier(.22,1,.36,1),fill .22s cubic-bezier(.22,1,.36,1),stroke .22s cubic-bezier(.22,1,.36,1)}
 body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transition:none}
 @media (prefers-reduced-motion:reduce){.bt-swatch,.bt-look-theme{animation:none;transition:none}body[data-bt-color-morph] *{transition:none!important}}
 .bt-look-theme-pick{display:flex;flex-direction:column;width:100%;padding:0;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -49874,10 +49899,8 @@ function WorkPauseCard({ work, roster, actions, inline = false, showViewChat = f
     titleId,
     hidden: closed,
     title: [refTag ? (0, import_react49.createElement)("span", { key: "ref", className: "bt-tag", style: { marginRight: "6px" } }, refTag) : null, titleFor(work, fromName, toName)],
-    detail: [
-      reasonFor(work),
-      detail ? (0, import_react49.createElement)("div", { key: "goal", className: "bt-work-pause-goal" }, detail) : null
-    ],
+    detail: reasonFor(work),
+    headMeta: detail ? (0, import_react49.createElement)("div", { className: "bt-work-pause-goal" }, detail) : null,
     buttons: [
       { key: "cancel", label: t("Cancel"), variant: "secondary", onClick: () => run2(() => actions.cancelWork?.(work.id)) },
       showViewChat && work.from && work.to ? { key: "view", label: t("View chat"), variant: "secondary", onClick: () => actions.openExchange?.(work.from, work.to) } : null,
@@ -50140,8 +50163,8 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
       busy,
       icon: (0, import_react50.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react50.createElement)(agents ? PencilIcon : MemoryIcon)),
       title: agents ? kind : proposal.name,
-      detail: agents ? null : [
-        kind,
+      detail: agents ? null : kind,
+      headMeta: agents ? null : [
         oldDetail ? (0, import_react50.createElement)("p", { key: "old", className: "bt-learning-description bt-learning-old" }, (0, import_react50.createElement)("del", null, oldDetail)) : null,
         proposal.description ? (0, import_react50.createElement)("p", { key: "desc", className: "bt-learning-description" }, proposal.description) : null
       ],
@@ -50322,11 +50345,12 @@ var LEARNING_CSS = `
 .bt-learning-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.bt-learning-btn{transition:background-color .12s ease,opacity .12s ease}.bt-learning-btn:active:not(:disabled){scale:none}}
 .bt-learning-settled{gap:10px}
+.bt-learning-settled .bt-q-text{flex:0 0 auto}
 .bt-learning-fold{display:flex;align-items:center;gap:10px;min-width:0;width:100%;margin:-4px 0;padding:4px 0;border:0;background:none;font:inherit;text-align:start;color:var(--bt-ink);cursor:pointer}
-.bt-learning-fold .bt-learning-icon{width:28px;height:28px;border-radius:8px}
-.bt-learning-fold .bt-learning-icon svg{width:16px;height:16px}
+.bt-learning-fold .bt-learning-icon,.bt-learning-settled .bt-q-fold .bt-learning-icon{width:28px;height:28px;border-radius:8px}
+.bt-learning-fold .bt-learning-icon svg,.bt-learning-settled .bt-q-fold .bt-learning-icon svg{width:16px;height:16px}
 .bt-learning-kind{flex:none;font-size:14px;line-height:20px;font-weight:600}
-.bt-learning-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
+.bt-learning-sum{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-learning-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:8px}
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
@@ -60023,7 +60047,7 @@ function ProfileForm({ initial, detected, submit, close }) {
         { className: "bt-set-field" },
         (0, import_react69.createElement)("span", null, t("Agent")),
         (0, import_react69.createElement)(SelectMenu, {
-          label: t("Agent"),
+          "aria-label": t("Agent"),
           value: selectedBaseRoute,
           disabled: saving || detected.length === 0,
           options: detected.map((agent) => ({ value: agent.route, label: agent.name })),
@@ -68471,6 +68495,21 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   (0, import_react87.useEffect)(() => {
     setLearningOpen(false);
   }, [sessionId, showLearning]);
+  (0, import_react87.useEffect)(() => {
+    if (goalOpen || goalCompose || approvalOpen || taskDeckOpen) setLearningOpen(false);
+  }, [goalOpen, goalCompose, approvalOpen, taskDeckOpen]);
+  const toggleLearning = () => {
+    setLearningOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        if (goalCompose) actions.closeGoalCompose?.();
+        if (goalOpen) actions.closeGoal?.();
+        if (approvalOpen) actions.closeApproval?.();
+        if (taskDeckOpen) actions.closeTaskDeck?.();
+      }
+      return next;
+    });
+  };
   const extraPods = [
     connStatus ? { id: "connection", node: (0, import_react87.createElement)(ConnectionIslandPod, { status: connStatus, onReconnect }), open: false } : null,
     showLearning ? {
@@ -68478,7 +68517,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       node: (0, import_react87.createElement)(LearningIslandPod, {
         proposals: learning.proposals,
         open: learningOpen,
-        onToggle: () => setLearningOpen((v) => !v),
+        onToggle: toggleLearning,
         actions,
         onFailure: learning.onFailure,
         onResolved: learning.onResolved
@@ -78713,7 +78752,7 @@ function apply(ctx) {
     };
   };
   const SHELL_SHEETS = [
-    [SHELL_CSS + UI_CSS, "shell"],
+    [UI_CSS + SHELL_CSS, "shell"],
     [DSH_SHELL_CSS, "dsh-shell"],
     [SIDEBAR_CSS, "sidebar"],
     [INBOX_CSS, "inbox"],

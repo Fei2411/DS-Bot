@@ -1548,7 +1548,7 @@ export function apply(ctx) {
   // so a surface change withdraws the whole group and the outlets re-render.
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
-    [SHELL_CSS + UI_CSS, 'shell'],
+    [UI_CSS + SHELL_CSS, 'shell'],
     [DSH_SHELL_CSS, 'dsh-shell'],
     [SIDEBAR_CSS, 'sidebar'],
     [INBOX_CSS, 'inbox'],

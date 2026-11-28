@@ -297,6 +297,7 @@ export function ClassicFeedbackDialog({ draft, current, pending = false, error =
     open: Boolean(draft),
     leaving,
     as: 'form',
+    size: 'sm',
     portal: true,
     autoFocus: false,
     label: title,

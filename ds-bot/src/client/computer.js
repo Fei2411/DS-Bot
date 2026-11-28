@@ -266,12 +266,10 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
     onFocusCapture: keep,
     onPointerDownCapture: keep,
     title: handoffTitle(hold),
-    detail: (hold.note || taken) ? [
-      hold.note || null,
-      taken ? h('div', { key: 'state', className: 'bt-handoff-state', role: 'status' },
-        h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
-        t('You control the computer')) : null,
-    ] : null,
+    detail: hold.note || null,
+    headMeta: taken ? h('div', { className: 'bt-handoff-state', role: 'status' },
+      h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
+      t('You control the computer')) : null,
     buttons: [
       { key: 'skip', label: t('Skip'), variant: 'secondary', onClick: () => answer('skip') },
       taken ? null : { key: 'takeover', label: t('Take over'), variant: 'secondary', onClick: takeOver },

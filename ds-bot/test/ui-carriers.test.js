@@ -82,22 +82,33 @@ test('ActionCard and SettledCard render unified card anatomy and actions', () =>
   assert.equal(findAll(settled, n => n.props?.className === 'bt-q-check').length, 1)
 })
 
-test('Slider supports both continuous numeric mode and discrete stops mode', () => {
+test('Slider supports both continuous numeric mode and discrete stops mode without double-firing onCommit', () => {
   const { ui, render } = loadUi()
   const changes = []
+  const commits = []
+  let focused = 0
   const continuous = render(ui.Slider, {
     label: 'Font size',
     value: 14,
     min: 12,
     max: 20,
     step: 2,
+    delay: 0,
     onChange: v => changes.push(v),
+    onCommit: v => commits.push(v),
   })
   const sliderEl = findAll(continuous, n => n.props?.role === 'slider')[0]
   assert.equal(sliderEl.props['aria-valuenow'], 14)
   sliderEl.props.onKeyDown({ key: 'ArrowRight', preventDefault() {}, stopPropagation() {} })
   sliderEl.props.onKeyDown({ key: 'End', preventDefault() {}, stopPropagation() {} })
   assert.deepEqual(changes, [16, 20])
+  assert.deepEqual(commits, [16, 20])
+
+  const target = { focus() { focused += 1 }, setPointerCapture() {} }
+  sliderEl.props.onPointerDown({ button: 0, pointerId: 1, clientX: 50, preventDefault() {}, currentTarget: target })
+  sliderEl.props.onPointerUp({ pointerId: 1 })
+  assert.equal(focused, 1, 'onPointerDown focuses the slider track for keyboard navigation')
+  assert.equal(commits.length, 3, 'continuous slider with delay=0 commits once per interaction without double-firing on pointerup')
 
   const picked = []
   const stepped = render(ui.Slider, {
@@ -116,7 +127,7 @@ test('Slider supports both continuous numeric mode and discrete stops mode', () 
   assert.deepEqual(picked, ['high', 'reset'])
 })
 
-test('Dialog provides backdrop close, frameless mask marker, and ARIA dialog semantics', () => {
+test('Dialog provides primary-button backdrop close, scrim isolation, frameless mask marker, and ARIA dialog semantics', () => {
   const { ui, render } = loadUi()
   let closed = 0
   const tree = render(ui.Dialog, {
@@ -130,9 +141,50 @@ test('Dialog provides backdrop close, frameless mask marker, and ARIA dialog sem
   const dlg = findAll(tree, n => n.props?.role === 'dialog')[0]
   assert.equal(dlg.props['aria-modal'], true)
   assert.equal(dlg.props['aria-label'], 'Example dialog')
-  mask.props.onMouseDown({ target: mask, currentTarget: mask })
+  mask.props.onMouseDown({ button: 2, target: mask, currentTarget: mask })
+  assert.equal(closed, 0, 'right-click on backdrop does not close dialog')
+  mask.props.onMouseDown({ button: 0, target: mask, currentTarget: mask })
   assert.equal(closed, 1)
   assert.equal(render(ui.Dialog, { open: false, leaving: false, label: 'Hidden' }), null)
+
+  let scrimClosed = 0
+  const scrimTree = render(ui.Dialog, {
+    open: true,
+    scrimClassName: 'bt-scrim',
+    label: 'Scrim dialog',
+    onClose: () => { scrimClosed += 1 },
+  })
+  const scrimMask = findAll(scrimTree, n => n.props?.['data-has-scrim'] === '')[0]
+  assert.ok(scrimMask, 'Dialog marks data-has-scrim when scrimClassName is set')
+  const scrimEl = findAll(scrimTree, n => n.props?.['data-bt-dialog-scrim'] === '')[0]
+  assert.ok(scrimEl)
+  scrimEl.props.onClick()
+  assert.equal(scrimClosed, 1)
+})
+
+test('DynamicIsland omits top pill wrapper when pill is null and IslandPager ignores modified/typing arrows', () => {
+  const winListeners = {}
+  const { ui, h, render } = loadUi({
+    window: {
+      addEventListener(type, fn) { winListeners[type] = fn },
+      removeEventListener(type) { delete winListeners[type] },
+    },
+  })
+  const standalone = render(ui.DynamicIsland, {
+    pill: null,
+    pods: [{ id: 'conn', node: h(ui.IslandPod, { dotTone: 'warn', label: 'Reconnecting…', expandable: false }) }],
+  })
+  assert.equal(findAll(standalone, n => n.props?.className === 'bt-island-top').length, 0)
+  assert.equal(findAll(standalone, n => n.props?.['data-no-pill'] === '').length, 1)
+
+  let steps = 0
+  render(ui.IslandPager, { count: 3, index: 0, onStep: delta => { steps += delta } })
+  assert.equal(typeof winListeners.keydown, 'function')
+  winListeners.keydown({ key: 'ArrowLeft', altKey: true, target: { tagName: 'INPUT' }, preventDefault() {} })
+  winListeners.keydown({ key: 'ArrowRight', metaKey: true, target: { tagName: 'BODY' }, preventDefault() {} })
+  assert.equal(steps, 0, 'modified or typing Arrow keys do not step IslandPager')
+  winListeners.keydown({ key: 'ArrowRight', target: { tagName: 'BODY' }, preventDefault() {} })
+  assert.equal(steps, 1)
 })
 
 test('DynamicIsland, IslandPod, IslandPanel, and IslandPager compose cleanly', () => {
@@ -182,6 +234,7 @@ test('controls.js primitives (Switch, SettingSection, SettingRow, StatusAlert, S
 
   const queries = []
   const search = render(ui.SearchInput, { value: 'hello', onChange: v => queries.push(v) })
+  assert.equal(search.type, 'div', 'SearchInput uses div container rather than label wrapping a clear button')
   const clearBtn = findAll(search, n => n.type === 'button')[0]
   clearBtn.props.onClick()
   assert.deepEqual(queries, [''])

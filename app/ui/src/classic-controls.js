@@ -102,10 +102,11 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
     ? t('Full access lets the agent run commands and edit files outside this workspace without asking.')
     : t('Auto review uses a model to review actions for this session only.')
 
-  const dialog = h(Dialog, {
+  return h(Dialog, {
     open: Boolean(preset),
     leaving,
-    label: title,
+    portal: true,
+    ariaLabelledBy: titleId,
     size: 'sm',
     maskClassName: 'dsb-risk-layer',
     className: 'dsb-risk-dialog',
@@ -114,7 +115,6 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
     autoFocus: false,
     onClose: () => { if (!busy) onCancel() },
     dataAttrs: {
-      'aria-labelledby': titleId,
       'aria-describedby': descId,
       'data-danger': isFull ? '' : undefined,
     },
@@ -146,8 +146,6 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
       disabled: !ack || busy || leaving,
       onClick: () => onConfirm(shown),
     }, t('Switch preset'))))
-
-  return typeof document !== 'undefined' && document.body ? createPortal(dialog, document.body) : dialog
 }
 
 export function ClassicPermissionMenu({ sessionId, permission, disabled, actions, onUpdated }) {

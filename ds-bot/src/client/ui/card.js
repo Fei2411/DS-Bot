@@ -6,7 +6,6 @@
 // inventing new card containers or composer docks.
 import { createElement as h, useId } from 'react'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from '../icons.js'
-import { SPRING_SHAPE, spring } from '../motion.js'
 import { t } from '../i18n.js'
 
 const ACTION_CLASS = {
@@ -271,16 +270,19 @@ export function CardDock({ className = '', children }) {
 }
 
 export const CARD_CSS = `
-.bt-card-dock{display:flex;flex-direction:column;width:100%;min-width:0}
-.bt-card-icon{flex:none;display:inline-flex;align-items:center;justify-content:center}
-.bt-card-dot{flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
-.bt-card-dot[data-tone=star]{background:var(--bt-star)}
-.bt-card-dot[data-tone=warn]{background:var(--bt-warn)}
-.bt-card-dot[data-tone=danger]{background:var(--bt-danger)}
-.bt-card-dot[data-tone=green]{background:var(--bt-green)}
-.bt-card-error{margin:8px 16px 0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);font-size:12px;line-height:16px;overflow-wrap:anywhere}
-.bt-card-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:4px;background:color-mix(in srgb,currentColor 14%,transparent);font:500 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:.8}
-.bt-card-btn-danger{color:var(--bt-danger)}
-.bt-card-btn-danger:hover:not(:disabled){background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
-.bt-q-foot>button{transition:background-color .12s ease,color .12s ease,opacity .12s ease,${spring(SPRING_SHAPE, 'transform')}}
+:where(.bt-card-dock){display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;min-width:0}
+:where(.bt-card-dock:empty){display:none}
+:where(.bt-card-icon){flex:none;display:inline-flex;align-items:center;justify-content:center}
+:where(.bt-card-dot){flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
+:where(.bt-card-dot[data-tone=star]){background:var(--bt-star)}
+:where(.bt-card-dot[data-tone=warn]){background:var(--bt-warn)}
+:where(.bt-card-dot[data-tone=danger]){background:var(--bt-danger)}
+:where(.bt-card-dot[data-tone=green]){background:var(--bt-green)}
+:where(.bt-card-error){margin:8px 16px 0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);font-size:12px;line-height:16px;overflow-wrap:anywhere}
+:where(.bt-card-kbd){display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:4px;background:color-mix(in srgb,currentColor 14%,transparent);font:500 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:.8}
+:where(.bt-card-btn-danger){color:var(--bt-danger)}
+:where(.bt-card-btn-danger:hover:not(:disabled)){background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
+:where(.bt-q-foot){flex-wrap:wrap}
+:where(.bt-q-foot>button){display:inline-flex;align-items:center;justify-content:center;gap:4px}
+@media (prefers-reduced-motion:reduce){:where(.bt-q-foot>button){transition:none}}
 `

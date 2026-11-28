@@ -88,7 +88,7 @@ if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) docum
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 // Settings-only stylesheets install lazily alongside their pages (`settings-pages-lazy.js`).
 for (const [tag, text] of [
-  ['shell', SHELL_CSS + UI_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
+  ['shell', UI_CSS + SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['connectors', CONNECTOR_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],

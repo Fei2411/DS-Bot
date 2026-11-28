@@ -183,6 +183,21 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const showLearning = !away && Boolean(PendingLearning) && learning.proposals.length > 0
   const [learningOpen, setLearningOpen] = useState(false)
   useEffect(() => { setLearningOpen(false) }, [sessionId, showLearning])
+  useEffect(() => {
+    if (goalOpen || goalCompose || approvalOpen || taskDeckOpen) setLearningOpen(false)
+  }, [goalOpen, goalCompose, approvalOpen, taskDeckOpen])
+  const toggleLearning = () => {
+    setLearningOpen((prev) => {
+      const next = !prev
+      if (next) {
+        if (goalCompose) actions.closeGoalCompose?.()
+        if (goalOpen) actions.closeGoal?.()
+        if (approvalOpen) actions.closeApproval?.()
+        if (taskDeckOpen) actions.closeTaskDeck?.()
+      }
+      return next
+    })
+  }
   const extraPods = [
     connStatus ? { id: 'connection', node: h(ConnectionIslandPod, { status: connStatus, onReconnect }), open: false } : null,
     showLearning ? {
@@ -190,7 +205,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       node: h(LearningIslandPod, {
         proposals: learning.proposals,
         open: learningOpen,
-        onToggle: () => setLearningOpen(v => !v),
+        onToggle: toggleLearning,
         actions,
         onFailure: learning.onFailure,
         onResolved: learning.onResolved,

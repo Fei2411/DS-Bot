@@ -54,10 +54,8 @@ export function WorkPauseCard({ work, roster, actions, inline = false, showViewC
     titleId,
     hidden: closed,
     title: [refTag ? h('span', { key: 'ref', className: 'bt-tag', style: { marginRight: '6px' } }, refTag) : null, titleFor(work, fromName, toName)],
-    detail: [
-      reasonFor(work),
-      detail ? h('div', { key: 'goal', className: 'bt-work-pause-goal' }, detail) : null,
-    ],
+    detail: reasonFor(work),
+    headMeta: detail ? h('div', { className: 'bt-work-pause-goal' }, detail) : null,
     buttons: [
       { key: 'cancel', label: t('Cancel'), variant: 'secondary', onClick: () => run(() => actions.cancelWork?.(work.id)) },
       showViewChat && work.from && work.to

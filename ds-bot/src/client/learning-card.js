@@ -145,8 +145,8 @@ export function ProposalCard({ proposal, initialError = '', onFailure, onResolve
     busy,
     icon: h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(agents ? PencilIcon : MemoryIcon)),
     title: agents ? kind : proposal.name,
-    detail: agents ? null : [
-      kind,
+    detail: agents ? null : kind,
+    headMeta: agents ? null : [
       oldDetail ? h('p', { key: 'old', className: 'bt-learning-description bt-learning-old' }, h('del', null, oldDetail)) : null,
       proposal.description ? h('p', { key: 'desc', className: 'bt-learning-description' }, proposal.description) : null,
     ],
@@ -313,11 +313,12 @@ export const LEARNING_CSS = `
 .bt-learning-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.bt-learning-btn{transition:background-color .12s ease,opacity .12s ease}.bt-learning-btn:active:not(:disabled){scale:none}}
 .bt-learning-settled{gap:10px}
+.bt-learning-settled .bt-q-text{flex:0 0 auto}
 .bt-learning-fold{display:flex;align-items:center;gap:10px;min-width:0;width:100%;margin:-4px 0;padding:4px 0;border:0;background:none;font:inherit;text-align:start;color:var(--bt-ink);cursor:pointer}
-.bt-learning-fold .bt-learning-icon{width:28px;height:28px;border-radius:8px}
-.bt-learning-fold .bt-learning-icon svg{width:16px;height:16px}
+.bt-learning-fold .bt-learning-icon,.bt-learning-settled .bt-q-fold .bt-learning-icon{width:28px;height:28px;border-radius:8px}
+.bt-learning-fold .bt-learning-icon svg,.bt-learning-settled .bt-q-fold .bt-learning-icon svg{width:16px;height:16px}
 .bt-learning-kind{flex:none;font-size:14px;line-height:20px;font-weight:600}
-.bt-learning-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
+.bt-learning-sum{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-learning-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:8px}
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `

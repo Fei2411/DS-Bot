@@ -89,6 +89,7 @@ export function EffortBar({ reasoning, current, onPick }) {
   // off the level the user chose. The knob keeps that level until the queue finishes,
   // and a failed save falls back to the roster.
   const queue = useRef({ busy: false, hasPending: false, pending: undefined })
+  const dragging = useRef(false)
   const chosen = useRef(undefined)
   const latest = useRef(current)
   const pick = useRef(onPick)
@@ -96,7 +97,7 @@ export function EffortBar({ reasoning, current, onPick }) {
   pick.current = onPick
   const same = (a, b) => (a ?? null) === (b ?? null)
   useEffect(() => {
-    if (queue.current.busy || queue.current.hasPending) return
+    if (dragging.current || queue.current.busy || queue.current.hasPending) return
     if (chosen.current !== undefined && !same(current, chosen.current)) return
     chosen.current = undefined
     setPicked(current)
@@ -140,7 +141,7 @@ export function EffortBar({ reasoning, current, onPick }) {
     if (failed) {
       state.hasPending = false
       chosen.current = undefined
-      setPicked(latest.current)
+      if (!dragging.current) setPicked(latest.current)
       return
     }
     if (didWrite) chosen.current = written
@@ -164,6 +165,7 @@ export function EffortBar({ reasoning, current, onPick }) {
     defaultTag: picked === undefined && hasDefault ? t('Default') : '',
     valueLabel: active.label,
     showDots: true,
+    onDragChange: activeDrag => { dragging.current = activeDrag },
     onChange: effort => setPicked(effort),
     onCommit: effort => commit(effort),
     onReset: picked !== undefined || !hasDefault ? () => commit(undefined) : null,
