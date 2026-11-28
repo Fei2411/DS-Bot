@@ -2600,6 +2600,7 @@ export const KO = {
   "Usage details": "사용 내역",
   "Web": "웹",
   "Web search API": "웹 검색 API",
+  "Edit in config file": "설정 파일에서 편집",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",
   "This chat uses the team background.": "이 채팅은 팀 배경을 씁니다.",

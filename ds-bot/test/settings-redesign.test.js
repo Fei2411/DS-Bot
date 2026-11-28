@@ -1241,3 +1241,82 @@ test('search names a model by provider when two share a name, and offers no swit
   const local = [{ id: 'l', name: 'L', model: 'local-codex-cli/default' }]
   assert.equal(searchHits('deepseek chat', { roster: { bots: local, rooms: [], models } }).filter(hit => hit.kind === 'action').length, 0)
 })
+
+test('searchHits indexes Engine settings subpages when DSH plugins/models sections exist and respects surfaceMode', async () => {
+  const code = await loadBundle("export { searchHits } from './src/client/settings-palette.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => makeStatefulReact().React)
+  const { searchHits } = mod.exports
+  const roster = { bots: [], rooms: [], models: [] }
+  const dshBot = {
+    surfaceMode: 'bot',
+    sections: [
+      { id: 'account', label: 'Account' },
+      { id: 'plugins', label: 'Plugins' },
+      { id: 'agent-presets', label: 'Agent presets' },
+    ],
+  }
+  const extra = dshBot.sections.filter(s => s.id !== 'plugins')
+
+  const loopHits = searchHits('agent loop', { roster, extra, dsh: dshBot })
+  assert.ok(loopHits.some(h => h.page === 'plugins' && h.target === 'dsh:agent-loop'), 'Agent loop indexed in settings search')
+
+  const shellHits = searchHits('shell', { roster, extra, dsh: dshBot })
+  assert.ok(shellHits.some(h => h.page === 'plugins' && h.target === 'dsh:shell'), 'Shell indexed in settings search')
+
+  const webHits = searchHits('web search', { roster, extra, dsh: dshBot })
+  assert.ok(webHits.some(h => h.page === 'plugins' && h.target === 'dsh:web-search'), 'Web search indexed in settings search')
+
+  const engPlugHits = searchHits('engine plugins', { roster, extra, dsh: dshBot })
+  assert.ok(engPlugHits.some(h => h.page === 'plugins' && h.target === 'dsh'), 'Engine plugins indexed in settings search')
+
+  const subBotHits = searchHits('subagents', { roster, extra, dsh: dshBot })
+  assert.equal(subBotHits.some(h => h.target === 'dsh:subagent'), false, 'Subagents hidden in Bot mode search')
+
+  const dshAgent = { ...dshBot, surfaceMode: 'agent', sections: [...dshBot.sections, { id: 'models', label: 'Models' }] }
+  const subAgentHits = searchHits('subagents', { roster, extra, dsh: dshAgent })
+  assert.ok(subAgentHits.some(h => h.page === 'plugins' && h.target === 'dsh:subagent'), 'Subagents indexed in Classic Agent mode search')
+
+  const advModelsHits = searchHits('advanced settings', { roster, extra, dsh: dshAgent })
+  assert.ok(advModelsHits.some(h => h.page === 'models' && h.target === 'advanced'), 'Advanced models indexed when dsh models section exists')
+})
+
+test('PrivacyPage displays Saved confirmation when session log upload succeeds and propagates errors via run', async () => {
+  const code = await loadBundle("export { PrivacyPage } from './src/client/privacy-page.js'")
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => harness.React)
+  const { PrivacyPage } = mod.exports
+
+  let current = { usage: false, errors: false, noticeAccepted: true, dshSessionLog: false, dshFeedbackTelemetry: false, anonId: 'a1', anonMonth: '2026-11', recentSent: [] }
+  let failNext = false
+  const errors = []
+  const actions = {
+    telemetryStatus: async () => current,
+    telemetryUpdate: async (patch) => {
+      if (failNext) throw new Error('write failed')
+      current = { ...current, ...patch }
+      return current
+    },
+  }
+  const run = p => Promise.resolve(p).catch(err => { errors.push(err.message) })
+  const Section = ({ title, children }) => harness.React.createElement('section', null, title, ...(children ?? []))
+  const Row = ({ label, children }) => harness.React.createElement('div', null, label, ...(children ?? []))
+  const draw = () => harness.render(harness.React.createElement(PrivacyPage, { actions, run, Section, Row }))
+
+  draw()
+  await new Promise(r => setTimeout(r, 0))
+  let tree = draw()
+  const logSwitch = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Upload Session Log to DeepSeek API')[0]
+  assert.ok(logSwitch)
+  logSwitch.props.onClick()
+  await new Promise(r => setTimeout(r, 0))
+  tree = draw()
+  assert.ok(findAll(tree, n => n.props?.role === 'status' && textOf(n).includes('Saved')).length === 1, 'shows Saved status after toggling session log upload')
+
+  failNext = true
+  findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Upload Session Log to DeepSeek API')[0].props.onClick()
+  await new Promise(r => setTimeout(r, 0))
+  assert.deepEqual(errors, ['write failed'])
+  harness.unmount()
+})

@@ -1,7 +1,7 @@
 // Settings → Privacy & first-run privacy notice card.
 // Exposes clear controls for DS Bot's optional anonymous telemetry, an inspector for
 // recently sent JSON payloads, and DSH upstream log/feedback controls.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Switch } from './bot-settings.js'
 import { ShieldIcon } from './icons.js'
 import { t } from './i18n.js'
@@ -14,12 +14,28 @@ export function PrivacyPage({ actions, run, Section, Row }) {
   const [state, setState] = useState(null)
   const [showLog, setShowLog] = useState(false)
   const [note, setNote] = useState('')
+  const noteTimer = useRef(0)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      clearTimeout(noteTimer.current)
+    }
+  }, [])
+  const flashNote = (message) => {
+    clearTimeout(noteTimer.current)
+    setNote(message)
+    if (message) {
+      noteTimer.current = setTimeout(() => { if (mounted.current) setNote('') }, 2200)
+    }
+  }
   const load = () => (typeof actions.telemetryStatus === 'function' ? actions.telemetryStatus() : Promise.resolve(null)).then((next) => { setState(next); return next })
   useEffect(() => { void run(load()) }, [])
 
-  const save = patch => run((typeof actions.telemetryUpdate === 'function' ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => { setState(next); setNote('') }))
-  const resetId = () => run((typeof actions.telemetryResetId === 'function' ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => { setState(next); setNote(t('Anonymous ID rotated.')) }))
-  const clearLog = () => run((typeof actions.telemetryClearLog === 'function' ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => { setState(next); setNote(t('Cleared sent telemetry history.')) }))
+  const save = patch => run((typeof actions.telemetryUpdate === 'function' ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Saved')) }))
+  const resetId = () => run((typeof actions.telemetryResetId === 'function' ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Anonymous ID rotated.')) }))
+  const clearLog = () => run((typeof actions.telemetryClearLog === 'function' ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Cleared sent telemetry history.')) }))
 
   const disabled = state?.envDisabled === true
   const recent = state?.recentSent ?? []

@@ -26,7 +26,6 @@ const entryCode = `
     PluginsSettingsPage,
     AgentPresetsSettingsPage,
     ArchivedSessionsPage,
-    SessionLogGeneralItem,
   } from './ui/src/engine-settings.js'
   export {
     SETTINGS_SECTION_ICON_SLOT,
@@ -356,6 +355,15 @@ test('PluginsSettingsPage renders 3 clean sections, hides internal/banned subage
             removable: false,
             meta: { title: { en: 'Developer tools', zh: '开发者工具' }, description: { en: 'Troubleshoot sessions', zh: '排查会话' }, icon: 'javascript:alert(1)' },
           },
+          {
+            name: '@deepseek-ai/dsh-experimental-session-search',
+            version: '0.2.2',
+            official: true,
+            installed: true,
+            enabled: false,
+            removable: false,
+            meta: { title: { en: 'Session search', zh: '会话搜索' }, description: { en: 'Search earlier sessions', zh: '搜索历史会话' }, icon: 'javascript:alert(1)' },
+          },
         ],
         plugins: [
           { id: 'raw-cordis-1', moduleName: '@deepseek-ai/dsh-internal-foo', name: 'Raw cordis plugin', enabled: true },
@@ -481,16 +489,18 @@ test('PluginsSettingsPage renders 3 clean sections, hides internal/banned subage
   const builtinBtns = findAll(loaded, n => n.type === 'button' && n.props?.['data-builtin-config'])
   assert.deepEqual(Array.from(builtinBtns, b => b.props['data-builtin-config']), ['web-search', 'shell', 'agent-loop'])
 
-  // Experimental plugins shows primary Voice input first, hides More bundle (Developer tools) behind More button.
+  // Experimental plugins shows primary Voice input first, hides DSH UI-only Developer tools completely, and hides More bundle (Session search) behind More button.
   assert.equal(findAll(loaded, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-voice-input-bundle').length, 1)
   assert.equal(findAll(loaded, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile').length, 0)
+  assert.equal(findAll(loaded, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-session-search').length, 0)
   const moreBtn = findAll(loaded, n => n.type === 'button' && n.props?.className === 'dsb-plug-more-btn')[0]
   assert.ok(moreBtn, 'More toggle button renders')
   moreBtn.props.onClick()
   const expandedTree = harness.render()
-  const inspectorRow = findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile')[0]
-  assert.ok(inspectorRow, 'More bundle revealed after clicking More')
-  assert.equal(findAll(inspectorRow, n => n.type === 'img').length, 0, 'unsafe javascript: icon URI falls back to SVG icon')
+  assert.equal(findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile').length, 0, 'DSH UI-only inspector bundle stays hidden even after clicking More')
+  const searchRow = findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-session-search')[0]
+  assert.ok(searchRow, 'More engine bundle revealed after clicking More')
+  assert.equal(findAll(searchRow, n => n.type === 'img').length, 0, 'unsafe javascript: icon URI falls back to SVG icon')
 
   // Computer use bundle uses clean override with no process/PTC jargon.
   const cuaRow = findAll(expandedTree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-cua-bundle')[0]
@@ -1000,21 +1010,17 @@ test('Classic mode shows Subagents settings with model allowlist while Bot mode 
   ])
 })
 
-test('PluginsSettingsPage surfaces failed UI plugins with Retry button and SessionLogGeneralItem reports save and error state', async () => {
-  const { mod } = loadMod(async (endpoint, payload) => {
+test('PluginsSettingsPage surfaces failed UI plugins with Retry button and resets detail view when subTarget clears', async () => {
+  const { mod } = loadMod(async (endpoint) => {
     if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
     if (endpoint === 'engine-settings-list') {
       return {
         available: true,
         writable: true,
-        namespaces: [{ ns: 'session-log-deepseek', revision: 1, value: { enabled: false }, secrets: [], schema: { type: 'object', dict: {} } }],
+        namespaces: [
+          { ns: 'web-search-deepseek', autoGenerate: true, revision: 1, value: { maxUses: 5 }, secrets: [], schema: { type: 'object', dict: { maxUses: { type: 'number', meta: { default: 5 } } } } },
+        ],
       }
-    }
-    if (endpoint === 'engine-settings-mutate') {
-      if (payload.ops[0]?.value === true) {
-        return { ns: 'session-log-deepseek', revision: 2, value: { enabled: true }, secrets: [], schema: { type: 'object', dict: {} } }
-      }
-      throw new Error('Disk full')
     }
     return {}
   })
@@ -1043,24 +1049,13 @@ test('PluginsSettingsPage surfaces failed UI plugins with Retry button and Sessi
   assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.ui-broken').status, 'active')
   assert.equal(findAll(plugTree, n => n.props?.['data-ui-plugin'] === 'ext.ui-broken').length, 0)
 
-  // SessionLogGeneralItem displays Saved on success and alert error on failure.
-  const logHarness = createHarness(mod.SessionLogGeneralItem, { readOnly: false })
-  logHarness.render()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  let logTree = logHarness.render({ readOnly: false })
-  const sw = () => findAll(logTree, n => n.type === 'button' && n.props?.role === 'switch')[0]
-  assert.equal(sw().props['aria-checked'], false)
-  sw().props.onClick()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  logTree = logHarness.render({ readOnly: false })
-  assert.equal(sw().props['aria-checked'], true)
-  assert.ok(textOf(logTree).includes('Saved'))
-
-  // Toggle back -> fails with 'Disk full' -> renders visible alert.
-  sw().props.onClick()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  logTree = logHarness.render({ readOnly: false })
-  assert.ok(findAll(logTree, n => n.props?.role === 'alert' && textOf(n).includes('Disk full')).length === 1)
+  // Navigating from a subTarget detail back to Engine plugins root clears detailId cleanly.
+  plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search' })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search' })
+  assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
+  plugHarness.render({ readOnly: false, runtime, subTarget: undefined })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined })
+  assert.equal(plugTree.props['data-plugin-detail'], undefined)
 })
 
 test('Engine settings staged forms preserve unsaved drafts across revalidation, secret saves, partial multi-namespace failures, and hidden provider switches', async () => {
@@ -1362,4 +1357,100 @@ test('WebSearchDetailForm labels registered auto fetch provider as Automatic wit
   tree = harness.render({ readOnly: false, subTarget: 'web-search' })
   const labels = findAll(tree, n => n.props?.role === 'option').map(n => textOf(n))
   assert.deepEqual(labels, ['Automatic', 'Direct HTTP', 'DeepSeek Fetch API'])
+})
+
+test('extractSchemaFields preserves array/dict/tuple/union/any fields as config-file entries and renders Edit in config file action', async () => {
+  const calls = []
+  const complexSchema = {
+    type: 'object',
+    dict: {
+      timeoutMs: { type: 'number', meta: { default: 30000 } },
+      allowedHosts: { type: 'array', inner: { type: 'string' }, meta: {} },
+      extraHeaders: { type: 'dict', inner: { type: 'string' }, meta: {} },
+      bounds: { type: 'tuple', list: [{ type: 'number' }, { type: 'number' }], meta: {} },
+      auth: { type: 'union', list: [{ type: 'string' }, { type: 'object', dict: { token: { type: 'string' } } }], meta: {} },
+      rawOptions: { type: 'any', meta: {} },
+      fixedTag: { type: 'const', value: 'v1', meta: {} },
+      hiddenArray: { type: 'array', inner: { type: 'string' }, meta: { hidden: true } },
+    },
+  }
+  const { mod } = loadMod(async (endpoint, payload) => {
+    calls.push([endpoint, payload])
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        documentPath: '/tmp/profile/cordis.patch.yml',
+        namespaces: [{
+          ns: 'custom-plugin',
+          autoGenerate: true,
+          revision: 1,
+          value: { timeoutMs: 30000, allowedHosts: ['example.com'], extraHeaders: { 'x-a': '1' } },
+          base: { timeoutMs: 30000 },
+          user: {},
+          secrets: [],
+          schema: complexSchema,
+        }],
+      }
+    }
+    if (endpoint === 'engine-settings-open-file') {
+      return { ok: true, path: '/tmp/profile/cordis.patch.yml' }
+    }
+    return {}
+  })
+
+  const fields = mod.extractSchemaFields(complexSchema, { timeoutMs: 30000 }, [], 'custom-plugin')
+  assert.deepEqual(
+    Array.from(fields, f => [Array.from(f.path).join('.'), f.kind]),
+    [
+      ['timeoutMs', 'number'],
+      ['allowedHosts', 'config-file'],
+      ['extraHeaders', 'config-file'],
+      ['bounds', 'config-file'],
+      ['auth', 'config-file'],
+      ['rawOptions', 'config-file'],
+    ],
+  )
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'custom-plugin' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, subTarget: 'custom-plugin' })
+  const editBtns = findAll(tree, n => n.type === 'button' && textOf(n) === 'Edit in config file')
+  assert.equal(editBtns.length, 5, 'each complex field renders an Edit in config file button')
+  assert.equal(editBtns[0].props.disabled, false)
+  // Form stays clean (Save disabled) because config-file fields are not staged.
+  const saveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0]
+  assert.equal(saveBtn.props.disabled, true)
+
+  editBtns[0].props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(calls.some(([ep]) => ep === 'engine-settings-open-file'), true, 'clicking Edit in config file calls engine-settings-open-file')
+})
+
+test('Desktop PluginsSettingsPage hides DSH UI-only bundles while keeping host-backed engine bundles', async () => {
+  const uiOnlyBundles = [
+    '@deepseek-ai/dsh-experimental-inspector-profile',
+    '@deepseek-ai/dsh-experimental-cot-translation-bundle',
+    '@deepseek-ai/dsh-experimental-plugin-market-bundle',
+    '@deepseek-ai/dsh-experimental-liveshare',
+    '@deepseek-ai/dsh-experimental-forge-bundle',
+    '@deepseek-ai/dsh-personalized-recommendations',
+    '@deepseek-ai/dsh-deepseek-chat-import',
+  ]
+  const { mod } = loadMod()
+  for (const name of uiOnlyBundles) {
+    assert.equal(mod.isExcludedBundle(name), true, `${name} must be hidden on desktop`)
+  }
+  for (const keep of [
+    '@deepseek-ai/dsh-experimental-voice-input-bundle',
+    '@deepseek-ai/dsh-experimental-auto-review',
+    '@deepseek-ai/dsh-cua-bundle',
+    '@deepseek-ai/dsh-experimental-session-search',
+    '@deepseek-ai/dsh-experimental-session-titles-bundle',
+    '@deepseek-ai/dsh-experimental-badge-skill-bundle',
+  ]) {
+    assert.equal(mod.isExcludedBundle(keep), false, `${keep} must stay available on desktop`)
+  }
 })

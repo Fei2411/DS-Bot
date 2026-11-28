@@ -714,3 +714,59 @@ test('PluginsPage labels external browser plugins as External window and shows B
   const upgradedTile = findAll(upgradedTree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Ego Lite Browser'))[0]
   assert.equal(findAll(upgradedTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length, 0)
 })
+
+test('PluginsPage shares the unified engine blocklist and hides DSH UI-only bundles only on desktop', async () => {
+  const mixedView = {
+    ...SAMPLE_VIEW,
+    plugins: [
+      ...SAMPLE_VIEW.plugins,
+      {
+        id: 'dsh:@deepseek-ai/dsh-base', name: 'DSH Base', description: 'Internal profile',
+        category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-base',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-web-app', name: 'DSH Web App', description: 'Internal web profile',
+        category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-web-app',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-inspector-profile', name: 'Developer tools', description: 'Web inspector',
+        category: 'dev', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+        status: 'inactive', packageName: '@deepseek-ai/dsh-experimental-inspector-profile',
+      },
+      {
+        id: 'dsh:@deepseek-ai/dsh-experimental-auto-review', name: 'Auto review', description: 'Host review',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-experimental-auto-review',
+      },
+    ],
+  }
+
+  // Plugin mode (no globalThis.dsBotApp): internal base/web-app hidden, DSH UI-only inspector stays visible.
+  const prevApp = globalThis.dsBotApp
+  delete globalThis.dsBotApp
+  try {
+    const pluginRun = mountPluginsPage({ view: mixedView })
+    pluginRun.draw()
+    await flush()
+    const pluginText = textOf(pluginRun.draw())
+    assert.doesNotMatch(pluginText, /DSH Base/, 'unified blocklist hides @deepseek-ai/dsh-base')
+    assert.doesNotMatch(pluginText, /DSH Web App/, 'unified blocklist hides @deepseek-ai/dsh-web-app')
+    assert.match(pluginText, /Developer tools/, 'plugin mode keeps DSH UI-only bundles visible')
+    assert.match(pluginText, /Auto review/, 'engine bundle stays visible')
+
+    // Standalone desktop mode (globalThis.dsBotApp present): DSH UI-only inspector is hidden.
+    globalThis.dsBotApp = {}
+    const desktopRun = mountPluginsPage({ view: mixedView })
+    desktopRun.draw()
+    await flush()
+    const desktopText = textOf(desktopRun.draw())
+    assert.doesNotMatch(desktopText, /DSH Base/)
+    assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides DSH UI-only bundles')
+    assert.match(desktopText, /Auto review/, 'desktop keeps host-backed engine bundles')
+  } finally {
+    if (prevApp === undefined) delete globalThis.dsBotApp
+    else globalThis.dsBotApp = prevApp
+  }
+})

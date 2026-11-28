@@ -2566,6 +2566,7 @@ export const JA = {
   "Usage details": "利用状況の詳細",
   "Web": "Web",
   "Web search API": "Web 検索 API",
+  "Edit in config file": "設定ファイルで編集",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",
   "This chat uses the team background.": "このチャットはチームの背景を使います。",

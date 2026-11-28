@@ -28,6 +28,7 @@ import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
+import { isBlockedEngineBundle } from '../../../ds-bot/src/shared/engine-bundles.js'
 import { pluginRuntime, usePlugins } from './plugin-runtime.js'
 import { writeClipboard } from './primitives.js'
 
@@ -71,36 +72,16 @@ const BANNED_NAMESPACES = new Set([
   'subagent-model-selection-settings',
 ])
 
-const HIDDEN_BUNDLES = new Set([
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-  'dsbot-engine',
-  '@deepseek-ai/dsh-headless',
-  '@deepseek-ai/dsh-sdk-app',
-  '@deepseek-ai/dsh-acp-app',
-  '@deepseek-ai/dsh-sdk-minimal',
-  '@deepseek-ai/dsh-experimental-terminal-bundle',
-  '@deepseek-ai/dsh-experimental-tool-worktree',
-])
-
-const BANNED_BUNDLES = new Set([
-  '@deepseek-ai/dsh-subagent-codex',
-  '@deepseek-ai/dsh-subagent-claude-code',
-  '@deepseek-ai/dsh-experimental-agent-team-profile',
-  '@deepseek-ai/dsh-experimental-ralph-bundle',
-])
-
+// DSH official optional bundles with host/engine functionality usable on DS Bot Desktop.
+// DSH Web UI-only bundles (inspector, cot-translation, plugin-market, liveshare, forge,
+// personalized-recommendations, chat-import) are excluded via `isBlockedEngineBundle({ desktop: true })`.
 const EXTENSION_BUNDLES = [
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
-  '@deepseek-ai/dsh-experimental-plugin-market-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
 ]
 
 const MORE_BUNDLES = [
-  '@deepseek-ai/dsh-personalized-recommendations',
-  '@deepseek-ai/dsh-experimental-inspector-profile',
   '@deepseek-ai/dsh-cua-bundle',
-  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
   '@deepseek-ai/dsh-experimental-session-search',
   '@deepseek-ai/dsh-experimental-session-titles-bundle',
   '@deepseek-ai/dsh-experimental-badge-skill-bundle',
@@ -109,18 +90,12 @@ const MORE_BUNDLES = [
 const MORE_BUNDLE_SET = new Set(MORE_BUNDLES)
 
 const EXPERIMENTAL_BUNDLES = new Set([
-  '@deepseek-ai/dsh-personalized-recommendations',
   '@deepseek-ai/dsh-cua-bundle',
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
-  '@deepseek-ai/dsh-experimental-inspector-profile',
-  '@deepseek-ai/dsh-experimental-forge-bundle',
-  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
   '@deepseek-ai/dsh-experimental-session-search',
   '@deepseek-ai/dsh-experimental-session-titles-bundle',
   '@deepseek-ai/dsh-experimental-badge-skill-bundle',
-  '@deepseek-ai/dsh-experimental-plugin-market-bundle',
-  '@deepseek-ai/dsh-experimental-liveshare',
 ])
 
 const BUILTIN_CONFIG_GROUPS = [
@@ -170,8 +145,8 @@ export function isBannedNamespace(ns, surfaceMode = 'bot') {
 
 export function isExcludedBundle(bundle) {
   const name = typeof bundle === 'string' ? bundle : bundle?.name
-  if (typeof name !== 'string' || name === '') return true
-  return HIDDEN_BUNDLES.has(name) || BANNED_BUNDLES.has(name) || /subagent/i.test(name)
+  if (typeof name !== 'string' || name.trim() === '') return true
+  return isBlockedEngineBundle(name, { desktop: true })
 }
 
 const CORE_DS_BOT_IDS = new Set(['ds-bot', '@deepseek-ai/ds-bot'])
@@ -364,29 +339,32 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
   }
 
   const walk = (target, path, seen, depth) => {
-    if (depth > 4) return
     const resolved = resolveRef(refs, target, seen)
     if (!resolved) return
     const { node, seen: nextSeen } = resolved
     if (isHiddenNode(node)) return
 
-    if (node.type === 'intersect' && Array.isArray(node.list)) {
-      for (const item of node.list) walk(item, path, nextSeen, depth)
-      return
-    }
-    if (node.type === 'object' && node.dict && typeof node.dict === 'object') {
-      for (const [key, childTarget] of Object.entries(node.dict)) {
-        walk(childTarget, [...path, key], nextSeen, depth + 1)
+    if (depth <= 4) {
+      if (node.type === 'intersect' && Array.isArray(node.list)) {
+        for (const item of node.list) walk(item, path, nextSeen, depth)
+        return
       }
-      return
+      if (node.type === 'object' && node.dict && typeof node.dict === 'object' && Object.keys(node.dict).length > 0) {
+        for (const [key, childTarget] of Object.entries(node.dict)) {
+          walk(childTarget, [...path, key], nextSeen, depth + 1)
+        }
+        return
+      }
     }
     if (path.length === 0) return
 
-    const unwrapped = unwrapNullableUnion(node, nextSeen)
-    if (unwrapped) {
-      const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
-      walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
-      return
+    if (depth <= 4) {
+      const unwrapped = unwrapNullableUnion(node, nextSeen)
+      if (unwrapped) {
+        const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
+        walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
+        return
+      }
     }
 
     const pathKey = path.join('\0')
@@ -407,6 +385,22 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
       })
       return
     }
+
+    if (depth > 4) {
+      fields.push({
+        path,
+        key: pathKey,
+        kind: 'config-file',
+        schemaType: node.type || 'nested',
+        label,
+        description,
+        defaultValue: fallbackDefault,
+        value: current,
+      })
+      return
+    }
+
+    if (node.type === 'const') return
 
     const enumOptions = enumValuesOf(node, nextSeen)
     if (enumOptions) {
@@ -462,7 +456,21 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         defaultValue: fallbackDefault,
         value: typeof current === 'string' ? current : (typeof fallbackDefault === 'string' ? fallbackDefault : ''),
       })
+      return
     }
+
+    // Complex schema types (array, dict, tuple, non-enum union, any, etc.) stay visible
+    // with a direct config-file editing action instead of being silently dropped.
+    fields.push({
+      path,
+      key: pathKey,
+      kind: 'config-file',
+      schemaType: node.type || 'any',
+      label,
+      description,
+      defaultValue: fallbackDefault,
+      value: current,
+    })
   }
 
   walk(rootTarget, [], new Set(), 0)
@@ -753,7 +761,18 @@ function dropNamespacesFromMap(map, nsSet) {
   return changed ? next : map
 }
 
-function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, onSaveNamespaces, onSecretMutate }) {
+function StagedSchemaGroupForm({
+  groupKey = '',
+  entries,
+  detailTitle,
+  disabled,
+  canOpenConfigFile = false,
+  configFilePath = '',
+  openingConfigFile = false,
+  onOpenConfigFile,
+  onSaveNamespaces,
+  onSecretMutate,
+}) {
   const [overrides, setOverrides] = useState({})
   const [resets, setResets] = useState({})
   const [saving, setSaving] = useState(false)
@@ -804,7 +823,7 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
   for (const { descriptor, fields } of entries) {
     const ops = []
     for (const field of fields) {
-      if (field.kind === 'secret') continue
+      if (field.kind === 'secret' || field.kind === 'config-file') continue
       const compound = `${descriptor.ns}:${field.key}`
       const curRaw = readPath(descriptor.value, field.path)
       const defVal = defaultForField(descriptor, field)
@@ -897,6 +916,8 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
     }
   }
 
+  const hasStagedFields = entries.some(({ fields }) => fields.some(field => field.kind !== 'secret' && field.kind !== 'config-file'))
+
   return h(Fragment, null,
     entries.map(({ descriptor, fields }) => {
       const nsTitle = entries.length > 1 ? namespaceTitle(descriptor.ns) : undefined
@@ -910,6 +931,17 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
           return h('div', { key: field.key, className: 'dsb-engine-field-wrap' },
             h(EngineRow, { label: field.label },
               h(SchemaSecretField, { field, disabled: disabled || saving, onSave: op => onSecretMutate(descriptor, op) })))
+        }
+        if (field.kind === 'config-file') {
+          return h('div', { key: field.key, className: 'dsb-engine-field-wrap', 'data-schema-kind': field.schemaType },
+            h(EngineRow, { label: field.label },
+              h('button', {
+                type: 'button',
+                className: 'bt-soft bt-soft-sm',
+                disabled: !canOpenConfigFile || openingConfigFile || saving,
+                title: configFilePath || undefined,
+                onClick: () => { onOpenConfigFile?.() },
+              }, t('Edit in config file'))))
         }
         const err = errorsByKey[compound]
         const defVal = defaultForField(descriptor, field)
@@ -974,7 +1006,7 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
           err ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, err) : null)
       }))
     }),
-    h(EngineFormBar, {
+    hasStagedFields ? h(EngineFormBar, {
       dirty,
       invalid,
       saving,
@@ -982,7 +1014,7 @@ function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, 
       disabled,
       onSave: () => { void handleSave() },
       onDiscard: handleDiscard,
-    }))
+    }) : null)
 }
 
 const SEARCH_PROVIDER_ORDER = ['deepseek-search-api', 'deepseek-official']
@@ -1789,10 +1821,15 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     return () => { mounted.current = false }
   }, [])
 
+  const prevSubTarget = useRef(subTarget)
   useEffect(() => {
-    const next = normalizeDetailTarget(subTarget, surfaceMode)
-    if (next) setDetailId(next)
-  }, [subTarget, surfaceMode])
+    if (prevSubTarget.current !== subTarget) {
+      prevSubTarget.current = subTarget
+      setDetailId(normalizeDetailTarget(subTarget, surfaceMode))
+    } else if (detailId && isBannedNamespace(detailId, surfaceMode)) {
+      setDetailId('')
+    }
+  }, [subTarget, surfaceMode, detailId])
 
   useEscape(() => setArmedRemove(''), Boolean(armedRemove), { priority: ESCAPE_PRIORITY.INLINE_ACTION })
 
@@ -1953,6 +1990,19 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     }
   }
 
+  const openConfigFile = async () => {
+    if (busyKey || !settingsData?.documentPath) return
+    setBusyKey('cfg:open-file')
+    setError('')
+    try {
+      await call('engine-settings-open-file')
+    } catch (failure) {
+      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
+    } finally {
+      if (mounted.current) setBusyKey('')
+    }
+  }
+
   const configItems = useMemo(() => {
     void activeLang
     const activeGroups = configGroupsForSurface(surfaceMode)
@@ -2084,6 +2134,10 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
                 entries: activeItem.entries,
                 detailTitle,
                 disabled: cfgDisabled,
+                canOpenConfigFile: Boolean(settingsData?.documentPath),
+                configFilePath: settingsData?.documentPath || '',
+                openingConfigFile: busyKey === 'cfg:open-file',
+                onOpenConfigFile: () => { void openConfigFile() },
                 onSaveNamespaces: saveNamespaces,
                 onSecretMutate: (descriptor, op) => { void mutateField(descriptor, op) },
               }))
@@ -2578,73 +2632,4 @@ function namespaceTitle(ns) {
   const known = ENGINE_NAMESPACE_META[ns]
   if (known) return t(known.titleKey)
   return formatSegment(ns)
-}
-
-export function SessionLogGeneralItem({ readOnly = false }) {
-  const [descriptor, setDescriptor] = useState(null)
-  const [writable, setWritable] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
-  const mounted = useRef(true)
-  const savedTimer = useRef(0)
-
-  const reload = useCallback(async () => {
-    try {
-      const res = await call('engine-settings-list')
-      if (!mounted.current || !res?.available) return
-      setWritable(Boolean(res.writable))
-      const found = (res.namespaces ?? []).find(entry => entry.ns === 'session-log-deepseek')
-      setDescriptor(found ?? null)
-    } catch { /* host unavailable leaves item absent */ }
-  }, [])
-
-  useEffect(() => {
-    mounted.current = true
-    void reload()
-    return () => {
-      mounted.current = false
-      clearTimeout(savedTimer.current)
-    }
-  }, [reload])
-
-  if (!descriptor) return null
-  const enabled = descriptor.value?.enabled === true
-  const toggle = async (next) => {
-    if (busy || readOnly || !writable) return
-    setBusy(true)
-    setError('')
-    setSaved(false)
-    try {
-      const updated = await call('engine-settings-mutate', {
-        ns: 'session-log-deepseek',
-        ops: [{ op: 'set', path: ['enabled'], value: next }],
-        expectedRevision: descriptor.revision,
-      })
-      if (mounted.current) {
-        setDescriptor(updated)
-        setSaved(true)
-        clearTimeout(savedTimer.current)
-        savedTimer.current = setTimeout(() => { if (mounted.current) setSaved(false) }, 2200)
-      }
-    } catch (failure) {
-      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
-      if (failure?.code === 'bot/stale') await reload()
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
-  }
-  return h('div', { className: 'dsb-session-log-wrap' },
-    h('div', { className: 'bt-set-row' },
-      h('div', { className: 'bt-set-copy' }, h('span', null, t('Session log upload'))),
-      h('div', { className: 'bt-set-control' },
-        h('div', { className: 'dsb-engine-inline' },
-          saved ? h('span', { className: 'dsb-session-log-status', role: 'status' }, t('Saved')) : null,
-          h(Switch, {
-            label: t('Session log upload'),
-            on: enabled,
-            disabled: busy || readOnly || !writable,
-            onChange: next => { void toggle(next) },
-          })))),
-    error ? h('div', { className: 'dsb-session-log-err', role: 'alert' }, error) : null)
 }

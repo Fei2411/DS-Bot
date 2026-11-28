@@ -567,3 +567,57 @@ test('engine-web-providers and engine-model-catalog expose registered providers/
   assert.equal(fbRes.value.groups[0].id, 'openai')
   assert.equal(fbRes.value.groups[0].models[0].id, 'gpt-5')
 })
+
+test('engine-settings-list exposes documentPath and engine-settings-open-file opens or initializes the config file locally only', async (t) => {
+  const { mkdtempSync, existsSync, readFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-engine-cfg-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const patchFile = join(dir, 'profile', 'cordis.patch.yml')
+
+  const opened = []
+  const settings = {
+    writable: true,
+    documentPath: patchFile,
+    prepareDocument: async () => patchFile,
+    describe: () => [],
+  }
+  const { rt } = makeHarness({ services: { settings } })
+  rt.openConfigFile = async (target) => { opened.push(target) }
+
+  const listed = await rt.channelCall('engine-settings-list', {})
+  assert.equal(listed.ok, true)
+  assert.equal(listed.value.documentPath, patchFile)
+
+  // Missing config file is created with empty YAML sequence when writable, then opened.
+  assert.equal(existsSync(patchFile), false)
+  const openRes = await rt.channelCall('engine-settings-open-file', {})
+  assert.equal(openRes.ok, true)
+  assert.equal(openRes.value.path, patchFile)
+  assert.deepEqual(opened, [patchFile])
+  assert.equal(existsSync(patchFile), true)
+  assert.equal(readFileSync(patchFile, 'utf8'), '[]\n')
+
+  // Read-only window can open an existing file, but refuses creating a missing one.
+  const roOpened = []
+  const { rt: roRt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { settings } })
+  roRt.openConfigFile = async (target) => { roOpened.push(target) }
+  const roExisting = await roRt.channelCall('engine-settings-open-file', {})
+  assert.equal(roExisting.ok, true)
+  assert.deepEqual(roOpened, [patchFile])
+
+  const missingPath = join(dir, 'missing', 'cordis.patch.yml')
+  const roMissing = makeHarness({
+    readOnly: 'Another dsh holds this team',
+    services: { settings: { writable: false, documentPath: missingPath, describe: () => [] } },
+  })
+  const roMissingRes = await roMissing.rt.channelCall('engine-settings-open-file', {})
+  assert.equal(roMissingRes.ok, false)
+  assert.equal(roMissingRes.error.code, 'bot/not-found')
+  assert.equal(existsSync(missingPath), false)
+
+  // Phone and remote links refuse opening host config files.
+  assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-settings-open-file').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-settings-open-file').code, 'bot/refused')
+})

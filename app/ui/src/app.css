@@ -713,10 +713,6 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-subagent-opt input[type=checkbox]{flex:none;width:15px;height:15px;margin:0;accent-color:var(--bt-accent);cursor:inherit}
 .dsb-subagent-opt-name{flex:1 1 auto;min-width:0;font-size:13px;line-height:18px;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsb-subagent-opt-tag{flex:none;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
-.dsb-session-log-wrap{display:flex;flex-direction:column;width:100%}
-.dsb-session-log-wrap>.bt-set-row{border-top:0}
-.dsb-session-log-status{font-size:12px;line-height:16px;color:var(--bt-green);font-weight:500}
-.dsb-session-log-err{padding:0 16px 10px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .dsb-ui-plug-status{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:14px;font-weight:500}
 .dsb-ui-plug-status[data-status=active]{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:color-mix(in srgb,var(--bt-green) 76%,var(--bt-ink))}
 .dsb-ui-plug-status[data-status=error]{background:var(--bt-danger-soft);color:var(--bt-danger)}

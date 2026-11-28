@@ -2600,6 +2600,7 @@ export const DE = {
   "Usage details": "Nutzungsdetails",
   "Web": "Web",
   "Web search API": "Websuche-API",
+  "Edit in config file": "In Konfigurationsdatei bearbeiten",
   "Chat background": "Chat-Hintergrund",
   "While this chat is open, its background takes the place of the team background.": "Solange dieser Chat offen ist, ersetzt sein Hintergrund den des Teams.",
   "This chat uses the team background.": "Dieser Chat nutzt den Hintergrund des Teams.",
