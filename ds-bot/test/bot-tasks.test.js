@@ -1965,3 +1965,35 @@ test('fg-handoff that settles while another handoff is in flight archives once t
   await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
   assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
 })
+
+test('stopping an idle fg-handoff task with a running shell job archives once the job is killed (#2374)', async (t) => {
+  let jobAlive = true
+  const killed = []
+  const env = await startEnv({
+    services: {
+      jobs: {
+        list: sid => (jobAlive && sid === 'dm-a' ? [{ id: 'job-1', status: 'running' }] : []),
+        kill: (jobId, sid, reason) => {
+          killed.push({ jobId, sid, reason })
+          jobAlive = false
+        },
+      },
+    },
+  })
+  t.after(env.stop)
+  const bot = env.rt.botOf('a')
+  const firstSid = env.rt.chatOf(bot.id)
+  const firstAgent = env.agentMap.get(firstSid)
+  firstAgent.status = 'running'
+  await env.emit(firstSid, 'turn/start', { turn: 1 })
+  await env.rt.handoffForeground(bot, firstSid, [])
+  const task1 = bot.tasks.find(item => item.sessionId === firstSid)
+  // Agent finishes its turn and goes idle while its background shell job is still running.
+  firstAgent.status = 'idle'
+  env.rt.live.delete(firstSid)
+
+  assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: task1.id })).ok, true)
+  assert.equal(killed.length, 1)
+  await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
+})

@@ -689,6 +689,7 @@ export function install(rt) {
           if (keepSessions.has(id) || sessionBusy(id) || isInheritedByActiveTask(id)
             || pendingHandoff(bot.id) || handoffing.has(bot.id)
             || settling.has(task.id) || delivering.has(task.id) || hasOpenOutgoingWorks(bot, task)) {
+            if (ctx.get('agents')?.get(id)?.status !== 'running' && (rt.runningJobs?.(id)?.length ?? 0) > 0) retry = true
             continue
           }
           try {
@@ -701,6 +702,7 @@ export function install(rt) {
               || pendingHandoff(bot.id) || handoffing.has(bot.id)
               || settling.has(task.id) || delivering.has(task.id) || hasOpenOutgoingWorks(bot, task)
               || retirementTarget({ botId: bot.id, roomId: task.roomId }) !== target) {
+              if (ctx.get('agents')?.get(id)?.status !== 'running' && (rt.runningJobs?.(id)?.length ?? 0) > 0) retry = true
               continue
             }
             await ctx.workspaceRegistry.archiveSession(id)
@@ -1299,10 +1301,15 @@ export function install(rt) {
       // foreground delivery failed (e.g. disk full).
       rt.cancelApprovals?.(sessionId)
       const jobs = ctx.get?.('jobs')
+      let killedJobs = false
       for (const job of rt.runningJobs?.(sessionId) ?? []) {
-        try { jobs?.kill(job.id, sessionId, reason) } catch { /* already ended */ }
+        try { jobs?.kill(job.id, sessionId, reason); killedJobs = true } catch { /* already ended */ }
       }
       ctx.get('agents')?.get(sessionId)?.cancel({ kind: 'hook', reason: 'ds-bot: task stopped' })
+      if (killedJobs && rt.botOf(bot.id) === bot
+        && (hasExcessSettledTasks(bot) || hasUnarchivedSettledHandoff(bot, sessionId))) {
+        void retireTasks([bot])
+      }
     }
     return wasActive
   }
