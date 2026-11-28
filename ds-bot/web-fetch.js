@@ -249,6 +249,10 @@ function normalizeIp(ip) {
   if (clean.startsWith('[') && clean.endsWith(']')) clean = clean.slice(1, -1)
   const zone = clean.indexOf('%')
   if (zone !== -1) clean = clean.slice(0, zone)
+  if (isIP(clean) === 6) {
+    const groups = parseIPv6Groups(clean)
+    if (groups) return groups.map(v => v.toString(16)).join(':')
+  }
   return clean
 }
 
@@ -265,7 +269,7 @@ export function isPrivateHost(hostname) {
 // unlock arbitrary private redirects. A non-literal hostname whose DNS resolves to private IPs
 // (e.g. an intranet domain like wiki.corp) may only connect to its own initial private IP set
 // and never redirect to other private hosts/IPs. Fake-IP TUN ranges (198.18.0.0/15, 2001:2::/48)
-// permit non-literal public redirects only within those virtual TUN ranges while still blocking
+// permit non-literal public redirects only within public/virtual-TUN ranges while still blocking
 // all literal private hosts and all real loopback/LAN/link-local/metadata addresses.
 export function createOriginPolicy(initialUrl) {
   const initialHost = normalizeHost(initialUrl.hostname)
@@ -280,13 +284,13 @@ export function createOriginPolicy(initialUrl) {
       if (initialPrivateLiteral || !Array.isArray(records) || records.length === 0) {
         return { allowed: true }
       }
-      if (records.every(r => isFakeIpTunAddress(r.address))) {
-        fakeIpTunMode = true
+      const isRealPrivate = (address) => isPrivateIP(address) && !isFakeIpTunAddress(address)
+      const hasRealPrivate = records.some(r => isRealPrivate(r.address))
+      if (!hasRealPrivate) {
+        if (records.some(r => isFakeIpTunAddress(r.address))) fakeIpTunMode = true
         return { allowed: true }
       }
-      const privateCount = records.filter(r => isPrivateIP(r.address)).length
-      if (privateCount === 0) return { allowed: true }
-      if (privateCount === records.length) {
+      if (records.every(r => isRealPrivate(r.address))) {
         initialDnsPrivateIps = new Set(records.map(r => normalizeIp(r.address)))
         return { allowed: true }
       }
@@ -299,8 +303,7 @@ export function createOriginPolicy(initialUrl) {
     areResolvedRecordsAllowed(hostname, records) {
       if (initialPrivateLiteral) return true
       if (!Array.isArray(records) || records.length === 0) return true
-      if (records.every(r => !isPrivateIP(r.address))) return true
-      if (fakeIpTunMode && records.every(r => isFakeIpTunAddress(r.address))) return true
+      if (records.every(r => !isPrivateIP(r.address) || (fakeIpTunMode && isFakeIpTunAddress(r.address)))) return true
       if (initialDnsPrivateIps && normalizeHost(hostname) === initialHost) {
         return records.every(r => initialDnsPrivateIps.has(normalizeIp(r.address)))
       }

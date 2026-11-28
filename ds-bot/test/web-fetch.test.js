@@ -254,13 +254,13 @@ describe('createAutoFetchProvider Tier 1 & Tier 2 behavior', () => {
       err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
     )
 
-    // Fake-IP TUN (198.18.0.0/15, 2001:2::/48): public-to-public redirects stay allowed,
-    // while literal private IPs and real private DNS targets remain blocked.
+    // Fake-IP TUN (198.18.0.0/15, 2001:2::/48): public-to-public and dual-stack (fake IPv4 +
+    // public IPv6) redirects stay allowed, while literal private IPs and real private DNS remain blocked.
     const fakeIpProvider = createAutoFetchProvider({
       lookup: async (host) => {
-        if (host === 'bybit.com') return [{ address: '198.18.1.71', family: 4 }, { address: '2001:2::142', family: 6 }]
-        if (host === 'www.bybit.com') return [{ address: '198.18.1.69', family: 4 }, { address: '2001:2::140', family: 6 }]
-        if (host === 'evil.nip.io') return [{ address: '127.0.0.1', family: 4 }]
+        if (host === 'bybit.com') return [{ address: '198.18.1.71', family: 4 }, { address: '2606:4700::1111', family: 6 }]
+        if (host === 'www.bybit.com') return [{ address: '198.18.1.69', family: 4 }, { address: '2606:4700::1112', family: 6 }]
+        if (host === 'evil.nip.io') return [{ address: '198.18.1.70', family: 4 }, { address: '127.0.0.1', family: 4 }]
         return [{ address: '93.184.216.34', family: 4 }]
       },
       fetch: async (url) => {
