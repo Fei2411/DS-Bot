@@ -1,86 +1,21 @@
 // Failed-send recovery bar shown above the composer when a message fails to send
 // while the user is already typing the next message (or after switching back).
 // Never overwrites the user's active draft; lets them Retry, Restore to input, or Dismiss.
+// State and reload-guard registration live in `ds-bot/src/client/team-core/drafts.js`.
 import { createElement as h } from 'react'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
-import { registerReloadGuard } from '../../../ds-bot/src/client/reload-action.js'
-
-// Failed sends held per chat when a send rejects while the user is already typing
-// or after switching away to another chat. Keeps their preview URLs alive until
-// retried, restored into the composer, dismissed, or the owning chat is deleted.
-export const pendingFailedByChat = new Map()
-export const heldFailedUrls = new Set()
-export const inFlightUrls = new Set()
-
-/**
- * Whether any chat's failed-send recovery bar currently holds unsent attachments
- * in memory that a full window reload would discard.
- * @returns {boolean}
- */
-export function hasPendingFailedAttachments() {
-  for (const list of pendingFailedByChat.values()) {
-    for (const entry of list ?? []) {
-      if (Array.isArray(entry?.items) && entry.items.length > 0) return true
-    }
-  }
-  return false
-}
-
-// Guard full window reloads whenever failed sends still hold in-memory attachments,
-// even if the composer itself is empty (`hasKeptDraftFiles() === false`).
-registerReloadGuard(hasPendingFailedAttachments)
-
-export function revokeUrl(url) {
-  if (url && typeof URL?.revokeObjectURL === 'function') URL.revokeObjectURL(url)
-}
-
-export function trackFailedUrls(items, hold) {
-  for (const item of items ?? []) {
-    if (!item?.previewUrl) continue
-    if (hold) heldFailedUrls.add(item.previewUrl)
-    else heldFailedUrls.delete(item.previewUrl)
-  }
-}
-
-export function trackInFlightUrls(items, hold) {
-  for (const item of items ?? []) {
-    if (!item?.previewUrl) continue
-    if (hold) inFlightUrls.add(item.previewUrl)
-    else inFlightUrls.delete(item.previewUrl)
-  }
-}
-
-export function pruneFailedSends(chatIds) {
-  for (const chatId of chatIds ?? []) {
-    const list = pendingFailedByChat.get(chatId)
-    if (!list) continue
-    pendingFailedByChat.delete(chatId)
-    for (const entry of list) {
-      for (const item of entry.items ?? []) {
-        if (!item?.previewUrl) continue
-        heldFailedUrls.delete(item.previewUrl)
-        if (!inFlightUrls.has(item.previewUrl)) revokeUrl(item.previewUrl)
-      }
-    }
-  }
-}
-
-export function clearFailedSends() {
-  for (const list of pendingFailedByChat.values()) {
-    for (const entry of list) {
-      for (const item of entry.items ?? []) {
-        if (item?.previewUrl) {
-          heldFailedUrls.delete(item.previewUrl)
-          revokeUrl(item.previewUrl)
-        }
-      }
-    }
-  }
-  pendingFailedByChat.clear()
-  heldFailedUrls.clear()
-  inFlightUrls.clear()
-}
+export {
+  pendingFailedByChat,
+  heldFailedUrls,
+  inFlightUrls,
+  hasPendingFailedAttachments,
+  revokeUrl,
+  trackFailedUrls,
+  trackInFlightUrls,
+  pruneFailedSends,
+  clearFailedSends,
+} from '../../../ds-bot/src/client/team-core/drafts.js'
 
 function previewText(entry) {
   const flat = String(entry?.text ?? '').replace(/\s+/g, ' ').trim()

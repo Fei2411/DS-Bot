@@ -1,8 +1,21 @@
 import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
-import { createSource, createTeamPull, createTeamStore, isAgentSession, ownerOfSession as resolveSessionOwner } from './team-core/index.js'
-import { sectionFoldWrites, teamActions } from './team-actions.js'
+import {
+  createBrowserController,
+  createNavigationActions,
+  createSource,
+  createStoreActions,
+  createTeamPull,
+  createTeamStore,
+  createUpdateController,
+  isAgentSession,
+  ownerOfSession as resolveSessionOwner,
+  pruneRemovedChatDrafts,
+  sectionFoldWrites,
+  startComputerBridge,
+  teamActions,
+} from './team-core/index.js'
 import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
 import { dshAppearanceCss } from './appearance-dsh.js'
@@ -23,7 +36,6 @@ import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
 import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
-import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { CHANGES_CSS } from './changes-card.js'
@@ -36,7 +48,6 @@ import { SaveFileAction } from './file-save.js'
 import { fileMentionSource } from './mention-source.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
 import { Overlays } from './overlays.js'
-import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
 import { BROWSER_CSS } from './browser-pane.js'
 import { SECRET_CSS, SecretDock } from './secret-card.js'
 import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
@@ -78,12 +89,11 @@ import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS } from './paste-card.js'
 import { DSH_PASTE_CSS, PasteDock, PasteGuard } from './paste-card-dsh.js'
-import { pruneDrafts } from './draft-keep.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { installTitle } from './branding.js'
-import { needsIdleSample, pollDelay } from './polling.js'
+import { pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
@@ -179,6 +189,7 @@ export function apply(ctx) {
     call,
     store,
     foldWrites,
+    onChatsRemoved: (gone) => { pruneRemovedChatDrafts(gone, questionDrafts) },
     onHydrated: (indexed) => {
       try {
         const ids = (indexed.agents ?? []).flatMap(agent => agent.sessions ?? [])
@@ -243,74 +254,38 @@ export function apply(ctx) {
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', wake) }
   }, 'ds-bot: roster poll')
 
-  // Plugin updates: every window that opens asks the host once (the host keeps its
-  // answer for a while), again each hour, and every two seconds while installing.
-  let wakeUpdate = () => {}
-  ctx.effect(() => {
-    let stopped = false
-    let timer
-    const loop = async () => {
-      clearTimeout(timer)
-      if (stopped) return
-      const value = await call('update-check', { fresh: false }).catch(() => null)
-      if (stopped) return
-      if (value) update.set(previous => ({ ...value, app: previous.app, ownApp: previous.ownApp }))
-      timer = setTimeout(loop, value?.phase === 'installing' || value?.dsh?.phase === 'installing' ? 2000 : 60 * 60_000)
-    }
-    wakeUpdate = loop
-    void loop()
-    return () => { stopped = true; clearTimeout(timer); wakeUpdate = () => {} }
-  }, 'ds-bot: update check')
+  // Plugin, DSH, and DS Bot app update polling + actions live in team-core.
+  const updateCtrl = createUpdateController({
+    call,
+    update,
+    getAppUpdates: () => (window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.updates ?? null : null),
+    getOwnAppUpdates: () => globalThis.dsBotApp?.updates ?? null,
+  })
+  ctx.effect(() => updateCtrl.start(), 'ds-bot: update check')
 
-  // A packaged DSH updates through its own updater; what that updater found is
-  // kept beside the host's answer so the card can match it to the verified DSH.
-  const appUpdates = window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.updates ?? null : null
-  if (appUpdates?.status && appUpdates.subscribe) {
-    ctx.effect(() => {
-      let stopped = false
-      const take = (app) => { if (!stopped && app) update.set(previous => ({ ...previous, app })) }
-      void appUpdates.status().then(take, () => {})
-      const unsubscribe = appUpdates.subscribe(take)
-      return () => { stopped = true; unsubscribe?.() }
-    }, 'ds-bot: app update status')
+  // Whether the open Bot panel is folded away for lack of room: its opener then
+  // means "show it" (the column yields), not "close it". A panel shown because
+  // the column already yielded is not folded, so its opener closes it.
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot()
+    const f = frame.getSnapshot()
+    return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === 'folded'
   }
-
-  // The DS Bot app's own updater; its state goes beside the host's answer as ownApp,
-  // which the About row turns into the app's update state and buttons.
-  const ownAppUpdates = globalThis.dsBotApp?.updates ?? null
-  if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
-    ctx.effect(() => {
-      let stopped = false
-      const take = (ownApp) => { if (!stopped && ownApp) update.set(previous => ({ ...previous, ownApp })) }
-      void ownAppUpdates.state().then(take, () => {})
-      const unsubscribe = ownAppUpdates.subscribe(take)
-      return () => { stopped = true; unsubscribe?.() }
-    }, 'ds-bot: own app update state')
-  }
+  const yieldBrowser = state => state.panelYield === true || panelFolded('browser')
 
   // Bot browsers need a webview bridge: DSH Desktop's, or the desktop app's of the
   // same shape. The host serves read_browser only in those two (`browser` in the state).
-  const bridge = (window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null
-  const browsers = bridge ? createBotBrowsers({ bridge, createSource }) : null
-  if (browsers) {
-    ctx.effect(() => {
-      let stopReads = null
-      const sync = () => {
-        const snapshot = roster.getSnapshot()
-        if (!snapshot.ready) return
-        const on = snapshot.browser === true
-        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
-        if (!on && stopReads) { stopReads(); stopReads = null }
-        // A Bot deleted here or in another window takes its guests and saved tabs along.
-        void browsers.retain(snapshot.bots.map(bot => bot.id))
-        // A panel open on the browser view without a browsable subject falls back
-        // to the details view.
-        ui.set(state => (state.details && state.view === 'browser' && (!on || !snapshot.byId[state.details]) ? { ...state, view: 'details' } : state))
-      }
-      sync()
-      const offRoster = roster.subscribe(sync)
-      return () => { offRoster(); stopReads?.(); browsers.dispose() }
-    }, 'ds-bot: Bot browsers')
+  const browserBridge = (window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null
+  const browserCtrl = createBrowserController({
+    call,
+    store,
+    bridge: browserBridge,
+    yieldBrowser,
+    onClosePanel: () => actions.closePanel(),
+  })
+  const { browserPages, browserTabs, browserHolds } = browserCtrl
+  if (browserCtrl.browsers) {
+    ctx.effect(() => browserCtrl.start(), 'ds-bot: Bot browsers')
   }
 
   ctx.effect(() => () => { markupCache.clear(); resetPull() }, 'ds-bot: character markup')
@@ -544,8 +519,7 @@ export function apply(ctx) {
   // something else. A long wait changes the note and asks for the list again; it does
   // not uncover the previous conversation.
   const ownerOfSession = sessionId => resolveSessionOwner(roster.getSnapshot(), sessionId)
-  // Monotonic counter so a slower async `landOn` pull never overrides a newer navigation.
-  let navSeq = 0
+  // Monotonic counter lives inside `nav` (team-core/actions.js).
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => { void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')) },
   })
@@ -567,17 +541,38 @@ export function apply(ctx) {
     openingWait.fail(target, reason)
   }
   const lostSession = (target) => (roster.getSnapshot().bots ?? []).some(bot => bot.sessionMissing === target)
-  const recovering = new Set()
   const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession })
-  // Whether the open Bot panel is folded away for lack of room: its opener then
-  // means "show it" (the column yields), not "close it". A panel shown because
-  // the column already yielded is not folded, so its opener closes it.
-  const panelFolded = (view) => {
-    const state = ui.getSnapshot()
-    const f = frame.getSnapshot()
-    return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === 'folded'
-  }
-  const yieldBrowser = state => state.panelYield === true || panelFolded('browser')
+  const nav = createNavigationActions({
+    call,
+    after,
+    pull,
+    store,
+    onRetry: target => show(target),
+    onRecovered: (target) => {
+      nav.bumpNavSeq()
+      setPlain(false)
+      show(target)
+    },
+    onMissingAfterRecover: () => endOpening(),
+    shouldAbortLand: (last) => {
+      const now = mainView()
+      if (!last || now === undefined || now === last.sessionId) return false
+      const snap = roster.getSnapshot()
+      const list = ctx.sessions.list.getSnapshot()
+      const nowBot = snap.byId[now]
+      const nowRoom = snap.roomsById[now]
+      return (nowBot !== undefined && currentPart(nowBot) === now)
+        || (nowRoom !== undefined && (nowRoom.sessionId ?? nowRoom.id) === now)
+        || isAgentSessionId(now)
+        || (nowBot === undefined && nowRoom === undefined && list.byId?.[now]?.blank !== true)
+    },
+    canLandTarget: (target, last) => !(last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === undefined),
+    onLand: (target) => {
+      setPlain(false)
+      show(target)
+    },
+    reportError: (error, where) => actions.reportError(error, where),
+  })
   // Bot mode's view must hold a team conversation; an outside Session wears the
   // Bot skin without one. Runs whenever the surface is (or stays) Bot mode —
   // including a cold start, where no setSurface call ever fires.
@@ -601,6 +596,10 @@ export function apply(ctx) {
   }
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
+    ...createStoreActions({ store, clearPanelYieldOnToggle: true }),
+    ...nav.actions,
+    ...updateCtrl.actions,
+    ...browserCtrl.actions,
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -616,14 +615,13 @@ export function apply(ctx) {
       if (openReview === undefined) { actions.notice(t('This window cannot open the change review')); return }
       openChangesReview(changes)
     },
-    learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: id => isAgentSessionId(id),
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
-      navSeq += 1
+      nav.bumpNavSeq()
       const target = partFor(id)
       const fromInbox = ui.getSnapshot().inbox === true
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget
@@ -632,35 +630,10 @@ export function apply(ctx) {
       setPlain(false)
       show(target)
     },
-    retryOpening: (target) => {
-      if (!target) return
-      show(target)
-    },
-    // The Bot's current Session is gone from the library: a fresh part takes its place
-    // (the Host makes it without the lost part), then that part is opened. The failure
-    // card stays meanwhile, so a failed try leaves the way out on screen.
-    recoverOpening: async (botId) => {
-      if (recovering.has(botId)) return
-      recovering.add(botId)
-      const seq = ++navSeq
-      try {
-        await after(call('recover-session', { botId }))
-        if (seq !== navSeq) return
-        const bot = roster.getSnapshot().byId[botId]
-        if (bot === undefined) { endOpening(); return }
-        navSeq += 1
-        setPlain(false)
-        show(currentPart(bot))
-      } catch (error) {
-        actions.reportError(error, 'reopen-session')
-      } finally {
-        recovering.delete(botId)
-      }
-    },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      navSeq += 1
+      nav.bumpNavSeq()
       const fromInbox = ui.getSnapshot().inbox === true
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
@@ -709,8 +682,6 @@ export function apply(ctx) {
       else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
     },
     renameAgentSession: (agentId, sessionId, title) => after(call('agent-rename', { agentId, sessionId, title })),
-    beginAgentRename: sessionId => ui.set(state => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui.set(state => (state.renameAgent ? { ...state, renameAgent: null } : state)),
     // Removing the Agent archives every Session it owns; one of them may fill the
     // main view, and it must not stay there wearing the Bot surface afterwards.
     removeAgent: async (agentId) => {
@@ -721,55 +692,10 @@ export function apply(ctx) {
       if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
       return result
     },
-    navSeq: () => navSeq,
-    // `last` is the Bot or group conversation the view held before it cleared: when that
-    // part was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last, expectedSeq) => {
-      if (expectedSeq !== undefined && expectedSeq !== navSeq) return
-      const seq = ++navSeq
-      const currentOfLast = (snap) => {
-        if (!last) return undefined
-        const bot = last.kind === 'room' ? undefined : snap.byId[last.botId ?? last.id]
-        if (bot !== undefined) return currentPart(bot)
-        const room = snap.roomsById[last.roomId ?? last.id]
-        return room === undefined ? undefined : (room.sessionId ?? room.id)
-      }
-      let moved = currentOfLast(roster.getSnapshot())
-      if (last && (moved === undefined || moved === last.sessionId)) {
-        await pull().catch(() => {})
-        if (seq !== navSeq) return
-        moved = currentOfLast(roster.getSnapshot())
-      }
-      if (seq !== navSeq) return
-      const now = mainView()
-      if (last && now !== undefined && now !== last.sessionId) {
-        const snap = roster.getSnapshot()
-        const list = ctx.sessions.list.getSnapshot()
-        const nowBot = snap.byId[now]
-        const nowRoom = snap.roomsById[now]
-        if ((nowBot !== undefined && currentPart(nowBot) === now)
-          || (nowRoom !== undefined && (nowRoom.sessionId ?? nowRoom.id) === now)
-          || isAgentSessionId(now)
-          || (nowBot === undefined && nowRoom === undefined && list.byId?.[now]?.blank !== true)) return
-      }
-      setPlain(false)
-      const target = moved !== undefined && moved !== last?.sessionId ? moved : partFor(id)
-      // Never try to reopen an archived part that already vanished from the list.
-      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === undefined) return
-      show(target)
-    },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
-    // The left column's own preference: 'open', 'rail' or 'hidden'. The switch
-    // remembers the shown one it hid; a drag sets the open column's width.
-    setSidebarPref: pref => store.setSidebarPref(pref),
-    toggleLeftHidden: () => store.toggleLeftHidden({ clearPanelYield: true }),
-    setSidebarWidth: width => store.setSidebarWidth(width),
-    setLeftDrawer: on => store.setLeftDrawer(on),
-    setPanelYield: on => store.setPanelYield(on),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
-    surfaceMode: () => surface.getSnapshot().mode,
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
       // Already there: still worth the landing check — a cold start never calls
@@ -789,104 +715,11 @@ export function apply(ctx) {
       if (mode !== 'bot') return
       ensureBotHome()
     },
-    markUnread: id => store.writeUnread(id, true),
-    beginVisit: id => store.beginVisit(id),
-    endVisit: id => store.endVisit(id),
-    toggleReaction: (key, index, emoji) => store.toggleReaction(key, index, emoji),
-    clearUnread: id => store.writeUnread(id, false),
-  }
-  // Without the Desktop bridge these stay undefined, and no browser control renders.
-  if (browsers) {
-    Object.assign(actions, {
-      // The globe button: the Bot's active tab in the browser view, or a new tab.
-      openBrowser: (id) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return
-        browsers.ensureTabs(bot.id)
-        if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: yieldBrowser(state) }))
-      },
-      toggleBrowser: (id) => {
-        const snap = roster.getSnapshot()
-        if (snap.browser === false) return
-        const bot = snap.byId?.[id]
-        if (!bot) return
-        const state = ui.getSnapshot()
-        const detailsBotId = state.details ? (snap.byId?.[state.details]?.id ?? state.details) : null
-        if (state.details && state.view === 'browser' && detailsBotId === bot.id) {
-          actions.closePanel()
-          return
-        }
-        actions.openBrowser(bot.id)
-      },
-      // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
-      browserNewTab: (id) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return null
-        browsers.ensureTabs(bot.id)
-        const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: yieldBrowser(state) }))
-        return tabId
-      },
-      // A drawer card: its tab active, the panel on the browser view.
-      browserPick: (id, tabId) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return
-        browsers.activate(bot.id, tabId)
-        ui.set(state => ({ ...state, details: id, view: 'browser', panelYield: yieldBrowser(state) }))
-      },
-      browserEnsure: botId => browsers.ensureTabs(botId),
-      browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
-      browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
-      browserShow: (tabId, box) => browsers.show(tabId, box),
-      browserNavigate: (tabId, input) => browsers.navigate(tabId, input),
-      browserCommand: (tabId, name) => browsers.command(tabId, name),
-      browserFocus: (tabId) => browsers.focus(tabId),
-      browserTakeover: bridge.views ? async botId => {
-        const result = await call('browser-takeover', { botId })
-        await bridge.views.hold(botId, true)
-        return result
-      } : undefined,
-      browserStop: bridge.views ? async botId => {
-        const result = await call('browser-stop', { botId })
-        await bridge.views.hold(botId, true)
-        return result
-      } : undefined,
-      // `answer` is a handoff card's { callId, outcome }; the panel's Give back sends none.
-      browserGiveBack: bridge.views ? async (botId, answer = {}) => {
-        const result = await call('browser-give-back', { botId, ...answer })
-        await bridge.views.hold(botId, false)
-        return result
-      } : undefined,
-      // Cookie imports, only where the bridge offers them (the desktop app): an installed
-      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
-      // the Bot's storage key.
-      browserImport: typeof bridge.importSources === 'function' ? {
-        sources: () => bridge.importSources(),
-        probe: typeof bridge.importProbe === 'function' ? (source) => bridge.importProbe(source) : null,
-        pick: () => bridge.importPick(),
-        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
-        launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
-        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
-        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge.importApply(
-          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
-          pending,
-          options,
-        ),
-        cancel: (pending) => bridge.importCancel(pending),
-      } : null,
-    })
   }
   // Whether AccountLauncher holds the shell's settings seat; FooterAccount steps aside if so.
   actions.signInEntry = () => ctx.slots.entries?.('settings.models.sign-in')?.[0] ?? null
   actions.canSignIn = () => Boolean(actions.signInEntry())
-  actions.signIn = () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 }))
-  actions.closeSignIn = () => ui.set(state => ({ ...state, signIn: null }))
   actions.accountT = () => ctx.get('locale')?.bind?.('settings.account') ?? (key => key)
-  // DS Bot's own Plugins panel works consistently in both the desktop app and plugin mode.
-  actions.hasPlugins = () => true
-  actions.openPlugins = (focus = null) => actions.openSettings('plugins', focus)
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
   // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
@@ -915,154 +748,15 @@ export function apply(ctx) {
     }
   }
   actions.seatAccount = on => ui.set(state => (state.accountSeated === on ? state : { ...state, accountSeated: on }))
-  // The install runs on the host; the check loop follows it every two seconds.
-  actions.installUpdate = async () => {
-    const value = await call('update-install')
-    update.set(previous => ({ ...previous, ...value }))
-    wakeUpdate()
-  }
-  // The DSH the newest released DS Bot verified installs the same way.
-  actions.installDshUpdate = async () => {
-    const dsh = await call('dsh-update-install')
-    update.set(previous => ({ ...previous, dsh }))
-    wakeUpdate()
-  }
-  // The app's panel installs whatever its updater found by now, so it opens only
-  // while that is still the verified version.
-  actions.openAppUpdates = async (verified) => {
-    const app = await appUpdates?.status?.()
-    if (app) update.set(previous => ({ ...previous, app }))
-    if (sameVersion(app?.version, verified)) await appUpdates.open()
-  }
-  actions.checkUpdate = async () => {
-    const value = await call('update-check', { fresh: true })
-    update.set(previous => ({ ...value, app: previous.app, ownApp: previous.ownApp }))
-    wakeUpdate()
-  }
-  // The app's own updater answers through its bridge; the state it pushes back re-renders
-  // the About row.
-  actions.checkOwnApp = async () => { await ownAppUpdates?.check?.() }
-  actions.installOwnApp = async () => { await ownAppUpdates?.install?.() }
-  actions.openOwnApp = async () => { await ownAppUpdates?.open?.() }
-  actions.downloadOwnApp = async () => { await ownAppUpdates?.download?.() }
-  actions.setOwnAppAutoUpdate = async (enabled) => { await ownAppUpdates?.setAutoUpdate?.(enabled === true) }
-  const browserPages = browsers?.pages ?? createSource({})
-  const browserTabs = browsers?.tabs ?? createSource({})
-  const browserHolds = browsers?.holds ?? createSource({})
 
   // The desktop app carries the floating indicator and the tray entries, and reads the
   // OS idle time for the foreground gate; the entries and the pushes ride its bridge.
-  const appComputer = globalThis.dsBotApp
-  if (typeof appComputer?.computer === 'function') {
-    ctx.effect(() => {
-      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
-      const sync = () => {
-        const live = computer.getSnapshot()
-        const name = id => nameOf(id)
-        const look = id => lookOf(roster.getSnapshot().byId[id])
-        const rows = (live.leases ?? []).map(entry => ({
-          botId: entry.botId,
-          name: name(entry.botId),
-          app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName,
-          label: entry.kind === 'foreground' ? t('{name} · foreground', { name: name(entry.botId) }) : `${name(entry.botId)} · ${entry.appName}`,
-          color: look(entry.botId).color,
-          avatar: look(entry.botId).image,
-        }))
-        for (const [botId, entry] of Object.entries(live.bots ?? {})) {
-          if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, name: name(botId), app: t('waits for the computer'), label: t('{name} waits for the computer', { name: name(botId) }), color: look(botId).color, avatar: look(botId).image })
-        }
-        appComputer.computer({
-          rows,
-          labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
-        })
-      }
-      sync()
-      return computer.subscribe(sync)
-    }, 'ds-bot: computer indicator')
-  }
-  if (typeof appComputer?.computerCursor === 'function') {
-    ctx.effect(() => {
-      // Cursor events get their own long-poll: the shared state poll drops to
-      // 10 s while the window is hidden, far too slow for an on-screen cursor.
-      let dead = false
-      let wakeEnabled = null
-      let cancelPause = null
-      const waitEnabled = () => new Promise((resolve) => {
-        if (dead || roster.getSnapshot().computer?.enabled === true) { resolve(); return }
-        wakeEnabled = resolve
-      })
-      const pause = ms => new Promise((resolve) => {
-        if (dead) { resolve(); return }
-        const timer = setTimeout(() => {
-          if (cancelPause === cancel) cancelPause = null
-          resolve()
-        }, ms)
-        const cancel = () => {
-          clearTimeout(timer)
-          if (cancelPause === cancel) cancelPause = null
-          resolve()
-        }
-        cancelPause = cancel
-      })
-      const notifyEnabled = () => {
-        if (wakeEnabled) { const fn = wakeEnabled; wakeEnabled = null; fn() }
-      }
-      const offRoster = roster.subscribe(() => {
-        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled()
-      })
-      const run = async () => {
-        let after = 0
-        while (!dead) {
-          if (roster.getSnapshot().computer?.enabled !== true) { await waitEnabled(); continue }
-          try {
-            const reply = await call('computer-cursor-wait', { after })
-            if (dead) break
-            for (const event of reply?.events ?? []) {
-              if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
-              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
-              appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image })
-            }
-          } catch {
-            if (!dead) await pause(2000)
-          }
-        }
-      }
-      void run()
-      return () => { dead = true; offRoster(); notifyEnabled(); cancelPause?.() }
-    }, 'ds-bot: computer cursor')
-  }
-  if (typeof appComputer?.idleSeconds === 'function') {
-    ctx.effect(() => {
-      let timer = 0
-      const push = () => {
-        const current = roster.getSnapshot()
-        if (current.computer?.enabled !== true) return
-        // Read OS idle time whenever a Bot can claim foreground control or is waiting for idle.
-        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return
-        void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
-          if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
-        }).catch(() => {})
-      }
-      const sync = () => {
-        const enabled = roster.getSnapshot().computer?.enabled === true
-        if (enabled && !timer) timer = setInterval(push, 2000)
-        else if (!enabled && timer) { clearInterval(timer); timer = 0 }
-      }
-      sync()
-      const offRoster = roster.subscribe(sync)
-      return () => { offRoster(); if (timer) clearInterval(timer) }
-    }, 'ds-bot: computer user active')
-  }
-  if (typeof appComputer?.onComputerAction === 'function') {
-    ctx.effect(() => {
-      const off = appComputer.onComputerAction(({ kind, botId }) => {
-        if (kind === 'stop') void actions.computerStop(botId)
-        else if (kind === 'stopall') void actions.computerStop(null, true)
-        else if (kind === 'letgo') void actions.computerAllowForeground(botId)
-      })
-      return () => { if (typeof off === 'function') off() }
-    }, 'ds-bot: computer actions')
-  }
+  ctx.effect(() => startComputerBridge({
+    call,
+    store,
+    onStop: (botId, all) => actions.computerStop(botId, all),
+    onAllowForeground: botId => actions.computerAllowForeground(botId),
+  }), 'ds-bot: computer bridge')
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, botCompletions, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
@@ -1099,37 +793,6 @@ export function apply(ctx) {
     updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
   })
-  // A deleted Bot or group takes its kept draft (and any part-keyed rescued draft) with it.
-  ctx.effect(() => {
-    let chats = null
-    return roster.subscribe(() => {
-      const snapshot = roster.getSnapshot()
-      if (!snapshot.ready) return
-      const now = new Map()
-      for (const bot of snapshot.bots) {
-        const ids = [bot.id, bot.sessionId, ...(bot.parts ?? [])].filter(id => typeof id === 'string' && id !== '')
-        now.set(bot.id, [...new Set(ids)])
-      }
-      for (const room of snapshot.rooms) {
-        const ids = [room.id, room.sessionId, ...(room.ownParts ?? [])].filter(id => typeof id === 'string' && id !== '')
-        now.set(room.id, [...new Set(ids)])
-      }
-      if (chats !== null) {
-        const goneChats = []
-        const goneAll = []
-        for (const [chatId, prevIds] of chats) {
-          if (now.has(chatId)) continue
-          goneChats.push(chatId)
-          for (const id of prevIds) goneAll.push(id)
-        }
-        if (goneChats.length > 0) {
-          pruneDrafts(goneChats)
-          questionDrafts.pruneChats([...new Set(goneAll)])
-        }
-      }
-      chats = now
-    })
-  }, 'ds-bot: drafts of removed chats')
   // Move unsubmitted question-card text back to the main composer when a pending
   // question disappears externally (never on explicit submit, skip, scroll, or switch).
   ctx.effect(() => {

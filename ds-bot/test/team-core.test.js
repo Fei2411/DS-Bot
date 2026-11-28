@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  clearFailedSends,
+  createBrowserController,
+  createDraftFiles,
   createFeedController,
+  createNavigationActions,
   createSessionStore,
+  createStoreActions,
   createTeamPull,
   createTeamStore,
+  createUpdateController,
   diffLiveRosterFields,
+  hasPendingFailedAttachments,
   indexRoster,
   partForRoster,
+  pendingFailedByChat,
+  pruneRemovedChatDrafts,
   seenKeyOf,
+  startComputerBridge,
 } from '../src/client/team-core/index.js'
 import { sectionFoldWrites } from '../src/client/team-actions.js'
 
@@ -177,4 +187,210 @@ test('team-core session store and feed controller deduplicate replays and manage
   } finally {
     stop()
   }
+})
+
+test('team-core drafts manage draft files, failed-send reload guard, and removed chat pruning', () => {
+  clearFailedSends()
+  const pool = createDraftFiles()
+  const img = { name: 'shot.png', size: 12, type: 'image/png' }
+  const doc = { name: 'notes.txt', size: 4, type: 'text/plain' }
+  const ids = pool.restoreDraftFiles('bot-a', [img, { kind: 'file', file: doc }, null, {}])
+  assert.equal(ids.length, 2)
+  assert.deepEqual(pool.draftFiles(ids), [
+    { kind: 'image', file: img },
+    { kind: 'file', file: doc },
+  ])
+  pool.pruneBySessions(sid => sid !== 'bot-a')
+  assert.deepEqual(pool.draftFiles(ids), [])
+
+  const storage = makeStorage({ 'ds-bot:drafts': JSON.stringify({ 'bot-a': 'hello', 'bot-b': 'keep' }) })
+  const prunedChats = []
+  const questionDrafts = { pruneChats: chats => prunedChats.push(...chats) }
+  pendingFailedByChat.set('bot-a', [{ text: 'failed', items: [{ previewUrl: 'blob:a' }] }])
+  assert.equal(hasPendingFailedAttachments(), true)
+  pruneRemovedChatDrafts(['bot-a'], questionDrafts, { storage })
+  assert.deepEqual(prunedChats, ['bot-a'])
+  assert.equal(hasPendingFailedAttachments(), false)
+  assert.deepEqual(JSON.parse(storage.getItem('ds-bot:drafts')), { 'bot-b': 'keep' })
+})
+
+test('team-core navigation actions serialize recoverOpening and landOn across async pulls', async () => {
+  const storage = makeStorage()
+  const store = createTeamStore({ storage })
+  store.roster.set(indexRoster({
+    revision: 1,
+    bots: [{ id: 'bot-a', sessionId: 'bot-a-p1', parts: ['bot-a-p1'] }],
+    rooms: [],
+  }))
+  const landed = []
+  const recovered = []
+  const retried = []
+  const pullDeferred = Promise.withResolvers()
+  const nav = createNavigationActions({
+    call: async (name) => {
+      if (name === 'recover-session') {
+        store.roster.set(indexRoster({
+          revision: 2,
+          bots: [{ id: 'bot-a', sessionId: 'bot-a-p2', parts: ['bot-a-p1', 'bot-a-p2'] }],
+          rooms: [],
+        }))
+      }
+      return {}
+    },
+    after: p => p,
+    pull: async () => {
+      await pullDeferred.promise
+      store.roster.set(indexRoster({
+        revision: 3,
+        bots: [{ id: 'bot-a', sessionId: 'bot-a-p3', parts: ['bot-a-p1', 'bot-a-p2', 'bot-a-p3'] }],
+        rooms: [],
+      }))
+    },
+    store,
+    onRetry: target => retried.push(target),
+    onRecovered: sid => recovered.push(sid),
+    onLand: target => landed.push(target),
+  })
+
+  nav.actions.retryOpening('bot-a-p1')
+  assert.deepEqual(retried, ['bot-a-p1'])
+
+  await nav.actions.recoverOpening('bot-a')
+  assert.deepEqual(recovered, ['bot-a-p2'])
+
+  // Stale expectedSeq does not land.
+  nav.actions.landOn('bot-a', null, nav.actions.navSeq() - 1)
+  assert.deepEqual(landed, [])
+
+  // Async landOn waits for pull, then lands on the new part unless superseded.
+  const pendingLand = nav.actions.landOn('bot-a', { kind: 'bot', botId: 'bot-a', sessionId: 'bot-a-p2' })
+  pullDeferred.resolve()
+  await pendingLand
+  assert.deepEqual(landed, ['bot-a-p3'])
+})
+
+test('team-core update controller merges plugin, DSH, and ownApp updates without duplicate check calls', async () => {
+  const storage = makeStorage()
+  const store = createTeamStore({ storage })
+  const calls = []
+  let ownListener = null
+  const ctrl = createUpdateController({
+    call: async (name, body) => {
+      calls.push([name, body])
+      if (name === 'update-check') return { phase: 'available', latest: '0.4.3', current: '0.4.2' }
+      if (name === 'update-install') return { phase: 'installing' }
+      if (name === 'dsh-update-install') return { phase: 'installing', latest: '1.2.0' }
+      return {}
+    },
+    update: store.update,
+    getAppUpdates: () => null,
+    getOwnAppUpdates: () => ({
+      state: async () => ({ phase: 'idle', version: '0.4.2' }),
+      subscribe: (fn) => { ownListener = fn; return () => { ownListener = null } },
+      check: async () => { calls.push(['own-check']) },
+    }),
+  })
+  const stop = ctrl.start()
+  try {
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(store.update.getSnapshot().latest, '0.4.3')
+    assert.equal(store.update.getSnapshot().ownApp.version, '0.4.2')
+
+    const countBefore = calls.filter(([n]) => n === 'update-check').length
+    await ctrl.actions.checkUpdate()
+    const countAfter = calls.filter(([n]) => n === 'update-check').length
+    // Fresh checkUpdate must NOT trigger a second immediate update-check.
+    assert.equal(countAfter - countBefore, 1)
+
+    ownListener?.({ phase: 'available', version: '0.4.3' })
+    assert.equal(store.update.getSnapshot().ownApp.phase, 'available')
+    await ctrl.actions.checkOwnApp()
+    assert.equal(calls.some(([n]) => n === 'own-check'), true)
+  } finally {
+    stop()
+  }
+})
+
+test('team-core browser and computer controllers manage tabs, retains, cursor abort, and store actions', async () => {
+  const storage = makeStorage()
+  const store = createTeamStore({ storage })
+  store.roster.set({
+    ...indexRoster({
+      revision: 1,
+      browser: true,
+      computer: { enabled: true },
+      bots: [{ id: 'bot-a', name: 'Alpha', sessionId: 'bot-a', parts: ['bot-a'] }],
+      rooms: [],
+    }),
+    ready: true,
+  })
+  const storeActions = createStoreActions({ store, clearPanelYieldOnToggle: true })
+  store.setPanelYield(true)
+  storeActions.toggleLeftHidden()
+  assert.equal(store.ui.getSnapshot().panelYield, false)
+
+  const forgotten = []
+  const bridge = {
+    acquire: async key => ({ partition: `persist:${key}` }),
+    forget: async key => { forgotten.push(key) },
+    views: { hold: async () => {}, subscribe: () => () => {}, place: async () => {} },
+  }
+  const browser = createBrowserController({
+    call: (name, _body, signal) => {
+      if (name === 'browser-wait') {
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        })
+      }
+      return Promise.resolve({})
+    },
+    store,
+    bridge,
+    onClosePanel: () => store.ui.set(s => ({ ...s, details: null })),
+  })
+  const stopBrowser = browser.start()
+  try {
+    browser.actions.openBrowser('bot-a')
+    assert.equal(store.ui.getSnapshot().view, 'browser')
+    assert.equal(store.ui.getSnapshot().details, 'bot-a')
+    assert.equal(browser.browserTabs.getSnapshot()['bot-a']?.ids?.length, 1)
+
+    // Removing bot-a reconciles browser panel back to details and forgets its partition.
+    store.roster.set({
+      ...indexRoster({ revision: 2, browser: true, computer: { enabled: true }, bots: [], rooms: [] }),
+      ready: true,
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(store.ui.getSnapshot().view, 'details')
+    assert.deepEqual(forgotten, ['bot:bot-a'])
+  } finally {
+    stopBrowser()
+  }
+
+  let cursorAborted = false
+  const computerRows = []
+  const stops = []
+  const stopComputer = startComputerBridge({
+    call: (name, _body, signal) => {
+      if (name === 'computer-cursor-wait') {
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => { cursorAborted = true; reject(new Error('aborted')) })
+        })
+      }
+      return Promise.resolve({})
+    },
+    store,
+    onStop: (botId, all) => stops.push([botId, all]),
+    appComputer: {
+      computer: payload => computerRows.push(payload),
+      computerCursor: () => {},
+      onComputerAction: (cb) => { cb({ kind: 'stop', botId: 'bot-a' }); return () => {} },
+    },
+  })
+  store.computer.set({ leases: [{ botId: 'bot-a', kind: 'foreground', appName: 'Safari' }], bots: {} })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(computerRows.at(-1)?.rows?.length, 1)
+  assert.deepEqual(stops, [['bot-a', false]])
+  stopComputer()
+  assert.equal(cursorAborted, true)
 })

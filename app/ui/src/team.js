@@ -5,25 +5,28 @@ import { useRef, useSyncExternalStore } from 'react'
 import { watchAgentTerminals } from '../../../ds-bot/src/client/agent-terminals.js'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
-import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { watchBotCompletions } from '../../../ds-bot/src/client/bot-completions.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
-import { sameVersion } from '../../../ds-bot/src/client/dsh-offer.js'
 import { frameLayout } from '../../../ds-bot/src/client/frame-layout.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { lookOf } from '../../../ds-bot/src/client/mark.js'
-import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { writeMode } from '../../../ds-bot/src/client/surface.js'
-import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import {
+  createBrowserController,
+  createDraftFiles,
   createFeedController,
+  createNavigationActions,
   createSessionStore,
-  createSource,
+  createStoreActions,
   createTeamPull,
   createTeamStore,
+  createUpdateController,
   EMPTY_PENDING,
+  pruneRemovedChatDrafts,
+  sectionFoldWrites,
+  startComputerBridge,
+  teamActions,
 } from '../../../ds-bot/src/client/team-core/index.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
@@ -78,32 +81,15 @@ export function createTeam() {
   } = store
 
   let restartFeed = () => {}
-  const mergeUpdate = (value) => {
-    if (!value || typeof value !== 'object') return
-    update.set(previous => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }))
-  }
-  let wakeUpdate = () => {}
-  let scheduleUpdate = () => {}
-
-  // Bot browsers need a webview bridge: DSH Desktop's, or the desktop app's of the
-  // same shape. The host serves read_browser only in those two (`browser` in the state).
-  const bridge = (globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null
-  const browsers = bridge ? createBotBrowsers({ bridge, createSource }) : null
-  const browserHolds = browsers?.holds ?? createSource({})
-  const browserPages = browsers?.pages ?? createSource({})
-  const browserTabs = browsers?.tabs ?? createSource({})
 
   // Remember positions in both modes so switching Bot <-> Classic preserves each side.
   let lastTeamSession = null
   let lastAgentSession = null
   let terminalNonceSeq = 0
-  let navSeq = 0
-  const recovering = new Set()
   const agentNewInFlight = new Map()
   let classicSeq = 0
   const sessionHooks = new Map()
-  const draftFileStore = new Map()
-  let draftFileSeq = 0
+  const draftFilesCtrl = createDraftFiles()
 
   const sessionStore = createSessionStore({
     store,
@@ -115,9 +101,7 @@ export function createTeam() {
     },
     onPruneExtra: (keep) => {
       for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
-      for (const [fileId, entry] of [...draftFileStore.entries()]) {
-        if (entry?.sessionId && !keep(entry.sessionId)) draftFileStore.delete(fileId)
-      }
+      draftFilesCtrl.pruneBySessions(keep)
     },
   })
   const {
@@ -138,6 +122,65 @@ export function createTeam() {
     followWork,
     pruneSessions,
   } = sessionStore
+
+  // Bot browsers need a webview bridge: DSH Desktop's, or the desktop app's of the
+  // same shape. Classic mode shares the same browser view plumbing under a dedicated owner key.
+  const resolveBrowserOwner = (id) => {
+    const snap = roster.getSnapshot()
+    const bot = id ? snap.byId?.[id] : undefined
+    if (bot) return { ownerId: bot.id, detailsId: id, isClassic: false, toggleId: bot.id }
+    if (id === CLASSIC_BROWSER_OWNER || surface.getSnapshot().mode === 'agent') {
+      return { ownerId: CLASSIC_BROWSER_OWNER, detailsId: shown.getSnapshot() || CLASSIC_BROWSER_OWNER, isClassic: true, toggleId: CLASSIC_BROWSER_OWNER }
+    }
+    return null
+  }
+  const browserCtrl = createBrowserController({
+    call,
+    store,
+    resolveOwner: resolveBrowserOwner,
+    extraRetainIds: () => [CLASSIC_BROWSER_OWNER],
+    yieldBrowser: () => true,
+    onClosePanel: () => actions.closePanel(),
+    onTabsEmptied: (botId) => {
+      const snap = roster.getSnapshot()
+      ui.set((state) => {
+        if (!state.details || state.view !== 'browser') return state
+        const subjectBot = snap.byId?.[state.details]
+        if (subjectBot && subjectBot.id !== botId) return state
+        if (!subjectBot && botId !== CLASSIC_BROWSER_OWNER) return state
+        const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+        if (hasWorkspace) return { ...state, view: 'workspace', renaming: false, tab: null }
+        const hasSide = Boolean(subjectBot && state.side && (snap.sideChats?.[subjectBot.id] ?? []).some(entry => entry?.id === state.side))
+        if (hasSide) return { ...state, view: 'side', renaming: false, tab: null }
+        if (subjectBot || snap.roomsById?.[state.details]) return { ...state, view: 'details', renaming: false, tab: null }
+        return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
+      })
+    },
+    reconcileUi: (snapshot, on) => {
+      // A panel open on a deleted subject or unavailable browser falls back cleanly to
+      // workspace (if open), details (if subject still exists), or closes completely.
+      ui.set((state) => {
+        if (!state.details) return state
+        const hasBot = Boolean(snapshot.byId[state.details])
+        const hasRoom = Boolean(snapshot.roomsById?.[state.details])
+        const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+        const isClassicBrowser = !hasBot && !hasRoom && surface.getSnapshot().mode === 'agent'
+        if (state.view === 'browser') {
+          if (on && (hasBot || isClassicBrowser)) return state
+          if (hasWorkspace) return { ...state, view: 'workspace' }
+          if (hasBot || hasRoom) return { ...state, view: 'details' }
+          return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
+        }
+        if (!hasBot && !hasRoom && !hasWorkspace) {
+          return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
+        }
+        return state
+      })
+    },
+  })
+  const { browsers, browserHolds, browserPages, browserTabs } = browserCtrl
+
+  const updateCtrl = createUpdateController({ call, update })
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -192,9 +235,7 @@ export function createTeam() {
       if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
     },
     onChatsRemoved: (gone) => {
-      questionDrafts.pruneChats(gone)
-      pruneDrafts(gone)
-      pruneFailedSends(gone)
+      pruneRemovedChatDrafts(gone, questionDrafts)
     },
     onHydrated: (indexed) => {
       if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
@@ -246,7 +287,17 @@ export function createTeam() {
     work,
     refreshModels: () => pull().catch(() => {}),
   })
-  const appUpdates = globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.updates ?? null : null
+  const nav = createNavigationActions({
+    call,
+    after,
+    pull,
+    store,
+    onRetry: target => actions.openSession(target),
+    onRecovered: target => actions.openSession(target),
+    onMissingAfterRecover: () => ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null })),
+    onLand: target => show(target),
+    reportError: (error, where) => actions.reportError?.(error, where),
+  })
   const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
@@ -259,7 +310,6 @@ export function createTeam() {
     cancelPreparation: providerId => speechCall('speech-cancel', { providerId }),
     transcribe: (request, signal) => speechCall('speech-transcribe', request ?? {}, signal),
   }
-  const clearShortcuts = () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state))
 
   // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
   // chats, and tasks inside one shared `BotPanel` strip.
@@ -323,6 +373,13 @@ export function createTeam() {
 
   const actions = {
     ...baseActions,
+    ...createStoreActions({ store }),
+    ...nav.actions,
+    ...updateCtrl.actions,
+    ...browserCtrl.actions,
+    draftFiles: draftFilesCtrl.draftFiles,
+    restoreDraftFiles: draftFilesCtrl.restoreDraftFiles,
+    releaseDraftFiles: draftFilesCtrl.releaseDraftFiles,
     closePanel: () => {
       baseActions.closePanel()
       ui.set(state => (state.rightPanel !== null || state.panelYield ? { ...state, rightPanel: null, panelYield: false } : state))
@@ -338,7 +395,6 @@ export function createTeam() {
       baseActions.toggleDetails(id, force)
       ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
     },
-    openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
     selectPanel: (id) => {
       if (typeof id !== 'string' || id === '') return
       if (id === 'files' || id === 'terminal' || id === 'preview' || id === 'changes') {
@@ -358,14 +414,9 @@ export function createTeam() {
       }
       actions.openSettings('overview')
     },
-    openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
-    openGroupSearch: (...args) => { clearShortcuts(); return baseActions.openGroupSearch?.(...args) },
-    openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },
-    learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
     // Switching conversations also clears any preview/diff belonging to the previous workspace.
     isAgentSession: id => isAgentSessionId(id),
-    surfaceMode: () => surface.getSnapshot().mode,
     setSurface: async (mode) => {
       const nextMode = mode === 'agent' ? 'agent' : 'bot'
       const prevShown = shown.getSnapshot()
@@ -429,7 +480,7 @@ export function createTeam() {
         actions.openAgentSession(id)
         return
       }
-      navSeq += 1
+      nav.bumpNavSeq()
       if (surface.getSnapshot().mode === 'agent') {
         writeMode('bot')
         surface.set({ mode: 'bot' })
@@ -452,32 +503,9 @@ export function createTeam() {
         }
       })
     },
-    retryOpening: (target) => {
-      if (!target) return
-      actions.openSession(target)
-    },
-    recoverOpening: async (botId) => {
-      if (!botId || recovering.has(botId)) return
-      recovering.add(botId)
-      const seq = ++navSeq
-      try {
-        await after(call('recover-session', { botId }))
-        if (seq !== navSeq) return
-        const bot = roster.getSnapshot().byId?.[botId]
-        if (bot === undefined) {
-          ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null }))
-          return
-        }
-        actions.openSession(currentPart(bot))
-      } catch (error) {
-        actions.reportError?.(error, 'reopen-session')
-      } finally {
-        recovering.delete(botId)
-      }
-    },
     openAgentSession: (sessionId) => {
       if (!sessionId) return
-      navSeq += 1
+      nav.bumpNavSeq()
       const switched = sessionId !== shown.getSnapshot()
       const fromInbox = ui.getSnapshot().inbox === true
       lastAgentSession = sessionId
@@ -577,8 +605,6 @@ export function createTeam() {
       editRow(sessionId, row => ({ ...row, title: clean, displayTitle: clean, blank: false }))
       void refreshClassicSessions()
     },
-    beginAgentRename: sessionId => ui.set(state => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui.set(state => (state.renameAgent ? { ...state, renameAgent: null } : state)),
     removeAgent: async (agentId) => {
       const owned = roster.getSnapshot().agentsById?.[agentId]?.sessions ?? []
       const result = await after(call('remove-agent', { agentId }))
@@ -647,32 +673,6 @@ export function createTeam() {
       await pull().catch(() => {})
       await refreshClassicSessions()
     },
-    navSeq: () => navSeq,
-    landOn: (id, last, expectedSeq) => {
-      if (expectedSeq !== undefined && expectedSeq !== navSeq) return undefined
-      const seq = ++navSeq
-      if (!last) {
-        show(partFor(id))
-        return undefined
-      }
-      const currentOfLast = (snap) => {
-        const bot = last.kind === 'room' ? undefined : snap.byId?.[last.botId ?? last.id]
-        if (bot !== undefined) return currentPart(bot)
-        const room = snap.roomsById?.[last.roomId ?? last.id]
-        return room === undefined ? undefined : (room.sessionId ?? room.id)
-      }
-      return (async () => {
-        let moved = currentOfLast(roster.getSnapshot())
-        if (moved === undefined || moved === last.sessionId) {
-          await pull().catch(() => {})
-          if (seq !== navSeq) return
-          moved = currentOfLast(roster.getSnapshot())
-        }
-        if (seq !== navSeq) return
-        const target = moved !== undefined && moved !== last.sessionId ? moved : partFor(id)
-        if (target) show(target)
-      })()
-    },
     steerQueued: async (sessionId) => {
       if (!sessionId) return
       const rows = sessionQueues.getSnapshot()[sessionId] ?? []
@@ -694,68 +694,15 @@ export function createTeam() {
         actions.reportError?.(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
       }
     },
-    draftFiles: (ids) => {
-      if (!Array.isArray(ids) || ids.length === 0) return []
-      const out = []
-      for (const id of ids) {
-        const entry = draftFileStore.get(id)
-        if (entry) out.push({ kind: entry.kind, file: entry.file })
-      }
-      return out
-    },
-    restoreDraftFiles: (sessionId, files) => {
-      if (!Array.isArray(files) || files.length === 0) return []
-      const ids = []
-      for (const item of files) {
-        if (!item || typeof item !== 'object') continue
-        const isWrapper = item.file && typeof item.file === 'object'
-        const file = isWrapper ? item.file : item
-        if (typeof file.name !== 'string' && typeof file.size !== 'number' && typeof file.type !== 'string') continue
-        const mime = typeof file.type === 'string' ? file.type : ''
-        const kind = isWrapper && typeof item.kind === 'string'
-          ? item.kind
-          : (mime.startsWith('image/') ? 'image' : 'file')
-        const id = `draft-file-${++draftFileSeq}`
-        draftFileStore.set(id, { sessionId: sessionId ?? null, kind, file })
-        ids.push(id)
-      }
-      return ids
-    },
-    releaseDraftFiles: (ids) => {
-      if (!Array.isArray(ids)) return
-      for (const id of ids) draftFileStore.delete(id)
-    },
     holdSettingsLook: () => () => {},
     watchAgentTerminals: sessionId => watchAgentTerminals(slots, sessionId, error => actions.reportError?.(error, 'right-sidebar')),
     signInEntry: () => accountBridge.signInEntry(),
     canSignIn: () => accountBridge.canSignIn(),
-    signIn: () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 })),
-    closeSignIn: () => ui.set(state => ({ ...state, signIn: null })),
     accountT: () => accountBridge.accountT(),
-    setSidebarPref: pref => store.setSidebarPref(pref),
-    setSidebarWidth: width => store.setSidebarWidth(width),
-    toggleLeftHidden: () => store.toggleLeftHidden(),
-    setLeftDrawer: on => store.setLeftDrawer(on),
-    setPanelYield: on => store.setPanelYield(on),
     toggleSidebar: () => actions.toggleLeftHidden(),
     setSidebarWide: next => actions.setSidebarPref(next ? 'open' : 'hidden'),
     openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null, groupSearch: null })),
     closeShortcuts: () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state)),
-    markUnread: id => store.writeUnread(id, true),
-    clearUnread: id => store.writeUnread(id, false),
-    beginVisit: id => store.beginVisit(id),
-    endVisit: id => store.endVisit(id),
-    toggleReaction: (key, index, emoji) => store.toggleReaction(key, index, emoji),
-    // The window has no DSH status bar, so the Bot's details show its figures.
-    runStats: botId => call('run-stats', { botId }),
-    // Nor DSH's settings: model providers and their keys have a Models page here, and a
-    // first model choice takes a missing API key itself.
-    providers: () => call('providers'),
-    setProviderKey: (provider, value) => after(call('provider-key', { provider, value })),
-    addProvider: body => after(call('provider-add', body)),
-    providerModels: body => call('provider-models', body),
-    removeProvider: provider => after(call('provider-remove', { provider })),
-    openModels: () => actions.openSettings('models'),
     hasRightSidebar: () => true,
     canOpenFiles: () => true,
     canOpenTerminal: () => !roster.getSnapshot().readOnly,
@@ -886,147 +833,8 @@ export function createTeam() {
     turnFacts: sessionId => sessionStore.turnFacts(sessionId),
     watchTurns: (sessionId, listener) => sessionStore.watchTurns(sessionId, listener),
     noteSent: (sessionId, meta) => sessionStore.noteSent(sessionId, meta),
-    checkUpdate: async () => {
-      const value = await call('update-check', { fresh: true })
-      mergeUpdate(value)
-      scheduleUpdate(value)
-    },
-    installUpdate: async () => {
-      const value = await call('update-install')
-      mergeUpdate(value)
-      wakeUpdate()
-    },
-    installDshUpdate: async () => {
-      const dsh = await call('dsh-update-install')
-      update.set(previous => ({ ...previous, dsh }))
-      wakeUpdate()
-    },
-    openAppUpdates: async (verified) => {
-      if (!appUpdates?.status) return
-      const app = await appUpdates.status()
-      if (app) update.set(previous => ({ ...previous, app }))
-      if (sameVersion(app?.version, verified)) await appUpdates.open?.()
-    },
-    checkOwnApp: async () => { await globalThis.dsBotApp?.updates?.check?.() },
-    installOwnApp: async () => { await globalThis.dsBotApp?.updates?.install?.() },
-    openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
-    downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
-    setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
     noteReplyArrival: (sessionId, delta) => sessionStore.noteReplyArrival(sessionId, delta),
     reconnectFeed: () => { restartFeed() },
-  }
-
-  // Without the Desktop bridge these stay undefined, and no browser control renders.
-  // Classic mode shares the same browser view plumbing under a dedicated owner key.
-  const resolveBrowserOwner = (id) => {
-    const snap = roster.getSnapshot()
-    const bot = id ? snap.byId?.[id] : undefined
-    if (bot) return { ownerId: bot.id, detailsId: id, isClassic: false }
-    if (id === CLASSIC_BROWSER_OWNER || surface.getSnapshot().mode === 'agent') {
-      return { ownerId: CLASSIC_BROWSER_OWNER, detailsId: shown.getSnapshot() || CLASSIC_BROWSER_OWNER, isClassic: true }
-    }
-    return null
-  }
-  if (browsers) {
-    Object.assign(actions, {
-      // The globe / `+ -> Browser` trigger: the active browser tab (Bot or Classic), or a new tab.
-      openBrowser: (id) => {
-        const target = resolveBrowserOwner(id)
-        if (!target) return
-        browsers.ensureTabs(target.ownerId)
-        if (browsers.tabs.getSnapshot()[target.ownerId]?.active == null) browsers.openTab(target.ownerId)
-        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
-      },
-      toggleBrowser: (id) => {
-        const snap = roster.getSnapshot()
-        if (snap.browser === false) return
-        const target = resolveBrowserOwner(id)
-        if (!target) return
-        const state = ui.getSnapshot()
-        const sameOwner = target.isClassic
-          ? (!snap.byId?.[state.details] && !snap.roomsById?.[state.details])
-          : ((snap.byId?.[state.details]?.id ?? state.details) === target.ownerId)
-        if (state.details && state.view === 'browser' && sameOwner) {
-          actions.closePanel()
-          return
-        }
-        actions.openBrowser(target.isClassic ? CLASSIC_BROWSER_OWNER : target.ownerId)
-      },
-      // `+` on the strip or the drawer's new-tab card: a blank tab in the browser view.
-      browserNewTab: (id) => {
-        const target = resolveBrowserOwner(id)
-        if (!target) return null
-        browsers.ensureTabs(target.ownerId)
-        const tabId = browsers.openTab(target.ownerId)
-        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
-        return tabId
-      },
-      // A drawer card: its tab active, the panel on the browser view.
-      browserPick: (id, tabId) => {
-        const target = resolveBrowserOwner(id)
-        if (!target) return
-        browsers.activate(target.ownerId, tabId)
-        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
-      },
-      browserEnsure: botId => browsers.ensureTabs(botId),
-      browserCloseTab: async (botId, tabId) => {
-        await browsers.closeTab(botId, tabId)
-        const remaining = browsers.tabs.getSnapshot()[botId]
-        if (remaining && remaining.ids.length > 0) return
-        const snap = roster.getSnapshot()
-        ui.set((state) => {
-          if (!state.details || state.view !== 'browser') return state
-          const subjectBot = snap.byId?.[state.details]
-          if (subjectBot && subjectBot.id !== botId) return state
-          if (!subjectBot && botId !== CLASSIC_BROWSER_OWNER) return state
-          const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
-          if (hasWorkspace) return { ...state, view: 'workspace', renaming: false, tab: null }
-          const hasSide = Boolean(subjectBot && state.side && (snap.sideChats?.[subjectBot.id] ?? []).some(chat => chat?.id === state.side))
-          if (hasSide) return { ...state, view: 'side', renaming: false, tab: null }
-          if (subjectBot || snap.roomsById?.[state.details]) return { ...state, view: 'details', renaming: false, tab: null }
-          return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
-        })
-      },
-      browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
-      browserShow: (tabId, box) => browsers.show(tabId, box),
-      browserNavigate: (tabId, input) => browsers.navigate(tabId, input),
-      browserCommand: (tabId, name) => browsers.command(tabId, name),
-      browserFocus: tabId => browsers.focus(tabId),
-      browserTakeover: bridge.views ? async (botId) => {
-        const result = await call('browser-takeover', { botId })
-        await bridge.views.hold(botId, true)
-        return result
-      } : undefined,
-      browserStop: bridge.views ? async (botId) => {
-        const result = await call('browser-stop', { botId })
-        await bridge.views.hold(botId, true)
-        return result
-      } : undefined,
-      // `answer` is a handoff card's { callId, outcome }; the panel's Give back sends none.
-      browserGiveBack: bridge.views ? async (botId, answer = {}) => {
-        const result = await call('browser-give-back', { botId, ...answer })
-        await bridge.views.hold(botId, false)
-        return result
-      } : undefined,
-      // Cookie imports, only where the bridge offers them (the desktop app): an installed
-      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
-      // the Bot's storage key.
-      browserImport: typeof bridge.importSources === 'function' ? {
-        sources: () => bridge.importSources(),
-        probe: typeof bridge.importProbe === 'function' ? source => bridge.importProbe(source) : null,
-        pick: () => bridge.importPick(),
-        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
-        launch: typeof bridge.importLaunch === 'function' ? source => bridge.importLaunch(source) : null,
-        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
-        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge.importApply(
-          Array.isArray(botId) ? botId.map(id => `bot:${id}`) : `bot:${botId}`,
-          pending,
-          options,
-        ),
-        cancel: pending => bridge.importCancel(pending),
-      } : null,
-    })
   }
 
   // Running and the tool at work come with the team's state; the plugin reads them from
@@ -1082,40 +890,7 @@ export function createTeam() {
       }
     }
     read()
-    let updateTimer
-    const nextUpdateDelay = value => (value?.phase === 'installing' || value?.dsh?.phase === 'installing' ? 2000 : 60 * 60_000)
-    const armUpdate = (value) => {
-      clearTimeout(updateTimer)
-      if (!stopped) updateTimer = setTimeout(() => { void pollUpdate() }, nextUpdateDelay(value))
-    }
-    const pollUpdate = async () => {
-      clearTimeout(updateTimer)
-      if (stopped) return
-      const value = await call('update-check', { fresh: false }).catch(() => null)
-      if (stopped) return
-      mergeUpdate(value)
-      armUpdate(value)
-    }
-    wakeUpdate = () => { void pollUpdate() }
-    scheduleUpdate = armUpdate
-    void pollUpdate()
-    let unsubscribeAppUpdates = null
-    if (appUpdates?.status && appUpdates.subscribe) {
-      const takeApp = (app) => {
-        if (!stopped && app) update.set(previous => ({ ...previous, app }))
-      }
-      void Promise.resolve(appUpdates.status()).then(takeApp, () => {})
-      unsubscribeAppUpdates = appUpdates.subscribe(takeApp)
-    }
-    let unsubscribeOwnApp = null
-    const ownAppUpdates = globalThis.dsBotApp?.updates ?? null
-    if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
-      const takeOwnApp = (ownApp) => {
-        if (!stopped && ownApp) update.set(previous => ({ ...previous, ownApp }))
-      }
-      void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
-      unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
-    }
+    const stopUpdates = updateCtrl.start()
     const stopAccountExternal = accountBridge.subscribeExternal()
     void accountBridge.refresh()
     const stopBotCompletions = watchBotCompletions({
@@ -1133,185 +908,29 @@ export function createTeam() {
       shownSession: () => shown.getSnapshot(),
       openSession: actions.openSession,
     })
-    let stopBrowsers = null
-    if (browsers) {
-      let stopReads = null
-      const syncBrowsers = () => {
-        if (stopped) return
-        const snapshot = roster.getSnapshot()
-        if (!snapshot.ready) return
-        const on = snapshot.browser === true
-        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
-        if (!on && stopReads) { stopReads(); stopReads = null }
-        // A Bot deleted here or in another window takes its guests and saved tabs along.
-        // Keep the shared Classic browser owner alive across roster updates.
-        void browsers.retain([...snapshot.bots.map(bot => bot.id), CLASSIC_BROWSER_OWNER]).catch(() => {})
-        // A panel open on a deleted subject or unavailable browser falls back cleanly to
-        // workspace (if open), details (if subject still exists), or closes completely.
-        ui.set((state) => {
-          if (!state.details) return state
-          const hasBot = Boolean(snapshot.byId[state.details])
-          const hasRoom = Boolean(snapshot.roomsById?.[state.details])
-          const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
-          const isClassicBrowser = !hasBot && !hasRoom && surface.getSnapshot().mode === 'agent'
-          if (state.view === 'browser') {
-            if (on && (hasBot || isClassicBrowser)) return state
-            if (hasWorkspace) return { ...state, view: 'workspace' }
-            if (hasBot || hasRoom) return { ...state, view: 'details' }
-            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
-          }
-          if (!hasBot && !hasRoom && !hasWorkspace) {
-            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
-          }
-          return state
-        })
-      }
-      syncBrowsers()
-      const offBrowserRoster = roster.subscribe(syncBrowsers)
-      stopBrowsers = () => {
-        offBrowserRoster()
-        stopReads?.()
-        stopReads = null
-        browsers.dispose()
-      }
-    }
-    // Computer use desktop bridge: floating indicator + tray rows, cursor long-poll,
-    // OS idle-time sampling for foreground gate, and tray/indicator stop actions.
-    const cleanups = []
-    const appComputer = globalThis.dsBotApp
-    if (typeof appComputer?.computer === 'function') {
-      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? t('a Bot')
-      const syncComputer = () => {
-        if (stopped) return
-        const live = computer.getSnapshot()
-        const look = id => lookOf(roster.getSnapshot().byId[id])
-        const rows = (live.leases ?? []).map(entry => ({
-          botId: entry.botId,
-          name: nameOf(entry.botId),
-          app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName,
-          label: entry.kind === 'foreground' ? t('{name} · foreground', { name: nameOf(entry.botId) }) : `${nameOf(entry.botId)} · ${entry.appName}`,
-          color: look(entry.botId).color,
-          avatar: look(entry.botId).image,
-        }))
-        for (const [botId, entry] of Object.entries(live.bots ?? {})) {
-          if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, name: nameOf(botId), app: t('waits for the computer'), label: t('{name} waits for the computer', { name: nameOf(botId) }), color: look(botId).color, avatar: look(botId).image })
-        }
-        appComputer.computer({
-          rows,
-          labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
-        })
-      }
-      syncComputer()
-      cleanups.push(computer.subscribe(syncComputer))
-      cleanups.push(roster.subscribe(() => {
-        const live = computer.getSnapshot()
-        if ((live.leases?.length ?? 0) > 0 || Object.values(live.bots ?? {}).some(entry => entry?.waitingFor === 'user-idle')) {
-          syncComputer()
-        }
-      }))
-    }
-    if (typeof appComputer?.computerCursor === 'function') {
-      let pollAbort = null
-      let wakeEnabled = null
-      let cancelPause = null
-      const abortPoll = () => {
-        if (pollAbort) { const ctrl = pollAbort; pollAbort = null; ctrl.abort() }
-      }
-      const waitEnabled = () => new Promise((resolve) => {
-        if (stopped || roster.getSnapshot().computer?.enabled === true) { resolve(); return }
-        wakeEnabled = resolve
-      })
-      const pause = ms => new Promise((resolve) => {
-        if (stopped) { resolve(); return }
-        const delay = setTimeout(() => {
-          if (cancelPause === cancel) cancelPause = null
-          resolve()
-        }, ms)
-        const cancel = () => {
-          clearTimeout(delay)
-          if (cancelPause === cancel) cancelPause = null
-          resolve()
-        }
-        cancelPause = cancel
-      })
-      const notifyEnabled = () => {
-        if (wakeEnabled) { const fn = wakeEnabled; wakeEnabled = null; fn() }
-      }
-      const offCursorRoster = roster.subscribe(() => {
-        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled()
-        else abortPoll()
-      })
-      const runCursor = async () => {
-        let after = 0
-        while (!stopped) {
-          if (roster.getSnapshot().computer?.enabled !== true) { await waitEnabled(); continue }
-          const ctrl = new AbortController()
-          pollAbort = ctrl
-          try {
-            const reply = await call('computer-cursor-wait', { after }, ctrl.signal)
-            if (pollAbort === ctrl) pollAbort = null
-            if (stopped || ctrl.signal.aborted) continue
-            for (const event of reply?.events ?? []) {
-              if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
-              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
-              const botLook = lookOf(roster.getSnapshot().byId[event.botId])
-              appComputer.computerCursor({ ...event, color: botLook.color, avatar: botLook.image })
-            }
-          } catch {
-            if (pollAbort === ctrl) pollAbort = null
-            if (!stopped && roster.getSnapshot().computer?.enabled === true) await pause(2000)
-          }
-        }
-      }
-      void runCursor()
-      cleanups.push(() => { abortPoll(); offCursorRoster(); notifyEnabled(); cancelPause?.() })
-    }
-    if (typeof appComputer?.idleSeconds === 'function') {
-      let idleTimer = 0
-      const pushIdle = () => {
-        if (stopped) return
-        const current = roster.getSnapshot()
-        if (current.computer?.enabled !== true) return
-        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return
-        void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
-          if (!stopped && Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
-        }).catch(() => {})
-      }
-      const syncIdle = () => {
-        const enabled = roster.getSnapshot().computer?.enabled === true
-        if (enabled && !idleTimer) idleTimer = setInterval(pushIdle, 2000)
-        else if (!enabled && idleTimer) { clearInterval(idleTimer); idleTimer = 0 }
-      }
-      syncIdle()
-      const offIdleRoster = roster.subscribe(syncIdle)
-      cleanups.push(() => { offIdleRoster(); if (idleTimer) clearInterval(idleTimer) })
-    }
-    if (typeof appComputer?.onComputerAction === 'function') {
-      const offAction = appComputer.onComputerAction(({ kind, botId }) => {
-        if (kind === 'stop') void actions.computerStop(botId)
-        else if (kind === 'stopall') void actions.computerStop(null, true)
-        else if (kind === 'letgo') void actions.computerAllowForeground(botId)
-      })
-      if (typeof offAction === 'function') cleanups.push(offAction)
-    }
-    cleanups.push(roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) }))
-    cleanups.push(store.attachWindowListeners(globalThis.window))
+    const stopBrowsers = browserCtrl.start()
+    const cleanups = [
+      startComputerBridge({
+        call,
+        store,
+        onStop: (botId, all) => actions.computerStop(botId, all),
+        onAllowForeground: botId => actions.computerAllowForeground(botId),
+      }),
+      roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) }),
+      store.attachWindowListeners(globalThis.window),
+    ]
     if (typeof document === 'undefined' || !document.hidden) startTimer()
     if (typeof document?.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
     return () => {
       stopped = true
-      clearTimeout(updateTimer)
-      wakeUpdate = () => {}
-      scheduleUpdate = () => {}
-      unsubscribeAppUpdates?.()
+      stopUpdates()
       restartFeed = () => {}
-      unsubscribeOwnApp?.()
       stopAccountExternal()
       stopBotCompletions()
       resetPull()
       stopFeed()
       stopApprovalNotices()
-      stopBrowsers?.()
+      stopBrowsers()
       for (const cleanup of cleanups) cleanup()
       stopTimer()
       if (typeof document?.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
