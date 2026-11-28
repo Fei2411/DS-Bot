@@ -257,12 +257,19 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     if (!draft || !inputActions) return
     actions.clearDraftInsert(draft.token)
     inputActions.insertText(`${draft.text}\n\n`, inputActions.captureInsertion())
-    const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]')
-    if (box instanceof HTMLElement) {
+    syncHostAncestors(composerRoot.current)
+    const box = composerRoot.current?.closest?.('[data-bt-composer]')?.querySelector?.('[data-bt-composer-input]')
+      ?? document.querySelector('[data-bt-composer] [data-bt-composer-input]')
+    if (box && typeof box.focus === 'function') {
       box.focus()
-      const selection = window.getSelection()
-      selection?.selectAllChildren(box)
-      selection?.collapseToEnd()
+      if (typeof box.value === 'string' && typeof box.setSelectionRange === 'function') {
+        const end = box.value.length
+        box.setSelectionRange(end, end)
+      } else if (typeof HTMLElement !== 'undefined' && box instanceof HTMLElement) {
+        const selection = window.getSelection?.()
+        selection?.selectAllChildren(box)
+        selection?.collapseToEnd()
+      }
     }
   }, [draft?.token])
   if (sessionId === undefined) return null

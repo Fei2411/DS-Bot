@@ -1273,10 +1273,10 @@ export const BROWSER_CSS = `
    chat stays reachable around them. */
 .bt-panel[data-floating]{box-shadow:var(--bt-glass-shadow)}
 .bt-panel[data-layout=drawer][data-floating]{max-width:100vw;border-left:.5px solid var(--bt-line-2)}
-.bt-panel[data-layout=centered][data-floating]{top:calc(var(--dsh-frame-chrome-top,0px) + 24px);bottom:24px;right:auto;left:50%;width:min(var(--bt-panel-w,640px),calc(100vw - 48px));max-height:calc(100vh - var(--dsh-frame-chrome-top,0px) - 48px);translate:-50% 0;border:.5px solid var(--bt-line-2);border-radius:16px;overflow:hidden;animation:bt-pane-center-in .22s cubic-bezier(.2,0,0,1)}
+.bt-panel[data-layout=centered][data-floating]{top:calc(var(--bt-chrome-top,0px) + 24px);bottom:24px;right:auto;left:50%;width:min(var(--bt-panel-w,640px),calc(100vw - 48px));max-height:calc(100vh - var(--bt-chrome-top,0px) - 48px);translate:-50% 0;border:.5px solid var(--bt-line-2);border-radius:16px;overflow:hidden;animation:bt-pane-center-in .22s cubic-bezier(.2,0,0,1)}
 .bt-panel[data-layout=centered][data-floating][data-leaving]{transform:none;translate:-50% 8px;opacity:0;transition:opacity .16s ease,translate .16s ease}
 @keyframes bt-pane-center-in{from{opacity:0;translate:-50% 10px;scale:.985}}
-@media (max-width:640px){.bt-panel[data-layout=centered][data-floating]{top:var(--dsh-frame-chrome-top,0px);bottom:0;left:0;width:100vw;max-height:none;translate:none;border-radius:0;border:0}}
+@media (max-width:640px){.bt-panel[data-layout=centered][data-floating]{top:var(--bt-chrome-top,0px);bottom:0;left:0;width:100vw;max-height:none;translate:none;border-radius:0;border:0}}
 @media (prefers-reduced-motion:reduce){.bt-panel[data-layout=centered][data-floating]{animation:none}.bt-panel[data-layout=centered][data-floating][data-leaving]{transition:none}}
 .bt-ptab-layout{flex:none;display:inline-flex;align-items:center}
 .bt-ptab-layout .bt-pmenu{display:inline-flex}
