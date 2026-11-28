@@ -2,7 +2,6 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from './i18n.js'
 import { CloseIcon, SearchIcon } from './icons.js'
 import {
-  SHORTCUT_DEFS,
   SHORTCUT_GROUPS,
   effectiveBinding,
   eventToBinding,
@@ -11,6 +10,7 @@ import {
   isMacPlatform,
   isReservedZoomKeyEvent,
   setShortcutRecording,
+  shortcutsForHost,
   shortcutsStore,
 } from './shortcuts-model.js'
 import { isImeComposing, sendsOnEnter } from './enter-key.js'
@@ -150,7 +150,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
   const wanted = query.trim().toLowerCase()
   const visibleDefs = useMemo(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch }
-    return SHORTCUT_DEFS.filter((def) => {
+    return shortcutsForHost('desktop').filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false
       if (!wanted) return true
       const label = labelForDef(def, classic).toLowerCase()

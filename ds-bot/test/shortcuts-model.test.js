@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   SHORTCUT_DEFS,
   bindingKey,
+  bindingToDshModifiers,
   createShortcutStore,
   effectiveBinding,
   eventToBinding,
@@ -11,7 +12,9 @@ import {
   formatBindingCaps,
   isReservedZoomKeyEvent,
   matchShortcutEvent,
+  pluginShortcutDefaults,
   setShortcutRecording,
+  shortcutsForHost,
   validateBinding,
   visibleClassicSessions,
   visibleSidebarTargets,
@@ -43,8 +46,9 @@ test('matchShortcutEvent recognizes core v0.4.0 commands on macOS and Windows/Li
   assert.equal(matchShortcutEvent({ ctrlKey: true, shiftKey: true, code: 'KeyM' }, { mac: false, overrides: {} }), 'switch-surface')
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyI' }, { mac: true, overrides: {} }), 'inbox')
   assert.equal(matchShortcutEvent({ ctrlKey: true, code: 'KeyI' }, { mac: false, overrides: {} }), 'inbox')
-  assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyB' }, { mac: true, overrides: {} }), 'browser')
-  assert.equal(matchShortcutEvent({ ctrlKey: true, code: 'KeyB' }, { mac: false, overrides: {} }), 'browser')
+  assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyB' }, { mac: true, overrides: {} }), 'browser')
+  assert.equal(matchShortcutEvent({ ctrlKey: true, shiftKey: true, code: 'KeyB' }, { mac: false, overrides: {} }), 'browser')
+  assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyB' }, { mac: true, overrides: {} }), null)
 
   assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'Backslash' }, { mac: true, overrides: {} }), 'right-panel')
   assert.equal(matchShortcutEvent({ ctrlKey: true, code: 'Backquote' }, { mac: true, overrides: {} }), 'terminal')
@@ -67,17 +71,17 @@ test('matchShortcutEvent recognizes core v0.4.0 commands on macOS and Windows/Li
 test('matchShortcutEvent enforces repeat, capability, modal, terminal, IME, and recording guards', () => {
   // Repeated key holds must not re-fire toggles or create-chat bursts.
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyN', repeat: true }, { mac: true, overrides: {} }), null)
-  assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyB', repeat: true }, { mac: true, overrides: {} }), null)
+  assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyB', repeat: true }, { mac: true, overrides: {} }), null)
 
   // Unavailable capabilities must not hijack keys.
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyI' }, { mac: true, overrides: {}, capabilities: { hasInbox: false } }), null)
-  assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyB' }, { mac: true, overrides: {}, capabilities: { hasBrowser: false } }), null)
+  assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyB' }, { mac: true, overrides: {}, capabilities: { hasBrowser: false } }), null)
   assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyM' }, { mac: true, overrides: {}, capabilities: { hasSurface: false } }), null)
 
   // Foreground modal blocks background switches.
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'Digit1' }, { mac: true, modal: 'settings', overrides: {} }), null)
   assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyM' }, { mac: true, modal: 'dialog', overrides: {} }), null)
-  assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyB' }, { mac: true, modal: 'palette', overrides: {} }), null)
+  assert.equal(matchShortcutEvent({ metaKey: true, shiftKey: true, code: 'KeyB' }, { mac: true, modal: 'palette', overrides: {} }), null)
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'Comma' }, { mac: true, modal: 'settings', overrides: {} }), 'settings')
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyI' }, { mac: true, modal: 'inbox', overrides: {} }), 'inbox')
   assert.equal(matchShortcutEvent({ metaKey: true, code: 'KeyK' }, { mac: true, settingsOpen: true, overrides: {} }), null)
@@ -189,8 +193,8 @@ test('createShortcutStore persists per platform, checks conflicts on set and res
   let notifications = 0
   const unsub = macStore.subscribe(() => { notifications += 1 })
 
-  // Rebind inbox to Cmd+B (browser's default) with replaceConflict -> browser becomes null.
-  const browserDefault = { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: false }
+  // Rebind inbox to Cmd+Shift+B (browser's default) with replaceConflict -> browser becomes null.
+  const browserDefault = { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true }
   const firstConflict = macStore.setBinding('inbox', browserDefault)
   assert.equal(firstConflict.ok, false)
   assert.equal(firstConflict.reason, 'conflict')
@@ -200,13 +204,14 @@ test('createShortcutStore persists per platform, checks conflicts on set and res
   assert.deepEqual(macStore.bindingOf('inbox'), browserDefault)
   assert.equal(notifications, 1)
 
-  // Resetting browser back to Cmd+B MUST report conflict with inbox instead of creating duplicate bindings.
+  // Resetting browser back to Cmd+Shift+B MUST report conflict with inbox instead of creating duplicate bindings.
   const resetConflict = macStore.resetBinding('browser')
   assert.equal(resetConflict.ok, false)
   assert.equal(resetConflict.reason, 'conflict')
   assert.equal(resetConflict.conflict.id, 'inbox')
   assert.deepEqual(macStore.resetBinding('browser', { replaceConflict: true }), { ok: true })
   assert.equal(macStore.bindingOf('browser')?.code, 'KeyB')
+  assert.equal(macStore.bindingOf('browser')?.shift, true)
   assert.equal(macStore.bindingOf('inbox'), null)
 
   // activeBindings respects capability availability.
@@ -289,4 +294,23 @@ test('visibleSidebarTargets mirrors sidebar.js order (Main -> ungrouped -> expan
     's-other': { updatedAt: 999 },
   })
   assert.deepEqual(classic.map(item => item.id), ['s3', 's2', 's1'])
+})
+
+test('unified shortcut table filters by host and keeps desktop/plugin defaults aligned on Mod+Shift+B', () => {
+  const desktopDefs = shortcutsForHost('desktop')
+  const pluginDefs = shortcutsForHost('plugin')
+  assert.equal(desktopDefs.length, 26)
+  assert.equal(pluginDefs.length, 13)
+  assert.equal(pluginDefs.every(def => desktopDefs.includes(def)), true)
+
+  const browserDef = desktopDefs.find(def => def.id === 'browser')
+  assert.deepEqual(browserDef.defaultBinding, { code: 'KeyB', mod: true, ctrl: false, alt: false, shift: true })
+  assert.deepEqual(bindingToDshModifiers(browserDef.defaultBinding), ['primary', 'shift'])
+  assert.deepEqual(pluginShortcutDefaults(browserDef), {
+    'desktop:macos': { code: 'KeyB', modifiers: ['primary', 'shift'] },
+    'desktop:windows': { code: 'KeyB', modifiers: ['primary', 'shift'] },
+    'desktop:linux': { code: 'KeyB', modifiers: ['primary', 'shift'] },
+    'web:macos': { code: 'KeyB', modifiers: ['primary', 'alt', 'shift'] },
+    'web:windows': { code: 'KeyB', modifiers: ['primary', 'alt', 'shift'] },
+  })
 })

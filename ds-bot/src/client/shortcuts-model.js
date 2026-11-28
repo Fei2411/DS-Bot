@@ -30,44 +30,133 @@ const b = (code, { mod = false, ctrl = false, alt = false, shift = false } = {})
   shift: Boolean(shift),
 })
 
+const DESKTOP_ONLY = Object.freeze(['desktop'])
+const BOTH_HOSTS = Object.freeze(['desktop', 'plugin'])
+
+// Single canonical shortcut table shared by DS Bot Desktop and DSH Plugin mode.
+// - `hosts`: which hosts expose this shortcut (`desktop`, `plugin`, or both).
+// - `defaultBinding`: canonical desktop binding across both hosts (resolves the former
+//   Cmd+B vs Cmd+Shift+B conflict on `browser` by standardizing on Mod+Shift+B so
+//   neither host collides with DSH's Mod+B left-sidebar toggle).
+// - `plugin`: DSH ShortcutRegistry metadata (`id`, `aliases`, `webModifiers`) for commands
+//   registered in plugin mode. Desktop-plugin profile modifiers derive directly from
+//   `defaultBinding` via `pluginShortcutDefaults`.
 export const SHORTCUT_DEFS = [
   // Navigation
-  { id: 'palette', group: 'navigation', label: 'Search', defaultBinding: b('KeyK', { mod: true }), allowInModal: ['palette'] },
-  { id: 'switch-surface', group: 'navigation', label: 'Switch Bot / Classic Agent mode', defaultBinding: b('KeyM', { mod: true, shift: true }), requiresSurface: true },
-  { id: 'inbox', group: 'navigation', label: 'Open Inbox', defaultBinding: b('KeyI', { mod: true }), requiresInbox: true, allowInModal: ['inbox'] },
-  { id: 'prev-chat', group: 'navigation', label: 'Previous conversation', defaultBinding: b('BracketLeft', { mod: true }) },
-  { id: 'next-chat', group: 'navigation', label: 'Next conversation', defaultBinding: b('BracketRight', { mod: true }) },
+  { id: 'palette', group: 'navigation', hosts: DESKTOP_ONLY, label: 'Search', defaultBinding: b('KeyK', { mod: true }), allowInModal: ['palette'] },
+  {
+    id: 'switch-surface',
+    group: 'navigation',
+    hosts: BOTH_HOSTS,
+    label: 'Switch Bot / Classic Agent mode',
+    defaultBinding: b('KeyM', { mod: true, shift: true }),
+    requiresSurface: true,
+    plugin: { id: 'ds-bot.switch-surface', aliases: ['classic', 'agent', 'bot', 'mode'], webModifiers: ['primary', 'shift'] },
+  },
+  {
+    id: 'inbox',
+    group: 'navigation',
+    hosts: BOTH_HOSTS,
+    label: 'Open Inbox',
+    defaultBinding: b('KeyI', { mod: true }),
+    requiresInbox: true,
+    allowInModal: ['inbox'],
+    plugin: { id: 'ds-bot.open-inbox', aliases: ['inbox', 'notifications'], webModifiers: ['primary', 'alt'] },
+  },
+  { id: 'prev-chat', group: 'navigation', hosts: DESKTOP_ONLY, label: 'Previous conversation', defaultBinding: b('BracketLeft', { mod: true }) },
+  { id: 'next-chat', group: 'navigation', hosts: DESKTOP_ONLY, label: 'Next conversation', defaultBinding: b('BracketRight', { mod: true }) },
 
   // Panels
-  { id: 'sidebar', group: 'panels', label: 'Toggle sidebar', defaultBinding: b('Backslash', { mod: true }) },
-  { id: 'right-panel', group: 'panels', label: 'Toggle right panel', defaultBinding: b('Backslash', { mod: true, shift: true }) },
-  { id: 'browser', group: 'panels', label: 'Toggle Bot browser', classicLabel: 'Toggle browser', defaultBinding: b('KeyB', { mod: true }), requiresBrowser: true },
-  { id: 'terminal', group: 'panels', label: 'Open terminal', defaultBinding: b('Backquote', { ctrl: true }), allowInTerminal: true },
-  { id: 'details', group: 'panels', label: 'Toggle details', defaultBinding: b('KeyD', { mod: true, shift: true }), requiresDetails: true },
-  { id: 'memory', group: 'panels', label: 'Open memory', defaultBinding: b('KeyE', { mod: true, shift: true }), requiresMemory: true, allowInModal: ['memory'] },
+  { id: 'sidebar', group: 'panels', hosts: DESKTOP_ONLY, label: 'Toggle sidebar', defaultBinding: b('Backslash', { mod: true }) },
+  { id: 'right-panel', group: 'panels', hosts: DESKTOP_ONLY, label: 'Toggle right panel', defaultBinding: b('Backslash', { mod: true, shift: true }) },
+  {
+    id: 'browser',
+    group: 'panels',
+    hosts: BOTH_HOSTS,
+    label: 'Toggle Bot browser',
+    classicLabel: 'Toggle browser',
+    defaultBinding: b('KeyB', { mod: true, shift: true }),
+    requiresBrowser: true,
+    plugin: { id: 'ds-bot.open-browser', aliases: ['browser', 'web'], webModifiers: ['primary', 'alt', 'shift'] },
+  },
+  { id: 'terminal', group: 'panels', hosts: DESKTOP_ONLY, label: 'Open terminal', defaultBinding: b('Backquote', { ctrl: true }), allowInTerminal: true },
+  { id: 'details', group: 'panels', hosts: DESKTOP_ONLY, label: 'Toggle details', defaultBinding: b('KeyD', { mod: true, shift: true }), requiresDetails: true },
+  { id: 'memory', group: 'panels', hosts: DESKTOP_ONLY, label: 'Open memory', defaultBinding: b('KeyE', { mod: true, shift: true }), requiresMemory: true, allowInModal: ['memory'] },
 
   // Conversation
-  { id: 'new-chat', group: 'conversation', label: 'New chat', defaultBinding: b('KeyN', { mod: true }), allowInModal: ['settings'] },
-  { id: 'focus-composer', group: 'conversation', label: 'Focus message input', defaultBinding: b('KeyL', { mod: true }) },
-  { id: 'group-search', group: 'conversation', label: 'Search in group', defaultBinding: b('KeyF', { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ['groupSearch'] },
-  { id: 'stop-turn', group: 'conversation', label: 'Stop generating', defaultBinding: b('Period', { mod: true }) },
+  { id: 'new-chat', group: 'conversation', hosts: DESKTOP_ONLY, label: 'New chat', defaultBinding: b('KeyN', { mod: true }), allowInModal: ['settings'] },
+  { id: 'focus-composer', group: 'conversation', hosts: DESKTOP_ONLY, label: 'Focus message input', defaultBinding: b('KeyL', { mod: true }) },
+  {
+    id: 'group-search',
+    group: 'conversation',
+    hosts: BOTH_HOSTS,
+    label: 'Search in group',
+    defaultBinding: b('KeyF', { mod: true, shift: true }),
+    requiresGroupSearch: true,
+    allowInModal: ['groupSearch'],
+    plugin: { id: 'ds-bot.group-search', aliases: ['search', 'group'], webModifiers: ['primary', 'alt'] },
+  },
+  { id: 'stop-turn', group: 'conversation', hosts: DESKTOP_ONLY, label: 'Stop generating', defaultBinding: b('Period', { mod: true }) },
 
   // Application
-  { id: 'settings', group: 'application', label: 'Settings', defaultBinding: b('Comma', { mod: true }), allowInModal: ['settings', 'shortcuts', 'palette'] },
-  { id: 'shortcuts', group: 'application', label: 'Keyboard shortcuts', defaultBinding: b('Slash', { mod: true }), allowInModal: ['shortcuts', 'settings', 'palette'] },
+  { id: 'settings', group: 'application', hosts: DESKTOP_ONLY, label: 'Settings', defaultBinding: b('Comma', { mod: true }), allowInModal: ['settings', 'shortcuts', 'palette'] },
+  { id: 'shortcuts', group: 'application', hosts: DESKTOP_ONLY, label: 'Keyboard shortcuts', defaultBinding: b('Slash', { mod: true }), allowInModal: ['shortcuts', 'settings', 'palette'] },
 
   // Quick switch 1..9 (#1694)
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `switch-bot-${index + 1}`,
     group: 'chats',
+    hosts: BOTH_HOSTS,
     label: 'Switch to conversation {n}',
     labelVars: { n: index + 1 },
     slot: index,
     defaultBinding: b(`Digit${index + 1}`, { mod: true }),
+    plugin: { id: `ds-bot.switch-bot-${index + 1}`, aliases: ['bot', 'switch', String(index + 1)], webModifiers: ['primary', 'alt'] },
   })),
 ]
 
 export const SHORTCUT_BY_ID = Object.fromEntries(SHORTCUT_DEFS.map(def => [def.id, def]))
+
+/**
+ * Returns shortcuts supported by the given host (`'desktop'` or `'plugin'`).
+ */
+export function shortcutsForHost(host = 'desktop') {
+  return SHORTCUT_DEFS.filter(def => Array.isArray(def.hosts) && def.hosts.includes(host))
+}
+
+/**
+ * Converts a normalized shortcut binding into DSH ShortcutRegistry modifier tokens.
+ */
+export function bindingToDshModifiers(binding) {
+  if (!binding) return []
+  const mods = []
+  if (binding.mod) mods.push('primary')
+  if (binding.ctrl) mods.push('control')
+  if (binding.alt) mods.push('alt')
+  if (binding.shift) mods.push('shift')
+  return mods
+}
+
+/**
+ * Builds DSH ShortcutRegistry per-profile defaults from a unified shortcut definition.
+ * Desktop profiles derive straight from `def.defaultBinding` so both hosts never drift;
+ * `web:linux` is omitted to match DSH's web-profile validation rules.
+ */
+export function pluginShortcutDefaults(def) {
+  const code = def?.defaultBinding?.code
+  if (!code) return {}
+  const desktopModifiers = bindingToDshModifiers(def.defaultBinding)
+  const webModifiers = def?.plugin?.webModifiers
+  return {
+    'desktop:macos': { code, modifiers: desktopModifiers },
+    'desktop:windows': { code, modifiers: desktopModifiers },
+    'desktop:linux': { code, modifiers: desktopModifiers },
+    ...(webModifiers ? {
+      'web:macos': { code, modifiers: webModifiers },
+      'web:windows': { code, modifiers: webModifiers },
+    } : {}),
+  }
+}
 
 // Modifier-only keys cannot form a standalone shortcut.
 const MODIFIER_CODES = new Set([
@@ -373,10 +462,10 @@ export function effectiveBinding(id, overrides = {}) {
 /**
  * Returns the conflicting command definition if another command already holds this binding.
  */
-export function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform()) {
+export function findConflict(targetId, binding, overrides = {}, mac = isMacPlatform(), host = 'desktop') {
   const key = bindingKey(binding, mac)
   if (!key) return null
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost(host)) {
     if (def.id === targetId) continue
     const current = effectiveBinding(def.id, overrides)
     if (current && bindingKey(current, mac) === key) return def
@@ -517,7 +606,7 @@ export function createShortcutStore({ storage, mac = isMacPlatform() } = {}) {
      */
     activeBindings(capabilities = {}) {
       const list = []
-      for (const def of SHORTCUT_DEFS) {
+      for (const def of shortcutsForHost('desktop')) {
         if (!isCommandAvailable(def, capabilities)) continue
         const binding = effectiveBinding(def.id, overrides)
         if (!binding) continue
@@ -570,7 +659,7 @@ export function matchShortcutEvent(event, {
 
   const activeModal = modal ?? (settingsOpen ? 'settings' : null)
 
-  for (const def of SHORTCUT_DEFS) {
+  for (const def of shortcutsForHost('desktop')) {
     if (!isCommandAvailable(def, capabilities)) continue
     const binding = effectiveBinding(def.id, overrides)
     if (!binding || binding.code !== code) continue
