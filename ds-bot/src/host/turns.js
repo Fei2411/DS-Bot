@@ -4,8 +4,9 @@
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { randomUUID } from 'node:crypto'
 import { symbols as cordisSymbols } from '@deepseek-ai/cordis'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
-import { HANDOFF_ACK, isSilentTurnText, isWorkTool, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT, USER_UI_TOOLS } from './constants.js'
+import { CONSECUTIVE_TOOL_ERROR_PAUSE, HANDOFF_ACK, isSilentTurnText, isWorkTool, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPEAT_TOOL_CALL_PAUSE, REPEAT_TOOL_CYCLE_PAUSE, REPLY_KIND, SOURCE_KIND, STEER_CUT, USER_UI_TOOLS } from './constants.js'
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
@@ -18,6 +19,9 @@ import { usageChunk } from './usage.js'
 // Failures only the user can fix: a key, a sign-in, a balance. They block the Bot
 // until it is fixed (`bot.blocked`, for the repair card).
 export const BLOCKING_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT', 'LOCAL_AGENT_ERROR'])
+// Automatic loop/runaway pauses: stop visibly so the user can steer or click Continue,
+// without auto-waking queued inbox messages behind them.
+export const PAUSED_CODES = new Set(['TURN_PAUSED_LOOP', 'TURN_PAUSED_SWITCH_LIMIT'])
 // The ones a key set outside a turn can fix, and the ones a sign-in can (unblockBots).
 // A balance only a turn that completes shows fixed, as Retry runs one.
 const KEY_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'])
@@ -1073,17 +1077,110 @@ export function install(rt) {
     for (const bot of lifted) void rt.releaseKickoff(bot).catch(error => rt.warn('ds-bot: greeting of %s not sent again: %s', bot.name, error))
   }
 
+  // Per-session runaway guard: tracks consecutive all-error tool steps and repeating
+  // identical / 2-step tool call cycles across steps (and across auto part switches).
+  const RECENT_CALL_WINDOW = Math.max(REPEAT_TOOL_CALL_PAUSE, REPEAT_TOOL_CYCLE_PAUSE * 2) + 4
+  const runawayGuards = new Map()
+  const guardOf = (id) => {
+    let guard = runawayGuards.get(id)
+    if (guard === undefined) {
+      guard = { consecutiveErrorSteps: 0, stepTotal: 0, stepErrors: 0, recentCalls: [], pendingArgs: new Map(), checkedStepKey: undefined }
+      runawayGuards.set(id, guard)
+    }
+    return guard
+  }
+  const clearRunawayGuard = (id) => {
+    if (typeof id === 'string' && id !== '') runawayGuards.delete(id)
+  }
+  const carryRunawayGuard = (fromId, toId) => {
+    const prev = runawayGuards.get(fromId)
+    if (prev === undefined) return
+    runawayGuards.delete(fromId)
+    runawayGuards.set(toId, {
+      consecutiveErrorSteps: prev.consecutiveErrorSteps,
+      stepTotal: prev.stepTotal,
+      stepErrors: prev.stepErrors,
+      recentCalls: [...prev.recentCalls],
+      pendingArgs: new Map(),
+      checkedStepKey: undefined,
+    })
+  }
+  const callSignatureOf = (name, rawArgs) => {
+    const text = typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs ?? '')
+    return `${name}:${text.slice(0, 2000)}`
+  }
+  const detectRepeatLoop = (recentCalls) => {
+    const len = recentCalls.length
+    if (len === 0) return undefined
+    const last = recentCalls[len - 1]
+    let same = 1
+    for (let i = len - 2; i >= 0 && recentCalls[i] === last; i -= 1) same += 1
+    if (same >= REPEAT_TOOL_CALL_PAUSE) return { kind: 'repeat', count: same, tool: last.split(':')[0] || 'tool' }
+    if (len >= 4) {
+      const prev = recentCalls[len - 2]
+      if (prev !== last) {
+        let pairs = 1
+        for (let i = len - 3; i >= 1; i -= 2) {
+          if (recentCalls[i] === last && recentCalls[i - 1] === prev) pairs += 1
+          else break
+        }
+        if (pairs >= REPEAT_TOOL_CYCLE_PAUSE) return { kind: 'cycle2', count: pairs, tool: last.split(':')[0] || 'tool' }
+      }
+    }
+    return undefined
+  }
+  const checkRunawayBeforeStep = (agent, payload) => {
+    const id = agent?.id
+    if (typeof id !== 'string' || payload?.signal?.aborted || !rt.isBotSession(id)) return
+    const guard = runawayGuards.get(id)
+    if (guard === undefined) return
+    const stepKey = `${payload?.turn ?? ''}:${payload?.step ?? ''}`
+    if (guard.checkedStepKey === stepKey) return
+    guard.checkedStepKey = stepKey
+    if (guard.stepTotal > 0) {
+      if (guard.stepErrors === guard.stepTotal) guard.consecutiveErrorSteps += 1
+      else guard.consecutiveErrorSteps = 0
+      guard.stepTotal = 0
+      guard.stepErrors = 0
+    }
+    if (guard.consecutiveErrorSteps >= CONSECUTIVE_TOOL_ERROR_PAUSE) {
+      const count = guard.consecutiveErrorSteps
+      guard.consecutiveErrorSteps = 0
+      guard.recentCalls.length = 0
+      guard.pendingArgs.clear()
+      rt.warn('ds-bot: pausing %s after %d consecutive tool-error steps', id, count)
+      throw new LlmError(`Paused after ${count} consecutive tool-error steps. Reply with guidance or click Continue to resume.`, 'TURN_PAUSED_LOOP')
+    }
+    const repeat = detectRepeatLoop(guard.recentCalls)
+    if (repeat !== undefined) {
+      guard.consecutiveErrorSteps = 0
+      guard.recentCalls.length = 0
+      guard.pendingArgs.clear()
+      const msg = repeat.kind === 'repeat'
+        ? `Paused after calling "${repeat.tool}" ${repeat.count} times in a row with identical arguments. Reply with guidance or click Continue to resume.`
+        : `Paused after repeating the same 2-step tool cycle ${repeat.count} times in a row. Reply with guidance or click Continue to resume.`
+      rt.warn('ds-bot: pausing %s (%s)', id, msg)
+      throw new LlmError(msg, 'TURN_PAUSED_LOOP')
+    }
+  }
+
   // The repair card's Retry. A greeting that failed goes out again; otherwise the Bot
   // answers the user's last message, which is not sent again. A greeting on its way, or
   // a turn under way in the Bot's chat, answers already: a turn on top answers twice.
   async function resumeBot(bot) {
+    const currentId = rt.chatOf(bot.id)
+    clearRunawayGuard(currentId)
+    rt.clearAutoSwitchChain?.(currentId)
     if (await rt.releaseKickoff(bot)) return
-    if (rt.greetingOut?.(bot.id) || live.get(rt.chatOf(bot.id))?.turn !== undefined) return
-    const code = bot.blocked?.code
+    if (rt.greetingOut?.(bot.id) || live.get(currentId)?.turn !== undefined) return
+    const code = bot.blocked?.code ?? bot.failures?.[currentId]?.code
+    const text = PAUSED_CODES.has(code)
+      ? 'Your last turn was automatically paused to prevent a runaway loop, and the user clicked Continue. Re-evaluate your approach before repeating the same tool calls, then carry on.'
+      : `Your last turn failed${code ? ` (${code})` : ''} and the user has fixed it. Answer the user's last unanswered message.`
     await rt.deliver({
       toId: bot.id,
       role: 'continue',
-      text: `Your last turn failed${code ? ` (${code})` : ''} and the user has fixed it. Answer the user's last unanswered message.`,
+      text,
     })
   }
   ctx.on?.('subagent/start', function (info) {
@@ -1166,53 +1263,91 @@ export function install(rt) {
       }
       case 'tool/call': {
         const name = String(event.data?.name ?? '')
-        startCall(id, entry, event.data?.callId, name, String(event.data?.arguments ?? ''), event.seq)
+        const callId = event.data?.callId
+        const rawArgs = String(event.data?.arguments ?? '')
+        startCall(id, entry, callId, name, rawArgs, event.seq)
         // A program is as quick as the tools it runs, so its sub-calls decide.
         if (name !== PROGRAM_TOOL) {
           entry.toolCount = (entry.toolCount ?? 0) + 1
           if (USER_UI_TOOLS.has(name)) entry.uiToolCount = (entry.uiToolCount ?? 0) + 1
-          if (isWorkTool(name)) {
+          if (callId !== undefined) {
+            guardOf(id).pendingArgs.set(callId, { name, sig: callSignatureOf(name, rawArgs) })
+          }
+          // Starting a work tool only arms the 15s group grace timer; clearing idle streaks
+          // and marking worked wait until `tool/result` succeeds without error.
+          if (isWorkTool(name) && rt.groupOwners.has(id)) rt.touchRoomWorkGrace?.(id, name)
+        }
+        break
+      }
+      case 'tool/ptc-dispatch-start': {
+        const name = String(event.data?.name ?? '')
+        const subCallId = event.data?.subCallId
+        const rawArgs = JSON.stringify(event.data?.arguments ?? {})
+        startCall(id, entry, subCallId, name, rawArgs)
+        entry.toolCount = (entry.toolCount ?? 0) + 1
+        if (USER_UI_TOOLS.has(name)) entry.uiToolCount = (entry.uiToolCount ?? 0) + 1
+        if (subCallId !== undefined) {
+          guardOf(id).pendingArgs.set(subCallId, { name, sig: callSignatureOf(name, rawArgs) })
+        }
+        if (isWorkTool(name) && rt.groupOwners.has(id)) rt.touchRoomWorkGrace?.(id, name)
+        break
+      }
+      case 'tool/ptc-dispatch': {
+        const subCallId = event.data?.subCallId
+        endCall(id, entry, subCallId)
+        const guard = runawayGuards.get(id)
+        const meta = guard?.pendingArgs.get(subCallId)
+        if (meta !== undefined) {
+          guard.pendingArgs.delete(subCallId)
+          const isError = event.data?.isError === true || event.data?.ok === false || event.data?.error !== undefined
+          guard.stepTotal += 1
+          if (isError) guard.stepErrors += 1
+          else if (isWorkTool(meta.name)) {
             entry.workToolCount = (entry.workToolCount ?? 0) + 1
             const activeWork = rt.workOf?.(entry.info)
             if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
             const taskWork = rt.taskBySession?.(id)?.task?.workId
             if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
             if (rt.groupOwners.has(id)) {
-              rt.workRoomTurn?.(id, name)
+              rt.workRoomTurn?.(id, meta.name)
               rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
             }
             const taskOwner = rt.taskOwners?.get(id)
             if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
           }
+          guard.recentCalls.push(meta.sig)
+          if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
         }
         break
       }
-      case 'tool/ptc-dispatch-start': {
-        const name = String(event.data?.name ?? '')
-        startCall(id, entry, event.data?.subCallId, name, JSON.stringify(event.data?.arguments ?? {}))
-        entry.toolCount = (entry.toolCount ?? 0) + 1
-        if (USER_UI_TOOLS.has(name)) entry.uiToolCount = (entry.uiToolCount ?? 0) + 1
-        if (isWorkTool(name)) {
-          entry.workToolCount = (entry.workToolCount ?? 0) + 1
-          const activeWork = rt.workOf?.(entry.info)
-          if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
-          const taskWork = rt.taskBySession?.(id)?.task?.workId
-          if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
-          if (rt.groupOwners.has(id)) {
-            rt.workRoomTurn?.(id, name)
-            rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+      case 'tool/result': {
+        const callId = event.data?.callId
+        endCall(id, entry, callId)
+        const guard = runawayGuards.get(id)
+        const meta = guard?.pendingArgs.get(callId)
+        if (meta !== undefined) {
+          guard.pendingArgs.delete(callId)
+          const isError = event.data?.isError === true
+          guard.stepTotal += 1
+          if (isError) guard.stepErrors += 1
+          else if (isWorkTool(meta.name)) {
+            entry.workToolCount = (entry.workToolCount ?? 0) + 1
+            const activeWork = rt.workOf?.(entry.info)
+            if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
+            const taskWork = rt.taskBySession?.(id)?.task?.workId
+            if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
+            if (rt.groupOwners.has(id)) {
+              rt.workRoomTurn?.(id, meta.name)
+              rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+            }
+            const taskOwner = rt.taskOwners?.get(id)
+            if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
           }
-          const taskOwner = rt.taskOwners?.get(id)
-          if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
+          guard.recentCalls.push(meta.sig)
+          if (guard.recentCalls.length > RECENT_CALL_WINDOW) guard.recentCalls.shift()
         }
         break
       }
-      case 'tool/ptc-dispatch':
-        endCall(id, entry, event.data?.subCallId)
-        break
-      case 'tool/result':
-        endCall(id, entry, event.data?.callId)
-        break
       case 'turn/start':
         // A model that could not be applied before is tried again now that a turn has
         // proved its Session can be reached; the first try may have come too early (#1937).
@@ -1292,6 +1427,10 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
+        if (source?.kind === 'user' || (source?.kind === SOURCE_KIND && source.role === 'continue')) {
+          clearRunawayGuard(id)
+          rt.clearAutoSwitchChain?.(id)
+        }
         if (source?.kind === SOURCE_KIND && Array.isArray(entry.claimed) && entry.claimed.length > 0) {
           entry.claimed = source.exchangeId !== undefined
             ? entry.claimed.filter(item => item.exchangeId !== source.exchangeId)
@@ -1709,6 +1848,8 @@ export function install(rt) {
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
           if (groupOwner !== undefined) rt.blockTasks?.(groupOwner.roomId, groupOwner.botId, { cause: 'failed', code: failure.code, ...(failure.status ? { status: failure.status } : {}) })
         } else if (reason?.kind === 'completed') {
+          clearRunawayGuard(id)
+          rt.clearAutoSwitchChain?.(id)
           forgetFailure(id)
           unblockBot(rt.selfOf(id))
           // A turn picked up after a restart that did not touch its tasks leaves them in doubt,
@@ -2097,6 +2238,7 @@ export function install(rt) {
     if (entry !== undefined && entry.turn === undefined && entry.carry === undefined && entry.pending === undefined) live.delete(sessionId)
     latestTurns.delete(sessionId)
     stoppedSubagentParents.delete(sessionId)
+    clearRunawayGuard(sessionId)
   }
   ctx.on?.('agent/disposed', ({ agent }) => {
     const id = agent?.id
@@ -2105,5 +2247,5 @@ export function install(rt) {
 
   const callSeq = (sessionId, callId) => live.get(sessionId)?.calls?.get(callId)?.seq
 
-  Object.assign(rt, { live, liveOf, latestTurnOf: id => latestTurns.get(id), roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, callSeq, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
+  Object.assign(rt, { live, liveOf, latestTurnOf: id => latestTurns.get(id), roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, callSeq, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn, checkRunawayBeforeStep, carryRunawayGuard, clearRunawayGuard })
 }

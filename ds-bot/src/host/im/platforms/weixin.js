@@ -190,11 +190,16 @@ export default {
           if (bytes !== undefined && bytes.length > 0) files.push({ name, data: bytes })
         }
       }
+      const rawMessageId = String(msg.client_id ?? msg.message_id ?? '')
+      const joinedText = texts.join('\n').trim()
+      const messageId = rawMessageId !== ''
+        ? rawMessageId
+        : `wx:${createHash('sha256').update(JSON.stringify([userId, msg.create_time ?? msg.timestamp ?? '', joinedText, images.length, files.length])).digest('hex').slice(0, 24)}`
       await handlers.onMessage({
         chat: { key: userId, kind: 'direct', title: '' },
         sender: { id: userId, name: userId },
-        text: texts.join('\n').trim(), images, files,
-        mentioned: false, messageId: String(msg.client_id ?? msg.message_id ?? ''),
+        text: joinedText, images, files,
+        mentioned: false, messageId,
         quote: quotedOf(msg),
       })
     }
@@ -300,8 +305,9 @@ export default {
             await deliver(msg).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
           }
           if (stopped || generation !== gen) return
-          if (answer.get_updates_buf !== undefined && answer.get_updates_buf !== runtime().cursor) {
-            setRuntime({ cursor: String(answer.get_updates_buf) })
+          const nextCursor = answer.get_updates_buf ?? answer.sync_buf
+          if (nextCursor !== undefined && String(nextCursor) !== runtime().cursor) {
+            setRuntime({ cursor: String(nextCursor) })
           }
         }
       } finally {

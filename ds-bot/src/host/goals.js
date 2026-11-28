@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { GOAL_IDLE_NUDGES, SOURCE_KIND } from './constants.js'
+import { GOAL_IDLE_NUDGES, GOAL_STAGE_REWORK_LIMIT, SOURCE_KIND } from './constants.js'
 import { headOf } from './text.js'
 import { output } from './tools.js'
 
@@ -333,8 +333,20 @@ export function reworkGoal(room, input, by, memberOf, memberNames, now = Date.no
     delete task.note
   }
   stage.reworks += 1
+  stage.reworksSinceResume = (stage.reworksSinceResume ?? 0) + 1
   stage.feedback = reason
   touchGoal(goal, { kind: 'rework', by, stage: stage.id, text: headOf(reason, EVENT_TEXT_MAX) }, now)
+  if (stage.reworksSinceResume >= GOAL_STAGE_REWORK_LIMIT) {
+    const pauseReason = `Paused after ${stage.reworksSinceResume} consecutive reworks on stage ${goal.current + 1} ("${stage.title}"). Review progress or resume to continue.`
+    goal.status = 'paused'
+    goal.pausedBy = 'system'
+    touchGoal(goal, { kind: 'pause', by: 'system', stage: stage.id, text: headOf(pauseReason, EVENT_TEXT_MAX) }, now)
+    return {
+      goal,
+      autoPaused: true,
+      reply: { event: 'pause', title: goal.title, count: goal.stages.length, text: pauseReason },
+    }
+  }
   return { goal, reply: { event: 'rework', title: goal.title, stage: goal.current + 1, count: goal.stages.length, text: reason } }
 }
 
@@ -376,6 +388,8 @@ export function resumeGoal(room, by, now = Date.now()) {
   if (goal.status !== 'paused') return { error: wrongState(room, goal, 'resume', 'paused') }
   goal.status = 'active'
   delete goal.pausedBy
+  const stage = goal.stages[goal.current]
+  if (stage !== undefined) stage.reworksSinceResume = 0
   touchGoal(goal, { kind: 'resume', by }, now)
   return { goal, reply: { event: 'resume', title: goal.title, count: goal.stages.length } }
 }
@@ -716,9 +730,12 @@ export function install(rt) {
   // out of its idle wait and resets the count of fruitless wakes.
   const goalUserMessage = (roomId) => {
     const goal = rt.roomOf(roomId)?.goal
-    if (goal === undefined || (goal.idle === undefined && goal.nudges === 0)) return
+    const stage = goal?.stages?.[goal.current]
+    const hasReworkStreak = (stage?.reworksSinceResume ?? 0) > 0
+    if (goal === undefined || (goal.idle === undefined && goal.nudges === 0 && !hasReworkStreak)) return
     delete goal.idle
     goal.nudges = 0
+    if (hasReworkStreak) stage.reworksSinceResume = 0
     goal.revision += 1
     goal.updatedAt = Date.now()
     void rt.save().catch(() => {})
@@ -861,7 +878,9 @@ export function install(rt) {
           break
         case 'rework':
           result = reworkGoal(room, args, self, of, names)
-          next = 'Sent back. Call the members again with @Name and say what is missing.'
+          next = result.autoPaused
+            ? 'Paused after repeated reworks on this stage. Wait for the user to review and resume before calling members again.'
+            : 'Sent back. Call the members again with @Name and say what is missing.'
           break
         case 'complete':
           result = completeGoal(room, args, self)
@@ -897,7 +916,7 @@ export function install(rt) {
           return `Unknown action ${action}.`
       }
       if (result.error !== undefined) return result.error
-      if (['start', 'revise', 'pass', 'rework', 'resume'].includes(action)) rt.clearRoomIdleStreak?.(room.id)
+      if (['start', 'revise', 'pass', 'resume'].includes(action) || (action === 'rework' && !result.autoPaused)) rt.clearRoomIdleStreak?.(room.id)
       const mainBotId = rt.state?.mainBotIds?.[0]
       const mainWaiting = mainBotId !== undefined && rt.hasRoomReportFor?.(room.id, mainBotId) === true
       const fromOwnChat = !rt.groupOwners.has(exec.agent?.id) && !rt.taskOwners?.has(exec.agent?.id)
@@ -907,7 +926,7 @@ export function install(rt) {
       if (action === 'complete' || action === 'stop') {
         notifyMainGoalOutcome(room, result.goal, { by: self, fromOwnChat, skip: mainWaiting })
       }
-      if (action === 'complete' || action === 'stop' || action === 'pause') {
+      if (action === 'complete' || action === 'stop' || action === 'pause' || result.autoPaused === true) {
         void rt.settleRoomReports?.(room.id).catch(() => {})
       }
       const ledger = goalLedger(room, member)

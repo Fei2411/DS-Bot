@@ -17,7 +17,8 @@
 import { randomUUID } from 'node:crypto'
 import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
-import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { AUTO_SWITCH_RESUME_LIMIT, HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, LOCAL_AGENT_SESSION_LOST_LIMIT, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { BLOCKING_CODES, PAUSED_CODES } from './turns.js'
 import { DEFAULT_BYTES_PER_TOKEN, computeHandoffBudget, countMessageAttachments, fitHandoffHistory, measureMessagesBytes, utf8Bytes } from './handoff-budget.js'
 import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
 import { buildCheckpointPack, extractToolTrail, toolArgSummary as summarizeToolArg } from './context-pack.js'
@@ -2834,6 +2835,13 @@ export function install(rt) {
   // `engine`: because the Bot now runs on something else (see engineMoved).
   // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
   // bail out atomically if a new turn started meanwhile so running work is never killed.
+  // Consecutive automatic mid-turn / runtime-lost part switches per live session,
+  // carried across `resume: true` handoffs and cleared on user input, Continue, or a clean turn finish.
+  const autoSwitchChains = new Map()
+  const clearAutoSwitchChain = (id) => {
+    if (typeof id === 'string' && id !== '') autoSwitchChains.delete(id)
+  }
+
   function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, runtimeLost = false, failed, bare = false, folder = false, cutoff = false, engine = false, preset = false, hard = overflow || runtimeLost || folder || engine || cutoff || preset } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return false
@@ -3253,6 +3261,17 @@ export function install(rt) {
     const hasRuntimeLostUnread = job.runtimeLost === true && !job.bare && unreadRequestsForRuntimeLost(session, agent.id, job).length > 0
     const resume = job.resume || (job.overflow && !job.bare) || job.runtimeLost
     const handoffResume = resume && !hasRuntimeLostUnread
+    if (resume) {
+      const prevChain = autoSwitchChains.get(agent.id) ?? { resumeSwitches: 0, runtimeLostSwitches: 0 }
+      autoSwitchChains.delete(agent.id)
+      autoSwitchChains.set(freshId, {
+        resumeSwitches: job.runtimeLost ? prevChain.resumeSwitches : prevChain.resumeSwitches + 1,
+        runtimeLostSwitches: job.runtimeLost ? prevChain.runtimeLostSwitches + 1 : prevChain.runtimeLostSwitches,
+      })
+      rt.carryRunawayGuard?.(agent.id, freshId)
+    } else {
+      autoSwitchChains.delete(agent.id)
+    }
     // Mark handoffPending before flipping the current-part pointer so a crash between
     // rt.save() and flush #1 lets handOnHeld() reconstruct and deliver the same routable
     // handoff package (including reply routing & joined requests, without stale rpcId).
@@ -3491,6 +3510,9 @@ export function install(rt) {
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
     if (place.botId === undefined) return next()
+    // Check runaway tool loops before pruning or mid-turn switching so a stuck loop pauses
+    // immediately instead of spending extra full-context handoff summary calls.
+    rt.checkRunawayBeforeStep?.(agent, payload)
     if (!readOnly() && engineMoved(agent, place, payload.modelSelection)) return switchBeforeStep(agent, payload, { engine: true })
     if (offEngine(agent, place, payload.modelSelection)) return holdStep(agent, payload)
     // A local agent CLI condenses on its own inside a running turn, and DS Bot cannot
@@ -3537,6 +3559,11 @@ export function install(rt) {
     const outcome = { overflow: false }
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome })) return next()
     const midTurn = payload.step > 1 || rt.liveOf(agent.id).carried === true
+    if (midTurn && (autoSwitchChains.get(agent.id)?.resumeSwitches ?? 0) >= AUTO_SWITCH_RESUME_LIMIT) {
+      autoSwitchChains.delete(agent.id)
+      rt.warn('ds-bot: pausing %s after %d consecutive auto-resumed part switches', agent.id, AUTO_SWITCH_RESUME_LIMIT)
+      throw new LlmError(`Paused after ${AUTO_SWITCH_RESUME_LIMIT} consecutive automatic part switches without user input. Reply with guidance or click Continue to resume.`, 'TURN_PAUSED_SWITCH_LIMIT')
+    }
     if (!await canMakeRoom(agent, payload.messages, { activeTurn: midTurn })) return next()
     return switchBeforeStep(agent, payload, { hard: true, ...(outcome.overflow ? { overflow: true } : {}) })
   }, { prepend: true })
@@ -3731,6 +3758,11 @@ export function install(rt) {
       await rt.load()
       const { agent } = payload
       if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+      if ((autoSwitchChains.get(agent.id)?.runtimeLostSwitches ?? 0) >= LOCAL_AGENT_SESSION_LOST_LIMIT) {
+        autoSwitchChains.delete(agent.id)
+        rt.warn('ds-bot: stopping LOCAL_AGENT_SESSION_LOST auto-switch for %s after %d consecutive switches', agent.id, LOCAL_AGENT_SESSION_LOST_LIMIT)
+        return next()
+      }
       const entry = rt.liveOf(agent.id)
       entry.switched = true
       startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], runtimeLost: true, hard: true })
@@ -3740,6 +3772,11 @@ export function install(rt) {
     await rt.load()
     const { agent } = payload
     if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure)) return next()
+    if ((autoSwitchChains.get(agent.id)?.resumeSwitches ?? 0) >= AUTO_SWITCH_RESUME_LIMIT) {
+      autoSwitchChains.delete(agent.id)
+      rt.warn('ds-bot: stopping overflow auto-switch for %s after %d consecutive switches', agent.id, AUTO_SWITCH_RESUME_LIMIT)
+      return next()
+    }
     if (!await canMakeRoom(agent, [], { activeTurn: true })) {
       const entry = rt.liveOf(agent.id)
       entry.overflowFailure = true
@@ -3924,6 +3961,8 @@ export function install(rt) {
 
   function wakeFailedTurnInbox(agent, end) {
     if (agent.status !== 'idle' || lastTurnEnd(agent) !== end || readOnly() || ctx.fiber?.uid === null) return
+    const failCode = end?.data?.reason?.error?.code ?? end?.data?.reason?.failure?.code
+    if (failCode !== undefined && (BLOCKING_CODES.has(failCode) || PAUSED_CODES.has(failCode) || failCode === 'LOCAL_AGENT_SESSION_LOST')) return
     const id = agent.id
     if (!rt.isBotSession(id) || switches.has(id) || rt.live.get(id)?.lastSwitched || rt.isHandingOff?.(id)) return
     const nextTurn = agent.inbox?.nextTurn ?? []
@@ -4959,5 +4998,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, recoverMissingSession, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, recoverMissingSession, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values(), clearAutoSwitchChain })
 }
