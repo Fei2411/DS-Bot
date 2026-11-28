@@ -188,6 +188,17 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
   assert.deepEqual(open, [{ callId: 'r2', at: 7 }])
 })
 
+test('roomItems carries the current turn across pages and changes it at the next turn start', () => {
+  const user = seq => ({ seq, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Hello' }] } })
+  const { items } = roomItems([
+    user(1),
+    { seq: 2, type: 'turn/start', data: { turn: 8 } },
+    user(3),
+    relayResult(4, 'round', [{ botId: 'm1', text: 'Reply', time: 11 }]),
+  ], undefined, 7)
+  assert.deepEqual(items.map(item => [item.kind, item.turn]), [['user', 7], ['user', 8], ['bot', 8]])
+})
+
 test('roomItems reads group_relay results prefixed with a §N§ handle', () => {
   const seenRanges = []
   const events = [

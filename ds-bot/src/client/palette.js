@@ -41,7 +41,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
           const at = text.toLowerCase().indexOf(wanted)
           if (at < 0) continue
           const from = Math.max(0, at - 24)
-          hits.push([id, entry.turn, (from > 0 ? '…' : '') + text.slice(from, at + wanted.length + 60)])
+          hits.push([id, entry.turn, (from > 0 ? '…' : '') + text.slice(from, at + wanted.length + 60), entry._synthetic === true])
           break
         }
       }
@@ -69,13 +69,13 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     run: () => actions.openAgent(agent.id),
   }))
   if (agents.length) sections.push(['DSH Agent', agents])
-  const messages = JSON.parse(found).map(([id, turn, snippet]) => {
+  const messages = JSON.parse(found).map(([id, turn, snippet, synthetic]) => {
     const bot = roster.byId[id]
     const room = roster.roomsById[id]
     return {
       key: `${id}:${turn}`, title: bot?.name ?? room?.name ?? t('Bot'), subtitle: snippet,
       avatar: bot ? h(BotAvatar, { bot, size: 24, badge: false, live: false }) : h(RoomAvatar, { room, roster, size: 24 }),
-      run: () => actions.openSession(id),
+      run: () => actions.openSession(id, synthetic ? { turn, snippet, synthetic } : { turn, snippet }),
     }
   })
   if (messages.length) sections.push([t('Messages'), messages])

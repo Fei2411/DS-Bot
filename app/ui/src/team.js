@@ -14,6 +14,7 @@ import { sameVersion } from '../../../ds-bot/src/client/dsh-offer.js'
 import { frameLayout, readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
+import { messageJumpTarget } from '../../../ds-bot/src/client/message-jump.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
 import { createQuestionDrafts } from '../../../ds-bot/src/client/question-draft.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from '../../../ds-bot/src/client/shared-map.js'
@@ -205,8 +206,10 @@ export function createTeam() {
     const before = shown.getSnapshot()
     if (before === null) return
     shown.set(null)
+    finishMessageJump(ui.getSnapshot().messageJump)
     editRow(before, row => ({ ...row, retainedBy: { mainView: 0 } }))
   }
+  const finishMessageJump = jump => { if (jump) ui.set(state => state.messageJump === jump ? { ...state, messageJump: null } : state) }
   const show = (id) => {
     if (!id) return
     const snap = roster.getSnapshot()
@@ -214,6 +217,7 @@ export function createTeam() {
     else if (snap.byId?.[id] !== undefined || snap.roomsById?.[id] !== undefined) lastTeamSession = id
     if (shown.getSnapshot() === id) return
     const before = shown.getSnapshot()
+    finishMessageJump(ui.getSnapshot().messageJump)
     shown.set(id)
     if (before) editRow(before, row => ({ ...row, retainedBy: { mainView: 0 } }))
     editRow(id, row => ({ ...row, replyCount: row.replyCount ?? 0, retainedBy: { mainView: 1 } }))
@@ -921,7 +925,7 @@ export function createTeam() {
         : (snap.mainBotId ?? snap.bots?.[0]?.id)
       if (targetTeam) actions.openSession(targetTeam)
     },
-    openSession: (id) => {
+    openSession: (id, message) => {
       if (isAgentSessionId(id)) {
         actions.openAgentSession(id)
         return
@@ -937,18 +941,21 @@ export function createTeam() {
       const fromInbox = ui.getSnapshot().inbox === true
       show(next)
       ui.set((state) => {
+        const messageJump = next === id ? messageJumpTarget(id, message) : null
         const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox || state.inboxTarget || state.pendingOpen)
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const foldWorkspace = switched && state.view === 'workspace' && rp === null
-        if (!dropOverlay && rp === state.rightPanel && !foldWorkspace) return state
+        if (!dropOverlay && rp === state.rightPanel && !foldWorkspace && !messageJump && !state.messageJump) return state
         return {
           ...state,
+          messageJump,
           ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false, inbox: false, inboxTarget: fromInbox ? next : null, pendingOpen: null } : {}),
           ...(foldWorkspace ? { view: 'details' } : {}),
           rightPanel: rp,
         }
       })
     },
+    finishMessageJump,
     retryOpening: (target) => {
       if (!target) return
       actions.openSession(target)

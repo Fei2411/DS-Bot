@@ -944,6 +944,82 @@ test('openSessionFollow stops reconnecting and surfaces a terminal error when a 
   }
 })
 
+test('message jump pages the active DM until it mounts the hit, exhausts history, stalls, or fails', async () => {
+  const previousCall = sandbox.__testCall
+  const bot = { id: 'b1', name: 'Chief', color: 'blue', parts: [] }
+  const roster = { ready: true, prefs: {}, bots: [bot], byId: { b1: bot }, rooms: [], roomsById: {}, questions: {}, exchangeTurns: {} }
+  const event = (seq, type, data) => ({ type: 'event', event: { seq, type, time: seq, data } })
+  const prompt = event(7, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Earlier target' }] })
+  const other = seq => event(seq, 'step/end', {})
+  const target = { sessionId: 'b1', turn: 2, snippet: 'Earlier target' }
+  const pages = {
+    found: [{ records: [other(8), other(9)], hasMore: true }, { records: [event(6, 'turn/start', { turn: 2 }), prompt], hasMore: true }],
+    exhausted: [{ records: [other(9)], hasMore: false }],
+    stalled: [{ records: [other(7)], hasMore: true }],
+    failed: [new Error('page failed')],
+  }
+
+  for (const [scenario, replies] of Object.entries(pages)) {
+    fetchCtrl.reset()
+    const calls = []
+    const scrolled = []
+    const highlighted = []
+    const uiState = { messageJump: target }
+    const row = {
+      textContent: 'Earlier target',
+      getAttribute: () => 'b1',
+      scrollIntoView: options => scrolled.push(options.block),
+      classList: { add: value => highlighted.push(value), remove() {} },
+    }
+    field.querySelectorAll = () => []
+    sandbox.__testCall = async (name, body) => {
+      assert.equal(name, 'session-page')
+      calls.push(body.beforeSeq)
+      const reply = replies[calls.length - 1]
+      if (reply instanceof Error) throw reply
+      if (reply.records.includes(prompt)) field.querySelectorAll = () => [row]
+      return reply
+    }
+    const team = {
+      actions: {
+        canReferenceChat: () => false,
+        speech: () => undefined,
+        finishMessageJump: jump => { assert.equal(jump, target); uiState.messageJump = null },
+      },
+      hooks: {
+        useRoster: select => select(roster),
+        useUi: select => select(uiState),
+        useCards: select => select({}),
+        useTurnClock: select => select({}),
+        useSessionStatus: select => select(new Map()),
+      },
+    }
+    const inst = mount(Chat, { sessionId: 'b1', team })
+    try {
+      inst.render()
+      await tick()
+      fetchCtrl.latest().push('frame', {
+        type: 'snapshot', header: { id: 'b1' }, cursor: 10, hasMore: true, records: [other(10)],
+      })
+      await tick()
+      let tree
+      for (let i = 0; i < 5; i += 1) {
+        tree = inst.render()
+        await tick()
+      }
+      assert.deepEqual(calls, scenario === 'found' ? [10, 8] : [10], scenario)
+      assert.equal(uiState.messageJump, null, scenario)
+      assert.deepEqual(scrolled, scenario === 'found' ? ['center'] : [], scenario)
+      assert.deepEqual(highlighted, scenario === 'found' ? ['bt-message-jump'] : [], scenario)
+      if (scenario === 'found') assert.equal(all(tree, node => node.props?.['data-bt-message-turn'] === 2).length, 1)
+    } finally {
+      inst.unmount()
+      sandbox.__testCall = previousCall
+      delete field.querySelectorAll
+    }
+  }
+})
+
 test('Chat DM renders real recorded session, show_view via WidgetCell, legacy reactions, EarlierParts across rollover, pagination, and pending dedup', async () => {
   fetchCtrl.reset()
   const listeners = new Set()

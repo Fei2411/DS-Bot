@@ -134,6 +134,7 @@ function createRuntime() {
 }
 
 const bundleCode = await loadBundle(`
+  export { CommandPalette } from './src/client/palette.js'
   export { OverlayBoundary } from './src/client/overlay-boundary.js'
   export { Overlays } from './src/client/overlays.js'
   export { SettingsShell } from './src/client/settings-shell.js'
@@ -141,6 +142,24 @@ const bundleCode = await loadBundle(`
   export { createSource, EMPTY_ROSTER } from './src/client/sources.js'
   export { clientErrors, clearClientErrors } from './src/client/diagnostics.js'
 `)
+
+test('command palette opens a message hit with its turn and snippet', () => {
+  const { react, render } = createRuntime()
+  const { CommandPalette, EMPTY_ROSTER } = loadModule(react)
+  const bot = { id: 'bot', sessionId: 'session', name: 'Writer', color: 'blue' }
+  const calls = []
+  const tree = render(react.createElement(CommandPalette, {
+    start: 'launch', token: 1,
+    roster: { ...EMPTY_ROSTER, bots: [bot], byId: { session: bot } },
+    actions: { openSession: (...args) => calls.push(args), closePalette() {} },
+    useSessions: select => select({ byId: { session: { projectionValues: { turnOutline: [{ turn: 6, response: 'Prepare the launch' }] } } } }),
+  }))
+  const [input] = collect(tree, node => node.type === 'input')
+  input.props.onKeyDown({ key: 'Enter', nativeEvent: {}, preventDefault() {} })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], 'session')
+  assert.deepEqual({ ...calls[0][1] }, { turn: 6, snippet: 'Prepare the launch' })
+})
 
 function loadModule(react, { consoleError = () => {} } = {}) {
   const mod = { exports: {} }

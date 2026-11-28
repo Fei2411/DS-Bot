@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
+import { messageAnchor } from './message-jump.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, EyeIcon, HideIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { detectSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
 import { ChangesCard } from './changes-card.js'
@@ -51,6 +52,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
   && a.streaming === b.streaming
   && a.lang === b.lang
   && a.sessionId === b.sessionId
+  && a.turn === b.turn
   && a.msgKey === b.msgKey
   && a.useUi === b.useUi
   && a.lead === b.lead
@@ -67,7 +69,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole, time, textInteractionSource }) {
+export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, turn, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -78,7 +80,7 @@ export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, s
   const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
   const useReadUi = useUi ?? useNullUi
   const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
-  return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
+  return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, ...messageAnchor(sessionId, turn), onClickCapture: onClick },
     cleaned.map((text, index) => {
       const first = index === 0
       const last = index === cleaned.length - 1
@@ -413,7 +415,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       // time makes one Elapsed show settled + running.
       ...(thinking !== undefined ? { at: typeof thinking.time === 'number' ? thinking.time - (ms ?? 0) : undefined } : { ms }),
     }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === undefined ? data.time : undefined, textInteractionSource }) : null)
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, turn: data.turn, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === undefined ? data.time : undefined, textInteractionSource }) : null)
 }
 
 // `code` in an activity line is the command or path the agent works on.
@@ -493,7 +495,7 @@ export function claimLines(claims) {
   return lines
 }
 
-export function GroupMessage({ bot, text, texts = [text], files = [], openFile, room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes }) {
+export function GroupMessage({ bot, text, texts = [text], files = [], openFile, room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes, anchorSessionId, turn }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -515,7 +517,7 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
   const fileList = presentedFiles(files)
   const filesOnly = visibleTexts.length === 0 && fileList.length > 0
   const fileCards = fileList.length > 0 ? h(PresentedFiles, { files: fileList, openFile, actions }) : null
-  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id },
+  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id, ...messageAnchor(anchorSessionId, turn) },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
@@ -706,7 +708,7 @@ function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, r
     : ''
   const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
   const hasMeta = row.via !== undefined || (showTime && Number.isFinite(row.time))
-  return h('div', { className: 'bt-urow' },
+  return h('div', { className: 'bt-urow', ...messageAnchor(row.sessionId, row.turn) },
     attachments,
     showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
       control ? h('div', { className: 'bt-fold-body' }, area) : area,
@@ -945,7 +947,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       return h(MemoGroupMessage, {
         key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
-        whole: stableWhole(row, actions), locale,
+        whole: stableWhole(row, actions), locale, anchorSessionId: row.sessionId, turn: row.turn,
       })
     }
     case 'relay': {
@@ -1109,7 +1111,7 @@ export function TriggerCell({ node, sessionId, openFile, useRoster, useSessions,
         // A trigger's data carries no turn; its event seq is the one durable name of this post.
         return h(GroupMessage, {
           bot: poster, text: file ? stripLongNote(text) : text, files: presentedFiles(source.presented), openFile, room, sessionId, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
-          claims: source.claims,
+          claims: source.claims, anchorSessionId: sessionId, turn,
           changes: source.changes,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })

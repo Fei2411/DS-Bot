@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
@@ -147,11 +148,15 @@ function replyItem(reply, id, extra = {}) {
 // user's messages, Bots' posts from outside the group, and one group_relay call per
 // round. A round's result names where its rows are in the group's book of the ledger
 // (`rowsOf` reads them); one from before the ledger lists the replies itself.
-export function roomItems(events, rowsOf = () => []) {
+export function roomItems(events, rowsOf = () => [], seedTurn) {
   const items = []
   const relays = new Map()
+  let turn = seedTurn
   for (const event of events) {
     const seq = event.seq
+    if (event.type === 'turn/start' && Number.isInteger(event.data?.turn)) turn = event.data.turn
+    const eventTurn = event.data?.turn ?? turn
+    const anchor = Number.isInteger(eventTurn) ? { turn: eventTurn } : {}
     if (event.type === 'user/message') {
       const source = event.data?.source
       const content = Array.isArray(event.data?.content) ? event.data.content : []
@@ -165,6 +170,7 @@ export function roomItems(events, rowsOf = () => []) {
           ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}),
           ...(fileBlocks.length > 0 ? { fileRefs } : {}),
           time: event.time ?? null,
+          ...anchor,
         })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
@@ -179,6 +185,7 @@ export function roomItems(events, rowsOf = () => []) {
           text: textOf(content).replace(POST_HEADER, ''), time: event.time ?? null,
           ...(file ? { whole: { length: source.length, file } } : {}),
           ...(files.length > 0 ? { files } : {}),
+          ...anchor,
         })
       }
       continue
@@ -199,7 +206,7 @@ export function roomItems(events, rowsOf = () => []) {
     if (!Array.isArray(replies)) continue
     relays.delete(callId)
     replies.forEach((reply, index) => {
-      const item = replyItem(reply ?? {}, `${callId ?? seq}:${index}`)
+      const item = replyItem(reply ?? {}, `${callId ?? seq}:${index}`, anchor)
       if (item !== undefined) items.push(item)
     })
   }
@@ -389,6 +396,7 @@ export function install(rt) {
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     const speaking = running.map(([, round]) => round.slots?.find(slot => slot.status === 'speaking')?.id ?? round.speaking).find(Boolean) ?? null
     const currentSeq = agent && Number.isInteger(Number(agent.session.seq)) ? Number(agent.session.seq) - 1 : -1
+    const turnAt = events => openTurnAt(ctx.get?.('sessionProjections'), agent?.session, events[0]?.seq)
     const currentRoomSeq = Number.isInteger(room.seq) ? room.seq : 0
 
     const collectOpenCounts = (entries) => {
@@ -479,7 +487,7 @@ export function install(rt) {
             const { items: deltaItems, open: deltaOpen } = roomItems(newEvents, (range) => {
               if (Number.isInteger(range?.from) && range.from < minNewRoundFrom) minNewRoundFrom = range.from
               return rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? []
-            })
+            }, turnAt(newEvents))
             stampPartSession(deltaItems)
             const splicedCalls = new Set()
             for (const { callId, at } of deltaOpen.reverse()) {
@@ -516,7 +524,7 @@ export function install(rt) {
       maxMessages: ROOM_PAGE,
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
-    const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
+    const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [], turnAt(events))
     stampPartSession(items)
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId, { atTip: !Number.isInteger(cursor?.beforeSeq) && index === parts.length - 1 })
     // The newest page shows what the running round has said so far, where its call sits.
