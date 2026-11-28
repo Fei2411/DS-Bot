@@ -1,6 +1,32 @@
 // Generated from src/shared/release-notes.json and ../CHANGELOG.md by `npm run build` (scripts/build-client.mjs). Do not edit by hand.
 export const RELEASE_NOTES = [
   {
+    "version": "0.4.2",
+    "date": "2026-11-28",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复 ChatGPT 订阅 Prompt Cache 命中率偏低的问题，保留系统提示词缓存前缀、透传会话亲和头并在多步工具调用间保留加密推理上下文",
+          "支持在模型菜单与 Bot 设置中切换并记住 ChatGPT 订阅模型的思考强度",
+          "新增 macOS 应用内原地自动更新（SHA-256 校验与原子替换），无需每次手动下载 DMG",
+          "修复外部浏览器插件与侧边栏浏览器控制的状态区分，并从内置插件目录移除 Ego Lite",
+          "修复 DSH 插件态启动报错与退出时聊天索引/用量 SQLite 句柄竞态，提升运行稳定性"
+        ],
+        "intro": "热修更新：大幅提升 ChatGPT 订阅缓存命中率与思考强度切换体验，新增 macOS 应用内原地自动更新，并修复多处稳定性问题。"
+      },
+      "en": {
+        "items": [
+          "Fixed low ChatGPT subscription prompt cache hit rates by keeping system prompts inline in the cached prefix, forwarding session affinity headers, and preserving encrypted reasoning across tool calls",
+          "Exposed and persisted selectable reasoning effort levels for ChatGPT-plan models",
+          "Added macOS in-place auto-update with SHA-256 verification and atomic app replacement, removing the need to manually re-download DMGs",
+          "Fixed sidebar status detection for external browser plugins and removed Ego Lite from the built-in browser plugin catalog",
+          "Fixed a DSH plugin-host startup crash and prevented SQLite handle leaks during shutdown while flushing metered usage"
+        ],
+        "intro": "A hotfix improving ChatGPT subscription prompt caching and reasoning effort selection, adding macOS in-place auto-updates, and fixing startup and shutdown stability."
+      }
+    }
+  },
+  {
     "version": "0.4.1",
     "date": "2026-11-27",
     "notes": {
