@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { chromium } from 'playwright-core'
 import { allThemes, themeCss } from '../../src/client/themes.js'
+import { dshThemeCss } from '../../src/client/styles-dsh.js'
 import { FONT_DIR } from '../../src/host/fonts.js'
 import { REPLY_FAMILY } from '../../src/shared/reply-fonts.js'
 
@@ -69,7 +70,7 @@ test('Fei draws Bot replies in its bundled serif under DSH\'s own Markdown style
     const fontRequests = []
     await tab.route('http://dsbot.test/**', async (route) => {
       const { pathname } = new URL(route.request().url())
-      if (pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: page(themeCss(allThemes().fei)) })
+      if (pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: page(themeCss(allThemes().fei) + dshThemeCss(allThemes().fei)) })
       if (pathname.startsWith('/api/bot/fonts/')) {
         const file = pathname.slice('/api/bot/fonts/'.length)
         fontRequests.push(file)

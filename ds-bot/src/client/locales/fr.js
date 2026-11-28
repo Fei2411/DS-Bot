@@ -251,6 +251,7 @@ export const FR = {
   "Search": "Rechercher",
   "New chat": "Nouvelle discussion",
   "Back to chat": "Retour à la discussion",
+  "Back to bottom": "Aller en bas",
   "New…": "Nouveau…",
   "New section": "Nouvelle section",
   "Rename section": "Renommer la section",

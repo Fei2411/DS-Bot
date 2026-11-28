@@ -1614,7 +1614,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
   //    and once an explicit focusNonce is consumed, later synced terminals must not steal focus either.
   sandbox.__xterms.length = 0
   const prevActive = sandbox.document.activeElement
-  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
   const visibleTerm = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true, focusNonce: 1 })
   try {
     visibleTerm.render()
@@ -1691,7 +1691,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     if (parentFocusNonce === nonce) parentFocusNonce = 0
   }
   const prevActive4 = sandbox.document.activeElement
-  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
   const firstMount = mount(WorkspaceTerminal, {
     sessionId: 'b1',
     feed: team.chat,
@@ -1751,7 +1751,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
   const firstNonce = uiProbe5.render().props.terminalNonce
   assert.ok(firstNonce > 0)
   const prevActive5 = sandbox.document.activeElement
-  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
   const autoInst = mount(WorkspaceTerminal, {
     sessionId: 'b1',
     feed: team5.chat,

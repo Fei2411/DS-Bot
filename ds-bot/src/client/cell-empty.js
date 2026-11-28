@@ -21,7 +21,7 @@ export function CellEmpty({ className }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const marker = ref.current
-    const slot = marker?.closest('[data-slot]')
+    const slot = marker?.closest('[data-bt-slot]')
     if (!slot) return undefined
     const sync = gone => (emptied(slot, gone) ? (slot.dataset.btEmptied = '') : delete slot.dataset.btEmptied)
     sync()

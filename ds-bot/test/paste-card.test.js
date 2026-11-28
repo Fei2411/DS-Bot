@@ -21,7 +21,7 @@ class DataTransfer {
 }
 
 const { outputFiles } = await build({
-  stdin: { contents: "export * from './src/client/paste-card.js'", resolveDir: PLUGIN },
+  stdin: { contents: "export { PASTE_CSS } from './src/client/paste-card.js'\nexport * from './src/client/paste-card-dsh.js'", resolveDir: PLUGIN },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom'],
 })

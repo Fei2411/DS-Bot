@@ -88,7 +88,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
   const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
   const composerRoot = useRef(null)
   useEffect(() => {
-    const root = composerRoot.current?.closest('[data-composer-card]')
+    const root = composerRoot.current?.closest('[data-bt-composer]')
     if (enterToSend || !inputActions || !root) return undefined
     const onKey = event => insertComposerNewline(event, inputActions)
     root.addEventListener('keydown', onKey, true)
@@ -165,7 +165,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
         const text = await transcribeWave(speech, cat, wave, ctl.signal)
         if (text && inputActions && !ctl.signal.aborted && mounted.current) {
           const at = inputActions.captureInsertion()
-          const area = composerRoot.current?.closest?.('[data-composer-card]')?.querySelector?.('textarea')
+          const area = composerRoot.current?.closest?.('[data-bt-composer]')?.querySelector?.('textarea')
           const value = typeof area?.value === 'string' ? area.value : ''
           const beforeChar = at && at.start > 0 ? value[at.start - 1] ?? '' : ''
           const afterChar = at && at.end < value.length ? value[at.end] ?? '' : ''
@@ -233,12 +233,18 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     const excerpt = quote.text.replace(/\s+/g, ' ').trim()
     const line = `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}\n\n`
     inputActions.insertText(line, inputActions.captureInsertion())
-    const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]')
-    if (box instanceof HTMLElement) {
+    const box = composerRoot.current?.closest?.('[data-bt-composer]')?.querySelector?.('[data-bt-composer-input]')
+      ?? document.querySelector('[data-bt-composer] [data-bt-composer-input]')
+    if (box && typeof box.focus === 'function') {
       box.focus()
-      const selection = window.getSelection()
-      selection?.selectAllChildren(box)
-      selection?.collapseToEnd()
+      if (typeof box.value === 'string' && typeof box.setSelectionRange === 'function') {
+        const end = box.value.length
+        box.setSelectionRange(end, end)
+      } else if (typeof HTMLElement !== 'undefined' && box instanceof HTMLElement) {
+        const selection = window.getSelection?.()
+        selection?.selectAllChildren(box)
+        selection?.collapseToEnd()
+      }
     }
   }, [quote?.token])
   if (sessionId === undefined) return null
@@ -317,7 +323,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
     return () => { window.removeEventListener('mousedown', onDown, true); window.removeEventListener('keydown', onKey, true) }
   }, [open])
   useEffect(() => {
-    const card = button.current?.closest('[data-composer-card]')
+    const card = button.current?.closest('[data-bt-composer]')
     if (!ready || card === null || card === undefined) return undefined
     const next = JSON.stringify(t('Press Enter to steer queued messages'))
     if (card.style.getPropertyValue('--bt-placeholder') !== next) card.style.setProperty('--bt-placeholder', next)
@@ -335,10 +341,10 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
       if (!plainEnter && !accelEnter) return
       const targetEl = event.target
       if (typeof targetEl?.closest !== 'function') return
-      const card = button.current?.closest('[data-composer-card]')
-      if (card === null || card === undefined || targetEl.closest('[data-composer-card]') !== card) return
-      if (targetEl.closest('[contenteditable=true]') === null) return
-      if (targetEl.closest('[data-composer-composing]')) return
+      const card = button.current?.closest('[data-bt-composer]')
+      if (card === null || card === undefined || targetEl.closest('[data-bt-composer]') !== card) return
+      if (targetEl.closest('[data-bt-composer-input]') === null) return
+      if (targetEl.closest('[data-bt-composing]')) return
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return
       event.preventDefault()
       event.stopPropagation()
@@ -357,11 +363,11 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
   useLayoutEffect(() => {
     if (!shown || !button.current) { setPlace(undefined); return }
     const rect = button.current.getBoundingClientRect()
-    const cardTop = button.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top ?? rect.top
+    const cardTop = button.current.closest?.('[data-bt-composer]')?.getBoundingClientRect?.().top ?? rect.top
     setPlace({ left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 })
   }, [shown, open, tick])
   if (sessionId === undefined || target === undefined) return null
-  const fileInput = () => button.current?.closest('[data-composer-card]')?.querySelector('input[type=file]')
+  const fileInput = () => button.current?.closest('[data-bt-composer]')?.querySelector('input[type=file]')
   const toggle = () => {
     if (open) { setOpen(null); return }
     // Files go through the composer's own file input; a composer without one takes none.

@@ -19,6 +19,8 @@ const stubs = {
     export const ThinkingRow = ({ text, live, ms, viewKey }) => ({ type: 'thinking', props: { text, live, ms, viewKey, children: [text] } })
     export const EarlierParts = ({ sessionId }) => ({ type: 'earlier-parts', props: { sessionId, children: ['earlier-parts:' + sessionId] } })
     export const PartLine = ({ time }) => ({ type: 'part-line', props: { time, children: [] } })
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
     export const Elapsed = () => null
@@ -532,8 +534,8 @@ test('slots support React.memo, orphan tools skip unkeyed slots, streaming Parti
   const customMount = mount(ToolCallCard, { entry: listEntry, cwd: '/repo', registry })
   const customTree = customMount.render()
   assert.match(textOf(customTree), /custom:list_bots:false/)
-  assert.equal(customTree.props['data-chat-anchor-key'], 'call:c1')
-  assert.equal(customTree.props['data-chat-call-id'], 'c1')
+  assert.equal(customTree.props['data-bt-anchor-key'], 'call:c1')
+  assert.equal(customTree.props['data-bt-call-id'], 'c1')
   assert.deepEqual(plain(received[0]), { callId: 'c1', toolName: 'list_bots', cwd: '/repo', phase: 'result', keys: ['expanded', 'setExpanded', 'toggle'] })
 
   // Throwing slot is isolated by SlotErrorBoundary and recovers on Retry.

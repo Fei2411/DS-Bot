@@ -251,6 +251,7 @@ export const JA = {
   "Search": "検索",
   "New chat": "新しいチャット",
   "Back to chat": "チャットに戻る",
+  "Back to bottom": "一番下へ戻る",
   "New…": "新規…",
   "New section": "新しいセクション",
   "Rename section": "セクション名を変更",

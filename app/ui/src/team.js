@@ -7,7 +7,7 @@ import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
-import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
+import { frameLayout, readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -353,8 +353,26 @@ export function createTeam() {
     }
   }
 
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot()
+    const rawViewport = typeof window === 'undefined' ? 1280 : window.innerWidth
+    const isNarrow = rawViewport <= 768
+    const lay = layout.getSnapshot()
+    const effectiveSideW = isNarrow
+      ? Math.min(lay.width, Math.max(264, Math.round(rawViewport * 0.84)))
+      : Math.min(lay.width, Math.max(264, rawViewport - 420))
+    const viewport = isNarrow ? Math.min(rawViewport, 680) : rawViewport
+    const pref = isNarrow ? (state.leftDrawer ? 'open' : 'hidden') : lay.pref
+    return frameLayout({
+      viewport,
+      sidebarWidth: effectiveSideW,
+      pref,
+      drawer: state.leftDrawer === true,
+      panel: { view: view ?? state.view, yielded: state.panelYield === true },
+    }).panel === 'folded'
+  }
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -933,6 +951,10 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    noteReplyCount: (sessionId, count) => {
+      if (!sessionId || !Number.isFinite(count)) return
+      editRow(sessionId, row => (typeof row.replyCount === 'number' && row.replyCount >= count ? row : { ...row, replyCount: count }))
+    },
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
@@ -1101,6 +1123,7 @@ export function createTeam() {
       editRow(sessionId, row => ({
         ...row,
         updatedAt: Math.max(row.updatedAt ?? 0, item.time ?? 0),
+        ...(item.kind === 'bot' ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
         // The sidebar's preview line; turn -1 is never a hidden exchange turn.
         projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
       }))
@@ -1118,6 +1141,7 @@ export function createTeam() {
         editRow(roomSession, row => ({
           ...row,
           updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+          replyCount: (row.replyCount ?? 0) + 1,
           projectionValues: { turnOutline: [{ turn: -1, response: data.text }] },
         }))
       }

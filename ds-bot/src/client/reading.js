@@ -51,7 +51,7 @@ export function readingBand(scroller) {
   const heads = Array.from(document.querySelectorAll('.bt-head, .bt-island'), node => node.getBoundingClientRect())
     .filter(rect => rect.height > 0 && rect.left < box.right && rect.right > box.left && rect.bottom > box.top && rect.bottom < box.bottom)
   const top = heads.length > 0 ? Math.max(...heads.map(rect => rect.bottom)) : box.top
-  const composer = parseFloat(getComputedStyle(scroller).getPropertyValue('--dsh-composer-height')) || 0
+  const composer = parseFloat(getComputedStyle(scroller).getPropertyValue('--bt-composer-inset')) || 0
   return { top: top + GAP, bottom: box.bottom - composer, left: box.left, right: box.right }
 }
 
@@ -150,7 +150,7 @@ export function ReplyGuide({ box, active }) {
   const cachedHeadings = useRef(null)
   useEffect(() => {
     const node = box.current
-    const own = active && node ? node.closest('[data-conversation-scroll]') : null
+    const own = active && node ? node.closest('[data-bt-scroll]') : null
     setScroller(own)
     if (!own) { setLong(false); cachedHeadings.current = null; return undefined }
     const check = (bandOf) => setLong(fillsBand(node.getBoundingClientRect().height, bandOf ? bandOf(own) : readingBand(own)))

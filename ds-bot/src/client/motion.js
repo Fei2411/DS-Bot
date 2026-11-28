@@ -64,6 +64,8 @@ export const SPRING_LEAD = springEasing(784, 48.2)
 export const SPRING_TRAIL = springEasing(289, 29.2)
 // Critically damped layout glide (ω≈31.6, ζ=1) for sidebar row reordering.
 export const SPRING_GLIDE = springEasing(1000, 63)
+// Critically damped margin glide (ω=20, ζ=1, zero overshoot) for center-column panel transitions (#2412).
+export const SPRING_SETTLE = springEasing(400, 40)
 // A highlight that follows the keyboard and pointer down a list keeps up on stiffer
 // edges (ω=30 and ω=20).
 export const QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) }

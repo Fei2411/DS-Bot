@@ -411,7 +411,7 @@ function canStealFocusForTerminal(hostEl) {
   if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true
   if (hostEl && typeof hostEl.contains === 'function' && hostEl.contains(activeEl)) return true
   if (typeof activeEl.closest === 'function'
-    && activeEl.closest('[data-composer-input], [data-composer-card], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+    && activeEl.closest('[data-bt-composer-input], [data-bt-composer], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
     return false
   }
   return true

@@ -15,8 +15,8 @@ export function insertComposerNewline(event, inputActions) {
   if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey
     || isImeComposing(event) || event.getModifierState?.('AltGraph')) return false
   const target = event.target
-  if (typeof target?.closest !== 'function' || !target.closest('[data-composer-card] [role="textbox"]')) return false
-  if (target.closest('[data-composer-composing]')) return false
+  if (typeof target?.closest !== 'function' || !target.closest('[data-bt-composer] [data-bt-composer-input]')) return false
+  if (target.closest('[data-bt-composing]')) return false
   if (target.ownerDocument?.querySelector('[role="listbox"]')) return false
   if (typeof inputActions?.captureInsertion !== 'function' || typeof inputActions?.insertText !== 'function') return false
   event.preventDefault()

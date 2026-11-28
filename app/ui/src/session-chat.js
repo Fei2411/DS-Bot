@@ -7,7 +7,7 @@
 import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
-import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
+import { Bubbles, EarlierParts, NewDivider, PartLine, ThinkingRow, ToolCell, isBotTool, unseenSince } from '../../../ds-bot/src/client/cells.js'
 import { ChangesCard } from '../../../ds-bot/src/client/changes-card.js'
 import { MarkdownText, fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
@@ -447,7 +447,7 @@ const UserRow = memo(function UserRow({ row, sessionId, parent, mode, ancestors,
     return h('div', {
       ref: container,
       className: 'dsb-dsh-user',
-      'data-chat-flow-kind': 'user',
+      'data-bt-flow-kind': 'user',
       'data-open': toolsOpen || undefined,
     },
     h('div', { className: 'dsb-dsh-user-stack' },
@@ -572,7 +572,7 @@ const AssistantRow = memo(function AssistantRow({
       }) : null,
       hasTexts ? h('div', {
         className: 'dsb-dsh-asst',
-        'data-chat-flow-kind': 'assistant',
+        'data-bt-flow-kind': 'assistant',
         'data-streaming': row.streaming ? '' : undefined,
       },
       h('div', {
@@ -687,8 +687,8 @@ const SessionToolRow = memo(function SessionToolRow({
     const callId = row.block?.callId || row.callId || ''
     return h('div', {
       className: 'dsb-tool-wrap',
-      'data-chat-anchor-key': callId ? `call:${callId}` : undefined,
-      'data-chat-call-id': callId || undefined,
+      'data-bt-anchor-key': callId ? `call:${callId}` : undefined,
+      'data-bt-call-id': callId || undefined,
     }, h(ToolCell, {
       node: {
         key: callId || row.key,
@@ -838,7 +838,7 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 const EMPTY_SPEAKERS = new Set()
 
 function renderTranscriptRows({
-  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
+  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts, firstUnreadKey = null,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
   resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -933,9 +933,12 @@ function renderTranscriptRows({
       fallback: renderDefault,
     })
 
-    return pause
-      ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
-      : [node]
+    const showNew = firstUnreadKey !== null && row.key === firstUnreadKey
+    const out = []
+    if (showNew) out.push(h(NewDivider, { key: `${row.key}:new` }))
+    if (pause) out.push(h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
+    out.push(node)
+    return out
   })
 }
 
@@ -1126,8 +1129,37 @@ export function SessionTranscript({
       computerShot,
     }
   }, [actions, loadImage])
+  const visit = resolvedUseUi(state => state?.visits?.[sessionId])
+  const firstUnreadKey = useMemo(() => {
+    if (classic || typeof visit?.seen !== 'number') return null
+    for (const list of [rowParts.committed, rowParts.live]) {
+      for (const row of list) {
+        if (row.kind === 'part-start' || row.kind === 'compaction' || row.kind === 'turn-tail') continue
+        if (row.kind === 'tool' && !hasBotToolInTree(row.block)) continue
+        if (row.kind === 'assistant' && row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+        if (unseenSince(visit, row.time)) return row.key
+      }
+    }
+    return null
+  }, [classic, visit?.seen, visit?.entered, rowParts.committed, rowParts.live, showThinking])
+  useEffect(() => {
+    if (classic || !sessionId || typeof actions?.noteTurnTime !== 'function') return
+    for (const row of rowParts.committed) {
+      if (row.kind === 'part-start' || row.kind === 'compaction' || row.kind === 'turn-tail') continue
+      if (Number.isFinite(row.time)) actions.noteTurnTime(sessionId, row.turn ?? row.key, 'first', row.time)
+    }
+  }, [classic, sessionId, rowParts.committed, actions])
+  useEffect(() => {
+    if (classic || !sessionId || typeof actions?.noteReplyCount !== 'function') return
+    let count = 0
+    for (const row of rowParts.committed) {
+      if (row.kind === 'assistant' && row.texts.length > 0) count += 1
+    }
+    if (count > 0) actions.noteReplyCount(sessionId, count)
+  }, [classic, sessionId, rowParts.committed, actions])
+
   const rowProps = {
-    canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    canLoadEarlierParts, firstUnreadKey, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
@@ -1146,7 +1178,7 @@ export function SessionTranscript({
     thinkingAt: undefined,
     rows: rowParts.committed,
   }), [
-    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
+    rowParts.committed, canLoadEarlierParts, firstUnreadKey, sessionId, bot, roster, actions, toolActions, classic,
     useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,

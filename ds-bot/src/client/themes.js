@@ -17,7 +17,7 @@ import { FONT_RANGES, FONT_ROUTE, REPLY_FACES, REPLY_FAMILY } from '../shared/re
 // too. Code keeps its own family, and a text font the user set in Settings still wins.
 const fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`
 export const SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join('\n')}
-.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble .bt-md,.bt-bubble .bt-md :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--bt-reply-font,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--bt-reply-font-default,sans-serif)}`
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
