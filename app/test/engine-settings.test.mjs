@@ -8,7 +8,7 @@ const stubs = {
   'cells.js': 'export const workPhrase = () => ""\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
   'primitives.js': `
-    export const writeClipboard = async () => true
+    export const writeClipboard = async (value) => (globalThis.__testClipboard ? globalThis.__testClipboard(value) : true)
   `,
 }
 
@@ -16,6 +16,8 @@ const entryCode = `
   export {
     extractSchemaFields,
     formatFieldLabel,
+    formatAccountBalance,
+    isPositiveDecimal,
     resolveFieldLabel,
     resolveLocalizedMetaText,
     safePluginIconUri,
@@ -27,6 +29,10 @@ const entryCode = `
     AgentPresetsSettingsPage,
     ArchivedSessionsPage,
   } from './ui/src/engine-settings.js'
+  export {
+    publishDesktopAccountState,
+    createDesktopAccountBridge,
+  } from './ui/src/deepseek-account.js'
   export {
     SETTINGS_SECTION_ICON_SLOT,
     registerEngineSettingsPlugin,
@@ -121,7 +127,11 @@ function loadMod(callHandler = async () => ({})) {
     console: { log: () => {}, warn: () => {}, error: () => {} },
     setTimeout,
     clearTimeout,
-    setInterval,
+    setInterval: (...args) => {
+      const id = setInterval(...args)
+      id?.unref?.()
+      return id
+    },
     clearInterval,
     URL,
     window: {
@@ -134,7 +144,18 @@ function loadMod(callHandler = async () => ({})) {
       },
       removeEventListener: (name, fn) => { listeners.get(name)?.delete(fn) },
     },
-    document: { body: { dataset: {} }, documentElement: { dataset: {} } },
+    document: (() => {
+      const attrs = new Map()
+      return {
+        body: {
+          dataset: {},
+          setAttribute: (k, v) => attrs.set(k, String(v)),
+          removeAttribute: k => attrs.delete(k),
+          hasAttribute: k => attrs.has(k),
+        },
+        documentElement: { dataset: {} },
+      }
+    })(),
     __testCall: callHandler,
     require(name) {
       if (name === 'react') return react
@@ -721,9 +742,10 @@ test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and support
 
   await signInBtn.props.onClick()
   await new Promise(resolve => setTimeout(resolve, 15))
-  assert.deepEqual(openedUrls, [['https://auth.deepseek.com/oauth/start?state=abc', '_blank', 'noopener,noreferrer']])
+  assert.deepEqual(openedUrls, [['https://auth.deepseek.com/oauth/start?state=abc&theme=light', '_blank', 'noopener,noreferrer']])
 
   const waiting = harness.render()
+  assert.ok(findAll(waiting, n => n.type === 'button' && n.props?.['data-copy-signin-link'] !== undefined).length === 1, 'Copy sign-in link renders while waiting')
   const cancelBtn = findAll(waiting, n => n.type === 'button' && /Cancel/i.test(textOf(n)))[0]
   assert.ok(cancelBtn, 'Cancel button renders while attempt is active')
   await cancelBtn.props.onClick()
@@ -731,8 +753,8 @@ test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and support
   harness.render()
   assert.equal(calls.some(([ep, b]) => ep === 'engine-account-cancel' && b?.attemptId === 'att-1'), true)
 
-  // Signed-in state exposes Sign out (matches DSH view.status === 'credential-stored' contract).
-  view = { status: 'credential-stored', attempt: null }
+  // Signed-in state exposes Sign out with confirmation step (matches DSH view.status === 'credential-stored' contract).
+  view = { status: 'credential-stored', links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' }, attempt: null }
   const signedHarness = createHarness(mod.AccountSettingsPage, { readOnly: false })
   signedHarness.render()
   await new Promise(resolve => setTimeout(resolve, 15))
@@ -740,6 +762,11 @@ test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and support
   const signOutBtn = findAll(signedTree, n => n.type === 'button' && /Sign out/i.test(textOf(n)))[0]
   assert.ok(signOutBtn)
   await signOutBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  const confirmTree = signedHarness.render()
+  const confirmBtn = findAll(confirmTree, n => n.type === 'button' && n.props?.['data-confirm-signout'] !== undefined)[0]
+  assert.ok(confirmBtn, 'Sign out requires confirmation step')
+  await confirmBtn.props.onClick()
   assert.equal(calls.some(([ep]) => ep === 'engine-account-signout'), true)
 })
 
@@ -2141,4 +2168,227 @@ test('PluginInventorySection renders Session and Global plugins, supports search
   const ptcScope = findAll(tree, n => n.props?.['data-plugin-scope'] === 'preset')[0]
   assert.match(textOf(ptcScope), /invalid yaml/, 'broken preset warning shown')
   assert.match(textOf(ptcScope), /Batch Runner/, 'switched to PTC preset rows')
+})
+
+test('AccountSettingsPage honors DSH AccountView/Profile/Balance contracts, exact balance formatting, copy link, API keys, and sign-out guard', async () => {
+  let stateReply = {
+    available: true,
+    view: {
+      status: 'credential-stored',
+      links: {
+        usageUrl: 'https://platform.deepseek.com/usage',
+        topUpUrl: 'https://platform.deepseek.com/top_up',
+      },
+      attempt: null,
+    },
+    profile: {
+      status: 'ready',
+      value: {
+        id: 'u_1',
+        name: 'Alice',
+        contact: 'a***@example.com',
+        avatarUrl: 'https://cdn.deepseek.com/avatar.png',
+      },
+    },
+    balance: {
+      status: 'ready',
+      value: [{ currency: 'CNY', balance: '1234.569' }],
+      bonusWallets: [{ currency: 'CNY', balance: '0.004' }, { currency: 'USD', balance: '0.00' }],
+    },
+  }
+  let runningReply = { available: true, running: true }
+  const copied = []
+  let openedModels = 0
+
+  const { mod, sandbox } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-account-state') return stateReply
+    if (endpoint === 'engine-account-running-tasks') return runningReply
+    if (endpoint === 'engine-account-signout') {
+      stateReply = { available: true, view: { status: 'signed-out', links: stateReply.view.links, attempt: null }, profile: null, balance: null }
+      return stateReply
+    }
+    return {}
+  })
+  sandbox.__testClipboard = async (v) => { copied.push(v); return true }
+
+  // Exact decimal balance formatting matches DSH formatBalance.ts rules (including non-canonical big.js inputs).
+  assert.equal(mod.formatAccountBalance('0', '¥'), '¥0.00')
+  assert.equal(mod.formatAccountBalance('-0.00', '¥'), '¥0.00')
+  assert.equal(mod.formatAccountBalance('0.004', '¥'), '<¥0.01')
+  assert.equal(mod.formatAccountBalance('1234567.899', '¥'), '¥1,234,567.89')
+  assert.equal(mod.formatAccountBalance('-0.004', '¥'), '-¥0.01')
+  assert.equal(mod.formatAccountBalance('-12.345', '$'), '-$12.35')
+  assert.equal(mod.formatAccountBalance('-12.344', '$'), '-$12.34')
+  assert.equal(mod.formatAccountBalance('-1234.995', '$'), '-$1,235.00')
+  assert.equal(mod.formatAccountBalance('+12.34', '¥'), '¥12.34')
+  assert.equal(mod.formatAccountBalance('.5', '$'), '$0.50')
+  assert.equal(mod.formatAccountBalance('-.5', '$'), '-$0.50')
+  assert.equal(mod.formatAccountBalance('12.', '¥'), '¥12.00')
+  assert.equal(mod.formatAccountBalance('1e-5', '¥'), '<¥0.01')
+  assert.equal(mod.formatAccountBalance('-1e-5', '¥'), '-¥0.01')
+  assert.equal(mod.formatAccountBalance('1.5e5', '¥'), '¥150,000.00')
+  assert.equal(mod.formatAccountBalance('not-a-number', '¥'), null)
+  assert.equal(mod.formatAccountBalance('1e99999', '¥'), null)
+
+  // Signed-in state with balance + sub-cent positive bonus + avatar + API keys links.
+  const harness = createHarness(mod.AccountSettingsPage, { readOnly: false, openModels: () => { openedModels += 1 } })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, openModels: () => { openedModels += 1 } })
+  assert.equal(textOf(findAll(tree, n => n.props?.['data-account-balance'] !== undefined)[0]), '¥1,234.56')
+  assert.equal(textOf(findAll(tree, n => n.props?.['data-account-bonus'] !== undefined)[0]), '<¥0.01')
+  assert.equal(findAll(tree, n => n.type === 'a' && n.props?.['data-account-info-link'] !== undefined)[0]?.props.href, 'https://platform.deepseek.com/')
+  assert.equal(findAll(tree, n => n.type === 'a' && n.props?.['data-platform-api-keys'] !== undefined)[0]?.props.href, 'https://platform.deepseek.com/api_keys')
+  const localBtn = findAll(tree, n => n.type === 'button' && n.props?.['data-open-local-providers'] !== undefined)[0]
+  assert.ok(localBtn)
+  localBtn.props.onClick()
+  assert.equal(openedModels, 1)
+
+  // Sign out checks running tasks and warns before confirming.
+  const signOutBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Sign out')[0]
+  await signOutBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  tree = harness.render({ readOnly: false })
+  assert.match(textOf(tree), /Some Bots are still working/)
+
+  // Cross-surface { details: false } broadcast while signed in MUST preserve profile/balance (no Loading… flash).
+  mod.publishDesktopAccountState({
+    available: true,
+    view: stateReply.view,
+    profile: null,
+    balance: null,
+  }, { source: 'bridge' })
+  tree = harness.render({ readOnly: false })
+  assert.equal(textOf(findAll(tree, n => n.props?.['data-account-balance'] !== undefined)[0]), '¥1,234.56', 'broadcast without details preserves balance')
+  assert.match(textOf(tree), /Alice/, 'broadcast without details preserves profile')
+
+  // Cross-surface signed-out broadcast clears profile/balance AND resets stale signOutPrompt (and hides Billing section).
+  const signedOutBroadcast = {
+    available: true,
+    view: { status: 'signed-out', links: stateReply.view.links, attempt: null },
+    profile: null,
+    balance: null,
+  }
+  mod.publishDesktopAccountState(signedOutBroadcast, { source: 'bridge' })
+  tree = harness.render({ readOnly: false })
+  assert.equal(textOf(tree).includes('Billing'), false, 'Billing section hidden when signed out')
+  assert.equal(textOf(tree).includes('Some Bots are still working'), false, 'signOutPrompt cleared on sign-out')
+  // Re-entering signed-in state must NOT resurrect stale signOutPrompt.
+  mod.publishDesktopAccountState(stateReply, { source: 'bridge' })
+  tree = harness.render({ readOnly: false })
+  assert.equal(textOf(tree).includes('Some Bots are still working'), false, 'stale signOutPrompt stays cleared after re-sign-in')
+  assert.equal(textOf(tree).includes('Billing'), true, 'Billing section visible when signed in')
+
+  // Failed balance falls back to clickable View on Platform link; zero bonus hides Granted balance row when ready.
+  stateReply = {
+    ...stateReply,
+    balance: { status: 'failed' },
+  }
+  const failHarness = createHarness(mod.AccountSettingsPage, { readOnly: false })
+  failHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const failTree = failHarness.render({ readOnly: false })
+  const platformLink = findAll(failTree, n => n.type === 'a' && n.props?.['data-balance-platform-link'] !== undefined)[0]
+  assert.equal(platformLink?.props.href, 'https://platform.deepseek.com/usage')
+
+  stateReply = {
+    ...stateReply,
+    balance: { status: 'ready', value: [{ currency: 'CNY', balance: '50.00' }], bonusWallets: [{ currency: 'CNY', balance: '0.00' }] },
+  }
+  const noBonusHarness = createHarness(mod.AccountSettingsPage, { readOnly: false })
+  noBonusHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const noBonusTree = noBonusHarness.render({ readOnly: false })
+  assert.equal(textOf(noBonusTree).includes('Granted balance'), false, 'zero bonus hides Granted balance row')
+
+  // Waiting-browser state copies themed link with dark theme; committing disables Cancel; readOnly shows banner.
+  sandbox.document.body.setAttribute('data-ds-dark-theme', '')
+  stateReply = {
+    available: true,
+    view: {
+      status: 'signed-out',
+      links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' },
+      attempt: { id: 'att-dark', phase: 'waiting-browser', authorizeUrl: 'https://auth.deepseek.com/oauth?state=xyz' },
+    },
+    profile: null,
+    balance: null,
+  }
+  const waitHarness = createHarness(mod.AccountSettingsPage, { readOnly: true })
+  waitHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let waitTree = waitHarness.render({ readOnly: true })
+  assert.match(textOf(waitTree), /read-only/i)
+  const copyBtn = findAll(waitTree, n => n.type === 'button' && n.props?.['data-copy-signin-link'] !== undefined)[0]
+  assert.ok(copyBtn)
+  copyBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  waitTree = waitHarness.render({ readOnly: true })
+  assert.deepEqual(copied, ['https://auth.deepseek.com/oauth?state=xyz&theme=dark'])
+  assert.match(textOf(waitTree), /Link copied/)
+
+  // Malformed external URLs are rejected by safeExternalUrl (no broken links rendered).
+  stateReply = {
+    available: true,
+    view: {
+      status: 'credential-stored',
+      links: { usageUrl: 'https://[invalid-host', topUpUrl: 'javascript:alert(1)' },
+      attempt: null,
+    },
+    profile: { status: 'ready', value: { name: 'Bob', avatarUrl: 'https://[invalid' } },
+    balance: { status: 'ready', value: [{ currency: 'CNY', balance: '10' }], bonusWallets: [] },
+  }
+  const badUrlHarness = createHarness(mod.AccountSettingsPage, { readOnly: false })
+  badUrlHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const badUrlTree = badUrlHarness.render({ readOnly: false })
+  assert.equal(findAll(badUrlTree, n => n.type === 'a').length, 0, 'malformed and non-http links rejected')
+  assert.equal(findAll(badUrlTree, n => n.type === 'img').length, 0, 'malformed avatar URL rejected')
+})
+
+test('DesktopDeepSeekSignInModal dismiss cancels an active sign-in attempt', async () => {
+  const calls = []
+  const { mod, sandbox } = loadMod(async (ep, body) => {
+    calls.push([ep, body])
+    if (ep === 'engine-account-state') {
+      return {
+        available: true,
+        view: {
+          status: 'signed-out',
+          attempt: { id: 'att-modal-1', phase: 'waiting-browser', authorizeUrl: 'https://auth.deepseek.com/oauth?s=1' },
+        },
+        profile: null,
+        balance: null,
+      }
+    }
+    if (ep === 'engine-account-cancel') {
+      return { available: true, view: { status: 'signed-out', attempt: null }, profile: null, balance: null }
+    }
+    return {}
+  })
+  const bridge = mod.createDesktopAccountBridge({
+    call: (ep, body) => sandbox.__testCall(ep, body),
+    after: p => p,
+  })
+  const entry = bridge.signInEntry()
+  assert.ok(entry)
+  const injected = entry.inject()
+  const Modal = entry.component
+  let completed = 0
+  const modalProps = {
+    useAccount: sel => sel(injected.hooks.account.getSnapshot()),
+    refresh: injected.refresh,
+    startSignIn: injected.startSignIn,
+    cancelSignIn: injected.cancelSignIn,
+    complete: () => { completed += 1 },
+  }
+  const harness = createHarness(Modal, modalProps)
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  const tree = harness.render(modalProps)
+  const closeBtn = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Close')[0]
+  assert.ok(closeBtn, 'Close button renders in sign-in modal')
+  closeBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(completed, 1, 'dismiss completes modal')
+  assert.equal(calls.some(([ep, b]) => ep === 'engine-account-cancel' && b?.attemptId === 'att-modal-1'), true, 'dismiss cancels active sign-in attempt')
 })

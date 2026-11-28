@@ -992,3 +992,58 @@ test('engine-plugins-inventory reads pluginInventory service or falls back to pl
   assert.equal(recSnap.entries[0].entryId, 'rec1')
   assert.equal(recSnap.agentPresets[0].id, 'standard')
 })
+
+test('engine-account-running-tasks inspects deepseekAccount and active workView while staying computer-only and read-only-safe', async () => {
+  let activeTasks = false
+  let throwOnCheck = false
+  const { rt } = makeHarness({
+    services: {
+      deepseekAccount: {
+        async hasRunningAccountTasks() {
+          if (throwOnCheck) throw new Error('check failed')
+          return activeTasks
+        },
+      },
+    },
+  })
+
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false })
+  activeTasks = true
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+  activeTasks = false
+  throwOnCheck = true
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false, unknown: true })
+
+  // Fallback inspects real host work views (workView, roomWorkView, agentWorkView, turnsView) directly.
+  throwOnCheck = false
+  rt.workView = () => ({})
+  rt.roomWorkView = () => ({})
+  rt.agentWorkView = () => ({})
+  rt.turnsView = () => ({})
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: false })
+
+  rt.workView = () => ({ b1: { since: 1000, tool: 'bash' } })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.workView = () => ({})
+  rt.roomWorkView = () => ({ r1: [{ botId: 'b1', since: 1000 }] })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.roomWorkView = () => ({})
+  rt.agentWorkView = () => ({ a1: { since: 1000 } })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  rt.agentWorkView = () => ({})
+  rt.turnsView = () => ({ s1: 1000 })
+  assert.deepEqual(await rt.engineEndpoint('account-running-tasks', {}), { available: true, running: true })
+
+  // Read-only host allows engine-account-running-tasks (in READS), while remote/phone callers are refused.
+  const { rt: roRt } = makeHarness({
+    readOnly: 'Another dsh holds this team',
+    services: { deepseekAccount: { async hasRunningAccountTasks() { return false } } },
+  })
+  const roRes = await roRt.channelCall('engine-account-running-tasks', {})
+  assert.equal(roRes.ok, true)
+  assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-account-running-tasks')?.code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-account-running-tasks')?.code, 'bot/refused')
+})

@@ -5,7 +5,7 @@
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { hostText, language, t } from '../../../ds-bot/src/client/i18n.js'
-import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
+import { CheckIcon, CloseIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { createSource } from '../../../ds-bot/src/client/sources.js'
 
@@ -13,6 +13,48 @@ const SAFE_EXTERNAL_URL = /^https?:\/\//i
 const safeExternalUrl = value => (typeof value === 'string' && SAFE_EXTERNAL_URL.test(value.trim()) ? value.trim() : null)
 const SIGNIN_POLL_MS = 2000
 const IN_FLIGHT_PHASES = new Set(['initializing', 'waiting-browser', 'exchanging', 'committing'])
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? '')
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+  } catch { /* fall through to execCommand */ }
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function' || !document.body) return false
+  const area = document.createElement('textarea')
+  area.value = value
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.top = '-9999px'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  const previous = document.activeElement
+  area.focus()
+  area.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  area.remove()
+  if (typeof HTMLElement !== 'undefined' && previous instanceof HTMLElement) previous.focus()
+  return ok
+}
+
+export function currentColorScheme() {
+  return typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true ? 'dark' : 'light'
+}
+
+export function authorizeUrlWithTheme(authorizeUrl, colorScheme = currentColorScheme()) {
+  const safe = safeExternalUrl(authorizeUrl)
+  if (!safe) return null
+  try {
+    const url = new URL(safe)
+    url.searchParams.set('theme', colorScheme === 'dark' ? 'dark' : 'light')
+    return url.href
+  } catch {
+    return safe
+  }
+}
 
 const ACCOUNT_COPY = {
   signOut: () => t('Sign out'),
@@ -40,20 +82,35 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   const view = state?.view ?? null
   const attempt = view?.attempt ?? null
   const signedIn = view?.status === 'credential-stored'
-  const signingIn = Boolean(attempt && IN_FLIGHT_PHASES.has(attempt.phase))
-  const authorizeUrl = safeExternalUrl(attempt?.authorizeUrl)
+  const phase = attempt?.phase
+  const signingIn = Boolean(attempt && IN_FLIGHT_PHASES.has(phase))
+  const committing = phase === 'committing'
+  const authorizeUrl = authorizeUrlWithTheme(attempt?.authorizeUrl)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [copyState, setCopyState] = useState('')
+  const copyTimer = useRef(0)
   const dialogRef = useRef(null)
   const closeRef = useRef(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
     mountedRef.current = true
-    return () => { mountedRef.current = false }
+    return () => {
+      mountedRef.current = false
+      clearTimeout(copyTimer.current)
+    }
   }, [])
 
-  useEscape(complete, !leaving, { priority: ESCAPE_PRIORITY.DIALOG })
+  useEffect(() => { setCopyState('') }, [attempt?.id, attempt?.authorizeUrl])
+
+  const dismiss = useCallback(() => {
+    if (committing || busy) return
+    if (signingIn && attempt?.id) void cancelSignIn(attempt.id).catch(() => {})
+    complete()
+  }, [committing, busy, signingIn, attempt?.id, cancelSignIn, complete])
+
+  useEscape(dismiss, !leaving, { priority: ESCAPE_PRIORITY.DIALOG })
   useModalFocusTrap(dialogRef, !leaving, { initialFocusRef: closeRef })
 
   useEffect(() => {
@@ -80,7 +137,7 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
     setError('')
     try {
       const next = await startSignIn()
-      const url = safeExternalUrl(next?.view?.attempt?.authorizeUrl)
+      const url = authorizeUrlWithTheme(next?.view?.attempt?.authorizeUrl)
       if (url && typeof window !== 'undefined') window.open?.(url, '_blank', 'noopener,noreferrer')
     } catch (failure) {
       if (mountedRef.current) setError(hostText(failure?.message ?? String(failure)))
@@ -90,6 +147,7 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   }, [busy, startSignIn])
 
   const cancel = useCallback(async () => {
+    if (committing) return
     const attemptId = attempt?.id
     if (busy || !attemptId) { complete(); return }
     setBusy(true)
@@ -101,13 +159,43 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
     } finally {
       if (mountedRef.current) setBusy(false)
     }
-  }, [attempt?.id, busy, cancelSignIn, complete])
+  }, [attempt?.id, busy, committing, cancelSignIn, complete])
 
-  const failureMessage = error || (attempt?.phase === 'failed' && attempt?.error ? hostText(String(attempt.error)) : '')
+  const copyLink = useCallback(async () => {
+    if (!authorizeUrl) return
+    const ok = await copyTextToClipboard(authorizeUrl)
+    if (!mountedRef.current) return
+    setCopyState(ok ? 'copied' : 'failed')
+    clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => {
+      if (mountedRef.current) setCopyState('')
+    }, 2000)
+  }, [authorizeUrl])
+
+  const phaseStatus = phase === 'initializing'
+    ? t('Starting sign in…')
+    : phase === 'waiting-browser'
+      ? t('Continue in your browser')
+      : (phase === 'exchanging' || phase === 'committing')
+        ? t('Completing sign in…')
+        : ''
+  const failureMessage = error
+    || (phase === 'expired' ? t('Sign in expired. Try again.') : '')
+    || (phase === 'failed'
+      ? (attempt?.errorCode === 'no-response'
+        ? t('Something went wrong. Please check your network connection and try again.')
+        : (attempt?.error ? hostText(String(attempt.error)) : t('Could not sign in')))
+      : '')
+  const copyLabel = copyState === 'copied'
+    ? t('Link copied')
+    : copyState === 'failed'
+      ? t('Copy failed')
+      : t('Copy sign-in link')
+
   const body = h('div', {
     className: 'dsb-signin-mask',
     'data-leaving': leaving || undefined,
-    onMouseDown: (event) => { if (!leaving && event.target === event.currentTarget) complete() },
+    onMouseDown: (event) => { if (!leaving && event.target === event.currentTarget) dismiss() },
   },
   h('section', {
     ref: dialogRef,
@@ -123,29 +211,31 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
       ref: closeRef,
       type: 'button',
       className: 'bt-icon-btn',
+      disabled: committing || busy,
       'aria-label': t('Close'),
       title: t('Close'),
-      onClick: complete,
+      onClick: dismiss,
     }, h(CloseIcon))),
   h('div', { className: 'dsb-signin-body' },
     signingIn
-      ? h('p', { className: 'dsb-signin-note', role: 'status' }, t('Complete sign-in in your browser'))
+      ? h('p', { className: 'dsb-signin-note', role: 'status' }, phaseStatus || t('Complete sign-in in your browser'))
       : null,
     failureMessage
       ? h('p', { className: 'bt-error', role: 'alert' }, failureMessage)
       : null),
   h('div', { className: 'dsb-signin-foot' },
     typeof useApiKey === 'function'
-      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: useApiKey }, t('Enter a DeepSeek API key'))
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: committing || busy, onClick: useApiKey }, t('Enter a DeepSeek API key'))
       : null,
     h('div', { className: 'dsb-signin-actions' },
       signingIn
         ? [
+            authorizeUrl ? h('button', { key: 'copy', type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-copy-signin-link': '', onClick: () => { void copyLink() } }, copyState === 'copied' ? h(CheckIcon) : h(CopyIcon), copyLabel) : null,
             authorizeUrl ? h('a', { key: 'open', className: 'bt-soft bt-soft-sm dsb-engine-link', href: authorizeUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open sign-in')) : null,
-            h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => { void cancel() } }, t('Cancel')),
+            h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || committing, onClick: () => { void cancel() } }, t('Cancel')),
           ]
         : [
-            h('button', { key: 'close', type: 'button', className: 'bt-soft bt-soft-sm', onClick: complete }, t('Cancel')),
+            h('button', { key: 'close', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: dismiss }, t('Cancel')),
             h('button', { key: 'go', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { void begin() } }, busy ? t('Waiting for sign-in…') : (failureMessage ? t('Try again') : t('Sign in'))),
           ]))))
 

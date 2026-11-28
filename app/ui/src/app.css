@@ -708,6 +708,12 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-engine-inline>.bt-sel{max-width:min(240px,100%);min-width:0}
 .dsb-engine-link{text-decoration:none;display:inline-flex;align-items:center;min-height:28px}
 .dsb-engine-val{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.dsb-acct-who{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 auto}
+.dsb-acct-avatar{width:34px;height:34px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);border:.5px solid var(--bt-line);color:var(--bt-ink-2);overflow:hidden;box-sizing:border-box}
+.dsb-acct-avatar img{width:100%;height:100%;display:block;object-fit:cover}
+.dsb-acct-avatar svg{width:16px;height:16px}
+.dsb-acct-confirm{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;border-top:.5px solid var(--bt-line);background:var(--bt-danger-soft)}
+.dsb-acct-confirm-msg{font-size:12.5px;line-height:18px;color:var(--bt-ink);flex:1 1 200px}
 .dsb-engine-install{display:flex;align-items:center;gap:8px;padding:12px 16px}
 .dsb-engine-install .bt-input{flex:1 1 auto;min-width:0}
 .dsb-engine-install+.dsb-plug-row{border-top:.5px solid var(--bt-line)}
