@@ -203,6 +203,7 @@ async function loadDesktopBundle() {
     bundle: true,
     format: 'cjs',
     platform: 'browser',
+    nodePaths: [path.join(REPO_ROOT, 'app/node_modules')],
     write: false,
     logLevel: 'silent',
     external: ['react', 'react-dom'],
@@ -308,6 +309,7 @@ async function instantiatePluginFace() {
     bundle: true,
     format: 'cjs',
     platform: 'browser',
+    nodePaths: [path.join(REPO_ROOT, 'app/node_modules')],
     write: false,
     logLevel: 'silent',
     external: [
