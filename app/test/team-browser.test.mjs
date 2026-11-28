@@ -1166,10 +1166,13 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
   assert.equal(focusCalls, 3)
 
-  // 7c. Re-open and dismiss via outside press (`setLeftDrawer(false)` directly): restores focus.
+  // 7c. Re-open and dismiss via drag-to-rail (`setLeftDrawer(false)` then `setSidebarPref('rail')`
+  // in the same event): second dismiss preserves the pending focus restore.
   findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
   tree = render()
-  findAll(tree, n => n.type?.name === 'TeamSidebar')[0].props.actions.setLeftDrawer(false)
+  const dragSidebar = findAll(tree, n => n.type?.name === 'TeamSidebar')[0]
+  dragSidebar.props.actions.setLeftDrawer(false)
+  dragSidebar.props.actions.setSidebarPref('rail')
   tree = render()
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
   assert.equal(focusCalls, 4)

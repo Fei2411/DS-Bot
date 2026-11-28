@@ -198,7 +198,10 @@ export function App() {
     setDrawerOpen(true)
   }, [])
   const closeDrawer = useCallback(({ restoreFocus = false } = {}) => {
-    if (!drawerOpenRef.current) { restoreMobileMenuFocusRef.current = false; return }
+    if (!drawerOpenRef.current) {
+      if (!restoreFocus) restoreMobileMenuFocusRef.current = false
+      return
+    }
     drawerOpenRef.current = false
     restoreMobileMenuFocusRef.current = restoreFocus
     setDrawerOpen(false)
@@ -352,8 +355,10 @@ export function App() {
       return
     }
     if (hit === 'sidebar') {
-      if (isNarrowRef.current) setDrawerOpen(open => !open)
-      else actions.toggleSidebar()
+      if (isNarrowRef.current) {
+        if (drawerOpenRef.current) closeDrawer({ restoreFocus: true })
+        else openDrawer()
+      } else actions.toggleSidebar()
       return
     }
     if (hit === 'switch-surface') {
