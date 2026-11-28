@@ -964,13 +964,35 @@ test('message jump pages the active DM until it mounts the hit, exhausts history
     const calls = []
     const scrolled = []
     const highlighted = []
+    const listeners = new Map()
+    let resize
+    let rowTop = 175
+    const column = {}
     const uiState = { messageJump: target }
     const row = {
       textContent: 'Earlier target',
       getAttribute: () => 'b1',
+      closest: () => column,
+      getBoundingClientRect: () => ({ top: rowTop, height: 50 }),
       scrollIntoView: options => scrolled.push(options.block),
       classList: { add: value => highlighted.push(value), remove() {} },
     }
+    sandbox.ResizeObserver = class {
+      constructor(update) { this.update = update; this.observed = new Set() }
+      observe(node) {
+        this.observed.add(node)
+        if (node === row) resize = this.update
+        if (this.observed.size === 3) assert.deepEqual(this.observed, new Set([column, row, field]))
+      }
+      disconnect() { if (resize === this.update) resize = undefined }
+    }
+    const { addEventListener, removeEventListener } = field
+    Object.assign(field, {
+      ownerDocument: sandbox.document,
+      getBoundingClientRect: () => ({ top: 0 }),
+      addEventListener: (event, listener) => listeners.set(event, listener),
+      removeEventListener: event => listeners.delete(event),
+    })
     field.querySelectorAll = () => []
     sandbox.__testCall = async (name, body) => {
       assert.equal(name, 'session-page')
@@ -1018,11 +1040,27 @@ test('message jump pages the active DM until it mounts the hit, exhausts history
       assert.equal(uiState.messageJump, null, scenario)
       assert.deepEqual(scrolled, scenario === 'found' ? ['center'] : [], scenario)
       assert.deepEqual(highlighted, scenario === 'found' ? ['bt-message-jump'] : [], scenario)
-      if (scenario === 'found') assert.equal(all(tree, node => node.props?.['data-bt-message-turn'] === 2).length, 1)
+      if (scenario === 'found') {
+        assert.equal(all(tree, node => node.props?.['data-bt-message-turn'] === 2).length, 1)
+        resize()
+        assert.deepEqual(scrolled, ['center'], 'stable layout does not scroll again')
+        rowTop = 55
+        resize()
+        assert.deepEqual(scrolled, ['center', 'center'], 'recenter after the laid-out rows shrink')
+        assert.deepEqual(highlighted, ['bt-message-jump'], 'do not restart the highlight')
+        listeners.get('wheel')()
+        assert.equal(resize, undefined, 'user scroll input releases the target')
+      } else {
+        assert.equal(resize, undefined, 'do not observe missing hits')
+      }
     } finally {
       inst.unmount()
       sandbox.__testCall = previousCall
+      delete sandbox.ResizeObserver
       delete field.querySelectorAll
+      delete field.ownerDocument
+      delete field.getBoundingClientRect
+      Object.assign(field, { addEventListener, removeEventListener })
     }
   }
 })

@@ -22,6 +22,36 @@ const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 const NO_SESSIONS_HOOK = selector => selector(EMPTY_SESSIONS)
 const MemoChatRows = memo(ChatRows)
 
+function watchMessageCenter(node, row, onStop) {
+  if (typeof ResizeObserver !== 'function') return undefined
+  const column = row.closest('.dsb-column')
+  if (!column) return undefined
+  const observer = new ResizeObserver(() => {
+    const rect = row.getBoundingClientRect()
+    const center = node.getBoundingClientRect().top + node.clientHeight / 2
+    if (Math.abs(rect.top + rect.height / 2 - center) > 1) {
+      row.scrollIntoView({ block: 'center', behavior: 'instant' })
+    }
+  })
+  let watching = true
+  const stop = () => {
+    if (!watching) return
+    watching = false
+    observer.disconnect()
+    node.removeEventListener('pointerdown', stop)
+    node.removeEventListener('wheel', stop)
+    node.ownerDocument.removeEventListener('keydown', stop, true)
+    onStop()
+  }
+  node.addEventListener('pointerdown', stop)
+  node.addEventListener('wheel', stop, { passive: true })
+  node.ownerDocument.addEventListener('keydown', stop, true)
+  observer.observe(column)
+  observer.observe(row)
+  observer.observe(node)
+  return stop
+}
+
 const itemIdKey = item => (item?.id !== undefined && item?.id !== null
   ? `${item.sessionId ?? ''}:${item.id}`
   : null)
@@ -395,6 +425,9 @@ export const Transcript = memo(function Transcript({
   const [following, setFollowing] = useState(true)
   const keep = useRef(null)
   const jumpProgress = useRef(null)
+  const stopJumpCentering = useRef()
+
+  useLayoutEffect(() => () => stopJumpCentering.current?.(), [viewedSessionId])
 
   useLayoutEffect(() => {
     keep.current = null
@@ -406,10 +439,12 @@ export const Transcript = memo(function Transcript({
   if (transcriptRef) {
     transcriptRef.current = {
       followBottom() {
+        stopJumpCentering.current?.()
         follow.current = true
         setFollowing(true)
       },
       resetFollow() {
+        stopJumpCentering.current?.()
         follow.current = true
         setFollowing(true)
         keep.current = null
@@ -481,6 +516,7 @@ export const Transcript = memo(function Transcript({
   }
 
   const scrollToBottom = () => {
+    stopJumpCentering.current?.()
     follow.current = true
     setFollowing(true)
     const node = scrollerRef.current
@@ -523,6 +559,7 @@ export const Transcript = memo(function Transcript({
     }
     if (viewChanged) return undefined
     if (jumpProgress.current?.target !== messageJump) {
+      stopJumpCentering.current?.()
       jumpProgress.current = { target: messageJump, tried: new Set(), followedTail: follow.current }
     }
     follow.current = false
@@ -545,7 +582,8 @@ export const Transcript = memo(function Transcript({
       let frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
           keep.current = null
-          highlightMessage(row)
+          stopJumpCentering.current = watchMessageCenter(node, row, () => { stopJumpCentering.current = undefined })
+          highlightMessage(row, stopJumpCentering.current)
           actions.finishMessageJump(messageJump)
         })
       })

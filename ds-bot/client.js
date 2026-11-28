@@ -25259,7 +25259,7 @@ function findMessageRow(root, { sessionId, turn, snippet, synthetic, role }, all
   return matches3[0] ?? (allowFallback ? preferred[0] ?? rows2[0] : void 0);
 }
 var highlights = /* @__PURE__ */ new WeakMap();
-function highlightMessage(row) {
+function highlightMessage(row, onClear) {
   highlights.get(row)?.();
   row.scrollIntoView({ block: "center", behavior: "instant" });
   row.classList.add(HIGHLIGHT_CLASS);
@@ -25267,6 +25267,7 @@ function highlightMessage(row) {
     clearTimeout(timer2);
     row.classList.remove(HIGHLIGHT_CLASS);
     highlights.delete(row);
+    onClear?.();
   };
   const timer2 = setTimeout(clear, HIGHLIGHT_MS);
   highlights.set(row, clear);

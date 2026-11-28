@@ -24,7 +24,7 @@ export function findMessageRow(root, { sessionId, turn, snippet, synthetic, role
 
 const highlights = new WeakMap()
 
-export function highlightMessage(row) {
+export function highlightMessage(row, onClear) {
   highlights.get(row)?.()
   row.scrollIntoView({ block: 'center', behavior: 'instant' })
   row.classList.add(HIGHLIGHT_CLASS)
@@ -32,6 +32,7 @@ export function highlightMessage(row) {
     clearTimeout(timer)
     row.classList.remove(HIGHLIGHT_CLASS)
     highlights.delete(row)
+    onClear?.()
   }
   const timer = setTimeout(clear, HIGHLIGHT_MS)
   highlights.set(row, clear)
