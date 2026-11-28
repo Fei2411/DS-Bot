@@ -509,7 +509,7 @@ test('file and folder references parse cleanly with no false positives and open 
 })
 
 test('desktop Bot replies load local Markdown images through the session-scoped endpoint', async () => {
-  const paths = ['sample.png', '/repo/sample.png', 'file:///repo/sample%20image.png', '../outside.png', 'C:%5Cwork%5Cplot.png']
+  const paths = ['sample.png', '/repo/sample.png', 'file:///repo/sample%20image.png', '../outside.png', 'C:%5Cwork%5Cplot.png', '%5C%5Cserver%5Cshare%5Cplot.png']
   const bytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='
   const requests = []
   const previousCall = sandbox.__testCall
@@ -522,6 +522,7 @@ test('desktop Bot replies load local Markdown images through the session-scoped 
   const text = [
     ...paths.map((path, i) => `![Local ${i}](${path})`),
     '![Remote](https://example.com/sample.png)',
+    '![Network](//example.com/sample.png)',
     '![Data](data:image/png;base64,AAAA)',
     '![Blocked](javascript:alert(1))',
   ].join('\n\n')
@@ -548,7 +549,9 @@ test('desktop Bot replies load local Markdown images through the session-scoped 
       'Local 2': `data:image/png;base64,${bytes}`,
       'Local 3': null,
       'Local 4': `data:image/png;base64,${bytes}`,
+      'Local 5': `data:image/png;base64,${bytes}`,
       Remote: 'https://example.com/sample.png',
+      Network: '//example.com/sample.png',
       Data: null,
       Blocked: null,
     })

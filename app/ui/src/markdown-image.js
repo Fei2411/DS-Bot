@@ -5,9 +5,8 @@ export const MarkdownImageSession = createContext(null)
 
 export function isLocalMarkdownImage(src) {
   let path = src?.trim().split(/[?#]/, 1)[0]
-  if (!path) return false
+  if (!path || /^[/\\]{2}/.test(path)) return false
   try { path = decodeURIComponent(path) } catch { /* keep raw if malformed % */ }
-  if (/^[/\\]{2}/.test(path)) return false
   return /^(?:file:\/\/|[a-z]:[/\\])/i.test(path) || !/^[a-z][a-z\d+.-]*:/i.test(path)
 }
 
