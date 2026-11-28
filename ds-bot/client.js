@@ -721,6 +721,11 @@ var JA = {
   "Top up ↗": "チャージする ↗",
   "Retry": "再試行",
   "Retrying…": "再試行中…",
+  "Continuing…": "再開中…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} は連続して複数回の自動パート切り替えを行ったため一時停止しました。指示を入力するか「続行」をクリックしてください。",
+  "Paused to prevent a repeating loop": "反復ループを防ぐため一時停止しました",
+  "Paused after repeated automatic part switches": "連続した自動パート切り替え後に一時停止しました",
   "Technical details": "技術的な詳細",
   "Code": "コード",
   "HTTP status": "HTTP ステータス",
@@ -4361,6 +4366,11 @@ var KO = {
   "Top up ↗": "충전하기 ↗",
   Retry: "재시도",
   "Retrying…": "재시도 중…",
+  "Continuing…": "계속하는 중…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name}이(가) 여러 번 연속으로 대화 구간을 전환해 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
+  "Paused to prevent a repeating loop": "반복 루프를 방지하기 위해 일시 중지됨",
+  "Paused after repeated automatic part switches": "반복된 자동 대화 구간 전환 후 일시 중지됨",
   "Technical details": "기술 세부 정보",
   Code: "코드",
   "HTTP status": "HTTP 상태 코드",
@@ -8040,6 +8050,11 @@ var ES = {
   "Top up ↗": "Recargar ↗",
   Retry: "Reintentar",
   "Retrying…": "Reintentando…",
+  "Continuing…": "Continuando…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} se pausó tras cambiar de segmento varias veces seguidas. Responde con indicaciones o haz clic en Continuar.",
+  "Paused to prevent a repeating loop": "Pausado para evitar un bucle repetitivo",
+  "Paused after repeated automatic part switches": "Pausado tras varios cambios automáticos de segmento",
   "Technical details": "Detalles técnicos",
   Code: "Código",
   "HTTP status": "Estado HTTP",
@@ -11713,6 +11728,11 @@ var FR = {
   "Top up ↗": "Recharger ↗",
   "Retry": "Réessayer",
   "Retrying…": "Nouvelle tentative…",
+  "Continuing…": "Reprise…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} s’est mis en pause après plusieurs changements automatiques de segment consécutifs. Répondez avec des instructions ou cliquez sur Continuer.",
+  "Paused to prevent a repeating loop": "Mis en pause pour éviter une boucle répétitive",
+  "Paused after repeated automatic part switches": "Mis en pause après plusieurs changements automatiques de segment",
   "Technical details": "Détails techniques",
   "Code": "Code",
   "HTTP status": "Statut HTTP",
@@ -15353,6 +15373,11 @@ var DE = {
   "Top up ↗": "Aufladen ↗",
   Retry: "Erneut versuchen",
   "Retrying…": "Wird erneut versucht…",
+  "Continuing…": "Wird fortgesetzt…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} wurde pausiert, weil Tool-Aufrufe wiederholt fehlschlugen oder sich wiederholten. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} wurde nach mehreren automatischen Abschnittswechseln pausiert. Antworte mit Hinweisen oder klicke auf Fortfahren.",
+  "Paused to prevent a repeating loop": "Pausiert, um eine Wiederholungsschleife zu verhindern",
+  "Paused after repeated automatic part switches": "Nach wiederholten automatischen Abschnittswechseln pausiert",
   "Technical details": "Technische Details",
   Code: "Code",
   "HTTP status": "HTTP-Status",
@@ -18907,6 +18932,11 @@ var ZH = {
   "Top up ↗": "去充值 ↗",
   Retry: "重试",
   "Retrying…": "正在重试…",
+  "Continuing…": "正在继续…",
+  "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。",
+  "{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.": "{name} 已连续多次自动换段仍未结束，已自动暂停。回复指导或点击「继续」。",
+  "Paused to prevent a repeating loop": "已自动暂停以防重复循环",
+  "Paused after repeated automatic part switches": "连续多次自动换段后已暂停",
   "Technical details": "技术详情",
   Code: "代码",
   "HTTP status": "HTTP 状态码",
@@ -21731,6 +21761,8 @@ var FAILURES = {
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
+  TURN_PAUSED_LOOP: "Paused to prevent a repeating loop",
+  TURN_PAUSED_SWITCH_LIMIT: "Paused after repeated automatic part switches",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -24799,6 +24831,7 @@ var SPRING_POP = springEasing(500, 22);
 var SPRING_LEAD = springEasing(784, 48.2);
 var SPRING_TRAIL = springEasing(289, 29.2);
 var SPRING_GLIDE = springEasing(1e3, 63);
+var SPRING_SLIDE = springEasing(784, 56);
 var QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) };
 var spring = (curve, ...properties) => properties.map((property) => `${property} ${curve.duration}ms ${curve.easing}`).join(",");
 function liveSprings(apply2) {
@@ -24806,9 +24839,14 @@ function liveSprings(apply2) {
   const current2 = {};
   let frame3 = 0;
   let last = 0;
+  const cancel = () => {
+    if (frame3 && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame3);
+    frame3 = 0;
+  };
   const step = (now2) => {
-    const dt = Math.min(0.5, Math.max(1e-3, (now2 - last) / 1e3));
-    last = now2;
+    const stamp = Number.isFinite(now2) ? now2 : performance.now();
+    const dt = Math.min(0.5, Math.max(1e-3, (stamp - last) / 1e3));
+    last = stamp;
     const steps = Math.ceil(dt * 240);
     const h94 = dt / steps;
     let moving = false;
@@ -24823,8 +24861,8 @@ function liveSprings(apply2) {
       } else moving = true;
       current2[key] = value.x;
     }
-    apply2(current2);
     frame3 = moving ? requestAnimationFrame(step) : 0;
+    apply2(current2, moving);
   };
   return {
     target: () => {
@@ -24833,19 +24871,33 @@ function liveSprings(apply2) {
       for (const [key, value] of values) out[key] = value.to;
       return out;
     },
+    current: () => values.size ? { ...current2 } : null,
+    isRunning: () => frame3 !== 0,
+    seed(initial) {
+      cancel();
+      for (const [key, x] of Object.entries(initial)) {
+        const value = values.get(key);
+        if (value) {
+          value.x = x;
+          value.v = 0;
+          value.to = x;
+        } else values.set(key, { x, v: 0, to: x, k: 0, c: 0 });
+        current2[key] = x;
+      }
+    },
     set(targets, curves, jump) {
+      const immediate = jump || typeof requestAnimationFrame !== "function";
       for (const [key, to] of Object.entries(targets)) {
         const value = values.get(key);
         const { stiffness: k, damping: c } = curves[key];
-        if (!value || jump) {
+        if (!value || immediate) {
           values.set(key, { x: to, v: 0, to, k, c });
           current2[key] = to;
         } else Object.assign(value, { to, k, c });
       }
-      if (jump) {
-        cancelAnimationFrame(frame3);
-        frame3 = 0;
-        apply2(current2);
+      if (immediate) {
+        cancel();
+        apply2(current2, false);
         return;
       }
       if (!frame3) {
@@ -24856,13 +24908,9 @@ function liveSprings(apply2) {
     reset: () => {
       values.clear();
       for (const key of Object.keys(current2)) delete current2[key];
-      cancelAnimationFrame(frame3);
-      frame3 = 0;
+      cancel();
     },
-    stop: () => {
-      cancelAnimationFrame(frame3);
-      frame3 = 0;
-    }
+    stop: cancel
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -25327,10 +25375,9 @@ body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert
    and the floating drawer keeps the opaque fill over the conversation. */
 .bt-leftcol{position:fixed;left:0;top:0;bottom:0;z-index:25;display:flex;--bt-lc-clear:var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px));background:var(--bt-leftcol-fill,var(--bt-sidebar));border-right:.5px solid var(--bt-line);box-sizing:border-box;padding:calc(var(--bt-lc-clear) + 6px) 12px 6px;color:var(--bt-ink);font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{border-right:none}
-.bt-leftcol[data-entering]{animation:bt-leftcol-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-leftcol[data-leaving]{transform:translateX(-100%);transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};pointer-events:none}
-@keyframes bt-leftcol-in{from{transform:translateX(-100%)}}
-@media (prefers-reduced-motion:reduce){.bt-leftcol[data-entering]{animation:none}.bt-leftcol[data-leaving],[class*="_centerCol"]{transition:none}}
+.bt-leftcol[data-sliding]{will-change:transform}
+.bt-leftcol[data-leaving]{pointer-events:none}
+@media (prefers-reduced-motion:reduce){.bt-leftcol[data-folding],[class*="_centerCol"]{transition:none}}
 .bt-leftcol-grip{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-leftcol-grip:hover,.bt-leftcol-grip:active{background:linear-gradient(to right,transparent 3px,var(--bt-line-2) 3px,var(--bt-line-2) 5px,transparent 5px)}
 /* The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
@@ -25370,7 +25417,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol-foot-rail{flex-direction:column;gap:8px}
 /* A drag that crosses the rail's snap line rides the spring to its target: the
    content is pinned at the target size so only the column's edge moves. */
-.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -25663,9 +25710,9 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-panel[data-instant]{transition:none}
 @keyframes bt-pane-in{from{transform:translateX(100%)}}
 @media (prefers-reduced-motion:reduce){.bt-panel{animation:none;transition:none}.bt-panel[data-leaving]{transition:none}}
-/* The conversation's margins glide with the Bot panel's slide and with our left
-   column's slide in and out. */
-[class*="_centerCol"]{transition:margin-right ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+/* The conversation's right margin glides with the Bot panel; the left margin is
+   driven atomically with .bt-leftcol by TeamSidebar's spring so both stay locked. */
+[class*="_centerCol"]{transition:margin-right ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-panel-grip{position:absolute;left:-5px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-panel-grip:hover,.bt-panel[data-dragging] .bt-panel-grip{background:linear-gradient(to right,transparent 4px,var(--bt-line-2) 4px,var(--bt-line-2) 6px,transparent 6px)}
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}
@@ -49901,10 +49948,10 @@ function useListGlide(listRef, layout, key) {
     tops.current = { layout, map: next };
   }, [layout, key]);
 }
-function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
+function LeftColumn({ columnRef, mode, width, onGrip, leaving, children }) {
   return (0, import_react_dom9.createPortal)((0, import_react47.createElement)(
     "div",
-    { className: "bt-leftcol", "data-left": mode, "data-entering": entering || void 0, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
+    { ref: columnRef, className: "bt-leftcol", "data-left": mode, "data-leaving": leaving || void 0, "aria-hidden": leaving || void 0, style: { width: `${width}px` } },
     children,
     (0, import_react47.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
@@ -49960,12 +50007,10 @@ function TeamSidebar(props) {
   });
   const [drag, setDrag] = (0, import_react47.useState)(null);
   const mode = layout.left === "hidden" ? "hidden" : drag?.left ?? layout.left;
-  const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
-  const shown = held ?? mode;
-  const firstColumn = (0, import_react47.useRef)(true);
-  (0, import_react47.useLayoutEffect)(() => {
-    if (shown === "hidden") firstColumn.current = false;
-  }, [shown]);
+  const leftColRef = (0, import_react47.useRef)(null);
+  const [heldMode, setHeldMode] = (0, import_react47.useState)(mode === "hidden" ? null : mode);
+  const shown = mode !== "hidden" ? mode : heldMode ?? "hidden";
+  const leaving = mode === "hidden" && heldMode !== null;
   const wideContent = shown !== "rail";
   const updated = useSessions((list) => {
     const stamps = {};
@@ -50029,30 +50074,184 @@ function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth;
   const ourWidth = shown === "rail" ? RAIL_WIDTH : openWidth;
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
+  const collapsedWidth = frameSnap.collapsedWidth ?? 0;
+  const targetMargin = Math.max(0, pushed - collapsedWidth);
+  const targetSlide = mode === "hidden" ? 0 : mode === "rail" ? RAIL_WIDTH : openWidth;
   const settleTimer = (0, import_react47.useRef)(0);
   const springTimer = (0, import_react47.useRef)(0);
   const activeDrag = (0, import_react47.useRef)(null);
   const dragRef = (0, import_react47.useRef)(drag);
   dragRef.current = drag;
-  const collapsedWidthRef = (0, import_react47.useRef)(frameSnap.collapsedWidth ?? 0);
-  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0;
+  const collapsedWidthRef = (0, import_react47.useRef)(collapsedWidth);
+  collapsedWidthRef.current = collapsedWidth;
   const modeRef = (0, import_react47.useRef)(mode);
   modeRef.current = mode;
+  const slideRef = (0, import_react47.useRef)(null);
+  if (slideRef.current === null) {
+    const snapPx = (value) => {
+      const dpr = typeof window !== "undefined" && Number(window.devicePixelRatio) > 0 ? window.devicePixelRatio : 1;
+      return Math.round(value * dpr) / dpr;
+    };
+    const state = {
+      initialized: false,
+      prevHidden: false,
+      prevViewport: 0,
+      docked: shown !== "drawer",
+      collapsedWidth,
+      width: ourWidth,
+      finalMargin: targetMargin,
+      finalPushed: pushed,
+      activeCols: [],
+      activePanes: [],
+      snapPx,
+      clearInline(restorePanes) {
+        for (const col of state.activeCols) col.style.removeProperty("margin-left");
+        state.activeCols = [];
+        for (const pane of state.activePanes) {
+          if (restorePanes && pane.isConnected) pane.style.left = `${state.finalPushed}px`;
+        }
+        state.activePanes = [];
+      },
+      settle() {
+        state.springs.stop();
+        if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+        state.clearInline(true);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = modeRef.current === "hidden" ? `translate3d(${-state.width}px,0,0)` : "";
+        }
+        state.springs.seed({
+          slide: modeRef.current === "hidden" ? 0 : state.width,
+          margin: state.finalMargin,
+          pane: state.finalPushed
+        });
+      },
+      stop(clearDom) {
+        state.springs.stop();
+        if (!clearDom) return;
+        state.clearInline(false);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = "";
+        }
+      },
+      springs: null
+    };
+    state.springs = liveSprings((values, moving) => {
+      const col = leftColRef.current;
+      const width = state.width;
+      if (moving) {
+        const slide = Math.max(0, Math.min(width, snapPx(values.slide)));
+        const margin2 = state.docked ? Math.max(0, snapPx(slide - state.collapsedWidth)) : Math.max(0, snapPx(values.margin));
+        const paneLeft = state.docked ? slide : Math.max(0, snapPx(values.pane));
+        if (col) {
+          col.dataset.sliding = "";
+          col.style.transform = `translate3d(${Math.min(0, slide - width)}px,0,0)`;
+        }
+        if (state.activeCols.length > 0) {
+          for (const center of state.activeCols) center.style.setProperty("margin-left", `${margin2}px`, "important");
+        } else if (typeof document !== "undefined") {
+          chatRoom.setLeft(margin2);
+        }
+        for (const pane of state.activePanes) pane.style.left = `${paneLeft}px`;
+        return;
+      }
+      if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+      state.clearInline(true);
+      if (col) {
+        delete col.dataset.sliding;
+        col.style.transform = modeRef.current === "hidden" ? `translate3d(${-width}px,0,0)` : "";
+      }
+      if (modeRef.current === "hidden") setHeldMode(null);
+    });
+    slideRef.current = state;
+  }
   (0, import_react47.useLayoutEffect)(() => {
     if (typeof document === "undefined") return;
+    const state = slideRef.current;
     const current2 = activeDrag.current;
+    let abortedDrag = false;
     if (current2 !== null && (mode === "hidden" || current2.settling && (mode !== current2.landedMode || pushed !== current2.landedPushed))) {
       current2.cancel(false);
+      abortedDrag = true;
     }
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [mode, pushed, frameSnap.collapsedWidth]);
+    if (mode !== "hidden") setHeldMode(mode);
+    const docked = shown !== "drawer";
+    if (activeDrag.current !== null) {
+      state.springs.seed({ slide: targetSlide, margin: targetMargin, pane: pushed });
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
+      state.width = ourWidth;
+      state.finalMargin = targetMargin;
+      state.finalPushed = pushed;
+      state.prevHidden = mode === "hidden";
+      state.prevViewport = frameSnap.viewport;
+      chatRoom.setLeft(targetMargin);
+      return;
+    }
+    const isHidden = mode === "hidden";
+    const col = leftColRef.current;
+    const curves = { slide: SPRING_SLIDE, margin: SPRING_SLIDE, pane: SPRING_SLIDE };
+    if (!state.initialized) {
+      state.initialized = true;
+      state.prevHidden = isHidden;
+      state.prevViewport = frameSnap.viewport;
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
+      state.width = ourWidth;
+      state.finalMargin = targetMargin;
+      state.finalPushed = pushed;
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
+      return;
+    }
+    const hiddenChanged = isHidden !== state.prevHidden;
+    const viewportChanged = frameSnap.viewport !== state.prevViewport;
+    state.prevHidden = isHidden;
+    state.prevViewport = frameSnap.viewport;
+    state.docked = docked;
+    state.collapsedWidth = collapsedWidth;
+    state.width = ourWidth;
+    state.finalMargin = targetMargin;
+    state.finalPushed = pushed;
+    const inFlight = state.springs.isRunning();
+    const canAnimate = typeof requestAnimationFrame === "function" && !reducedMotion() && !viewportChanged;
+    if (abortedDrag && col) {
+      col.style.width = `${ourWidth}px`;
+    }
+    if (!canAnimate || !hiddenChanged && !inFlight) {
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
+      return;
+    }
+    if (abortedDrag) {
+      const startPushed = docked ? ourWidth : RAIL_WIDTH;
+      const startMargin = Math.max(0, startPushed - collapsedWidth);
+      state.springs.seed({ slide: ourWidth, margin: startMargin, pane: startPushed });
+      chatRoom.setLeft(startMargin);
+    }
+    state.activeCols = chatRoom.columns();
+    state.activePanes = [...document.querySelectorAll(".bt-pane")];
+    const liveNow = state.springs.current();
+    if (liveNow !== null && state.activePanes.length > 0) {
+      const paneNow = docked ? Math.max(0, Math.min(ourWidth, state.snapPx(liveNow.slide))) : Math.max(0, state.snapPx(liveNow.pane));
+      for (const pane of state.activePanes) pane.style.left = `${paneNow}px`;
+    }
+    if (!isHidden && !inFlight && col) {
+      col.dataset.sliding = "";
+      col.style.transform = `translate3d(${-ourWidth}px,0,0)`;
+    }
+    state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, false);
+  }, [mode, shown, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport]);
   (0, import_react47.useEffect)(() => () => {
     activeDrag.current?.cancel(false);
+    slideRef.current?.stop(true);
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    slideRef.current?.settle();
     activeDrag.current?.cancel(false);
     const grip = event.currentTarget;
     const column = grip.parentElement;
@@ -50086,10 +50285,10 @@ function TeamSidebar(props) {
     };
     const springOn = () => {
       column.dataset.folding = "";
-      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
-      springUntil = performance.now() + SPRING_SHAPE.duration;
+      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}`, "important");
+      springUntil = performance.now() + SPRING_SLIDE.duration;
       if (springTimer.current) clearTimeout(springTimer.current);
-      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration);
+      springTimer.current = setTimeout(springOff, SPRING_SLIDE.duration);
     };
     const track = (x) => {
       const prev = last;
@@ -50352,7 +50551,7 @@ function TeamSidebar(props) {
     import_react47.Fragment,
     null,
     hideTitleToggle ? null : (0, import_react47.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
-    shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
+    shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { columnRef: leftColRef, mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content)
   );
 }
 function UpdateButton({ useUpdate, actions }) {
@@ -68071,6 +68270,7 @@ var ACCOUNT_MODELS_WAIT_MS = 2e4;
 var SIGNED_OUT = /* @__PURE__ */ new Set(["ACCOUNT_SIGN_IN_REQUIRED", "ACCOUNT_SIGNED_OUT", "ACCOUNT_TOKEN_INVALID"]);
 var KEY_CODES = /* @__PURE__ */ new Set(["MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "AUTH"]);
 var CREDENTIAL_CODES = /* @__PURE__ */ new Set([...KEY_CODES, ...SIGNED_OUT]);
+var PAUSED_CODES = /* @__PURE__ */ new Set(["TURN_PAUSED_LOOP", "TURN_PAUSED_SWITCH_LIMIT"]);
 function failureText2(code, { name, provider, status }) {
   switch (code) {
     case "MISSING_CREDENTIAL":
@@ -68104,6 +68304,10 @@ function failureText2(code, { name, provider, status }) {
       return t("This conversation no longer fits in the context window. Start a new part to continue.");
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return t("The conversation could not be compacted for this model. Try again or choose another model.");
+    case "TURN_PAUSED_LOOP":
+      return t("{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.", { name });
+    case "TURN_PAUSED_SWITCH_LIMIT":
+      return t("{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.", { name });
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -68312,7 +68516,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     const toggles = keyHere && (fix === "key" || fix === "rekey");
     return (0, import_react85.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
-  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
+  const paused = PAUSED_CODES.has(data.code);
+  const retryButton = (primary) => (0, import_react85.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? paused ? t("Continue") : t("Retry") : paused ? t("Continuing…") : t("Retrying…"));
   const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
   return (0, import_react85.createElement)(

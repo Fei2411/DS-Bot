@@ -24,6 +24,7 @@ const KEY_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'])
 // Until the credentials change the host keeps these on the Bot, and a retry would fail
 // the same way, so Retry waits for the fix.
 const CREDENTIAL_CODES = new Set([...KEY_CODES, ...SIGNED_OUT])
+const PAUSED_CODES = new Set(['TURN_PAUSED_LOOP', 'TURN_PAUSED_SWITCH_LIMIT'])
 
 // The sentence for one failure. `status` is the HTTP status, when the host has it.
 export function failureText(code, { name, provider, status }) {
@@ -53,6 +54,8 @@ export function failureText(code, { name, provider, status }) {
     case 'INTERRUPTED': return t('DeepSeek Harness stopped before this turn finished.')
     case 'CONTEXT_WINDOW_EXCEEDED': return t('This conversation no longer fits in the context window. Start a new part to continue.')
     case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The conversation could not be compacted for this model. Try again or choose another model.")
+    case 'TURN_PAUSED_LOOP': return t('{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.', { name })
+    case 'TURN_PAUSED_SWITCH_LIMIT': return t('{name} paused after switching conversation parts several times without stopping. Reply with guidance or click Continue.', { name })
     default: return knownFailure(code) ?? t('This turn failed.')
   }
 }
@@ -260,7 +263,8 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     const toggles = keyHere && (fix === 'key' || fix === 'rekey')
     return h('button', { key: fix, type: 'button', className, 'aria-expanded': toggles ? keying : undefined, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn))
   }
-  const retryButton = primary => h('button', { key: 'retry', type: 'button', className: primary ? 'bt-send bt-fail-go' : 'bt-soft bt-soft-sm', disabled: retry !== 'idle', onClick: resume }, retry === 'idle' ? t('Retry') : t('Retrying…'))
+  const paused = PAUSED_CODES.has(data.code)
+  const retryButton = primary => h('button', { key: 'retry', type: 'button', className: primary ? 'bt-send bt-fail-go' : 'bt-soft bt-soft-sm', disabled: retry !== 'idle', onClick: resume }, retry === 'idle' ? (paused ? t('Continue') : t('Retry')) : (paused ? t('Continuing…') : t('Retrying…')))
   const row = retryFirst
     ? [retryButton(true), ...fixes.map(fix => button(fix, false))]
     : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null]
