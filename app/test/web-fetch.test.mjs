@@ -116,6 +116,9 @@ describe('createWebFetchBridge', () => {
       assert.match(response.result.body.content, /Rendered article/)
     }
 
+    // Wait one tick for the final async session clearStorageData/clearCache/clearAuthCache to settle.
+    await new Promise(r => setImmediate(r))
+
     // Bounded pool: 4 sequential requests never create more than maxConcurrent partitions.
     assert.ok(electron.partitionMap.size <= 2)
     for (const ses of electron.partitionMap.values()) {
@@ -275,6 +278,142 @@ describe('createWebFetchBridge', () => {
     assert.equal(response.result.body.kind, 'text')
     assert.equal(response.result.body.content.length, 1200)
     assert.equal(response.result.truncated, true)
+    bridge.close()
+  })
+
+  test('releases browser slots immediately when aborted or timed out during pending DNS lookups', async () => {
+    const electron = createFakeElectron({
+      async onLoad({ win, wc, ses, url }) {
+        ses.completedHandler?.({ resourceType: 'mainFrame', statusCode: 200, responseHeaders: { 'content-type': ['text/html'] } })
+        win._eval = () => ({ url, contentType: 'text/html', html: '<h1>Unblocked</h1>', text: 'Unblocked' })
+        queueMicrotask(() => wc.emit('did-finish-load'))
+      },
+    })
+    const bridge = createWebFetchBridge({
+      BrowserWindow: electron.BrowserWindow,
+      session: electron.session,
+      maxConcurrent: 1,
+      settlePollMs: 5,
+      maxSettleWaitMs: 20,
+      lookup: async (host) => {
+        if (host === 'stall.example.com') return new Promise(() => {})
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+    })
+
+    const stalled = new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'dns-1', url: 'https://stall.example.com/a', timeoutMs: 5000 }, resolve))
+    const queued = new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'dns-2', url: 'https://ok.example.com/b', timeoutMs: 5000 }, resolve))
+    await new Promise(r => setTimeout(r, 15))
+    bridge.handle({ type: 'ds-bot:web-fetch-abort', id: 'dns-1' }, () => {})
+
+    const [r1, r2] = await Promise.all([stalled, queued])
+    assert.equal(r1.code, 'WEB_ABORTED')
+    assert.equal(r2.result.statusCode, 200)
+    assert.match(r2.result.body.content, /Unblocked/)
+    assert.equal(electron.windows.length, 1, 'aborted DNS task must never construct a BrowserWindow')
+    bridge.close()
+  })
+
+  test('cancels subframe/script downloads without aborting readable HTML page fetches', async () => {
+    let subDownloadCanceled = false
+    const electron = createFakeElectron({
+      async onLoad({ win, wc, ses, url }) {
+        let headersCanceled = false
+        ses.headersReceivedHandler?.({
+          resourceType: 'mainFrame',
+          url,
+          statusCode: 200,
+          ip: '93.184.216.34',
+          responseHeaders: { 'Content-Type': ['text/html; charset=utf-8'] },
+        }, ({ cancel }) => { headersCanceled = cancel })
+        assert.equal(headersCanceled, false)
+
+        // Subframe triggers an installer download before did-finish-load.
+        ses.emit('will-download', {}, {
+          getURL: () => 'https://cdn.example.com/installer.dmg',
+          getURLChain: () => ['https://cdn.example.com/installer.dmg'],
+          cancel() { subDownloadCanceled = true },
+        })
+
+        ses.completedHandler?.({ resourceType: 'mainFrame', statusCode: 200, responseHeaders: { 'content-type': ['text/html'] } })
+        win._eval = () => ({ url, contentType: 'text/html', html: '<h1>Install Instructions</h1>', text: 'Install Instructions' })
+        queueMicrotask(() => wc.emit('did-finish-load'))
+      },
+    })
+    const bridge = createWebFetchBridge({
+      BrowserWindow: electron.BrowserWindow,
+      session: electron.session,
+      lookup: publicLookup,
+      settlePollMs: 5,
+      maxSettleWaitMs: 20,
+    })
+    const res = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'sub-dl', url: 'https://example.com/download', timeoutMs: 5000 }, resolve))
+    assert.equal(subDownloadCanceled, true)
+    assert.equal(res.result.statusCode, 200)
+    assert.match(res.result.body.content, /Install Instructions/)
+    bridge.close()
+  })
+
+  test('DNS-private initial host does not unlock redirects to other private hosts or literal private IPs', async () => {
+    const electron = createFakeElectron({
+      async onLoad({ wc, ses }) {
+        let metaBlocked = false
+        ses.beforeRequestHandler({ url: 'http://169.254.169.254/latest/meta-data', resourceType: 'mainFrame' }, ({ cancel }) => { metaBlocked = cancel })
+        assert.equal(metaBlocked, true)
+
+        const otherPrivBlocked = await new Promise((resolve) => {
+          ses.beforeRequestHandler({ url: 'http://other.corp/secret', resourceType: 'mainFrame' }, ({ cancel }) => resolve(cancel))
+        })
+        assert.equal(otherPrivBlocked, true)
+
+        queueMicrotask(() => wc.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'http://other.corp/secret', true))
+      },
+    })
+    const bridge = createWebFetchBridge({
+      BrowserWindow: electron.BrowserWindow,
+      session: electron.session,
+      lookup: async (host) => host === 'wiki.corp'
+        ? [{ address: '10.0.0.5', family: 4 }]
+        : [{ address: '10.0.0.6', family: 4 }],
+    })
+    const res = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'priv-redir', url: 'http://wiki.corp/start', timeoutMs: 5000 }, resolve))
+    assert.equal(res.code, 'WEB_REDIRECT_BLOCKED')
+    bridge.close()
+  })
+
+  test('retires a partition instead of reusing it when storage/cache cleanup rejects', async () => {
+    const seenPartitions = []
+    let failCleanupOnce = true
+    const electron = createFakeElectron({
+      async onLoad({ win, wc, ses, url }) {
+        seenPartitions.push(ses.name)
+        if (failCleanupOnce) {
+          failCleanupOnce = false
+          ses.clearStorageData = async () => { throw new Error('disk busy') }
+        }
+        ses.completedHandler?.({ resourceType: 'mainFrame', statusCode: 200, responseHeaders: { 'content-type': ['text/html'] } })
+        win._eval = () => ({ url, contentType: 'text/html', html: '<h1>OK</h1>', text: 'OK' })
+        queueMicrotask(() => wc.emit('did-finish-load'))
+      },
+    })
+    const bridge = createWebFetchBridge({
+      BrowserWindow: electron.BrowserWindow,
+      session: electron.session,
+      lookup: publicLookup,
+      maxConcurrent: 1,
+      settlePollMs: 5,
+      maxSettleWaitMs: 20,
+    })
+
+    const r1 = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'cl-1', url: 'https://example.com/1', timeoutMs: 5000 }, resolve))
+    const r2 = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'cl-2', url: 'https://example.com/2', timeoutMs: 5000 }, resolve))
+    const r3 = await new Promise(resolve => bridge.handle({ type: 'ds-bot:web-fetch', id: 'cl-3', url: 'https://example.com/3', timeoutMs: 5000 }, resolve))
+    assert.equal(r1.result.statusCode, 200)
+    assert.equal(r2.result.statusCode, 200)
+    assert.equal(r3.result.statusCode, 200)
+    assert.equal(seenPartitions[0], 'web-fetch-slot-0')
+    assert.notEqual(seenPartitions[1], 'web-fetch-slot-0', 'dirty partition must never be reused')
+    assert.equal(seenPartitions[2], seenPartitions[1], 'clean replacement partition is recycled normally')
     bridge.close()
   })
 })

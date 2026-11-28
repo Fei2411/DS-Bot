@@ -215,17 +215,108 @@ export function isPrivateIP(ip) {
   return false
 }
 
-export function isPrivateHost(hostname) {
-  if (typeof hostname !== 'string' || hostname.length === 0) return true
+export function isFakeIpTunAddress(ip) {
+  if (typeof ip !== 'string' || ip.trim().length === 0) return false
+  let clean = ip.trim().toLowerCase()
+  if (clean.startsWith('[') && clean.endsWith(']')) clean = clean.slice(1, -1)
+  const zone = clean.indexOf('%')
+  if (zone !== -1) clean = clean.slice(0, zone)
+  const kind = isIP(clean)
+  if (kind === 4) {
+    const parts = clean.split('.').map(Number)
+    return parts.length === 4 && parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)
+  }
+  if (kind === 6) {
+    const g = parseIPv6Groups(clean)
+    return Boolean(g && g[0] === 0x2001 && g[1] === 0x0002 && g[2] === 0)
+  }
+  return false
+}
+
+export function normalizeHost(hostname) {
+  if (typeof hostname !== 'string') return ''
   let host = hostname.trim().toLowerCase()
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
   const zone = host.indexOf('%')
   if (zone !== -1) host = host.slice(0, zone)
   while (host.endsWith('.')) host = host.slice(0, -1)
+  return host
+}
+
+function normalizeIp(ip) {
+  if (typeof ip !== 'string') return ''
+  let clean = ip.trim().toLowerCase()
+  if (clean.startsWith('[') && clean.endsWith(']')) clean = clean.slice(1, -1)
+  const zone = clean.indexOf('%')
+  if (zone !== -1) clean = clean.slice(0, zone)
+  return clean
+}
+
+export function isPrivateHost(hostname) {
+  const host = normalizeHost(hostname)
   if (host.length === 0) return true
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true
   if (isIP(host) !== 0) return isPrivateIP(host)
   return false
+}
+
+// Per-fetch SSRF origin policy shared across Tier 1 HTTP, Tier 2A Electron, and Tier 2B Playwright.
+// Only syntactically private initial hosts (literal private IPs, localhost, *.local, *.internal)
+// unlock arbitrary private redirects. A non-literal hostname whose DNS resolves to private IPs
+// (e.g. an intranet domain like wiki.corp) may only connect to its own initial private IP set
+// and never redirect to other private hosts/IPs. Fake-IP TUN ranges (198.18.0.0/15, 2001:2::/48)
+// permit non-literal public redirects only within those virtual TUN ranges while still blocking
+// all literal private hosts and all real loopback/LAN/link-local/metadata addresses.
+export function createOriginPolicy(initialUrl) {
+  const initialHost = normalizeHost(initialUrl.hostname)
+  const initialPrivateLiteral = isPrivateHost(initialHost)
+  let initialDnsPrivateIps = null
+  let fakeIpTunMode = false
+
+  return {
+    initialHost,
+    initialPrivateLiteral,
+    classifyInitialRecords(records) {
+      if (initialPrivateLiteral || !Array.isArray(records) || records.length === 0) {
+        return { allowed: true }
+      }
+      if (records.every(r => isFakeIpTunAddress(r.address))) {
+        fakeIpTunMode = true
+        return { allowed: true }
+      }
+      const privateCount = records.filter(r => isPrivateIP(r.address)).length
+      if (privateCount === 0) return { allowed: true }
+      if (privateCount === records.length) {
+        initialDnsPrivateIps = new Set(records.map(r => normalizeIp(r.address)))
+        return { allowed: true }
+      }
+      return { allowed: false, reason: 'mixed' }
+    },
+    isTargetHostAllowed(hostname) {
+      if (initialPrivateLiteral) return true
+      return !isPrivateHost(hostname)
+    },
+    areResolvedRecordsAllowed(hostname, records) {
+      if (initialPrivateLiteral) return true
+      if (!Array.isArray(records) || records.length === 0) return true
+      if (records.every(r => !isPrivateIP(r.address))) return true
+      if (fakeIpTunMode && records.every(r => isFakeIpTunAddress(r.address))) return true
+      if (initialDnsPrivateIps && normalizeHost(hostname) === initialHost) {
+        return records.every(r => initialDnsPrivateIps.has(normalizeIp(r.address)))
+      }
+      return false
+    },
+    isConnectedIpAllowed(hostname, ip) {
+      if (initialPrivateLiteral) return true
+      if (typeof ip !== 'string' || ip.trim().length === 0) return true
+      if (!isPrivateIP(ip)) return true
+      if (fakeIpTunMode && isFakeIpTunAddress(ip)) return true
+      if (initialDnsPrivateIps && normalizeHost(hostname) === initialHost) {
+        return initialDnsPrivateIps.has(normalizeIp(ip))
+      }
+      return false
+    },
+  }
 }
 
 async function resolveHostAddresses(hostname, lookupImpl) {
@@ -436,10 +527,27 @@ function createDeadline(outerSignal, timeoutMs, reasonTag) {
   }
 }
 
+function raceWithSignal(promise, signal) {
+  if (!signal) return promise
+  if (signal.aborted) {
+    void Promise.resolve(promise).catch(() => {})
+    return Promise.reject(signal.reason ?? new Error('aborted'))
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    Promise.resolve(promise).then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+      (error) => { signal.removeEventListener('abort', onAbort); reject(error) },
+    )
+  })
+}
+
 function translateTransportError(error, deadline, outerSignal) {
   if (error instanceof WebError) return error
+  if (outerSignal?.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
   if (deadline.isTimedOut()) return new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT', { cause: error })
-  if (outerSignal?.aborted || deadline.signal.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
+  if (deadline.signal.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
   return new WebError(`web fetch failed: ${error?.message ?? String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
 }
 
@@ -532,16 +640,22 @@ async function fetchWithPinnedIp(url, init, pinnedRecords) {
   }
 }
 
-async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookupImpl, proxyCheck, initialPrivate, initialRecords }, tier1TimeoutMs, outerSignal) {
+async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookupImpl, proxyCheck }, tier1TimeoutMs, outerSignal) {
   const deadline = createDeadline(outerSignal, tier1TimeoutMs, 'webFetchAutoTimeout')
+  const policy = createOriginPolicy(initialUrl)
   try {
     let currentUrl = initialUrl
     let redirectsFollowed = 0
     for (;;) {
       let pinnedRecords = null
-      const proxied = await proxyCheck(currentUrl)
-      if (!proxied && !initialPrivate) {
-        if (isPrivateHost(currentUrl.hostname)) {
+      let proxied
+      try {
+        proxied = await raceWithSignal(proxyCheck(currentUrl), deadline.signal)
+      } catch (error) {
+        throw translateTransportError(error, deadline, outerSignal)
+      }
+      if (!proxied && !policy.initialPrivateLiteral) {
+        if (!policy.isTargetHostAllowed(currentUrl.hostname)) {
           throw new WebError(
             redirectsFollowed > 0
               ? `redirect from public host to private address (${currentUrl.hostname}) is blocked`
@@ -549,20 +663,24 @@ async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookup
             redirectsFollowed > 0 ? 'WEB_REDIRECT_BLOCKED' : 'WEB_BLOCKED_URL',
           )
         }
-        let records = redirectsFollowed === 0 && Array.isArray(initialRecords) ? initialRecords : null
-        if (records === null) {
-          try {
-            records = await resolveHostAddresses(currentUrl.hostname, lookupImpl)
-          } catch (error) {
-            throw translateTransportError(error, deadline, outerSignal)
-          }
+        let records
+        try {
+          records = await raceWithSignal(resolveHostAddresses(currentUrl.hostname, lookupImpl), deadline.signal)
+        } catch (error) {
+          throw translateTransportError(error, deadline, outerSignal)
         }
-        if (records.some(r => isPrivateIP(r.address))) {
+        if (redirectsFollowed === 0) {
+          const classification = policy.classifyInitialRecords(records)
+          if (!classification.allowed) {
+            throw new WebError(
+              `mixed public/private DNS resolution (${currentUrl.hostname}) is blocked`,
+              'WEB_BLOCKED_URL',
+            )
+          }
+        } else if (!policy.areResolvedRecordsAllowed(currentUrl.hostname, records)) {
           throw new WebError(
-            redirectsFollowed > 0
-              ? `redirect from public host to private address (${currentUrl.hostname}) is blocked`
-              : `mixed public/private DNS resolution (${currentUrl.hostname}) is blocked`,
-            redirectsFollowed > 0 ? 'WEB_REDIRECT_BLOCKED' : 'WEB_BLOCKED_URL',
+            `redirect from public host to private address (${currentUrl.hostname}) is blocked`,
+            'WEB_REDIRECT_BLOCKED',
           )
         }
         pinnedRecords = records
@@ -603,7 +721,7 @@ async function fetchHttp(initialUrl, options, { fetchImpl, isCustomFetch, lookup
           try {
             const resolved = new URL(location, currentUrl)
             validatedTarget = validateFetchUrl(resolved.toString())
-            if (!initialPrivate && isPrivateHost(validatedTarget.hostname)) {
+            if (!policy.isTargetHostAllowed(validatedTarget.hostname)) {
               throw new WebError(
                 `redirect from public host to private address (${validatedTarget.hostname}) is blocked`,
                 'WEB_REDIRECT_BLOCKED',
@@ -786,7 +904,7 @@ function createSemaphore(limit) {
   const waiters = []
   return {
     async acquire(signal) {
-      if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
+      if (signal?.aborted) throw (signal.reason ?? new Error('aborted'))
       if (running < limit) {
         running += 1
         return
@@ -800,7 +918,7 @@ function createSemaphore(limit) {
           onAbort: () => {
             const idx = waiters.indexOf(entry)
             if (idx !== -1) waiters.splice(idx, 1)
-            reject(new WebError('web fetch aborted', 'WEB_ABORTED'))
+            reject(signal.reason ?? new Error('aborted'))
           },
         }
         signal?.addEventListener('abort', entry.onAbort, { once: true })
@@ -826,8 +944,7 @@ export function createPlaywrightBrowserFetch({
 } = {}) {
   const semaphore = createSemaphore(maxConcurrent)
 
-  return async function playwrightBrowserFetch({ url, timeoutMs, maxBodyChars, initialPrivate }, signal) {
-    if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
+  async function resolveRuntime() {
     let pw
     try {
       pw = await loadPlaywright()
@@ -848,7 +965,17 @@ export function createPlaywrightBrowserFetch({
       executablePath = systemBrowserCandidates().find(existsSync)
     }
     if (!executablePath) return undefined
+    return { chromium, executablePath }
+  }
 
+  async function playwrightBrowserFetch({ url, timeoutMs, maxBodyChars }, signal) {
+    if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
+    const runtime = await resolveRuntime()
+    if (!runtime) return undefined
+    const { chromium, executablePath } = runtime
+
+    const parsedInitial = validateFetchUrl(url)
+    const policy = createOriginPolicy(parsedInitial)
     const deadline = createDeadline(signal, timeoutMs, 'webFetchBrowserTimeout')
     try {
       await semaphore.acquire(deadline.signal)
@@ -865,6 +992,20 @@ export function createPlaywrightBrowserFetch({
     deadline.signal.addEventListener('abort', onAbort, { once: true })
 
     try {
+      if (!policy.initialPrivateLiteral && isIP(policy.initialHost) === 0) {
+        try {
+          const initialRecords = await raceWithSignal(resolveHostAddresses(policy.initialHost, lookup), deadline.signal)
+          const classification = policy.classifyInitialRecords(initialRecords)
+          if (!classification.allowed) {
+            throw new WebError(`mixed public/private DNS resolution (${policy.initialHost}) is blocked`, 'WEB_BLOCKED_URL')
+          }
+        } catch (error) {
+          if (error instanceof WebError || deadline.signal.aborted || signal?.aborted) throw error
+          // Allow browser/OS proxy DNS to resolve when local DNS fails (e.g. ENOTFOUND).
+        }
+      }
+      if (deadline.signal.aborted) throw translateTransportError(deadline.signal.reason, deadline, signal)
+
       try {
         browser = await chromium.launch({
           headless: true,
@@ -898,18 +1039,19 @@ export function createPlaywrightBrowserFetch({
         }
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
         if (parsed.username.length > 0 || parsed.password.length > 0) return false
-        if (!initialPrivate) {
-          if (isPrivateHost(parsed.hostname)) {
+        if (!policy.initialPrivateLiteral) {
+          if (!policy.isTargetHostAllowed(parsed.hostname)) {
             if (isDocument) blockedRedirectHost = parsed.hostname
             return false
           }
           try {
-            const records = await resolveHostAddresses(parsed.hostname, lookup)
-            if (records.some(r => isPrivateIP(r.address))) {
+            const records = await raceWithSignal(resolveHostAddresses(parsed.hostname, lookup), deadline.signal)
+            if (!policy.areResolvedRecordsAllowed(parsed.hostname, records)) {
               if (isDocument) blockedRedirectHost = parsed.hostname
               return false
             }
           } catch {
+            if (deadline.signal.aborted) return false
             // Allow browser proxy DNS to resolve; serverAddr is still checked on response.
           }
         }
@@ -942,9 +1084,11 @@ export function createPlaywrightBrowserFetch({
       page.on('response', async (res) => {
         const req = res.request()
         if (!req.isNavigationRequest() || res.frame() !== page.mainFrame()) return
-        if (!initialPrivate && typeof res.serverAddr === 'function') {
+        if (!policy.initialPrivateLiteral && typeof res.serverAddr === 'function') {
           const addr = await res.serverAddr().catch(() => null)
-          if (addr?.ipAddress && isPrivateIP(addr.ipAddress)) {
+          let reqHost = ''
+          try { reqHost = new URL(req.url()).hostname } catch {}
+          if (addr?.ipAddress && !policy.isConnectedIpAllowed(reqHost, addr.ipAddress)) {
             blockedRedirectHost = addr.ipAddress
             void cdp?.send('Page.stopLoading').catch(() => {})
             void browser?.close?.().catch(() => {})
@@ -977,19 +1121,20 @@ export function createPlaywrightBrowserFetch({
       const contentType = latestContentType || response?.headers?.()?.['content-type'] || ''
       const finalUrl = page.url() || url
       const parsedFinal = validateFetchUrl(finalUrl)
-      if (!initialPrivate) {
-        if (isPrivateHost(parsedFinal.hostname)) {
+      if (!policy.initialPrivateLiteral) {
+        if (!policy.isTargetHostAllowed(parsedFinal.hostname)) {
           throw new WebError(`redirect from public host to private address (${parsedFinal.hostname}) is blocked`, 'WEB_REDIRECT_BLOCKED')
         }
         try {
-          const finalRecords = await resolveHostAddresses(parsedFinal.hostname, lookup)
-          if (finalRecords.some(r => isPrivateIP(r.address))) {
+          const finalRecords = await raceWithSignal(resolveHostAddresses(parsedFinal.hostname, lookup), deadline.signal)
+          if (!policy.areResolvedRecordsAllowed(parsedFinal.hostname, finalRecords)) {
             throw new WebError(`redirect from public host to private address (${parsedFinal.hostname}) is blocked`, 'WEB_REDIRECT_BLOCKED')
           }
         } catch (error) {
-          if (error instanceof WebError) throw error
+          if (error instanceof WebError || deadline.signal.aborted || signal?.aborted) throw error
         }
       }
+      if (deadline.signal.aborted) throw translateTransportError(deadline.signal.reason, deadline, signal)
 
       const classified = classifyContentType(contentType)
       if (contentType && classified === undefined) {
@@ -1028,6 +1173,9 @@ export function createPlaywrightBrowserFetch({
       semaphore.release()
     }
   }
+
+  playwrightBrowserFetch.isAvailable = async () => Boolean(await resolveRuntime())
+  return playwrightBrowserFetch
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,27 +1203,21 @@ export function createAutoFetchProvider(deps = {}, config = {}) {
       if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
       const initialUrl = validateFetchUrl(request?.url)
       const startedAt = Date.now()
-      const canFallback = options.browserFallback && typeof browserFetch === 'function'
+      const initialPrivate = isPrivateHost(initialUrl.hostname)
 
-      // Classify initial destination (including intranet DNS names when not proxied).
-      let initialPrivate = isPrivateHost(initialUrl.hostname)
-      let initialRecords = null
-      if (!initialPrivate && !(await proxyCheck(initialUrl))) {
+      let canFallback = options.browserFallback && typeof browserFetch === 'function'
+      if (canFallback && typeof browserFetch.isAvailable === 'function') {
         try {
-          const resolved = await resolveHostAddresses(initialUrl.hostname, lookupImpl)
-          if (resolved.length > 0) {
-            initialRecords = resolved
-            if (resolved.every(r => isPrivateIP(r.address))) {
-              initialPrivate = true
-            }
-          }
+          canFallback = Boolean(await browserFetch.isAvailable())
         } catch {
-          // Leave initialPrivate false and initialRecords null when DNS fails (e.g. host only reachable via OS system proxy).
+          canFallback = false
         }
+        if (signal?.aborted) throw new WebError('web fetch aborted', 'WEB_ABORTED')
       }
 
-      // When browser fallback is available, cap Tier 1 so a hung direct connection still leaves
-      // room inside dsh-tool-web's 30s timeout budget for Tier 2 to run.
+      // When a usable browser fallback is available, cap Tier 1 (including its DNS lookups) so a
+      // stalled direct connection or DNS query still leaves room inside dsh-tool-web's 30s budget
+      // for Tier 2 (e.g. OS system proxy) to run.
       const tier1TimeoutMs = canFallback ? Math.min(options.timeoutMs, options.httpTimeoutMs) : options.timeoutMs
 
       let httpResult
@@ -1084,7 +1226,7 @@ export function createAutoFetchProvider(deps = {}, config = {}) {
         httpResult = await fetchHttp(
           initialUrl,
           options,
-          { fetchImpl, isCustomFetch, lookupImpl, proxyCheck, initialPrivate, initialRecords },
+          { fetchImpl, isCustomFetch, lookupImpl, proxyCheck },
           tier1TimeoutMs,
           signal,
         )

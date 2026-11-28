@@ -206,14 +206,80 @@ describe('createAutoFetchProvider Tier 1 & Tier 2 behavior', () => {
     assert.equal(hop1Connected, false)
     assert.equal(browserCalled, false)
 
-    // All-private intranet hostname stays allowed as an explicit intranet fetch.
+    // All-private intranet hostname stays allowed for itself and same-host same-IP redirects,
+    // but DNS answers must NOT unlock redirects to other private destinations or rebinding.
     const intranetProvider = createAutoFetchProvider({
-      lookup: async () => [{ address: '10.0.0.5', family: 4 }],
-      fetch: async () => mockResponse('<h1>Intranet Wiki</h1>'),
+      lookup: async (host) => {
+        if (host === 'wiki.corp') return [{ address: '10.0.0.5', family: 4 }]
+        if (host === 'other.corp') return [{ address: '10.0.0.6', family: 4 }]
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+      fetch: async (url) => {
+        if (url.pathname === '/same-host') return mockResponse('', { status: 302, headers: { location: 'https://wiki.corp/docs' } })
+        if (url.pathname === '/to-meta') return mockResponse('', { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } })
+        if (url.pathname === '/to-other-priv') return mockResponse('', { status: 302, headers: { location: 'http://other.corp/secret' } })
+        return mockResponse('<h1>Intranet Wiki</h1>')
+      },
+      browserFetch: async () => { browserCalled = true; return null },
     })
-    const intranet = await intranetProvider.fetch({ url: 'http://wiki.corp/docs' })
+    const intranet = await intranetProvider.fetch({ url: 'http://wiki.corp/same-host' })
     assert.equal(intranet.statusCode, 200)
+    assert.equal(intranet.url, 'https://wiki.corp/docs')
     assert.match(intranet.body.content, /Intranet Wiki/)
+
+    await assert.rejects(
+      () => intranetProvider.fetch({ url: 'http://wiki.corp/to-meta' }),
+      err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
+    )
+    await assert.rejects(
+      () => intranetProvider.fetch({ url: 'http://wiki.corp/to-other-priv' }),
+      err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
+    )
+    assert.equal(browserCalled, false)
+
+    // Same-host DNS rebinding from 10.0.0.5 to 127.0.0.1 on redirect is blocked.
+    let rebindCount = 0
+    const rebindIntranetProvider = createAutoFetchProvider({
+      lookup: async () => {
+        rebindCount += 1
+        return [{ address: rebindCount === 1 ? '10.0.0.5' : '127.0.0.1', family: 4 }]
+      },
+      fetch: async (url) => {
+        if (url.pathname === '/start') return mockResponse('', { status: 302, headers: { location: 'http://rebind.corp/next' } })
+        throw new Error('must not connect after rebinding to loopback')
+      },
+    })
+    await assert.rejects(
+      () => rebindIntranetProvider.fetch({ url: 'http://rebind.corp/start' }),
+      err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
+    )
+
+    // Fake-IP TUN (198.18.0.0/15, 2001:2::/48): public-to-public redirects stay allowed,
+    // while literal private IPs and real private DNS targets remain blocked.
+    const fakeIpProvider = createAutoFetchProvider({
+      lookup: async (host) => {
+        if (host === 'bybit.com') return [{ address: '198.18.1.71', family: 4 }, { address: '2001:2::142', family: 6 }]
+        if (host === 'www.bybit.com') return [{ address: '198.18.1.69', family: 4 }, { address: '2001:2::140', family: 6 }]
+        if (host === 'evil.nip.io') return [{ address: '127.0.0.1', family: 4 }]
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+      fetch: async (url) => {
+        if (url.pathname === '/ok') return mockResponse('', { status: 301, headers: { location: 'https://www.bybit.com/en/' } })
+        if (url.pathname === '/to-loopback') return mockResponse('', { status: 302, headers: { location: 'http://127.0.0.1:8797/' } })
+        if (url.pathname === '/to-dns-loopback') return mockResponse('', { status: 302, headers: { location: 'https://evil.nip.io/' } })
+        return mockResponse('<h1>Bybit OK</h1>')
+      },
+    })
+    const fakeIpOk = await fakeIpProvider.fetch({ url: 'https://bybit.com/ok' })
+    assert.equal(fakeIpOk.url, 'https://www.bybit.com/en/')
+    await assert.rejects(
+      () => fakeIpProvider.fetch({ url: 'https://bybit.com/to-loopback' }),
+      err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
+    )
+    await assert.rejects(
+      () => fakeIpProvider.fetch({ url: 'https://bybit.com/to-dns-loopback' }),
+      err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
+    )
   })
 
   test('allows direct local/private fetches and private-to-private redirects', async () => {
@@ -296,6 +362,97 @@ describe('createAutoFetchProvider Tier 1 & Tier 2 behavior', () => {
     const res = await provider.fetch({ url: 'https://www.bybit.com/en/' }, outer)
     assert.equal(res.statusCode, 200)
     assert.match(res.body.content, /Rescued before outer deadline/)
+  })
+
+  test('stalled local DNS times out within httpTimeoutMs and falls back to Tier 2, while caller abort still rejects WEB_ABORTED', async () => {
+    const provider = createAutoFetchProvider({
+      lookup: () => new Promise(() => {}),
+      fetch: async () => { throw new Error('should not reach direct HTTP when DNS stalls') },
+      browserFetch: async (req) => ({
+        url: req.url,
+        statusCode: 200,
+        body: { kind: 'html', content: '<h1>Resolved via system proxy browser</h1>' },
+        truncated: false,
+      }),
+    }, { timeoutMs: 400, httpTimeoutMs: 40, browserTimeoutMs: 250 })
+
+    const res = await provider.fetch({ url: 'https://proxy-only.example.com/page' })
+    assert.equal(res.statusCode, 200)
+    assert.match(res.body.content, /Resolved via system proxy browser/)
+
+    const ac = new AbortController()
+    setTimeout(() => ac.abort(), 20)
+    await assert.rejects(
+      () => provider.fetch({ url: 'https://proxy-only.example.com/page' }, ac.signal),
+      err => err instanceof WebError && err.code === 'WEB_ABORTED',
+    )
+  })
+
+  test('keeps full timeoutMs when Playwright fallback has no Chromium binary available', async () => {
+    const unavailableBrowser = createPlaywrightBrowserFetch({
+      loadPlaywright: async () => { throw new Error('not installed') },
+    })
+    assert.equal(await unavailableBrowser.isAvailable(), false)
+
+    const provider = createAutoFetchProvider({
+      lookup: publicLookup,
+      fetch: async (_url, init) => {
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(resolve, 75)
+          init.signal.addEventListener('abort', () => { clearTimeout(t); reject(init.signal.reason) }, { once: true })
+        })
+        return mockResponse('<h1>Slow page finished past httpTimeoutMs</h1>')
+      },
+      browserFetch: unavailableBrowser,
+    }, { timeoutMs: 250, httpTimeoutMs: 30, browserTimeoutMs: 100 })
+
+    const res = await provider.fetch({ url: 'https://slow.example.com/doc' })
+    assert.equal(res.statusCode, 200)
+    assert.match(res.body.content, /Slow page finished/)
+  })
+
+  test('saturated Playwright queue: internal browser timeout preserves Tier 1 HTTP result while outer abort rejects WEB_ABORTED', async () => {
+    let releaseFirst
+    const pwFetch = createPlaywrightBrowserFetch({
+      maxConcurrent: 1,
+      findExecutable: () => '/usr/bin/fake-chrome',
+      lookup: publicLookup,
+      loadPlaywright: async () => ({
+        chromium: {
+          async launch() {
+            await new Promise(resolve => { releaseFirst = resolve })
+            throw new Error('done')
+          },
+        },
+      }),
+    })
+
+    // Occupy the single Playwright slot.
+    const holder = pwFetch({ url: 'https://example.com/hold', timeoutMs: 5_000, maxBodyChars: 10_000 })
+    await new Promise(r => setTimeout(r, 15))
+
+    const spaHtml = '<html><body><div id="__next"></div><script id="__NEXT_DATA__">{}</script></body></html>'
+    const provider = createAutoFetchProvider({
+      lookup: publicLookup,
+      fetch: async () => mockResponse(spaHtml, { status: 200, headers: { 'content-type': 'text/html' } }),
+      browserFetch: pwFetch,
+    }, { timeoutMs: 300, httpTimeoutMs: 100, browserTimeoutMs: 40 })
+
+    // Internal browser queue timeout must preserve Tier 1's HTML instead of throwing WEB_ABORTED.
+    const preserved = await provider.fetch({ url: 'https://example.com/queued' })
+    assert.equal(preserved.statusCode, 200)
+    assert.equal(preserved.body.content, spaHtml)
+
+    // Explicit caller abort while waiting in the queue must still reject with WEB_ABORTED.
+    const ac = new AbortController()
+    setTimeout(() => ac.abort(), 15)
+    await assert.rejects(
+      () => provider.fetch({ url: 'https://example.com/cancelled' }, ac.signal),
+      err => err instanceof WebError && err.code === 'WEB_ABORTED',
+    )
+
+    releaseFirst?.()
+    await holder.catch(() => {})
   })
 
   test('falls back to browser on empty Next.js SPA shell and preserves Tier 1 if browser fails with transient error', async () => {
@@ -466,6 +623,78 @@ describe('createAutoFetchProvider Tier 1 & Tier 2 behavior', () => {
     // Degrades cleanly to undefined when sandboxed launch is unsupported.
     failLaunch = true
     assert.equal(await pwFetch({ url: 'https://example.com/page', timeoutMs: 5000, maxBodyChars: 10000, initialPrivate: false }), undefined)
+  })
+
+  test('createPlaywrightBrowserFetch stops loading on private serverAddr and aborts hanging final DNS at deadline', async () => {
+    const actions = []
+    let serverIp = '127.0.0.1'
+    let hangFinalDns = false
+    const makePw = () => ({
+      chromium: {
+        async launch() {
+          return {
+            async newContext() {
+              return {
+                async newCDPSession() {
+                  const emitter = new EventEmitter()
+                  return {
+                    on: (ev, fn) => emitter.on(ev, fn),
+                    async send(method) { actions.push(method) },
+                    async detach() {},
+                  }
+                },
+                async newPage() {
+                  const emitter = new EventEmitter()
+                  const frame = {}
+                  return {
+                    on: (ev, fn) => emitter.on(ev, fn),
+                    mainFrame: () => frame,
+                    url: () => 'https://final.example.com/page',
+                    async goto() {
+                      emitter.emit('response', {
+                        request: () => ({ isNavigationRequest: () => true, url: () => 'https://final.example.com/page' }),
+                        frame: () => frame,
+                        status: () => 200,
+                        headers: () => ({ 'content-type': 'text/html' }),
+                        serverAddr: async () => ({ ipAddress: serverIp }),
+                      })
+                      await new Promise(r => setTimeout(r, 10))
+                      return { status: () => 200, headers: () => ({ 'content-type': 'text/html' }) }
+                    },
+                    async waitForLoadState() {},
+                    async evaluate() { return '<h1>OK</h1>' },
+                  }
+                },
+              }
+            },
+            async close() { actions.push('browser.close') },
+          }
+        },
+      },
+    })
+
+    const pwFetch = createPlaywrightBrowserFetch({
+      loadPlaywright: async () => makePw(),
+      findExecutable: () => '/usr/bin/fake-chrome',
+      lookup: async (host) => {
+        if (hangFinalDns && host === 'final.example.com') return new Promise(() => {})
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+    })
+
+    await assert.rejects(
+      () => pwFetch({ url: 'https://start.example.com/page', timeoutMs: 2000, maxBodyChars: 10000 }),
+      err => err instanceof WebError && err.code === 'WEB_REDIRECT_BLOCKED',
+    )
+    assert.ok(actions.includes('Page.stopLoading'))
+    assert.ok(actions.includes('browser.close'))
+
+    serverIp = '93.184.216.34'
+    hangFinalDns = true
+    await assert.rejects(
+      () => pwFetch({ url: 'https://start.example.com/page', timeoutMs: 60, maxBodyChars: 10000 }),
+      err => err instanceof WebError && err.code === 'WEB_FETCH_TIMEOUT',
+    )
   })
 
   test('real loopback HTTP contract: registers via apply(ctx), follows redirect, and passes browser UA check', async () => {

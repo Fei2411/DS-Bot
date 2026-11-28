@@ -8,7 +8,7 @@
 // or solves CAPTCHAs).
 import { lookup as dnsLookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
-import { classifyContentType, isPrivateHost, isPrivateIP, validateFetchUrl } from 'ds-bot/web-fetch'
+import { classifyContentType, createOriginPolicy, normalizeHost, validateFetchUrl } from 'ds-bot/web-fetch'
 
 const DEFAULT_MAX_CONCURRENT = 3
 const MIN_TIMEOUT_MS = 1_000
@@ -56,16 +56,47 @@ function readHeaderValue(headers, name) {
   return ''
 }
 
-async function resolvesToPrivate(hostname, lookupImpl) {
-  let host = hostname.trim().toLowerCase()
-  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
-  if (isIP(host) !== 0) return isPrivateIP(host)
+function raceWithSignal(promise, signal) {
+  if (!signal) return promise
+  if (signal.aborted) {
+    void Promise.resolve(promise).catch(() => {})
+    return Promise.reject(signal.reason ?? new Error('aborted'))
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    Promise.resolve(promise).then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+      (error) => { signal.removeEventListener('abort', onAbort); reject(error) },
+    )
+  })
+}
+
+async function resolveRecords(hostname, lookupImpl, signal) {
+  const host = normalizeHost(hostname)
+  const ipKind = isIP(host)
+  if (ipKind !== 0) return [{ address: host, family: ipKind }]
+  const records = await raceWithSignal(lookupImpl(host, { all: true, verbatim: true }), signal)
+  return Array.isArray(records) ? records.filter(r => typeof r?.address === 'string') : []
+}
+
+async function isHostDnsBlocked(hostname, policy, lookupImpl, signal) {
   try {
-    const records = await lookupImpl(host, { all: true, verbatim: true })
-    return Array.isArray(records) && records.some(r => typeof r?.address === 'string' && isPrivateIP(r.address))
+    const records = await resolveRecords(hostname, lookupImpl, signal)
+    return !policy.areResolvedRecordsAllowed(hostname, records)
   } catch {
-    // Allow Electron's proxy DNS to resolve; onHeadersReceived also inspects details.ip.
-    return false
+    // When cancelled/aborted, block the pending request; otherwise allow Electron's proxy DNS
+    // to resolve while onHeadersReceived still enforces details.ip.
+    return Boolean(signal?.aborted)
+  }
+}
+
+function normalizeUrlForCompare(raw) {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return ''
+  try {
+    return new URL(raw).toString()
+  } catch {
+    return raw.trim()
   }
 }
 
@@ -82,6 +113,7 @@ export function createWebFetchBridge({
   maxSettleWaitMs = MAX_SETTLE_WAIT_MS,
 }) {
   let closed = false
+  let nextSlotId = maxConcurrent
   const freeSlots = Array.from({ length: maxConcurrent }, (_, index) => `web-fetch-slot-${index}`)
   const queue = []
   const active = new Map()
@@ -91,17 +123,20 @@ export function createWebFetchBridge({
       const next = queue.shift()
       if (!next || next.aborted) continue
       const partition = freeSlots.shift()
-      void runTask(next, partition).finally(() => {
-        freeSlots.push(partition)
+      const recycle = (clean) => {
+        // Retire a partition whose cleanup rejected so cookies/storage can never leak to a later fetch.
+        freeSlots.push(clean ? partition : `web-fetch-slot-${nextSlotId++}`)
         pump()
-      })
+      }
+      void runTask(next, partition).then(recycle, () => recycle(false))
     }
   }
 
   async function runTask(task, partition) {
     const { id, url, timeoutMs, maxBodyChars, reply } = task
     const parsedInitial = new URL(url)
-    let initialPrivate = isPrivateHost(parsedInitial.hostname)
+    const policy = createOriginPolicy(parsedInitial)
+    const taskAbort = new AbortController()
     let win
     let ses
     let timer
@@ -111,15 +146,33 @@ export function createWebFetchBridge({
     let cancelledMainFrame
     let unsupportedContentType
     let downloadTriggered = false
+    let mainFrameCommittedReadable = false
+    let currentMainUrl = normalizeUrlForCompare(url)
     let onDownload = null
     let abortPendingWait = null
     let cleaned = false
+    let cleanOk = true
+
+    const detachSessionListeners = (target) => {
+      if (!target) return
+      try { target.webRequest?.onBeforeRequest?.(null) } catch {}
+      try { target.webRequest?.onHeadersReceived?.(null) } catch {}
+      try { target.webRequest?.onCompleted?.(null) } catch {}
+      try { target.setPermissionRequestHandler?.(null) } catch {}
+      try { target.setPermissionCheckHandler?.(null) } catch {}
+      if (onDownload) {
+        try { target.off?.('will-download', onDownload) } catch {}
+        onDownload = null
+      }
+    }
 
     const destroyWindowAndListeners = () => {
       clearTimeout(timer)
       clearTimeout(settleTimer)
+      if (!taskAbort.signal.aborted) taskAbort.abort(new Error('aborted'))
       abortPendingWait?.()
       abortPendingWait = null
+      detachSessionListeners(ses)
       if (win && !win.isDestroyed?.()) {
         try { win.destroy() } catch {}
       }
@@ -127,28 +180,24 @@ export function createWebFetchBridge({
     }
 
     const releaseSession = async () => {
-      if (cleaned) return
+      if (cleaned) return cleanOk
       cleaned = true
       destroyWindowAndListeners()
       const target = ses
       ses = undefined
       if (target) {
-        try { target.webRequest?.onBeforeRequest?.(null) } catch {}
-        try { target.webRequest?.onHeadersReceived?.(null) } catch {}
-        try { target.webRequest?.onCompleted?.(null) } catch {}
-        try { target.setPermissionRequestHandler?.(null) } catch {}
-        try { target.setPermissionCheckHandler?.(null) } catch {}
-        if (onDownload) {
-          try { target.off?.('will-download', onDownload) } catch {}
-          onDownload = null
-        }
-        await Promise.allSettled([
-          Promise.resolve(target.clearStorageData?.()),
-          Promise.resolve(target.clearCache?.()),
-          Promise.resolve(target.clearAuthCache?.()),
+        detachSessionListeners(target)
+        const results = await Promise.allSettled([
+          Promise.resolve().then(() => target.clearStorageData?.()),
+          Promise.resolve().then(() => target.clearCache?.()),
+          Promise.resolve().then(() => target.clearAuthCache?.()),
         ])
+        if (results.some(r => r.status === 'rejected')) {
+          cleanOk = false
+        }
       }
       active.delete(id)
+      return cleanOk
     }
 
     const finish = (payload) => {
@@ -165,8 +214,7 @@ export function createWebFetchBridge({
 
     if (task.aborted || closed) {
       finish({ type: 'ds-bot:web-fetch-response', id, code: 'WEB_ABORTED', error: 'web fetch aborted' })
-      await releaseSession()
-      return
+      return await releaseSession()
     }
 
     const startedAt = Date.now()
@@ -175,15 +223,27 @@ export function createWebFetchBridge({
       finish({ type: 'ds-bot:web-fetch-response', id, code: 'WEB_FETCH_TIMEOUT', error: 'browser web fetch timed out' })
     }, timeoutMs)
 
-    try {
-      if (!initialPrivate && isIP(parsedInitial.hostname.replace(/^\[|\]$/g, '')) === 0) {
+    const runBody = async () => {
+      if (!policy.initialPrivateLiteral && isIP(policy.initialHost) === 0) {
         try {
-          const records = await lookup(parsedInitial.hostname, { all: true, verbatim: true })
-          if (Array.isArray(records) && records.length > 0 && records.every(r => typeof r?.address === 'string' && isPrivateIP(r.address))) {
-            initialPrivate = true
+          const records = await resolveRecords(policy.initialHost, lookup, taskAbort.signal)
+          if (task.aborted || settled) return
+          const classification = policy.classifyInitialRecords(records)
+          if (!classification.allowed) {
+            finish({
+              type: 'ds-bot:web-fetch-response',
+              id,
+              code: 'WEB_BLOCKED_URL',
+              error: `mixed public/private DNS resolution (${policy.initialHost}) is blocked`,
+            })
+            return
           }
-        } catch {}
+        } catch {
+          if (task.aborted || settled) return
+        }
       }
+      if (task.aborted || settled) return
+
       // Bounded non-persistent partition pool: memory-only, isolated per slot, cleared on release.
       ses = session.fromPartition(partition)
       ses.setPermissionRequestHandler?.((_wc, _permission, callback) => { callback(false) })
@@ -194,8 +254,20 @@ export function createWebFetchBridge({
 
       onDownload = (_event, item) => {
         try { item.cancel() } catch {}
+        if (mainFrameCommittedReadable) return
+        const itemUrl = normalizeUrlForCompare(item?.getURL?.())
+        const urlChain = Array.isArray(item?.getURLChain?.())
+          ? item.getURLChain().map(normalizeUrlForCompare).filter(Boolean)
+          : []
+        const hasUrlMetadata = itemUrl.length > 0 || urlChain.length > 0
+        const matchesMain = !hasUrlMetadata
+          || itemUrl === currentMainUrl
+          || itemUrl === normalizeUrlForCompare(url)
+          || urlChain.includes(currentMainUrl)
+          || urlChain.includes(normalizeUrlForCompare(url))
+        if (!matchesMain) return
         downloadTriggered = true
-        abortPendingWait?.(new Error('download rejected'))
+        abortPendingWait?.(new Error('unsupported downloadable content'))
       }
       ses.on?.('will-download', onDownload)
 
@@ -228,30 +300,41 @@ export function createWebFetchBridge({
           callback({ cancel: true })
           return
         }
-        if (!initialPrivate) {
-          if (isPrivateHost(parsed.hostname)) {
+        if (!policy.initialPrivateLiteral) {
+          if (!policy.isTargetHostAllowed(parsed.hostname)) {
             if (isMain) blockedRedirectHost = parsed.hostname
             callback({ cancel: true })
             return
           }
-          if (isIP(parsed.hostname.replace(/^\[|\]$/g, '')) === 0) {
-            void resolvesToPrivate(parsed.hostname, lookup).then((priv) => {
-              if (priv) {
-                if (isMain) blockedRedirectHost = parsed.hostname
+          if (isIP(normalizeHost(parsed.hostname)) === 0) {
+            void isHostDnsBlocked(parsed.hostname, policy, lookup, taskAbort.signal).then((blocked) => {
+              if (blocked) {
+                if (isMain && !taskAbort.signal.aborted) blockedRedirectHost = parsed.hostname
                 callback({ cancel: true })
               } else {
+                if (isMain) currentMainUrl = parsed.toString()
                 callback({ cancel: false })
               }
-            }, () => callback({ cancel: false }))
+            }, () => {
+              if (taskAbort.signal.aborted) {
+                callback({ cancel: true })
+              } else {
+                if (isMain) currentMainUrl = parsed.toString()
+                callback({ cancel: false })
+              }
+            })
             return
           }
         }
+        if (isMain) currentMainUrl = parsed.toString()
         callback({ cancel: false })
       })
 
       ses.webRequest?.onHeadersReceived?.((details, callback) => {
         const isMain = details?.resourceType === 'mainFrame'
-        if (!initialPrivate && typeof details?.ip === 'string' && details.ip.length > 0 && isPrivateIP(details.ip)) {
+        let reqHost = ''
+        try { reqHost = new URL(String(details?.url ?? '')).hostname } catch {}
+        if (!policy.initialPrivateLiteral && typeof details?.ip === 'string' && details.ip.length > 0 && !policy.isConnectedIpAllowed(reqHost, details.ip)) {
           if (isMain) blockedRedirectHost = details.ip
           callback({ cancel: true })
           return
@@ -268,6 +351,9 @@ export function createWebFetchBridge({
             unsupportedContentType = ct
             callback({ cancel: true })
             return
+          }
+          if (classifyContentType(ct) !== undefined) {
+            mainFrameCommittedReadable = true
           }
         }
         callback({ cancel: false })
@@ -376,8 +462,9 @@ export function createWebFetchBridge({
 
       const finalUrl = String(extracted?.url || wc.getURL?.() || url)
       const parsedFinal = validateFetchUrl(finalUrl)
-      if (!initialPrivate) {
-        if (isPrivateHost(parsedFinal.hostname) || await resolvesToPrivate(parsedFinal.hostname, lookup)) {
+      if (!policy.initialPrivateLiteral) {
+        if (!policy.isTargetHostAllowed(parsedFinal.hostname) || await isHostDnsBlocked(parsedFinal.hostname, policy, lookup, taskAbort.signal)) {
+          if (task.aborted || settled) return
           finish({
             type: 'ds-bot:web-fetch-response',
             id,
@@ -386,6 +473,7 @@ export function createWebFetchBridge({
           })
           return
         }
+        if (task.aborted || settled) return
       }
 
       const effectiveContentType = mainContentType || String(extracted?.contentType ?? '')
@@ -413,24 +501,30 @@ export function createWebFetchBridge({
           truncated,
         },
       })
-    } catch (error) {
-      if (task.aborted || settled) return
-      const code = blockedRedirectHost
-        ? 'WEB_REDIRECT_BLOCKED'
-        : cancelledMainFrame
-          ? cancelledMainFrame.code
-          : (unsupportedContentType || downloadTriggered)
-            ? 'WEB_UNSUPPORTED_CONTENT_TYPE'
-            : 'WEB_PROVIDER_ERROR'
-      finish({
-        type: 'ds-bot:web-fetch-response',
-        id,
-        code,
-        error: error?.message ?? String(error),
-      })
-    } finally {
-      await releaseSession()
     }
+
+    try {
+      await runBody()
+    } catch (error) {
+      if (!task.aborted && !settled) {
+        const code = blockedRedirectHost
+          ? 'WEB_REDIRECT_BLOCKED'
+          : cancelledMainFrame
+            ? cancelledMainFrame.code
+            : (unsupportedContentType || downloadTriggered)
+              ? 'WEB_UNSUPPORTED_CONTENT_TYPE'
+              : 'WEB_PROVIDER_ERROR'
+        finish({
+          type: 'ds-bot:web-fetch-response',
+          id,
+          code,
+          error: error?.message ?? String(error),
+        })
+      }
+    } finally {
+      cleanOk = await releaseSession()
+    }
+    return cleanOk
   }
 
   return {
@@ -466,7 +560,6 @@ export function createWebFetchBridge({
         url: parsedUrl.toString(),
         timeoutMs: clamp(message.timeoutMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, 15_000),
         maxBodyChars: clamp(message.maxBodyChars, MIN_BODY_CHARS, MAX_BODY_CHARS, 100_000),
-        initialPrivate: isPrivateHost(parsedUrl.hostname),
         aborted: false,
         reply,
         cancel: null,
