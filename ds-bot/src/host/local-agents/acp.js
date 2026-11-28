@@ -293,6 +293,12 @@ export class AcpEngine {
         const call = mergeCall(known, update)
         const alreadyFailed = id !== undefined && (known?.status === 'failed' || session.failedToolCalls.has(id))
         const terminal = update.status === 'completed' || update.status === 'failed'
+        if (id !== undefined && session.promptTurn !== undefined) {
+          if (terminal) {
+            session.promptTurn.openToolCalls.delete(id)
+            session.promptTurn.closedToolCalls.add(id)
+          } else if (!session.promptTurn.closedToolCalls.has(id)) session.promptTurn.openToolCalls.add(id)
+        }
         if (id !== undefined) {
           if (terminal) {
             session.toolCalls.delete(id)
@@ -677,6 +683,8 @@ export class AcpEngine {
       steps: 0,
       lastUsed: undefined,
       sawStepWork: false,
+      openToolCalls: new Set(),
+      closedToolCalls: new Set(),
     }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
@@ -705,6 +713,12 @@ export class AcpEngine {
 
   canSteer(session) {
     return session.running === true
+  }
+
+  // A tool call of the running prompt has started and not yet completed or failed.
+  toolRunning(session) {
+    const turn = session?.promptTurn
+    return session?.running === true && turn !== undefined && !turn.cancelled && turn.openToolCalls.size > 0
   }
 
   // The agent's own compaction, through the command it lists for it. False when it

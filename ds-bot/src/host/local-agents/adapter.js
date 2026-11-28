@@ -44,6 +44,9 @@ const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const TURN_CONFIRMING_EVENTS = new Set(['text', 'thought', 'activity', 'call', 'permission', 'usage', 'done'])
 
 const IDLE_CLOSE_MS = 10 * 60_000
+// A turn whose CLI reports a tool call still running (a long build or test run)
+// is not idle; only one silent this long is treated as stalled.
+const ACTIVE_TOOL_CLOSE_MS = 60 * 60_000
 // Brief coalescing window to batch parallel MCP tools/call requests from one CLI step.
 const CALL_BATCH_WINDOW_MS = 8
 const MEMORY_CONTEXT_KINDS = new Set([OWN_MEMORY_SOURCE, GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, MEMORY_RECALL_SOURCE])
@@ -427,21 +430,32 @@ export class LocalAgentAdapter extends LlmAdapter {
       mute: false,
     }
     const idleCloseMs = this.deps.idleCloseMs ?? IDLE_CLOSE_MS
-    live.scheduleIdle = () => {
-      clearTimeout(live.idle)
-      if (live.dead || !(idleCloseMs > 0)) return
+    const activeToolCloseMs = Math.max(idleCloseMs, this.deps.activeToolCloseMs ?? ACTIVE_TOOL_CLOSE_MS)
+    let quietMs = 0
+    const arm = (ms) => {
       live.idle = setTimeout(() => {
         if (live.dead) return
+        quietMs += ms
         if (live.state === 'suspended') {
           live.scheduleIdle()
+          return
+        }
+        if (live.state === 'running' && quietMs < activeToolCloseMs && live.engine.toolRunning?.(live.engineSession) === true) {
+          arm(activeToolCloseMs - quietMs)
           return
         }
         const error = live.state === 'running'
           ? new LlmError(`${live.spec.name} stalled: no activity before the local-agent idle timeout.`, 'LOCAL_AGENT_EXIT')
           : undefined
         void this.closeLive(live, { idle: true, error })
-      }, idleCloseMs)
+      }, ms)
       live.idle.unref?.()
+    }
+    live.scheduleIdle = () => {
+      clearTimeout(live.idle)
+      quietMs = 0
+      if (live.dead || !(idleCloseMs > 0)) return
+      arm(idleCloseMs)
     }
     live.push = (event) => {
       if (live.dead) return
@@ -598,6 +612,8 @@ export class LocalAgentAdapter extends LlmAdapter {
   stopTurn(live, reason) {
     live.state = 'idle'
     live.stopped = true
+    // A stopped turn may hold the longer running-tool deadline; idle again starts the idle one.
+    live.scheduleIdle?.()
     live.queue.length = 0
     const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
