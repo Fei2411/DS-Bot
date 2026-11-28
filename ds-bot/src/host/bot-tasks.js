@@ -639,30 +639,30 @@ export function install(rt) {
             remaining.push(id)
             continue
           }
-          if (!sessionAlreadyArchived(id)) {
-            try {
-              const target = retirementTarget(entry)
-              if (target !== undefined) await rt.moveSchedules(id, target)
-              if (!current()) return
-              if (hasSessionOwner(id)) continue
-              if (sessionBusy(id) || isInherited(id) || pendingHandoff(entry.botId) || handoffing.has(entry.botId)
-                || retirementTarget(entry) !== target) {
-                remaining.push(id)
-                continue
-              }
+          try {
+            const target = retirementTarget(entry)
+            if (target !== undefined) await rt.moveSchedules(id, target)
+            if (!current()) return
+            if (hasSessionOwner(id)) continue
+            if (sessionBusy(id) || isInherited(id) || pendingHandoff(entry.botId) || handoffing.has(entry.botId)
+              || retirementTarget(entry) !== target) {
+              remaining.push(id)
+              continue
+            }
+            if (!sessionAlreadyArchived(id)) {
               await ctx.workspaceRegistry.archiveSession(id)
               archivedTaskSessions.add(id)
-            } catch (error) {
-              if (error?.name !== 'WorkspaceUnknownSessionError' || error.sessionId !== id) {
-                remaining.push(id)
-                if (error?.code !== 'schedule/pending') {
-                  rt.warn('ds-bot: task Session %s not archived yet: %s', id, error)
-                  retry = true
-                }
-                continue
-              }
-              archivedTaskSessions.add(id)
             }
+          } catch (error) {
+            if (error?.name !== 'WorkspaceUnknownSessionError' || error.sessionId !== id) {
+              remaining.push(id)
+              if (error?.code !== 'schedule/pending') {
+                rt.warn('ds-bot: task Session %s not archived yet: %s', id, error)
+                retry = true
+              }
+              continue
+            }
+            archivedTaskSessions.add(id)
           }
           if (!current()) return
           if (!hasSessionOwner(id)) await cleanPrunedSession(id)

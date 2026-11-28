@@ -1909,11 +1909,18 @@ test('settled fg-handoff tasks archive their old foreground Session without losi
   assert.equal(env.rt.chatOf(bot.id), fourthSid)
   assert.equal(env.archivedSessions.some(item => item.sid === fourthSid), false, 'current foreground session stays unarchived')
 
-  // Later pruning past MAX_SETTLED_TASKS cleans metadata/report without archiving firstSid a second time.
+  // Later pruning past MAX_SETTLED_TASKS still migrates schedules and cleans metadata without archiving firstSid a second time.
+  const movedOnPrune = []
+  const origMoveSchedules = env.rt.moveSchedules
+  env.rt.moveSchedules = async (fromId, toId) => {
+    movedOnPrune.push({ fromId, toId })
+    return origMoveSchedules?.(fromId, toId)
+  }
   bot.tasks.push(...settledTasks(50))
   const trigger = await env.rt.startTask(fourthSid, { title: 'Trigger prune', brief: 'Prune old task' }, execOf(env.agentMap.get(fourthSid)))
   assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: trigger.id })).ok, true)
   await waitFor(() => !bot.tasks.some(item => item.id === task1.id))
+  assert.equal(movedOnPrune.some(item => item.fromId === firstSid && item.toId === fourthSid), true, 'pruning an already-archived fg-handoff session still migrates any schedules')
   assert.equal(env.archivedSessions.filter(item => item.sid === firstSid).length, 1, 'already-archived fg-handoff session is not archived twice on prune')
   assert.equal(env.rt.state.closedCards[firstSid], undefined, 'pruning still cleans up closedCards of an already-archived fg-handoff session')
 })
