@@ -1,4 +1,4 @@
-import type { Bot, InboxItem, Question, Room, ShownView, TeamState } from '../connection.ts'
+import type { Bot, ComputerAccessAsk, InboxItem, Question, Room, ShownView, TeamState } from '../connection.ts'
 import { inboxSummary } from '../../../ds-bot/src/client/inbox-text.js'
 import { t } from '../ui/i18n.ts'
 
@@ -207,7 +207,7 @@ export function viewsForChat(
 export function computerAsksForChat(
   team: TeamState | null,
   target: { bot?: Bot; room?: Room },
-): { id: string; botId: string; botName: string; appName?: string; roomId?: string }[] {
+): (ComputerAccessAsk & { botName: string })[] {
   const asks = team?.computerLive?.asks ?? {}
   const names = new Map((Array.isArray(team?.bots) ? team.bots : []).map(bot => [bot.id, bot.name]))
   const list = Object.values(asks).filter(ask => {

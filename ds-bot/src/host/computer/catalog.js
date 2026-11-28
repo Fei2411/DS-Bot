@@ -66,6 +66,15 @@ export function classify(name, args = {}) {
 // Whether a tool name belongs to a computer-use provider at all.
 export const isComputerTool = name => classify(name, {}) !== undefined
 
+// Unknown methods and session/system operations cannot inherit an app grant.
+export function supportsAppOperation(call) {
+  if (call.provider === PROVIDERS.cua) {
+    return CUA_BACKGROUND.has(call.method) || ['activate', 'hover', 'mouseMove'].includes(call.method)
+  }
+  return call.method === 'bring_to_front'
+    || (DRIVER_BACKGROUND.has(call.method) && !DRIVER_GLOBAL.has(call.method) && !DRIVER_REFUSED.has(call.method))
+}
+
 // Driver calls these without an app target: lists and the agent's own
 // session/config. Everything else must resolve the app it acts on; a call that
 // cannot is refused before it can reach the desktop.

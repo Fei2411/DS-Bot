@@ -9,6 +9,7 @@ import { inkFill } from './inks.js'
 import { t } from './i18n.js'
 import { SelectMenu } from './select-menu.js'
 import { toolArgs } from './text.js'
+import { computerAccessTitle } from '../shared/computer-access.js'
 
 // -------------------------------------------------------------------------
 // Computer use: the switch page, a Bot's Control card, its Computer drawer page,
@@ -105,7 +106,7 @@ export function BotComputerCard({ bot, roster, actions, run, Card, Row }) {
             : null)
       : [
           h(Row, { key: 'level', label: t('Computer use'), hint: providerWorks(computer.provider ?? { state: 'loading' }) ? undefined : t('Bots get no computer tools until the provider is ready.') }, h(LevelPicker, { bot, actions, run })),
-          apps.map(([key, app]) => h(Row, { key, label: app.name },
+          apps.map(([key, app]) => h(Row, { key, label: app.name, hint: app.level === 'foreground' ? t('Foreground') : app.level === 'background' ? t('Background') : undefined },
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerRevokeApp(bot.id, key)) }, t('Revoke')))),
         ])
 }
@@ -154,7 +155,7 @@ export function PendingAppAccess({ ask, actions, inline }) {
     busyRef.current = true
     keep()
     setClosed(true)
-    void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => {
+    void Promise.resolve(actions.computerAppAnswer(ask.id, choice, ask.operation)).catch((error) => {
       setClosed(false)
       actions.reportError?.(error, 'computer')
     }).finally(() => { busyRef.current = false })
@@ -168,11 +169,11 @@ export function PendingAppAccess({ ask, actions, inline }) {
     h('section', { className: inline ? 'bt-q' : 'bt-q bt-q-raised', role: 'group', 'aria-labelledby': titleId },
       h('div', { className: 'bt-q-head' },
         h('div', { className: 'bt-q-text' },
-          h('p', { className: 'bt-q-title', id: titleId }, t('Allow {name} to use {app}?', { name: ask.botName ?? 'a Bot', app: ask.appName })))),
+          h('p', { className: 'bt-q-title', id: titleId }, computerAccessTitle(t, ask, ask.botName ?? t('a Bot'))))),
       h('div', { className: 'bt-q-foot' },
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('deny') }, t('Deny')),
-        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('once') }, t('This time')),
-        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('always') }, t('Always')))))
+        h('button', { type: 'button', className: ask.operation ? 'bt-q-submit' : 'bt-q-btn', onClick: () => answer('once') }, t(ask.operation ? 'This turn' : 'This time')),
+        ask.canAlways === false ? null : h('button', { type: 'button', className: ask.operation ? 'bt-q-btn' : 'bt-q-submit', onClick: () => answer('always') }, t('Always')))))
 }
 
 // One line per computer call: the app and the action. A screenshot result adds a
@@ -276,7 +277,7 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
       h('div', { className: 'bt-q-foot' },
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
         taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
-        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done")))))
+        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer(taken ? 'returned' : 'done') }, t(taken ? 'Hand back and continue' : "I'm done")))))
 }
 
 export function ComputerHandoffCall({ sessionId, callId, roster, actions, heldCards, hooks }) {

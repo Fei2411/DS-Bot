@@ -9,6 +9,7 @@ import { sendsOnEnter } from './enter-key.js'
 import { relativeShort } from './text.js'
 import { alwaysAllowScopeLabel, cleanApprovalReason } from './approval-helpers.js'
 import { hostText, mdLabels, t } from './i18n.js'
+import { computerAccessTitle } from '../shared/computer-access.js'
 
 // -------------------------------------------------------------------------
 // Background tasks UI (#783):
@@ -264,7 +265,7 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
     setBusy(true)
     setError('')
     const promise = approvalItem.kind === 'computer-app'
-      ? actions.computerAppAnswer(approvalItem.ask.id, choice)
+      ? actions.computerAppAnswer(approvalItem.ask.id, choice, approvalItem.ask.operation)
       : actions.answerApproval(approvalItem.approval.id, choice)
     void Promise.resolve(promise)
       .catch(err => setError(hostText(err?.message ?? String(err))))
@@ -328,7 +329,7 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
             : null),
 
         isApproval && approvalItem.kind === 'computer-app'
-          ? h('div', { className: 'bt-btask-title' }, t('Allow {name} to use {app}?', { name: ownerBot?.name ?? t('a Bot'), app: approvalItem.ask.appName }))
+          ? h('div', { className: 'bt-btask-title' }, computerAccessTitle(t, approvalItem.ask, ownerBot?.name ?? t('a Bot')))
           : h('div', { className: 'bt-btask-title' }, item.title),
 
         isApproval && approvalItem.kind === 'tool'
@@ -388,8 +389,8 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
         isApproval && approvalItem.kind === 'computer-app'
           ? h(Fragment, null,
               h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy, onClick: () => answerApproval('deny') }, t('Deny')),
-              h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy, onClick: () => answerApproval('once') }, t('This time')),
-              h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('always') }, t('Always')))
+              h('button', { type: 'button', className: approvalItem.ask.operation ? 'bt-btask-btn is-primary' : 'bt-btask-btn', disabled: busy, onClick: () => answerApproval('once') }, t(approvalItem.ask.operation ? 'This turn' : 'This time')),
+              approvalItem.ask.canAlways === false ? null : h('button', { type: 'button', className: approvalItem.ask.operation ? 'bt-btask-btn' : 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('always') }, t('Always')))
           : isApproval
             ? h(Fragment, null,
                 h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy || readOnly, onClick: () => answerApproval('reject') }, t('Reject')),

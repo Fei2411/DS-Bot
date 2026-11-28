@@ -155,6 +155,15 @@ export interface CapabilityItem {
 // The team's DSH Agent (agents.js): plain DSH Sessions, newest last, not a Bot.
 export interface Agent { id: string; name?: string; sessions: string[]; createdAt?: number }
 
+export interface ComputerAccessAsk {
+  id: string
+  botId: string
+  appName?: string
+  roomId?: string
+  operation?: 'background' | 'foreground'
+  canAlways?: boolean
+}
+
 export interface TeamState {
   revision: number
   unchanged?: boolean
@@ -177,7 +186,7 @@ export interface TeamState {
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
   computerLive?: {
-    asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }>
+    asks?: Record<string, ComputerAccessAsk>
     holds?: Record<string, { by?: string; fromBot?: boolean; reason?: string; note?: string; callId?: string }>
   }
   inbox?: { count: number; counts: Record<'decide' | 'fix' | 'suggest', number>; items: InboxItem[] } | null

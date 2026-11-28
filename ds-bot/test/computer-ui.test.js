@@ -73,6 +73,17 @@ test('the app-access card orders its buttons Deny, This time, Always', () => {
   assert.deepEqual(buttons(tree), ['Deny', 'This time', 'Always'])
 })
 
+test('the operation card names its level and offers only available approval scopes', () => {
+  const actions = { computerAppAnswer: async () => true }
+  const ask = { id: 'a1', sessionId: 'w1', botName: 'Writer', appName: 'Notes', operation: 'foreground', canAlways: true }
+  const foreground = render('PendingAppAccess', { ask, actions, inline: true })
+  assert.ok(texts(foreground).includes('Allow Writer to control Notes in the foreground?'))
+  assert.deepEqual(buttons(foreground), ['Deny', 'This turn', 'Always'])
+  const background = render('PendingAppAccess', { ask: { ...ask, operation: 'background', canAlways: false }, actions, inline: true })
+  assert.ok(texts(background).includes('Allow Writer to control Notes in the background?'))
+  assert.deepEqual(buttons(background), ['Deny', 'This turn'])
+})
+
 test('AppAccessDock in a Bot own chat skips group-session asks and shows own-chat asks (#1623)', () => {
   const roster = { byId: { w1: { id: 'w1', name: 'Writer' } } }
   const actions = { computerAppAnswer: async () => true }

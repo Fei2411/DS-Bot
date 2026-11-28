@@ -6,6 +6,7 @@ import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
 import { alwaysAllowScopeLabel, cleanApprovalReason } from './approval-helpers.js'
 import { t } from './i18n.js'
+import { computerAccessTitle } from '../shared/computer-access.js'
 
 // -------------------------------------------------------------------------
 // What a group's members are doing: above the group's composer, one capsule for the
@@ -203,18 +204,18 @@ export function ComputerAppApprovalCard({ ask, bot, actions, showBot = false }) 
   const [busy, setBusy] = useState(false)
   const answer = (choice) => {
     setBusy(true)
-    void Promise.resolve(actions.computerAppAnswer(ask.id, choice))
+    void Promise.resolve(actions.computerAppAnswer(ask.id, choice, ask.operation))
       .catch(error => actions.reportError?.(error, 'computer'))
       .finally(() => setBusy(false))
   }
-  const title = t('Allow {name} to use {app}?', { name: bot.name, app: ask.appName })
+  const title = computerAccessTitle(t, ask, bot.name)
   return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': title },
     showBot ? cardHead(bot, ask.at) : null,
     h('div', { className: 'bt-mw-text' }, title),
     h('div', { className: 'bt-mw-actions' },
       h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('deny') }, t('Deny')),
-      h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('once') }, t('This time')),
-      h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('always') }, t('Always'))))
+      h('button', { type: 'button', className: ask.operation ? 'bt-q-submit' : 'bt-q-btn', disabled: busy, onClick: () => answer('once') }, t(ask.operation ? 'This turn' : 'This time')),
+      ask.canAlways === false ? null : h('button', { type: 'button', className: ask.operation ? 'bt-q-btn' : 'bt-q-submit', disabled: busy, onClick: () => answer('always') }, t('Always'))))
 }
 
 // A member's second line in the group's details: what it is doing here, or its role.

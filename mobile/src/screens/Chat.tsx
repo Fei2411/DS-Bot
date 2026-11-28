@@ -14,6 +14,7 @@ import { useTeam } from '../team/context.tsx'
 import { computerAsksForChat, questionsForChat, viewsForChat } from '../nav/pending.ts'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
+import { computerAccessTitle } from '../../../ds-bot/src/shared/computer-access.js'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
@@ -809,7 +810,6 @@ function ComputerCards({ bot, room, p }: { bot?: Bot; room?: Room; p: ReturnType
   const live = (team as {
     computerLive?: {
       bots?: Record<string, { state?: string; app?: string }>
-      asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }>
       holds?: Record<string, { id?: string; by?: string; fromBot?: boolean; callId?: string; reason?: string; note?: string }>
     }
   } | null)?.computerLive
@@ -824,14 +824,16 @@ function ComputerCards({ bot, room, p }: { bot?: Bot; room?: Room; p: ReturnType
     <View>
       {asks.map(ask => (
         <View key={ask.id} style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[type.settingsRow, { color: p.ink }]}>{t('Allow {name} to use {app}?', { name: ask.botName, app: ask.appName ?? '' })}</Text>
+          <Text style={[type.settingsRow, { color: p.ink }]}>{computerAccessTitle(t, ask, ask.botName)}</Text>
           {Platform.OS === 'web' ? (
             <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Not available from a browser. Use the phone app or the computer.')}</Text>
           ) : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Pressable>
-              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('This time')}</Text></Pressable>
-              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Always')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny', operation: ask.operation })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once', operation: ask.operation })} style={[styles.fix, { backgroundColor: ask.operation ? p.accent : p.hover }]}><Text style={{ color: ask.operation ? p.accentInk : p.ink }}>{t(ask.operation ? 'This turn' : 'This time')}</Text></Pressable>
+              {ask.canAlways === false ? null : (
+                <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always', operation: ask.operation })} style={[styles.fix, { backgroundColor: ask.operation ? p.hover : p.accent }]}><Text style={{ color: ask.operation ? p.ink : p.accentInk }}>{t('Always')}</Text></Pressable>
+              )}
             </View>
           )}
         </View>
@@ -845,7 +847,7 @@ function ComputerCards({ bot, room, p }: { bot?: Bot; room?: Room; p: ReturnType
           ) : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
               <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'skip' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Skip')}</Text></Pressable>
-              <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'done' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t("I'm done")}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: hold.by === 'user' ? 'returned' : 'done' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t(hold.by === 'user' ? 'Hand back and continue' : "I'm done")}</Text></Pressable>
             </View>
           )}
         </View>

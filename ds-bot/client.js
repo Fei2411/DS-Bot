@@ -3084,11 +3084,16 @@ var init_zh = __esm({
       "Let it continue": "让它继续",
       "Take over the computer": "我来操作",
       "Hand back": "交还",
+      "Hand back and continue": "交还并继续",
       "Recent steps": "最近的操作",
       "failed": "失败",
       "Allow {name} to use {app}?": "允许 {name} 使用 {app} 吗？",
+      "Allow {name} to control {app} in the foreground?": "允许 {name} 在前台操作 {app} 吗？",
+      "Allow {name} to control {app} in the background?": "允许 {name} 在后台操作 {app} 吗？",
       "This time": "这一次",
+      "This turn": "仅本轮允许",
       "Always": "一直允许",
+      "Update this client to approve the requested computer access level.": "请更新客户端后，再批准这次电脑操控权限。",
       "Needs your confirmation": "需要你确认",
       "Help needed on the computer": "需要你在电脑上帮忙",
       "You control the computer": "你在操控电脑",
@@ -5432,10 +5437,15 @@ var init_ja = __esm({
       "Let it continue": "続行させる",
       "Take over the computer": "操作を引き継ぐ",
       "Hand back": "Bot に戻す",
+      "Hand back and continue": "操作を返して続ける",
       "Recent steps": "最近の操作",
       "failed": "失敗",
       "Allow {name} to use {app}?": "{name} に {app} の使用を許可しますか？",
+      "Allow {name} to control {app} in the foreground?": "{name} が {app} を前面で操作することを許可しますか？",
+      "Allow {name} to control {app} in the background?": "{name} が {app} をバックグラウンドで操作することを許可しますか？",
       "This time": "今回のみ",
+      "This turn": "このターンのみ",
+      "Update this client to approve the requested computer access level.": "このクライアントを更新して、要求されたコンピューター操作の権限を承認してください。",
       "Always": "常に許可",
       "Needs your confirmation": "確認が必要です",
       "Help needed on the computer": "コンピュータでの手助けが必要です",
@@ -9159,10 +9169,15 @@ var init_ko = __esm({
       "Let it continue": "계속 진행하게 하기",
       "Take over the computer": "직접 조작하기",
       "Hand back": "제어권 넘기기",
+      "Hand back and continue": "제어권을 돌려주고 계속",
       "Recent steps": "최근 조작",
       "failed": "실패",
       "Allow {name} to use {app}?": "{name}이(가) {app}을(를) 사용하도록 허용하시겠습니까?",
+      "Allow {name} to control {app} in the foreground?": "{name}이(가) 포그라운드에서 {app}을(를) 조작하도록 허용하시겠습니까?",
+      "Allow {name} to control {app} in the background?": "{name}이(가) 백그라운드에서 {app}을(를) 조작하도록 허용하시겠습니까?",
       "This time": "이번에만",
+      "This turn": "이번 턴에만",
+      "Update this client to approve the requested computer access level.": "요청된 컴퓨터 접근 권한을 승인하려면 이 클라이언트를 업데이트하세요.",
       "Always": "항상 허용",
       "Needs your confirmation": "사용자 확인 필요",
       "Help needed on the computer": "컴퓨터에서 도움 필요",
@@ -12887,10 +12902,15 @@ var init_es = __esm({
       "Let it continue": "Dejar que continúe",
       "Take over the computer": "Tomar el control del ordenador",
       "Hand back": "Devolver el control",
+      "Hand back and continue": "Devolver el control y continuar",
       "Recent steps": "Pasos recientes",
       "failed": "falló",
       "Allow {name} to use {app}?": "¿Permitir que {name} use {app}?",
+      "Allow {name} to control {app} in the foreground?": "¿Permitir que {name} controle {app} en primer plano?",
+      "Allow {name} to control {app} in the background?": "¿Permitir que {name} controle {app} en segundo plano?",
       "This time": "Esta vez",
+      "This turn": "Solo este turno",
+      "Update this client to approve the requested computer access level.": "Actualiza este cliente para aprobar el nivel de acceso solicitado.",
       "Always": "Siempre",
       "Needs your confirmation": "Requiere tu confirmación",
       "Help needed on the computer": "Se necesita ayuda en el ordenador",
@@ -16571,10 +16591,15 @@ var init_fr = __esm({
       "Let it continue": "Laisser continuer",
       "Take over the computer": "Prendre la main",
       "Hand back": "Rendre la main",
+      "Hand back and continue": "Rendre la main et continuer",
       "Recent steps": "Actions récentes",
       "failed": "échec",
       "Allow {name} to use {app}?": "Autoriser {name} à utiliser {app} ?",
+      "Allow {name} to control {app} in the foreground?": "Autoriser {name} à contrôler {app} au premier plan ?",
+      "Allow {name} to control {app} in the background?": "Autoriser {name} à contrôler {app} en arrière-plan ?",
       "This time": "Cette fois-ci",
+      "This turn": "Pour ce tour",
+      "Update this client to approve the requested computer access level.": "Mettez ce client à jour pour approuver le niveau d’accès demandé.",
       "Always": "Toujours",
       "Needs your confirmation": "Nécessite votre confirmation",
       "Help needed on the computer": "Aide requise sur l’ordinateur",
@@ -20298,10 +20323,15 @@ var init_de = __esm({
       "Let it continue": "Weiterarbeiten lassen",
       "Take over the computer": "Computer übernehmen",
       "Hand back": "Zurückgeben",
+      "Hand back and continue": "Zurückgeben und fortfahren",
       "Recent steps": "Letzte Schritte",
       "failed": "fehlgeschlagen",
       "Allow {name} to use {app}?": "{name} die Nutzung von {app} erlauben?",
+      "Allow {name} to control {app} in the foreground?": "{name} die Steuerung von {app} im Vordergrund erlauben?",
+      "Allow {name} to control {app} in the background?": "{name} die Steuerung von {app} im Hintergrund erlauben?",
       "This time": "Diesmal",
+      "This turn": "Nur für diese Runde",
+      "Update this client to approve the requested computer access level.": "Aktualisiere diesen Client, um die angeforderte Computerberechtigung zu bestätigen.",
       "Always": "Immer erlauben",
       "Needs your confirmation": "Bestätigung erforderlich",
       "Help needed on the computer": "Hilfe am Computer benötigt",
@@ -23891,7 +23921,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     computerTakeover: (botId) => after(call2("computer-takeover", { botId })),
     computerHandback: (botId) => after(call2("computer-handback", { botId })),
     computerAllowForeground: (botId) => call2("computer-allow-foreground", { botId }),
-    computerAppAnswer: (id, answer) => after(call2("computer-app-answer", { id, answer })),
+    computerAppAnswer: (id, answer, operation) => after(call2("computer-app-answer", { id, answer, ...operation !== void 0 ? { operation } : {} })),
     computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call2("computer-hold-answer", { botId, ...callId !== void 0 ? { callId } : {}, outcome })),
     computerShot: (attachmentId) => call2("computer-shot", { attachmentId }),
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
@@ -36889,6 +36919,14 @@ function SelectMenu({
   );
 }
 
+// src/shared/computer-access.js
+function computerAccessTitle(translate, ask, name) {
+  const args = { name, app: ask.appName ?? "" };
+  if (ask.operation === "foreground") return translate("Allow {name} to control {app} in the foreground?", args);
+  if (ask.operation === "background") return translate("Allow {name} to control {app} in the background?", args);
+  return translate("Allow {name} to use {app}?", args);
+}
+
 // src/client/computer.js
 var import_react18 = require("react");
 var LEVELS = [
@@ -37003,7 +37041,7 @@ function BotComputerCard({ bot, roster, actions, run: run2, Card: Card3, Row: Ro
       (0, import_react18.createElement)(Row4, { key: "level", label: t("Computer use"), hint: providerWorks(computer.provider ?? { state: "loading" }) ? void 0 : t("Bots get no computer tools until the provider is ready.") }, (0, import_react18.createElement)(LevelPicker, { bot, actions, run: run2 })),
       apps.map(([key, app]) => (0, import_react18.createElement)(
         Row4,
-        { key, label: app.name },
+        { key, label: app.name, hint: app.level === "foreground" ? t("Foreground") : app.level === "background" ? t("Background") : void 0 },
         (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.computerRevokeApp(bot.id, key)) }, t("Revoke"))
       ))
     ]
@@ -37069,7 +37107,7 @@ function PendingAppAccess({ ask, actions, inline }) {
     busyRef.current = true;
     keep();
     setClosed(true);
-    void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => {
+    void Promise.resolve(actions.computerAppAnswer(ask.id, choice, ask.operation)).catch((error) => {
       setClosed(false);
       actions.reportError?.(error, "computer");
     }).finally(() => {
@@ -37093,15 +37131,15 @@ function PendingAppAccess({ ask, actions, inline }) {
         (0, import_react18.createElement)(
           "div",
           { className: "bt-q-text" },
-          (0, import_react18.createElement)("p", { className: "bt-q-title", id: titleId }, t("Allow {name} to use {app}?", { name: ask.botName ?? "a Bot", app: ask.appName }))
+          (0, import_react18.createElement)("p", { className: "bt-q-title", id: titleId }, computerAccessTitle(t, ask, ask.botName ?? t("a Bot")))
         )
       ),
       (0, import_react18.createElement)(
         "div",
         { className: "bt-q-foot" },
         (0, import_react18.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("deny") }, t("Deny")),
-        (0, import_react18.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("once") }, t("This time")),
-        (0, import_react18.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer("always") }, t("Always"))
+        (0, import_react18.createElement)("button", { type: "button", className: ask.operation ? "bt-q-submit" : "bt-q-btn", onClick: () => answer("once") }, t(ask.operation ? "This turn" : "This time")),
+        ask.canAlways === false ? null : (0, import_react18.createElement)("button", { type: "button", className: ask.operation ? "bt-q-btn" : "bt-q-submit", onClick: () => answer("always") }, t("Always"))
       )
     )
   );
@@ -37226,7 +37264,7 @@ function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }) {
         { className: "bt-q-foot" },
         (0, import_react18.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("skip") }, t("Skip")),
         taken ? null : (0, import_react18.createElement)("button", { type: "button", className: "bt-q-btn", onClick: takeOver }, t("Take over")),
-        (0, import_react18.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer("done") }, t("I'm done"))
+        (0, import_react18.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer(taken ? "returned" : "done") }, t(taken ? "Hand back and continue" : "I'm done"))
       )
     )
   );
@@ -47735,7 +47773,7 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
     if (approvalItem.kind === "tool" && choice === "always" && !canAlways) return;
     setBusy(true);
     setError("");
-    const promise = approvalItem.kind === "computer-app" ? actions.computerAppAnswer(approvalItem.ask.id, choice) : actions.answerApproval(approvalItem.approval.id, choice);
+    const promise = approvalItem.kind === "computer-app" ? actions.computerAppAnswer(approvalItem.ask.id, choice, approvalItem.ask.operation) : actions.answerApproval(approvalItem.approval.id, choice);
     void Promise.resolve(promise).catch((err) => setError(hostText(err?.message ?? String(err)))).finally(() => setBusy(false));
   };
   const stopFocusedTask = () => {
@@ -47801,7 +47839,7 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
             (0, import_react40.createElement)("button", { type: "button", className: "bt-task-arrow", title: t("Next item"), "aria-label": t("Next item"), onClick: () => step(1) }, (0, import_react40.createElement)(ChevronRightIcon))
           ) : null
         ),
-        isApproval && approvalItem.kind === "computer-app" ? (0, import_react40.createElement)("div", { className: "bt-btask-title" }, t("Allow {name} to use {app}?", { name: ownerBot?.name ?? t("a Bot"), app: approvalItem.ask.appName })) : (0, import_react40.createElement)("div", { className: "bt-btask-title" }, item.title),
+        isApproval && approvalItem.kind === "computer-app" ? (0, import_react40.createElement)("div", { className: "bt-btask-title" }, computerAccessTitle(t, approvalItem.ask, ownerBot?.name ?? t("a Bot"))) : (0, import_react40.createElement)("div", { className: "bt-btask-title" }, item.title),
         isApproval && approvalItem.kind === "tool" ? (0, import_react40.createElement)(
           import_react40.Fragment,
           null,
@@ -47869,8 +47907,8 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
           import_react40.Fragment,
           null,
           (0, import_react40.createElement)("button", { type: "button", className: "bt-btask-btn", disabled: busy, onClick: () => answerApproval("deny") }, t("Deny")),
-          (0, import_react40.createElement)("button", { type: "button", className: "bt-btask-btn", disabled: busy, onClick: () => answerApproval("once") }, t("This time")),
-          (0, import_react40.createElement)("button", { type: "button", className: "bt-btask-btn is-primary", disabled: busy, onClick: () => answerApproval("always") }, t("Always"))
+          (0, import_react40.createElement)("button", { type: "button", className: approvalItem.ask.operation ? "bt-btask-btn is-primary" : "bt-btask-btn", disabled: busy, onClick: () => answerApproval("once") }, t(approvalItem.ask.operation ? "This turn" : "This time")),
+          approvalItem.ask.canAlways === false ? null : (0, import_react40.createElement)("button", { type: "button", className: approvalItem.ask.operation ? "bt-btask-btn" : "bt-btask-btn is-primary", disabled: busy, onClick: () => answerApproval("always") }, t("Always"))
         ) : isApproval ? (0, import_react40.createElement)(
           import_react40.Fragment,
           null,
@@ -48889,9 +48927,9 @@ function ComputerAppApprovalCard({ ask, bot, actions, showBot = false }) {
   const [busy, setBusy] = (0, import_react42.useState)(false);
   const answer = (choice) => {
     setBusy(true);
-    void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => actions.reportError?.(error, "computer")).finally(() => setBusy(false));
+    void Promise.resolve(actions.computerAppAnswer(ask.id, choice, ask.operation)).catch((error) => actions.reportError?.(error, "computer")).finally(() => setBusy(false));
   };
-  const title = t("Allow {name} to use {app}?", { name: bot.name, app: ask.appName });
+  const title = computerAccessTitle(t, ask, bot.name);
   return (0, import_react42.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": title },
@@ -48901,8 +48939,8 @@ function ComputerAppApprovalCard({ ask, bot, actions, showBot = false }) {
       "div",
       { className: "bt-mw-actions" },
       (0, import_react42.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("deny") }, t("Deny")),
-      (0, import_react42.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("once") }, t("This time")),
-      (0, import_react42.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("always") }, t("Always"))
+      (0, import_react42.createElement)("button", { type: "button", className: ask.operation ? "bt-q-submit" : "bt-q-btn", disabled: busy, onClick: () => answer("once") }, t(ask.operation ? "This turn" : "This time")),
+      ask.canAlways === false ? null : (0, import_react42.createElement)("button", { type: "button", className: ask.operation ? "bt-q-btn" : "bt-q-submit", disabled: busy, onClick: () => answer("always") }, t("Always"))
     )
   );
 }
@@ -49737,7 +49775,7 @@ function ItemBody({ item, bot, summary, roster, actions, hooks }) {
   const guardedActions = {
     ...actions,
     answerApproval: (id, choice) => run2(() => actions.answerApproval(id, choice)),
-    computerAppAnswer: (id, choice) => run2(() => actions.computerAppAnswer(id, choice)),
+    computerAppAnswer: (id, choice, operation) => run2(() => actions.computerAppAnswer(id, choice, operation)),
     ...bot ? {
       openBrowser: (id) => {
         actions.openSession?.(bot.id);
