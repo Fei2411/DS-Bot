@@ -68,6 +68,8 @@ const FAILURES = {
   TIMEOUT: 'The model took too long to answer',
   TRANSPORT: 'Could not reach the model service',
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
+  TURN_PAUSED_LOOP: 'Paused to prevent a repeating loop',
+  TURN_PAUSED_SWITCH_LIMIT: 'Paused after repeated automatic part switches',
   SESSION: 'Its group conversation could not open',
   SESSION_RESET: 'Its group conversation could not open, so it starts a new one next time',
 }
