@@ -1318,3 +1318,48 @@ test('WebSearchDetailForm preserves unsaved hidden provider edits across full an
   assert.equal(countInput().props.value, '18', 'hidden Results per search draft survives both partial and full saves')
   assert.equal(formSaveBtn().props.disabled, false)
 })
+
+test('WebSearchDetailForm labels registered auto fetch provider as Automatic without duplicates', async () => {
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-web-providers') {
+      return {
+        available: true,
+        search: [{ id: 'auto', kind: 'search', available: true }],
+        fetch: [
+          { id: 'auto', kind: 'fetch', available: true },
+          { id: 'http', kind: 'fetch', available: true },
+          { id: 'deepseek-fetch-api', kind: 'fetch', available: true },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [
+          { ns: 'web', autoGenerate: true, revision: 1, value: { searchProvider: 'auto', fetchProvider: 'auto' }, base: { searchProvider: 'auto', fetchProvider: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+        ],
+      }
+    }
+    return {}
+  })
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'web-search' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  harness.render({ readOnly: false, subTarget: 'web-search' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const fetchTrigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Fetch provider')[0]
+  assert.ok(fetchTrigger)
+  if (fetchTrigger.props.ref) {
+    fetchTrigger.props.ref.current = {
+      getBoundingClientRect: () => ({ left: 400, right: 620, top: 240, bottom: 272, width: 220, height: 32 }),
+      focus() {},
+    }
+  }
+  fetchTrigger.props.onClick({ detail: 1 })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const labels = findAll(tree, n => n.props?.role === 'option').map(n => textOf(n))
+  assert.deepEqual(labels, ['Automatic', 'Direct HTTP', 'DeepSeek Fetch API'])
+})

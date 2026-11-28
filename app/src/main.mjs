@@ -9,6 +9,7 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme,
 import { createChatGPTSignIn } from './chatgpt-signin.mjs'
 import { createChatGPTRelay } from './chatgpt-relay.mjs'
 import { createChatGPTBridge } from './chatgpt-bridge.mjs'
+import { createWebFetchBridge } from './web-fetch.mjs'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
@@ -111,6 +112,7 @@ let logs
 let rawOutput
 let host
 let chatgpt
+let webFetch
 // The Host's loopback origin, which the window loads.
 let origin
 let port
@@ -205,7 +207,7 @@ const shell = createShell({
   fallback: { show: options => boxInWindow(options, options.cancelId) },
 })
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
-app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); void chatgpt?.close() })
+app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); webFetch?.close(); void chatgpt?.close() })
 
 // A packaged app started through an 8.3 short path or a junction restarts once on the
 // canonical path: the lock below and every path the Host sees then agree with the long
@@ -316,6 +318,9 @@ async function prepare() {
     })
     const relay = await createChatGPTRelay({ signIn })
     chatgpt = createChatGPTBridge({ signIn, relay, openExternal: url => electronShell.openExternal(url) })
+  }
+  if (!webFetch) {
+    webFetch = createWebFetchBridge({ BrowserWindow, session })
   }
   // Before the windows: the team window's page is told the Host's origin.
   if (port === undefined) {
@@ -649,7 +654,10 @@ function newHost() {
     output: hostOutput,
     redactOutput: false,
   })
-  child.onMessage(message => { chatgpt?.handle(message, response => child.send(response)) })
+  child.onMessage(message => {
+    chatgpt?.handle(message, response => child.send(response))
+    webFetch?.handle(message, response => child.send(response))
+  })
   return child
 }
 

@@ -23,16 +23,32 @@ export const SEARCH_PATCH_NAME = 'search-selector.patch.yml'
 export function searchSelectorPatch(profile) {
   const layers = profile.layers
   const entries = composeEntries([...layers.map(layer => layer.patches), profile.patches])
-  if (entries.find(entry => entry.id === 'web-search-auto')?.disabled !== true) return undefined
   const web = entries.find(entry => entry.id === 'web')
-  if (web?.config?.searchProvider !== 'auto') return undefined
+  const searchDisabled = entries.find(entry => entry.id === 'web-search-auto')?.disabled === true
+  const fetchDisabled = entries.find(entry => entry.id === 'web-fetch-auto')?.disabled === true
+  const searchStale = searchDisabled && web?.config?.searchProvider === 'auto'
+  const fetchStale = fetchDisabled && web?.config?.fetchProvider === 'auto'
+  if (!searchStale && !fetchStale) return undefined
   // The web row as it composes from the bundles alone, before ds-bot's selection.
   // DSH 0.2.2-rc.5 omits `searchProvider` on `@deepseek-ai/dsh-base` so `dsh-web` selects by
-  // model route; restoring that config clears `searchProvider: auto` via whole-config replacement.
+  // model route, and defaults `fetchProvider` to `http`; restoring either clears the stale
+  // `auto` selection via whole-config replacement while keeping the other provider intact.
   const base = layers.filter(({ packageName }) => packageName !== 'ds-bot')
   const original = composeEntries(base.map(layer => layer.patches)).find(entry => entry.id === 'web')
-  if (original === undefined || original.config?.searchProvider === 'auto') return undefined
-  return [{ id: 'web', name: original.name, config: original.config ?? {} }]
+  if (original === undefined) return undefined
+  const fixSearch = searchStale && original.config?.searchProvider !== 'auto'
+  const fixFetch = fetchStale && original.config?.fetchProvider !== 'auto'
+  if (!fixSearch && !fixFetch) return undefined
+  const nextConfig = { ...(original.config ?? {}) }
+  if (!fixSearch && web?.config?.searchProvider !== undefined) {
+    nextConfig.searchProvider = web.config.searchProvider
+  }
+  if (!fixFetch && web?.config?.fetchProvider !== undefined) {
+    if (original.config !== undefined || web.config.fetchProvider === 'auto') {
+      nextConfig.fetchProvider = web.config.fetchProvider
+    }
+  }
+  return [{ id: 'web', name: original.name, config: nextConfig }]
 }
 
 /**

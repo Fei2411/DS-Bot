@@ -10,16 +10,20 @@
     # results-page fallback (see README "Web search").
     - id: web-search-auto
       name: ds-bot/web-search
+    # Web fetch with browser-compatible headers, safe cross-origin redirects,
+    # and an isolated browser fallback for WAF-protected or JS-rendered pages.
+    - id: web-fetch-auto
+      name: ds-bot/web-fetch
 
-# A config override replaces the whole entry config, so fetchProvider is
-# restated. A profile patch that names another searchProvider (deepseek-search-api,
-# deepseek-official, exa, perplexity) wins over this one. Turning off web-search-auto
-# alone leaves this row on "auto", and every web_search then fails; the profile must
-# name another searchProvider too (see README "Web search").
+# A config override replaces the whole entry config, so searchProvider and
+# fetchProvider are both stated. A profile patch that names another
+# searchProvider or fetchProvider wins over this one. Turning off web-search-auto
+# or web-fetch-auto alone leaves this row on "auto", and every call then fails;
+# the profile must name another provider too (see README "Web search").
 - id: web
   config:
     searchProvider: auto
-    fetchProvider: http
+    fetchProvider: auto
 
 # DS Bot's settings shell holds the sidebar's settings seat (src/client/settings-shell.js)
 # and draws DSH's settings pages in DS Bot's Settings dialog. Only the entry that declares

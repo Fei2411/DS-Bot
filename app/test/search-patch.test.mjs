@@ -14,7 +14,7 @@ const DSH_WEB = '@deepseek-ai/dsh-web'
 // A stand-in profile: dsh-base supplies the web row, ds-bot adds the auto
 // provider and points the selector at it, and `user` rows model the profile's
 // own cordis.patch.yml.
-function profile(user = [], { auto = true, baseConfig = { searchProvider: 'deepseek-official', fetchProvider: 'http' } } = {}) {
+function profile(user = [], { auto = true, autoFetch = false, baseConfig = { searchProvider: 'deepseek-official', fetchProvider: 'http' }, dsBotFetch = autoFetch ? 'auto' : 'http' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-search-patch-'))
   return {
     name: 'ds-bot', dir, patchPath: join(dir, 'cordis.patch.yml'), skippedBundles: [],
@@ -22,13 +22,15 @@ function profile(user = [], { auto = true, baseConfig = { searchProvider: 'deeps
       { packageName: '@deepseek-ai/dsh-base', packageDir: '', patchPaths: [], patches: [{ insert: [{ id: 'web', name: DSH_WEB, ...(baseConfig === null ? {} : { config: baseConfig }) }] }] },
       { packageName: 'ds-bot', packageDir: '', patchPaths: [], patches: [
         ...(auto ? [{ insert: [{ id: 'web-search-auto', name: 'ds-bot/web-search' }] }] : []),
-        { id: 'web', config: { searchProvider: 'auto', fetchProvider: 'http' } },
+        ...(autoFetch ? [{ insert: [{ id: 'web-fetch-auto', name: 'ds-bot/web-fetch' }] }] : []),
+        { id: 'web', config: { searchProvider: 'auto', fetchProvider: dsBotFetch } },
       ] },
     ],
     patches: user,
   }
 }
 const disabledAuto = { id: 'web-search-auto', name: 'ds-bot/web-search', disabled: true }
+const disabledAutoFetch = { id: 'web-fetch-auto', name: 'ds-bot/web-fetch', disabled: true }
 
 describe('searchSelectorPatch', () => {
   const made = []
@@ -65,7 +67,19 @@ describe('searchSelectorPatch', () => {
     assert.ok(overlay !== undefined)
     const composed = composeEntries([...p.layers.map(layer => layer.patches), p.patches, overlay]).find(entry => entry.id === 'web')
     assert.notEqual(composed.config?.searchProvider, 'auto')
-    assert.equal(composed.config?.fetchProvider, 'http')
+    assert.equal(composed.config?.fetchProvider, 'auto')
+
+    const bothOff = { ...p, patches: [disabledAuto, disabledAutoFetch] }
+    const bothOverlay = searchSelectorPatch(bothOff)
+    const bothComposed = composeEntries([...bothOff.layers.map(layer => layer.patches), bothOff.patches, bothOverlay]).find(entry => entry.id === 'web')
+    assert.notEqual(bothComposed.config?.searchProvider, 'auto')
+    assert.equal(bothComposed.config?.fetchProvider, 'http')
+  })
+
+  test('restores fetchProvider to http when only web-fetch-auto is disabled, preserving searchProvider', () => {
+    const p = track([disabledAutoFetch], { autoFetch: true, baseConfig: { fetchProvider: 'http' } })
+    const overlay = searchSelectorPatch(p)
+    assert.deepEqual(overlay, [{ id: 'web', name: DSH_WEB, config: { searchProvider: 'auto', fetchProvider: 'http' } }])
   })
 
   test('clears searchProvider when the base web row has no config object', () => {
