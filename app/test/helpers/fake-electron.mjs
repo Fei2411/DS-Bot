@@ -69,8 +69,16 @@ export class FakeWindow extends EventEmitter {
   constructor(options = {}) {
     super()
     this.options = options
+    this.title = options.title ?? ''
+    this.bounds = {
+      x: options.x ?? 0,
+      y: options.y ?? 0,
+      width: options.width ?? 800,
+      height: options.height ?? 600,
+    }
     this.visible = false
     this.minimized = false
+    this.maximized = false
     this.fullScreen = false
     this.destroyed = false
     this.url = ''
@@ -84,6 +92,7 @@ export class FakeWindow extends EventEmitter {
   isDestroyed() { return this.destroyed }
   isVisible() { return this.visible }
   isMinimized() { return this.minimized }
+  isMaximized() { return this.maximized }
   isFullScreen() { return this.fullScreen }
   setFullScreen(value) { this.fullScreen = value; if (!value) this.emit('leave-full-screen') }
   show() { this.visible = true; this.shown += 1; this.emit('show') }
@@ -92,19 +101,22 @@ export class FakeWindow extends EventEmitter {
   focus() { this.focused += 1 }
   restore() { this.minimized = false; this.visible = true; this.emit('restore') }
   minimize() { this.minimized = true }
+  maximize() { this.maximized = true; this.emit('maximize') }
+  unmaximize() { this.maximized = false; this.emit('unmaximize') }
   destroy() { this.destroyed = true; this.emit('closed') }
   close() { this.emit('close', { preventDefault: () => { this.prevented = true } }) }
+  setTitle(title) { this.title = title }
   setTitleBarOverlay() {}
   setVibrancy() {}
   setProgressBar() {}
   setMinimumSize() {}
   moveTop() {}
-  getBounds() { return { x: 0, y: 0, width: 800, height: 600 } }
+  getBounds() { return { ...this.bounds } }
   // What the start window asks of a window: its rect, its growth into the team window's rect
   // and the hand-off, at which the team window shows behind it.
   getNormalBounds() { return this.getBounds() }
-  setBounds() {}
-  setContentBounds() {}
+  setBounds(rect) { if (rect && typeof rect === 'object') this.bounds = { ...this.bounds, ...rect } }
+  setContentBounds(rect) { if (rect && typeof rect === 'object') this.bounds = { ...this.bounds, ...rect } }
   setBackgroundColor() {}
   setSkipTaskbar() {}
   isFocused() { return false }
@@ -262,9 +274,10 @@ export const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColo
 const display = { workArea: { x: 0, y: 0, width: 1920, height: 1040 } }
 export const screen = {
   getCursorScreenPoint: () => ({ x: 0, y: 0 }),
-  getDisplayNearestPoint: () => display,
-  getDisplayMatching: () => display,
-  getPrimaryDisplay: () => display,
+  getDisplayNearestPoint: () => state.displays?.[0] ?? display,
+  getDisplayMatching: () => state.displays?.[0] ?? display,
+  getPrimaryDisplay: () => state.displays?.[0] ?? display,
+  getAllDisplays: () => state.displays ?? [display],
 }
 
 export const systemPreferences = {

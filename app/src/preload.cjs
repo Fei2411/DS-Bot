@@ -101,6 +101,13 @@ if (startPage !== undefined) {
       ipcRenderer.on('ds-bot:shortcut', handler)
       return () => { ipcRenderer.removeListener('ds-bot:shortcut', handler) }
     },
+    systemLanguage: () => ipcRenderer.invoke('ds-bot:system-language'),
+    onSystemLanguage: (run) => {
+      if (typeof run !== 'function') return () => {}
+      const handler = (_event, tag) => { if (typeof tag === 'string' && tag) run(tag) }
+      ipcRenderer.on('ds-bot:system-language', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:system-language', handler) }
+    },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
   const placeOf = (value) => {

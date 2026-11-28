@@ -25,6 +25,7 @@ import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore
 import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
 export { ShellOverlayHost }
 import { createTeam } from './team.js'
+import { conversationTitleOf, useWindowTitle } from './window-title.js'
 
 const CLASSIC_BROWSER_OWNER = 'classic'
 
@@ -526,6 +527,13 @@ export function App() {
     const agentId = value.agentOf?.[shown]
     return agentId ? value.agentsById?.[agentId] : undefined
   })
+  const shownSessionTitle = hooks.useSessions((list) => {
+    if (!shown) return ''
+    const row = list.byId?.[shown]
+    if (!row || row.blank === true) return ''
+    return row.displayTitle || row.title || ''
+  })
+  useWindowTitle(conversationTitleOf({ shown, chat, shownAgent, sessionTitle: shownSessionTitle }))
   useTheme(prefs, chat, actions, registryVersion)
   const closeOverlays = (error) => {
     actions.closeSettings()
