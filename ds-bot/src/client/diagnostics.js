@@ -41,7 +41,7 @@ export const clientErrors = () => entries.map(entry => (entry.count > 1 ? { ...e
 
 export function clientFacts() {
   return {
-    surface: window.dshDesktop ? 'DSH Desktop' : 'DSH Web',
+    surface: globalThis.dsBotApp ? 'DS Bot Desktop' : window.dshDesktop ? 'DSH Desktop' : 'DSH Web',
     language: language(),
     userAgent: navigator.userAgent,
   }

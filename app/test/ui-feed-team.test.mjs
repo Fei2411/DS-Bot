@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
@@ -393,6 +395,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   t.after(stop)
   await tick()
   assert.equal(pullCount, 1)
+  assert.equal(team.snapshots.shown(), 'b1', 'Bot mode lands on the Main Bot immediately on first pull without a 400 ms blank delay')
   assert.equal(intervalsStarted, 1)
   assert.ok(intervalCb !== null)
 
@@ -510,6 +513,76 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
       assert.equal(snapshot().revision, rosterValue.revision)
       assert.equal(snapshot().sections[0].collapsed, false, `newer fold wins (save reply first: ${replyFirst})`)
     }
+  })
+
+  await t.test('selectPanel routes schedules, plugins, connectors, and unknown panels into desktop Settings', () => {
+    team.actions.selectPanel('schedules')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'schedules', id: null })
+    team.actions.selectPanel('plugins')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'plugins', id: null })
+    team.actions.selectPanel('connectors')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'connectors', id: null })
+    team.actions.selectPanel('unknown')
+    assert.deepEqual(JSON.parse(JSON.stringify(team.hooks.useUi(s => s.settings))), { page: 'overview', id: null })
+    team.actions.closeSettings()
+  })
+
+  // #2418 guardrail: every unguarded `actions.<fn>(...)` called by shared ds-bot client views
+  // imported into the standalone desktop app must be defined on `team.actions`.
+  await t.test('shared ds-bot client views used by desktop only call actions defined on team.actions', () => {
+    // Instantiate with the desktop browser bridge present so browser* actions are wired just
+    // like in the real Electron desktop app.
+    sandbox.dsBotApp = { browser: { views: { hold: async () => {} } } }
+    let desktopActions
+    try {
+      desktopActions = createTeam().actions
+    } finally {
+      delete sandbox.dsBotApp
+    }
+    const appUiDir = fileURLToPath(new URL('../ui/src/', import.meta.url))
+    const dsBotClientDir = fileURLToPath(new URL('../../ds-bot/src/client/', import.meta.url))
+    const queue = []
+    const visited = new Set()
+    for (const file of readdirSync(appUiDir).filter(name => name.endsWith('.js'))) {
+      const text = readFileSync(join(appUiDir, file), 'utf8')
+      for (const match of text.matchAll(/from\s+['"]\.\.\/\.\.\/\.\.\/ds-bot\/src\/client\/([^'"]+)['"]/g)) {
+        queue.push(join(dsBotClientDir, match[1]))
+      }
+    }
+    // Plugin-only branches inside shared files that are unreachable in the standalone desktop app.
+    const PLUGIN_ONLY_ACTIONS = new Set([
+      'seatAccount', // AccountLauncher with seat=true (desktop FooterAccount passes seat=false)
+      'openAppUpdates', // DSH-managed update row (only shown when DSH update bridge is active)
+      'signIn', 'closeSignIn', 'accountT', 'openHarnessOnboarding', // DSH shell sign-in slot (gated on actions.signInEntry?.())
+      'steerQueued', 'restoreDraftFiles', 'draftFiles', // DSH composer useInput branch (desktop chat.js omits useInput)
+      'closingReply', // DSH plugin voice overlay
+    ])
+    const missing = []
+    while (queue.length > 0) {
+      const file = queue.pop()
+      if (visited.has(file)) continue
+      visited.add(file)
+      let text
+      try { text = readFileSync(file, 'utf8') } catch { continue }
+      for (const match of text.matchAll(/from\s+['"](\.[^'"]+\.js)['"]/g)) {
+        const next = join(dirname(file), match[1])
+        if (next.startsWith(dsBotClientDir) && !next.endsWith('/index.js') && !next.endsWith('/settings-shell.js')) {
+          queue.push(next)
+        }
+      }
+      for (const line of text.split('\n')) {
+        for (const match of line.matchAll(/\bactions\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g)) {
+          const name = match[1]
+          if (PLUGIN_ONLY_ACTIONS.has(name)) continue
+          const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          if (new RegExp(`typeof\\s+actions\\.${escaped}\\b|\\bactions\\.${escaped}\\s*(?:\\?|&&)`).test(line)) continue
+          if (typeof desktopActions[name] !== 'function') {
+            missing.push(`${file.slice(dsBotClientDir.length)}: actions.${name}()`)
+          }
+        }
+      }
+    }
+    assert.deepEqual([...new Set(missing)].sort(), [], 'every unguarded shared-view action must exist on desktop team.actions')
   })
 
   // 6. Clean resumed hello does not trigger state pull; unresumed hello does; hidden window defers live pull until visible; lost > 2s surfaces reconnecting state.
