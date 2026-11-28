@@ -26448,11 +26448,13 @@ html:not([data-windows-titlebar]) :not([class*="_collapsed"])>[class*="_logoRow"
 html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{height:0!important;margin:0!important}
 html[data-windows-titlebar] .bt-side-collapse{display:none}
 /* The sidebar switch is always the team view's own, so the shell's is hidden wherever it
-   sits: in the logo row, or in the top strip of a macOS desktop window. The strip stays,
-   as the window's drag area. Left showing, the shell's toggle expands the shell sidebar
-   first, and pulling it back afterwards is a visible flash of the shell's column; its
-   tooltip also casts a shadow across the rail's edge. */
-[class*="_logoRow"]>[class*="_toggle"],[class*="_topStrip"]>[class*="_toggle"]{display:none!important}
+   sits: in the logo row, in the top strip of a macOS desktop window, or in the leading seat
+   that DSH mounts for narrow drawers and collapsed macOS frames (which also carries DSH's
+   New Session button on desktop). The strip stays, as the window's drag area. Left showing,
+   the shell's toggle expands the shell sidebar first, and pulling it back afterwards is a
+   visible flash of the shell's column; its tooltip also casts a shadow across the rail's
+   edge, and on translucent sidebars it bleeds through behind our top controls. */
+[class*="_logoRow"]>[class*="_toggle"],[class*="_topStrip"]>[class*="_toggle"],[data-shell-leading],[data-sidebar-opener]{display:none!important}
 /* Under a Windows title bar our own switch takes the shell's place in the band. A host
    whose window controls stand at the band's left (the macOS traffic lights) sets
    --bt-caption-start to the room they take. */

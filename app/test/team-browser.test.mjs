@@ -881,4 +881,5 @@ test('sidebar toggles cleanly between shown and 0px hidden, persists width, and 
   assert.match(appCss, /body\[data-bt-os=macos\] \.bt-leftcol\[data-left=rail\] \.bt-rail-top>\.bt-side-collapse\{display:inline-flex!important/)
   assert.match(materialCss, /\.bt-leftcol:not\(\[data-left="drawer"\]\)/)
   assert.doesNotMatch(macosCss, /\.bt-title-toggle|\.bt-leftcol/)
+  assert.match(appSrc, /isNarrow && !drawerOpen \? h\('button', \{\s*type: 'button', className: 'dsb-mobile-menu'/)
 })
