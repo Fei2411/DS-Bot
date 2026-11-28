@@ -64,6 +64,9 @@ export const SPRING_LEAD = springEasing(784, 48.2)
 export const SPRING_TRAIL = springEasing(289, 29.2)
 // Critically damped layout glide (ω≈31.6, ζ=1) for sidebar row reordering.
 export const SPRING_GLIDE = springEasing(1000, 63)
+// Critically damped pane slide (ω=28, ζ=1, zero overshoot) for bounded edge surfaces
+// like the left sidebar and conversation margins.
+export const SPRING_SLIDE = springEasing(784, 56)
 // A highlight that follows the keyboard and pointer down a list keeps up on stiffer
 // edges (ω=30 and ω=20).
 export const QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) }
@@ -71,17 +74,22 @@ export const QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(40
 export const spring = (curve, ...properties) => properties.map(property => `${property} ${curve.duration}ms ${curve.easing}`).join(',')
 
 // Springs stepped once per frame. A new target keeps the current velocity, so a thumb
-// that is sent somewhere else mid-move turns smoothly instead of starting over. Each
+// or pane sent somewhere else mid-move turns smoothly instead of starting over. Each
 // frame covers the whole time since the last one, like a CSS transition, so a busy
-// page delays the thumb instead of slowing it down.
-function liveSprings(apply) {
+// page delays the move instead of slowing it down.
+export function liveSprings(apply) {
   const values = new Map()
   const current = {}
   let frame = 0
   let last = 0
+  const cancel = () => {
+    if (frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+    frame = 0
+  }
   const step = (now) => {
-    const dt = Math.min(0.5, Math.max(0.001, (now - last) / 1000))
-    last = now
+    const stamp = Number.isFinite(now) ? now : performance.now()
+    const dt = Math.min(0.5, Math.max(0.001, (stamp - last) / 1000))
+    last = stamp
     const steps = Math.ceil(dt * 240)
     const h = dt / steps
     let moving = false
@@ -93,8 +101,8 @@ function liveSprings(apply) {
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) { value.x = value.to; value.v = 0 } else moving = true
       current[key] = value.x
     }
-    apply(current)
     frame = moving ? requestAnimationFrame(step) : 0
+    apply(current, moving)
   }
   return {
     target: () => {
@@ -103,18 +111,30 @@ function liveSprings(apply) {
       for (const [key, value] of values) out[key] = value.to
       return out
     },
+    current: () => (values.size ? { ...current } : null),
+    isRunning: () => frame !== 0,
+    seed(initial) {
+      cancel()
+      for (const [key, x] of Object.entries(initial)) {
+        const value = values.get(key)
+        if (value) { value.x = x; value.v = 0; value.to = x }
+        else values.set(key, { x, v: 0, to: x, k: 0, c: 0 })
+        current[key] = x
+      }
+    },
     set(targets, curves, jump) {
+      const immediate = jump || typeof requestAnimationFrame !== 'function'
       for (const [key, to] of Object.entries(targets)) {
         const value = values.get(key)
         const { stiffness: k, damping: c } = curves[key]
-        if (!value || jump) { values.set(key, { x: to, v: 0, to, k, c }); current[key] = to }
+        if (!value || immediate) { values.set(key, { x: to, v: 0, to, k, c }); current[key] = to }
         else Object.assign(value, { to, k, c })
       }
-      if (jump) { cancelAnimationFrame(frame); frame = 0; apply(current); return }
+      if (immediate) { cancel(); apply(current, false); return }
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
     },
-    reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancelAnimationFrame(frame); frame = 0 },
-    stop: () => { cancelAnimationFrame(frame); frame = 0 },
+    reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancel() },
+    stop: cancel,
   }
 }
 
