@@ -747,8 +747,10 @@ export function install(rt) {
   }
 
   // The display name the lease and the card show for an appKey, from any session's
-  // records or the key itself.
+  // records or the key itself. Foreground leases carry appKey: null.
   const appNameOf = (key) => {
+    if (typeof key !== 'string') return null
+    if (key === '') return 'an app'
     for (const map of sessionApps.values()) {
       for (const app of map.values()) if (app.key === key) return app.name
     }
@@ -1438,7 +1440,7 @@ export function install(rt) {
       ...(entry.lastShot !== undefined ? { lastShot: entry.lastShot } : {}),
       steps: entry.steps,
     }])),
-    leases: leases.entries().map(entry => ({ ...entry, appName: appNameOf(entry.appKey) })),
+    leases: leases.entries().map(entry => ({ ...entry, appName: entry.kind === 'foreground' ? null : appNameOf(entry.appKey) })),
     cursors: [...cursors.values()],
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
       id: ask.id,

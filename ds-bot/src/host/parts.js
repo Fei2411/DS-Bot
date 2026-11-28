@@ -171,17 +171,197 @@ export function historyEntry(event, group) {
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
 
+// Iterates Markdown lines outside CommonMark fenced code blocks (` ``` ` / `~~~`).
+// Backtick openers reject info strings containing backticks so inline code spans like
+// ```foo``` are never misread as opening fences.
+function forEachOutsideFence(lines, fn) {
+  let fenceChar = ''
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (fenceChar === '') {
+      const open = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(line)
+      if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
+        fenceChar = open[1][0]
+        fenceLen = open[1].length
+        continue
+      }
+      fn(line, i)
+    } else {
+      const close = new RegExp(`^ {0,3}${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
+      if (close.test(line)) {
+        fenceChar = ''
+        fenceLen = 0
+      }
+    }
+  }
+}
+
 // A note with every heading in order but some translated (e.g. "## 目标" for "## Goals")
 // gets the headings as written, so the note is not thrown away over its headings alone.
 // A known heading in another place (repeated or out of order) keeps the note as it is.
 export function canonicalHeadings(note, names) {
   const lines = note.split('\n')
-  const at = lines.flatMap((line, index) => /^##\s+\S/.test(line) ? [index] : [])
+  const at = []
+  forEachOutsideFence(lines, (line, index) => {
+    if (/^##\s+\S/.test(line)) at.push(index)
+  })
   const heading = index => lines[index].replace(/^##\s+/, '').trim()
   if (at.length !== names.length || at.every((index, n) => heading(index) === names[n])) return note
   if (at.some((index, n) => names.includes(heading(index)) && heading(index) !== names[n])) return note
   at.forEach((index, n) => { lines[index] = `## ${names[n]}` })
   return lines.join('\n')
+}
+
+const NOTE_HEADING_ALIASES = new Map([
+  ['goals', 'Goals'],
+  ['goal', 'Goals'],
+  ['目标', 'Goals'],
+  ['用户目标', 'Goals'],
+  ['当前目标', 'Goals'],
+  ['核心目标', 'Goals'],
+  ['constraints and preferences', 'Constraints and preferences'],
+  ['constraints & preferences', 'Constraints and preferences'],
+  ['约束与偏好', 'Constraints and preferences'],
+  ['约束和偏好', 'Constraints and preferences'],
+  ['约束及偏好', 'Constraints and preferences'],
+  ['偏好与约束', 'Constraints and preferences'],
+  ['约束与要求', 'Constraints and preferences'],
+  ['规则与偏好', 'Constraints and preferences'],
+  ['限制与偏好', 'Constraints and preferences'],
+  ['progress', 'Progress'],
+  ['进展', 'Progress'],
+  ['进度', 'Progress'],
+  ['当前进展', 'Progress'],
+  ['工作进展', 'Progress'],
+  ['完成进度', 'Progress'],
+  ['decisions', 'Decisions'],
+  ['decision', 'Decisions'],
+  ['决策', 'Decisions'],
+  ['决定', 'Decisions'],
+  ['已做决策', 'Decisions'],
+  ['关键决策', 'Decisions'],
+  ['决策记录', 'Decisions'],
+  ['facts to keep', 'Facts to keep'],
+  ['key facts', 'Facts to keep'],
+  ['需要保留的事实', 'Facts to keep'],
+  ['保留的事实', 'Facts to keep'],
+  ['关键事实', 'Facts to keep'],
+  ['重要事实', 'Facts to keep'],
+  ['保留事实', 'Facts to keep'],
+  ['事实', 'Facts to keep'],
+  ['事实记录', 'Facts to keep'],
+  ['open threads', 'Open threads'],
+  ['未完事项', 'Open threads'],
+  ['待办事项', 'Open threads'],
+  ['开放事项', 'Open threads'],
+  ['未决事项', 'Open threads'],
+  ['进行中事项', 'Open threads'],
+  ['待跟进事项', 'Open threads'],
+  ['未完成事项', 'Open threads'],
+  ['next step', 'Next step'],
+  ['next steps', 'Next step'],
+  ['下一步', 'Next step'],
+  ['下一步行动', 'Next step'],
+  ['下步行动', 'Next step'],
+  ['下步计划', 'Next step'],
+  ['下一步计划', 'Next step'],
+  ['接下来', 'Next step'],
+  ['where to look', 'Where to look'],
+  ['查找线索', 'Where to look'],
+  ['检索线索', 'Where to look'],
+  ['查阅位置', 'Where to look'],
+  ['参考位置', 'Where to look'],
+  ['去哪找', 'Where to look'],
+  ['查找位置', 'Where to look'],
+  ['定位线索', 'Where to look'],
+])
+
+// Unwrap only when the opening fence on line 1 stays open until the very last line,
+// never when a note starts and ends with two separate code blocks.
+function stripOuterFence(text) {
+  const trimmed = text.trim()
+  const lines = trimmed.split(/\r?\n/)
+  if (lines.length < 3) return trimmed
+  const open = /^(`{3,}|~{3,})(?:markdown|md|text)?[ \t]*$/i.exec(lines[0])
+  if (!open) return trimmed
+  const fenceChar = open[1][0]
+  const fenceLen = open[1].length
+  const closeRe = new RegExp(`^ {0,3}${fenceChar === '`' ? '`' : '~'}{${fenceLen},}[ \\t]*$`)
+  if (!closeRe.test(lines[lines.length - 1])) return trimmed
+  for (let i = 1; i < lines.length - 1; i += 1) {
+    if (closeRe.test(lines[i])) return trimmed
+  }
+  return lines.slice(1, -1).join('\n').trim()
+}
+
+const PURE_CJK_GLOSS = /^[\u4e00-\u9fff\s、与和及的]+$/
+
+function matchNoteHeading(rawHeading, allowed) {
+  const cleanPiece = value => value.trim()
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
+    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
+    .replace(/[:：]\s*$/, '')
+    .trim()
+  const cleaned = cleanPiece(
+    cleanPiece(rawHeading)
+      .replace(/^(?:(?:\(?\d{1,2}\)?|[一二三四五六七八])[.、)）]\s*|（\d{1,2}）\s*)/, ''),
+  )
+  if (cleaned === '') return undefined
+  const direct = NOTE_HEADING_ALIASES.get(cleaned.toLowerCase())
+  if (direct !== undefined && allowed.has(direct)) return direct
+  // Parenthetical gloss, e.g. "Goals (目标)" or "**Goals**（目标）".
+  const stripped = cleanPiece(cleaned.replace(/\s*[（(][^()（）]{1,40}[)）]\s*$/, ''))
+  const fromGloss = NOTE_HEADING_ALIASES.get(stripped.toLowerCase())
+  if (fromGloss !== undefined && allowed.has(fromGloss)) return fromGloss
+  // Two-part bilingual heading only, e.g. "决策 / Decisions" or "Goals — 目标与范围".
+  // Reject arbitrary subheadings like "PR #123 — Decisions".
+  const parts = stripped.split(/\s*(?:\/|—|–|--|\|)\s*/).map(cleanPiece).filter(Boolean)
+  if (parts.length === 2) {
+    const first = NOTE_HEADING_ALIASES.get(parts[0].toLowerCase())
+    const second = NOTE_HEADING_ALIASES.get(parts[1].toLowerCase())
+    if (first !== undefined && first === second && allowed.has(first)) return first
+    if (first !== undefined && allowed.has(first) && PURE_CJK_GLOSS.test(parts[1])) return first
+    if (second !== undefined && allowed.has(second) && PURE_CJK_GLOSS.test(parts[0])) return second
+  }
+  return undefined
+}
+
+// Normalizes real-world model heading drift (outer code fence, numbered/bold/bilingual/Chinese
+// headings) to the canonical English `## <Name>` form before falling back to positional mapping.
+export function normalizeNoteHeadings(raw, names) {
+  const unwrapped = stripOuterFence(String(raw ?? ''))
+  if (unwrapped === '') return ''
+  const allowed = new Set(names)
+  const lowerToCanonical = new Map(names.map(name => [name.toLowerCase(), name]))
+  const lines = unwrapped.split('\n')
+  const seen = new Set()
+  // Pre-seed with column-0 canonical headings outside code fences (matching missingSections)
+  // so subheadings earlier in an already-valid note are never hijacked, while indented
+  // headings (1-3 spaces) still normalize cleanly to column 0.
+  forEachOutsideFence(lines, (line) => {
+    const match = /^#{1,4}\s*([^#\n]+?)\s*:?\s*$/.exec(line)
+    if (!match) return
+    const canonical = lowerToCanonical.get(match[1].trim().toLowerCase())
+    if (canonical !== undefined) seen.add(canonical)
+  })
+  if (seen.size === allowed.size) return unwrapped
+  let changed = false
+  forEachOutsideFence(lines, (line, i) => {
+    const headingMatch = /^ {0,3}#{1,4}\s+(.+?)\s*#*$/.exec(line)
+      ?? /^ {0,3}\*\*([^*\n]{2,80})\*\*\s*[:：]?\s*$/.exec(line)
+    if (!headingMatch) return
+    const canonical = matchNoteHeading(headingMatch[1], allowed)
+    if (canonical === undefined || seen.has(canonical)) return
+    seen.add(canonical)
+    const next = `## ${canonical}`
+    if (lines[i] !== next) {
+      lines[i] = next
+      changed = true
+    }
+  })
+  const normalized = changed ? lines.join('\n') : unwrapped
+  return canonicalHeadings(normalized, names)
 }
 
 export function install(rt) {
@@ -831,8 +1011,13 @@ export function install(rt) {
   const CHECKPOINT_RETRY_SHORTER = 'Your last checkpoint summary was cut off at the output limit. Write it again, much shorter (at most about 500 words): keep thinking minimal, skip prose, use terse bullets only, and keep exact identifiers, decisions, and remaining work.'
   const CHECKPOINT_PARTIAL_MIN = 200
   const noteRetryMissing = missing => `Your last note lacked these headings, so it was not used: ${missing.map(name => `"## ${name}"`).join(', ')}. Write the whole note again with every heading exactly as given, in English.`
-  const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
-    .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
+  const missingSections = (note) => {
+    const outside = []
+    forEachOutsideFence(String(note ?? '').split('\n'), line => outside.push(line))
+    const text = outside.join('\n')
+    return NOTE_SECTIONS.map(([name]) => name)
+      .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(text))
+  }
 
   // What a note may spend on reasoning and on output. Thinking counts against the same
   // output budget, so ask for the least the model offers — 'off' when it has one, else
@@ -863,6 +1048,25 @@ export function install(rt) {
       const status = current?.status ?? current?.failure?.status
       const message = String(current?.message ?? current?.failure?.message ?? current ?? '')
       if (code === OVERFLOW || status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+      current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
+    }
+    return false
+  }
+
+  const PREFIX_SHAPE_CODES = new Set(['INVALID_REQUEST', 'BAD_REQUEST', 'INVALID_REPLAY_STATE'])
+  const AMBIGUOUS_400_CODES = new Set(['', 'UNKNOWN', 'PI_AI_ERROR'])
+  const isPrefixShapeError = (error) => {
+    const seen = new Set()
+    let current = error
+    for (let depth = 0; current !== undefined && current !== null && depth < 8; depth += 1) {
+      if (typeof current === 'object') {
+        if (seen.has(current)) break
+        seen.add(current)
+      }
+      const code = current?.code ?? current?.failure?.code
+      const status = current?.status ?? current?.failure?.status
+      if (PREFIX_SHAPE_CODES.has(code)) return true
+      if (status === 400 && (code === undefined || AMBIGUOUS_400_CODES.has(code))) return true
       current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
     }
     return false
@@ -1129,18 +1333,29 @@ export function install(rt) {
       try {
         ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, lowerEffort, compactInput }))
       } catch (error) {
-        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && isSizeError(error)) {
+        const sizeFailure = isSizeError(error)
+        const shapeFailure = !sizeFailure && !withoutTools && isPrefixShapeError(error)
+        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && (sizeFailure || shapeFailure)) {
           compactInput = true
           withoutTools = true
           lowerEffort = true
-          problem = 'the conversation was too large for a full-prefix note'
-          retry = NOTE_RETRY_SHORTER
-          rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error)
+          problem = sizeFailure
+            ? 'the conversation was too large for a full-prefix note'
+            : 'the provider rejected the full-prefix note request'
+          retry = sizeFailure
+            ? NOTE_RETRY_SHORTER
+            : 'Output the handoff note as plain Markdown text only, without calling any tools.'
+          rt.warn(
+            sizeFailure
+              ? 'ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s'
+              : 'ds-bot: handoff note attempt %d of %d for %s on %s/%s rejected full-prefix request; retrying with compacted tool-free history: %s',
+            attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error,
+          )
           continue
         }
         throw error
       }
-      const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
+      const note = normalizeNoteHeadings(text, NOTE_SECTIONS.map(([name]) => name))
       const missing = missingSections(note)
       if (finish === 'max-tokens') {
         if (isUsablePartialNote(note, missing)) {
@@ -1157,7 +1372,9 @@ export function install(rt) {
         retry = 'Output the handoff note as plain Markdown text only, without calling any tools.'
       } else if (note === '') {
         problem = 'it was empty'
-        retry = undefined
+        withoutTools = true
+        lowerEffort = true
+        retry = 'Your last response was empty. Output the handoff note as plain Markdown text only, without calling any tools.'
       } else if (missing.length > 0) {
         if (isUsablePartialNote(note, missing)) {
           bestPartial = recordBest(bestPartial, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })
