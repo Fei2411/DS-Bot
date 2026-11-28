@@ -5,8 +5,8 @@
 // No state.works / closedWorks / pairLoops / abandonedWorks / imReplyOrigins / workSeq,
 // and no hardcoded WORK_ASK_BACK_LIMIT or WORK_REWORK_CHECKPOINT counters.
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { readdir, rm } from 'node:fs/promises'
+import { mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { CoordinationError } from './coordination-db.js'
@@ -189,11 +189,12 @@ export function install(rt) {
           return
         }
       }
+      // Do not yield after reading the references: a retry can replace a file at the same path.
       for (const file of entries) {
         if (disposed || !writes()) return
         const name = keptName(file)
         if (name === undefined || used.has(name) || uncommittedStartupResults.has(name)) continue
-        await rm(resultPath(name), { force: true }).catch(() => {})
+        try { unlinkSync(resultPath(name)) } catch {}
       }
     })()
     activePrunes.add(run)
