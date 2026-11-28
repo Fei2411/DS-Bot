@@ -213,7 +213,7 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-x{position:relative;flex:none;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -374,6 +374,21 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* Full-window modal layers and opening covers sit directly under body, which frameless hosts
+   mark no-drag so popovers keep clicks. Chromium inherits -webkit-app-region and collects
+   regions in layout-tree order rather than z-index, so layers with a full-bleed scrim/backdrop
+   child place the top drag strip on that child's ::before (after the scrim, before the dialog)
+   while scrim-less layers use their own ::before. Dialog cards stay after the strip as no-drag. */
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px)))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-opening){--bt-modal-drag-h:max(0px,calc(40px - var(--dsh-frame-chrome-top,0px)))}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:var(--dsh-windows-titlebar-height,40px);padding-top:max(16px,var(--bt-modal-drag-h))}
+html[data-platform=darwin]:not([data-windows-titlebar]):not([data-fullscreen]) :is(.bt-rn-layer,.bt-priv-layer){--bt-modal-drag-h:40px;padding-top:max(16px,var(--bt-modal-drag-h))}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)[data-leaving]>:is(.bt-scrim,.bt-backdrop)::before,:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-opening[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-priv-layer)>:is([role=dialog],[role=alertdialog]){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-tour-layer{-webkit-app-region:initial;app-region:initial}
+:is(.bt-set-palette,.bt-tour-card){z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+.bt-opening>.bt-opening-card{position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 /* On macOS a side panel reaches the window's top edge, where the window drag strip is.
    Its top row (either .bt-ptabs or, when no strip is shown, the drawer's own top row) is
    that strip: it drags where no chip or button covers it, and controls stay no-drag. The
@@ -822,7 +837,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-card>.bt-set-row:first-child,.bt-set-card>:first-child>.bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-card>.bt-set-row:last-child,.bt-set-card>:last-child>.bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
-.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:break-word}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
 .bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
@@ -1357,7 +1372,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
+.bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
@@ -1487,7 +1502,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
    narrow viewports keep full-screen heights. */
 .bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
 .bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
+@media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}:is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-mem-layer[data-leaving] .bt-mem::before{-webkit-app-region:initial;app-region:initial}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li svg{animation:none}}
 
 .bt-thumb{position:absolute;left:0;top:0;z-index:0;pointer-events:none;transition:opacity .14s ease}
@@ -1531,15 +1546,17 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
    from their own width instead of relying on viewport media queries. */
 @container (max-width:440px){
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control,.bt-set-places .bt-set-control{max-width:none}
+  .bt-set-row .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-motion-seg,.bt-look-seg{min-width:0;width:100%}
   .bt-range{width:100%}
 }
@@ -1552,6 +1569,13 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
 @media (max-width:768px){
   .bt-settings-layer{align-items:stretch;justify-content:stretch}
   .bt-settings{--bt-set-w:100vw;--bt-set-h:100vh;width:100vw;height:100vh;height:100dvh;border-radius:0;border-width:0;flex-direction:column}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings{padding-top:var(--bt-modal-drag-h,0px);box-sizing:border-box}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-settings::before{-webkit-app-region:initial;app-region:initial}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-close{top:calc(14px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-layer{padding-top:calc(12px + var(--bt-modal-drag-h,0px))}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-set-palette-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-modal-drag-h,0px);z-index:1;-webkit-app-region:drag;app-region:drag}
+  :is(html[data-windows-titlebar],html[data-platform=darwin]):not([data-fullscreen]) .bt-settings-layer[data-leaving] .bt-set-palette-scrim::before{-webkit-app-region:initial;app-region:initial}
   .bt-settings-rail{display:none}
   .bt-ov-search{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:0;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink-3);font:inherit;font-size:15px;text-align:left;cursor:pointer}
   .bt-ov-search svg{width:16px;height:16px}
@@ -1575,14 +1599,15 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-tour-card{width:auto;max-width:calc(100% - 24px)}
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
-  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-copy{width:100%;flex:none}
   .bt-set-row>.bt-set-control{max-width:100%}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
-  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select))),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack):not(:has(>.bt-bs-input,>.bt-model-trigger,>.bt-sel,>.bt-select)))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form :is(.bt-select,.bt-sel){width:100%;min-width:0;max-width:100%}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
-  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-la-row>.bt-set-copy{width:auto;flex:1 1 auto;min-width:0}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}

@@ -277,6 +277,59 @@ test('lists only visible models in server order and handles an empty list', asyn
   const f = await fixture(t)
   await f.login()
   assert.deepEqual(await f.client.listModels(), [{ id: 'z-model', name: 'Z' }, { id: 'a-model', name: 'A' }])
+  f.behavior.models = [
+    {
+      slug: 'gpt-default-none', display_name: 'GPT Default None', visibility: 'list',
+      context_window: 272000, input_modalities: ['text', 'image', 'audio', 'image'],
+      default_reasoning_level: 'none',
+      supported_reasoning_levels: [
+        { effort: 'none', description: 'No reasoning' },
+        { effort: 'low', description: 'Fast' },
+        { effort: 'medium' },
+        { effort: 'high' },
+        { effort: 'xhigh' },
+        { effort: 'max' },
+        { effort: 'ultra' },
+      ],
+    },
+    {
+      slug: 'gpt-default-medium', display_name: 'GPT Default Medium', visibility: 'list',
+      default_reasoning_level: 'medium',
+      supported_reasoning_levels: [
+        { effort: 'none' },
+        { effort: 'low' },
+        { effort: 'medium' },
+        { effort: 'high' },
+      ],
+    },
+    {
+      slug: 'gpt-always-reason', display_name: 'GPT Always Reason', visibility: 'list',
+      supported_reasoning_levels: ['none', 'low', 'high'],
+    },
+    {
+      slug: 'gpt-non-reasoning', display_name: 'GPT Chat', visibility: 'list',
+      supported_reasoning_levels: [],
+    },
+    {
+      slug: 'gpt-none-only', display_name: 'GPT None Only', visibility: 'list',
+      supported_reasoning_levels: [{ effort: 'none' }],
+    },
+    {
+      slug: 'gpt-unrecognized-levels', display_name: 'GPT Future', visibility: 'list',
+      supported_reasoning_levels: [{ effort: 'ultra' }],
+    },
+  ]
+  assert.deepEqual(await f.client.listModels(), [
+    {
+      id: 'gpt-default-none', name: 'GPT Default None', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    },
+    { id: 'gpt-default-medium', name: 'GPT Default Medium', reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' } },
+    { id: 'gpt-always-reason', name: 'GPT Always Reason', reasoningEfforts: { low: 'low', high: 'high' } },
+    { id: 'gpt-non-reasoning', name: 'GPT Chat', reasoningEfforts: false },
+    { id: 'gpt-none-only', name: 'GPT None Only', reasoningEfforts: false },
+    { id: 'gpt-unrecognized-levels', name: 'GPT Future' },
+  ])
   f.behavior.models = []
   assert.deepEqual(await f.client.listModels(), [])
   f.behavior.redirect = '/models'
@@ -422,4 +475,32 @@ test('macOS mock keychain fails closed so ChatGPT credentials are never written 
   const recovered = await createChatGPTSignIn(f.clientOptions)
   assert.equal(recovered.status().state, 'connected')
   assert.equal(await recovered.getAccessToken(), 'synthetic-access')
+})
+
+test('isReasoningModel tracks /v1/models reasoning capability and clears on sign-out', async t => {
+  const f = await fixture(t, {
+    models: [
+      { slug: 'gpt-6.2-sol', display_name: 'GPT-6.2 Sol', visibility: 'list', supported_reasoning_levels: ['low', 'medium', 'high'] },
+      { slug: 'gpt-4o', display_name: 'GPT-4o', visibility: 'list', supported_reasoning_levels: [] },
+      { slug: 'hidden-reasoner', display_name: 'Hidden', visibility: 'hidden', supported_reasoning_levels: ['high'] },
+      { slug: 'gpt-unknown', display_name: 'Unknown', visibility: 'list' },
+    ],
+  })
+  await f.login()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), undefined)
+  await f.client.listModels()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), true)
+  assert.equal(f.client.isReasoningModel('GPT-6.2-SOL'), true)
+  assert.equal(f.client.isReasoningModel('gpt-4o'), false)
+  assert.equal(f.client.isReasoningModel('hidden-reasoner'), true)
+  assert.equal(f.client.isReasoningModel('gpt-unknown'), undefined)
+
+  // Refresh replaces stale entries; sign-out clears the cache.
+  f.behavior.models = [{ slug: 'gpt-4o', display_name: 'GPT-4o', visibility: 'list', supported_reasoning_levels: [] }]
+  await f.client.listModels()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), undefined)
+  assert.equal(f.client.isReasoningModel('gpt-4o'), false)
+
+  await f.client.signOut()
+  assert.equal(f.client.isReasoningModel('gpt-4o'), undefined)
 })

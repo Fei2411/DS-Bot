@@ -43,7 +43,12 @@ import {
 
 async function tempRoot() {
   const dir = await mkdtemp(join(tmpdir(), 'dsb-sources-test-'))
-  return { dir, remove: () => rm(dir, { recursive: true, force: true }) }
+  return { dir, remove: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) }
+}
+
+function closeWss(wss) {
+  for (const client of wss.clients) client.terminate()
+  return new Promise((resolve) => wss.close(resolve))
 }
 
 test('chromiumProfiles reads info_cache names, emails, last_used, and skips profiles without cookies', async () => {
@@ -317,7 +322,7 @@ test('harvestLiveChromium reads cookies and open-tab localStorage via WebSocket 
     assert.deepEqual(out.origins, [{ origin: 'https://app.example.com', localStorage: [{ name: 'auth_token', value: 'tok-123' }] }])
     assert.equal(methods.includes('Browser.close'), false, 'must never close the user browser')
   } finally {
-    await new Promise((resolve) => wss.close(resolve))
+    await closeWss(wss)
     await root.remove()
   }
 })
@@ -499,7 +504,7 @@ test('harvestLiveChromium isolates localStorage to defaultBrowserContextId and r
       { origin: 'https://app.example.com', localStorage: [{ name: 'tok', value: 'active-profile-tok' }] },
     ])
   } finally {
-    await new Promise((resolve) => wss.close(resolve))
+    await closeWss(wss)
     await root.remove()
   }
 })
@@ -546,7 +551,7 @@ test('harvestLiveChromium fails closed when a different profile is active and ca
     assert.equal(macFallback.method, 'keychain')
     assert.equal(macFallback.result.cookies[0].name, 'personal_sid')
   } finally {
-    await new Promise((resolve) => wss.close(resolve))
+    await closeWss(wss)
     await root.remove()
   }
 })
@@ -658,7 +663,7 @@ test('ensureLiveProfileActive always spawns handoff when exe is present, fails c
     // 2. Handoff exits 0, but Local State never updates to Default -> must reject devtools-wrong-profile.
     await assert.rejects(
       () => harvestLiveChromium(source, {
-        focusTimeoutMs: 200,
+        focusTimeoutMs: 1_000,
         focusVerifyMs: 80,
         focusPollMs: 20,
         spawnImpl: okSpawn,
@@ -697,7 +702,7 @@ test('ensureLiveProfileActive always spawns handoff when exe is present, fails c
     const ok = await harvestLiveChromium(source, { spawnImpl: okSpawn, includeLocalStorage: false, now: 1700000000 })
     assert.deepEqual(ok.cookies.map((c) => c.name), ['NID', 'personal_only'])
   } finally {
-    await new Promise((resolve) => wss.close(resolve))
+    await closeWss(wss)
     await root.remove()
   }
 })
@@ -874,7 +879,8 @@ test('importFromBrowser propagates AbortSignal cancellation to pending live CDP 
       cookieDb: join(net, 'Cookies'), keychainServices: ['Chrome Safe Storage'], exe: null,
     }
     const ctrl = new AbortController()
-    setTimeout(() => ctrl.abort(), 40)
+    // Abort deterministically once the live CDP client sends Storage.getCookies.
+    wss.once('connection', (ws) => ws.once('message', () => ctrl.abort()))
     await assert.rejects(
       () => importFromBrowser(source, { platformOverride: 'win32', signal: ctrl.signal }),
       (error) => error.code === 'import-cancelled',
@@ -897,7 +903,7 @@ test('importFromBrowser propagates AbortSignal cancellation to pending live CDP 
               e.code = 'import-cancelled'
               reject(e)
             }, { once: true })
-            setTimeout(() => ctrl2.abort(), 30)
+            setImmediate(() => ctrl2.abort())
           })
         },
       }),
@@ -906,7 +912,7 @@ test('importFromBrowser propagates AbortSignal cancellation to pending live CDP 
     assert.ok(seenWorkDir)
     assert.equal(existsSync(seenWorkDir), false, 'temporary workDir must be deleted after cancellation')
   } finally {
-    await new Promise((resolve) => wss.close(resolve))
+    await closeWss(wss)
     await root.remove()
   }
 })
@@ -1517,7 +1523,7 @@ test('harvestLiveChromium preserves CDP partitionKeyOpaque and string partitionK
     assert.equal(out.cookies[1].partitionKeyOpaque, true)
     assert.deepEqual(out.cookies[2].partitionKey, { topLevelSite: 'https://top.example', hasCrossSiteAncestor: true })
   } finally {
-    await new Promise((resolve) => wss.close(resolve))
+    await closeWss(wss)
     await root.remove()
   }
 })
