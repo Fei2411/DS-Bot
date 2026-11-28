@@ -3089,5 +3089,8 @@ const HOST_ZH = {
   'Local': '本地',
   'Open config file': '打开配置文件',
   'Open folder': '打开文件夹',
+  "Engine settings are read-only in this profile.": "当前配置的引擎设置为只读。",
+  "Overridden by {fields}": "已被 {fields} 覆盖",
+  "Managed by environment": "由环境变量管理",
 }
 Object.assign(ZH, HOST_ZH)

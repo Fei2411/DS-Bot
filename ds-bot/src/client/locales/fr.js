@@ -2939,6 +2939,9 @@ export const FR = {
   "No new replies": "Aucune nouvelle réponse",
   "New replies": "Nouvelles réponses",
   "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
+  "Engine settings are read-only in this profile.": "Les paramètres du moteur sont en lecture seule dans ce profil.",
+  "Overridden by {fields}": "Remplacé par {fields}",
+  "Managed by environment": "Géré par l'environnement",
 }
 
 export const HOST_ERRORS_FR = [

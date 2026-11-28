@@ -2973,6 +2973,9 @@ export const ES = {
   "No new replies": "No hay respuestas nuevas",
   "New replies": "Respuestas nuevas",
   "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
+  "Engine settings are read-only in this profile.": "Los ajustes del motor son de solo lectura en este perfil.",
+  "Overridden by {fields}": "Anulado por {fields}",
+  "Managed by environment": "Gestionado por el entorno",
 }
 
 export const HOST_ERRORS_ES = [

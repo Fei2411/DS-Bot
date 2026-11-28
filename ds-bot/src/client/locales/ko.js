@@ -2973,6 +2973,9 @@ export const KO = {
   "No new replies": "새 답장이 없습니다",
   "New replies": "새 답장",
   "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
+  "Engine settings are read-only in this profile.": "이 프로필의 엔진 설정은 읽기 전용입니다.",
+  "Overridden by {fields}": "{fields}에 의해 재정의됨",
+  "Managed by environment": "환경 변수로 관리됨",
 }
 
 export const HOST_ERRORS_KO = [

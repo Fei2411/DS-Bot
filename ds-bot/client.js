@@ -3140,7 +3140,10 @@ var init_zh = __esm({
       "Incompatible": "版本不兼容",
       "Local": "本地",
       "Open config file": "打开配置文件",
-      "Open folder": "打开文件夹"
+      "Open folder": "打开文件夹",
+      "Engine settings are read-only in this profile.": "当前配置的引擎设置为只读。",
+      "Overridden by {fields}": "已被 {fields} 覆盖",
+      "Managed by environment": "由环境变量管理"
     };
     Object.assign(ZH, HOST_ZH);
   }
@@ -6195,7 +6198,10 @@ var init_ja = __esm({
       "Nothing waits for you": "対応待ちはありません",
       "No new replies": "新しい返信はありません",
       "New replies": "新しい返信",
-      "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む"
+      "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む",
+      "Engine settings are read-only in this profile.": "このプロファイルのエンジン設定は読み取り専用です。",
+      "Overridden by {fields}": "{fields} により上書き済み",
+      "Managed by environment": "環境変数で管理"
     };
     HOST_ERRORS_JA = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -9922,7 +9928,10 @@ var init_ko = __esm({
       "Nothing waits for you": "확인할 항목이 없습니다",
       "No new replies": "새 답장이 없습니다",
       "New replies": "새 답장",
-      "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터"
+      "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
+      "Engine settings are read-only in this profile.": "이 프로필의 엔진 설정은 읽기 전용입니다.",
+      "Overridden by {fields}": "{fields}에 의해 재정의됨",
+      "Managed by environment": "환경 변수로 관리됨"
     };
     HOST_ERRORS_KO = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -13650,7 +13659,10 @@ var init_es = __esm({
       "Nothing waits for you": "No hay nada pendiente",
       "No new replies": "No hay respuestas nuevas",
       "New replies": "Respuestas nuevas",
-      "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo"
+      "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
+      "Engine settings are read-only in this profile.": "Los ajustes del motor son de solo lectura en este perfil.",
+      "Overridden by {fields}": "Anulado por {fields}",
+      "Managed by environment": "Gestionado por el entorno"
     };
     HOST_ERRORS_ES = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -17334,7 +17346,10 @@ var init_fr = __esm({
       "Nothing waits for you": "Rien ne vous attend",
       "No new replies": "Aucune nouvelle réponse",
       "New replies": "Nouvelles réponses",
-      "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe"
+      "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
+      "Engine settings are read-only in this profile.": "Les paramètres du moteur sont en lecture seule dans ce profil.",
+      "Overridden by {fields}": "Remplacé par {fields}",
+      "Managed by environment": "Géré par l'environnement"
     };
     HOST_ERRORS_FR = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -21061,7 +21076,10 @@ var init_de = __esm({
       "Nothing waits for you": "Nichts wartet auf dich",
       "No new replies": "Keine neuen Antworten",
       "New replies": "Neue Antworten",
-      "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern"
+      "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern",
+      "Engine settings are read-only in this profile.": "Engine-Einstellungen sind in diesem Profil schreibgeschützt.",
+      "Overridden by {fields}": "Überschrieben durch {fields}",
+      "Managed by environment": "Durch Umgebung verwaltet"
     };
     HOST_ERRORS_DE = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -61486,15 +61504,30 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
     (0, import_react67.createElement)(
       Section2,
       { key: "dsh", title: t("DeepSeek Harness (Engine)") },
-      (0, import_react67.createElement)(Row4, {
-        label: t("Upload Session Log to DeepSeek API"),
-        hint: t("Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.")
-      }, (0, import_react67.createElement)(Switch, {
-        label: t("Upload Session Log to DeepSeek API"),
-        on: state?.dshSessionLog === true,
-        disabled: readOnly || state === null,
-        onChange: (dshSessionLog) => save({ dshSessionLog })
-      })),
+      state?.dshSessionLogWritable === false ? (0, import_react67.createElement)(
+        "div",
+        { className: "bt-set-row", role: "status" },
+        (0, import_react67.createElement)("span", { className: "bt-set-hint" }, t("Engine settings are read-only in this profile."))
+      ) : null,
+      (0, import_react67.createElement)(
+        Row4,
+        {
+          label: t("Upload Session Log to DeepSeek API"),
+          hint: t("Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.")
+        },
+        state?.dshSessionLogOverridden === true ? (0, import_react67.createElement)("button", {
+          type: "button",
+          className: "bt-mini",
+          disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
+          onClick: () => save({ resetDshSessionLog: true })
+        }, t("Reset")) : null,
+        (0, import_react67.createElement)(Switch, {
+          label: t("Upload Session Log to DeepSeek API"),
+          on: state?.dshSessionLog === true,
+          disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
+          onChange: (dshSessionLog) => save({ dshSessionLog })
+        })
+      ),
       (0, import_react67.createElement)(Row4, {
         label: t("Send feedback sessions to DeepSeek"),
         hint: t("Only used when submitting feedback in Classic Agent mode. Private Bots and secrets are excluded. Restart to apply fully.")
@@ -63232,6 +63265,7 @@ var ENGINE_PLUGIN_SEARCH_ENTRIES = [
   { id: "engine:web-search", label: "Web search", page: "plugins", target: "dsh:web-search", icon: "browser", keywords: "web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费" },
   { id: "engine:shell", label: "Shell", page: "plugins", target: "dsh:shell", icon: "local-agents", keywords: "shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时" },
   { id: "engine:agent-loop", label: "Agent loop", page: "plugins", target: "dsh:agent-loop", icon: "models", keywords: "agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用" },
+  { id: "engine:default-model", label: "Default model", page: "plugins", target: "dsh:default-model", icon: "models", keywords: "agent default model provider reasoning effort 默认模型 提供方 推理强度" },
   { id: "engine:subagent", label: "Subagents", page: "plugins", target: "dsh:subagent", icon: "bot-models", surfaceMode: "agent", keywords: "subagents subagent max depth active models 子代理 子智能体 深度" }
 ];
 var ENGINE_MODELS_SEARCH_ENTRY = {

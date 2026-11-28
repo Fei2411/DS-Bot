@@ -816,3 +816,82 @@ test('engine-plugins-list annotates clientSurface and custom cordis.patch.yml pl
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('engine-credentials-* endpoints enforce web-search allowlist, profile writability, env-managed refusal, and computer-only/read-only', async () => {
+  const store = new Map()
+  const credentials = {
+    async describe(ref) {
+      const val = store.get(ref)
+      return { configured: Boolean(val), writable: ref !== 'ENV_ONLY_KEY', source: val ? 'file' : (ref === 'ENV_ONLY_KEY' ? 'env' : undefined), preview: 'sk-***' }
+    },
+    async set(ref, value) { store.set(ref, value) },
+    async unset(ref) { store.delete(ref) },
+  }
+  const settings = {
+    writable: true,
+    describe: () => [
+      { ns: 'web-search-deepseek', value: { apiKeyEnv: 'ENV_ONLY_KEY' }, base: { apiKeyEnv: 'DEEPSEEK_API_KEY' } },
+    ],
+  }
+  const { rt } = makeHarness({ services: { credentials, settings } })
+
+  // Describe never leaks raw secret values or preview.
+  const d0 = await rt.engineEndpoint('credentials-describe', { refs: ['DEEPSEEK_API_KEY', 'ENV_ONLY_KEY'] })
+  assert.equal(d0.available, true)
+  assert.deepEqual(d0.views.DEEPSEEK_API_KEY, { configured: false, writable: true })
+  assert.deepEqual(d0.views.ENV_ONLY_KEY, { configured: false, writable: false, source: 'env' })
+  assert.equal(JSON.stringify(d0).includes('sk-'), false)
+
+  // Arbitrary credential refs outside the web-search allowlist are refused on describe, set, and unset.
+  await assert.rejects(() => rt.engineEndpoint('credentials-describe', { refs: ['OPENAI_API_KEY'] }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-set', { ref: 'OPENAI_API_KEY', value: 'sk-hijack' }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-unset', { ref: 'OPENAI_API_KEY' }), { code: 'bot/refused' })
+  assert.equal(store.has('OPENAI_API_KEY'), false)
+
+  // Non-writable (env-managed) ref is refused on set and unset.
+  await assert.rejects(() => rt.engineEndpoint('credentials-set', { ref: 'ENV_ONLY_KEY', value: 'sk-1' }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-unset', { ref: 'ENV_ONLY_KEY' }), { code: 'bot/refused' })
+
+  // Set and unset update stored value without echoing it.
+  const s1 = await rt.engineEndpoint('credentials-set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-test-secret-999' })
+  assert.deepEqual(s1, { ref: 'DEEPSEEK_API_KEY', configured: true, writable: true, source: 'file' })
+  assert.equal(JSON.stringify(s1).includes('sk-test-secret-999'), false)
+  assert.equal(store.get('DEEPSEEK_API_KEY'), 'sk-test-secret-999')
+
+  const u1 = await rt.engineEndpoint('credentials-unset', { ref: 'DEEPSEEK_API_KEY' })
+  assert.deepEqual(u1, { ref: 'DEEPSEEK_API_KEY', configured: false, writable: true })
+  assert.equal(store.has('DEEPSEEK_API_KEY'), false)
+
+  // Reject invalid refs and empty values.
+  await assert.rejects(() => rt.engineEndpoint('credentials-describe', { refs: ['bad ref!'] }), { code: 'bot/invalid' })
+  await assert.rejects(() => rt.engineEndpoint('credentials-set', { ref: 'DEEPSEEK_API_KEY', value: '   ' }), { code: 'bot/invalid' })
+
+  // Read-only profile (settings.writable === false) refuses set/unset while keeping describe working.
+  const { rt: roProfileRt } = makeHarness({
+    services: {
+      credentials,
+      settings: { writable: false, describe: () => [{ ns: 'web-search-deepseek', value: {}, base: {} }] },
+    },
+  })
+  const roProfileDesc = await roProfileRt.engineEndpoint('credentials-describe', { refs: ['DEEPSEEK_API_KEY'] })
+  assert.equal(roProfileDesc.available, true)
+  await assert.rejects(() => roProfileRt.engineEndpoint('credentials-set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-1' }), { code: 'bot/refused' })
+  await assert.rejects(() => roProfileRt.engineEndpoint('credentials-unset', { ref: 'DEEPSEEK_API_KEY' }), { code: 'bot/refused' })
+
+  // Remote/phone callers are refused on all engine-credentials-* endpoints.
+  for (const ep of ['engine-credentials-describe', 'engine-credentials-set', 'engine-credentials-unset']) {
+    assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, ep)?.code, 'bot/refused')
+    assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, ep)?.code, 'bot/refused')
+  }
+
+  // Read-only host allows describe (in READS) and blocks set/unset.
+  const { rt: roRt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { credentials, settings } })
+  const roDesc = await roRt.channelCall('engine-credentials-describe', { refs: ['DEEPSEEK_API_KEY'] })
+  assert.equal(roDesc.ok, true)
+  const roSet = await roRt.channelCall('engine-credentials-set', { ref: 'DEEPSEEK_API_KEY', value: 'sk-1' })
+  assert.equal(roSet.ok, false)
+  assert.equal(roSet.error?.code, 'bot/read-only')
+  const roUnset = await roRt.channelCall('engine-credentials-unset', { ref: 'DEEPSEEK_API_KEY' })
+  assert.equal(roUnset.ok, false)
+  assert.equal(roUnset.error?.code, 'bot/read-only')
+})

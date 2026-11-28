@@ -565,3 +565,49 @@ test('diagnostics warn forwards Error.name to telemetry while preserving schema-
   assert.equal(apiReport.error_code, undefined)
   assert.equal(validatePayload(apiReport, now).ok, true)
 })
+
+test('telemetry reads ctx.get("settings") safely on strict Cordis Context, forwards expectedRevision, and propagates mutate failures', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tel-strict-ctx-'))
+  const env = makeRt(home)
+  try {
+    // Strict Cordis Context throws if `ctx.settings` is accessed directly without inject.
+    Object.defineProperty(env.rt.ctx, 'settings', {
+      configurable: true,
+      get() { throw new Error('cannot get property "settings" without inject') },
+    })
+    let settingsSvc = undefined
+    env.rt.ctx.get = name => (name === 'settings' ? settingsSvc : undefined)
+
+    // Must not throw when settings service is absent.
+    const s0 = env.rt.telemetry.status()
+    assert.equal(s0.dshSessionLogWritable, true)
+    assert.equal('dshSessionLogMaxBytes' in s0, false, 'non-volatile maxBytes is not exposed')
+
+    // When settings service is present, passes expectedRevision and propagates mutate failure without corrupting state.
+    const mutateCalls = []
+    let failNext = false
+    settingsSvc = {
+      writable: true,
+      describe: () => [{ ns: 'session-log-deepseek', revision: 7, value: { enabled: false }, base: { enabled: false }, user: {} }],
+      mutate: async (ns, ops, expectedRevision) => {
+        mutateCalls.push({ ns, ops, expectedRevision })
+        if (failNext) throw Object.assign(new Error('revision conflict'), { code: 'SETTINGS_CONFLICT' })
+      },
+    }
+    const okStatus = await env.rt.telemetry.update({ dshSessionLog: true })
+    assert.equal(okStatus.dshSessionLog, true)
+    assert.deepEqual(mutateCalls, [{ ns: 'session-log-deepseek', ops: [{ op: 'set', path: ['enabled'], value: true }], expectedRevision: 7 }])
+
+    failNext = true
+    await assert.rejects(() => env.rt.telemetry.update({ dshSessionLog: false }), { code: 'SETTINGS_CONFLICT' })
+    assert.equal(env.rt.telemetry.status().dshSessionLog, true, 'failed DSH mutate leaves local dshSessionLog unchanged')
+
+    // Read-only settings profile refuses dshSessionLog writes instead of reporting success.
+    settingsSvc.writable = false
+    assert.equal(env.rt.telemetry.status().dshSessionLogWritable, false)
+    await assert.rejects(() => env.rt.telemetry.update({ dshSessionLog: false }), { code: 'bot/refused' })
+  } finally {
+    await env.dispose()
+    rmSync(home, { recursive: true, force: true })
+  }
+})

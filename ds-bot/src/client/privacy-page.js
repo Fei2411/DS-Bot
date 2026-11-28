@@ -92,13 +92,26 @@ export function PrivacyPage({ actions, run, Section, Row, readOnly = false }) {
         : null),
     note ? h('div', { key: 'note', className: 'bt-note bt-fb-note', role: 'status' }, note) : null,
     h(Section, { key: 'dsh', title: t('DeepSeek Harness (Engine)') },
+      state?.dshSessionLogWritable === false
+        ? h('div', { className: 'bt-set-row', role: 'status' },
+          h('span', { className: 'bt-set-hint' }, t('Engine settings are read-only in this profile.')))
+        : null,
       h(Row, {
         label: t('Upload Session Log to DeepSeek API'),
         hint: t('Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.'),
-      }, h(Switch, {
+      },
+      state?.dshSessionLogOverridden === true
+        ? h('button', {
+          type: 'button',
+          className: 'bt-mini',
+          disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
+          onClick: () => save({ resetDshSessionLog: true }),
+        }, t('Reset'))
+        : null,
+      h(Switch, {
         label: t('Upload Session Log to DeepSeek API'),
         on: state?.dshSessionLog === true,
-        disabled: readOnly || state === null,
+        disabled: readOnly || state === null || state?.dshSessionLogWritable === false,
         onChange: dshSessionLog => save({ dshSessionLog }),
       })),
       h(Row, {

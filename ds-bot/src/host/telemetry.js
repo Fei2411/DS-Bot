@@ -708,23 +708,45 @@ export function install(rt) {
     return ok
   }
 
-  const syncDshSessionLog = async (enabled) => {
-    const settings = ctx.get?.('settings') ?? ctx.settings
-    if (!settings?.writable || typeof settings.mutate !== 'function') return
+  const settingsService = () => (typeof ctx.get === 'function' ? ctx.get('settings') : ctx.settings)
+
+  const readSessionLogDescriptor = () => {
+    const settings = settingsService()
+    if (!settings || typeof settings.describe !== 'function') return null
     try {
-      await settings.mutate('session-log-deepseek', [{ op: 'set', path: ['enabled'], value: Boolean(enabled) }])
-    } catch { /* best-effort; registerExclusion remains authoritative */ }
+      const list = settings.describe({ redactSecrets: true })
+      const desc = Array.isArray(list) ? list.find(entry => String(entry?.ns) === 'session-log-deepseek') : null
+      if (!desc) return null
+      return { writable: Boolean(settings.writable), desc }
+    } catch {
+      return null
+    }
+  }
+
+  const syncDshSessionLog = async (ops) => {
+    const settings = settingsService()
+    if (!settings || typeof settings.mutate !== 'function') return
+    if (!settings.writable) {
+      throw Object.assign(new Error('Engine settings are read-only in this profile'), { code: 'bot/refused' })
+    }
+    const sl = readSessionLogDescriptor()
+    const expectedRevision = Number.isInteger(sl?.desc?.revision) ? sl.desc.revision : undefined
+    await settings.mutate('session-log-deepseek', ops, expectedRevision)
   }
 
   const status = () => {
     rotateIfNeeded()
     const reason = envReason()
+    const sl = readSessionLogDescriptor()
     return {
       noticeAccepted: data.noticeAccepted,
       noticeVersion: data.noticeVersion,
       usage: data.usage,
       errors: data.errors,
       dshSessionLog: data.dshSessionLog,
+      dshSessionLogWritable: sl ? sl.writable : true,
+      dshSessionLogDefault: false,
+      dshSessionLogOverridden: data.dshSessionLog !== false,
       dshFeedbackTelemetry: data.dshFeedbackTelemetry,
       anonId: data.anonId,
       anonMonth: data.anonMonth,
@@ -740,6 +762,18 @@ export function install(rt) {
   const update = async (patch = {}) => {
     const wasCurrent = isNoticeCurrent()
     const wasUsage = data.usage
+    const sessionLogOps = []
+    let nextDshSessionLog = data.dshSessionLog
+    if (patch.resetDshSessionLog === true) {
+      nextDshSessionLog = false
+      sessionLogOps.push({ op: 'set', path: ['enabled'], value: false })
+    } else if (typeof patch.dshSessionLog === 'boolean') {
+      nextDshSessionLog = patch.dshSessionLog
+      sessionLogOps.push({ op: 'set', path: ['enabled'], value: nextDshSessionLog })
+    }
+    if (sessionLogOps.length > 0) {
+      await syncDshSessionLog(sessionLogOps)
+    }
     if (typeof patch.noticeAccepted === 'boolean') {
       data.noticeAccepted = patch.noticeAccepted
       data.noticeVersion = NOTICE_VERSION
@@ -752,10 +786,7 @@ export function install(rt) {
     }
     if (typeof patch.usage === 'boolean') data.usage = patch.usage
     if (typeof patch.errors === 'boolean') data.errors = patch.errors
-    if (typeof patch.dshSessionLog === 'boolean') {
-      data.dshSessionLog = patch.dshSessionLog
-      void syncDshSessionLog(data.dshSessionLog)
-    }
+    if (sessionLogOps.length > 0) data.dshSessionLog = nextDshSessionLog
     if (typeof patch.dshFeedbackTelemetry === 'boolean') {
       data.dshFeedbackTelemetry = patch.dshFeedbackTelemetry
     }

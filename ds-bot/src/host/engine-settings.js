@@ -12,6 +12,9 @@ const MAX_SPEC_LENGTH = 500
 const AGENT_PRESET_SETTINGS_NS = 'agent-preset-registry'
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+const CREDENTIAL_REF_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
+const MAX_CREDENTIAL_REFS = 16
+const MAX_CREDENTIAL_VALUE_BYTES = 16 * 1024
 const APP_BOOT_MODULE = '@deepseek-ai/dsh-app-boot'
 const CORE_DS_BOT_BUNDLES = new Set(['ds-bot', '@deepseek-ai/ds-bot', 'dsbot-engine', '@deepseek-ai/dsh-base'])
 const MAX_PKG_JSON_BYTES = 256 * 1024
@@ -294,28 +297,90 @@ export function install(rt) {
     return map
   }
 
+  function safeService(name) {
+    if (typeof ctx.get === 'function') return ctx.get(name)
+    return ctx[name]
+  }
+
   function settingsService() {
-    return ctx.get?.('settings') ?? ctx.settings
+    return safeService('settings')
   }
 
   function accountService() {
-    return ctx.get?.('deepseekAccount') ?? ctx.deepseekAccount
+    return safeService('deepseekAccount')
   }
 
   function pluginManagerService() {
-    return ctx.get?.('pluginManager') ?? ctx.pluginManager
+    return safeService('pluginManager')
   }
 
   function agentPresetsService() {
-    return ctx.get?.('agentPresets') ?? ctx.agentPresets
+    return safeService('agentPresets')
   }
 
   function webService() {
-    return ctx.get?.('web') ?? ctx.web
+    return safeService('web')
   }
 
   function llmService() {
-    return ctx.get?.('llm') ?? ctx.llm
+    return safeService('llm')
+  }
+
+  function credentialsService() {
+    return safeService('credentials')
+  }
+
+  function validateCredentialRef(raw) {
+    const ref = typeof raw === 'string' ? raw.trim() : ''
+    if (!CREDENTIAL_REF_RE.test(ref)) throw invalid('A valid credential reference is required')
+    return ref
+  }
+
+  function allowedWebCredentialRefs() {
+    const allowed = new Set()
+    const settings = settingsService()
+    if (settings && typeof settings.describe === 'function') {
+      let descriptors = []
+      try {
+        const listed = settings.describe({ redactSecrets: true })
+        if (Array.isArray(listed)) descriptors = listed
+      } catch { /* fall back to default ref below */ }
+      const addRef = (raw) => {
+        if (typeof raw === 'string') {
+          const trimmed = raw.trim()
+          if (CREDENTIAL_REF_RE.test(trimmed)) allowed.add(trimmed)
+        }
+      }
+      for (const desc of descriptors) {
+        const ns = String(desc?.ns ?? '')
+        if (ns === 'web-search-deepseek') {
+          addRef(desc?.value?.apiKeyEnv)
+          addRef(desc?.base?.apiKeyEnv)
+          allowed.add('DEEPSEEK_API_KEY')
+        } else if (ns === 'web-deepseek-api') {
+          addRef(desc?.value?.searchApiKeyEnv)
+          addRef(desc?.base?.searchApiKeyEnv)
+          addRef(desc?.value?.fetchApiKeyEnv)
+          addRef(desc?.base?.fetchApiKeyEnv)
+        }
+      }
+    }
+    if (allowed.size === 0) allowed.add('DEEPSEEK_API_KEY')
+    return allowed
+  }
+
+  function assertAllowedCredentialRef(ref) {
+    if (!allowedWebCredentialRefs().has(ref)) {
+      throw refused(`Credential reference "${ref}" is not managed by web search settings`)
+    }
+  }
+
+  function cleanCredentialInfo(info) {
+    return {
+      configured: Boolean(info?.configured),
+      writable: info?.writable !== false,
+      ...(typeof info?.source === 'string' && info.source !== '' ? { source: info.source } : {}),
+    }
   }
 
   function cleanWebProvider(provider) {
@@ -327,7 +392,7 @@ export function install(rt) {
   }
 
   function profileContextService() {
-    return ctx.get?.('profileContext') ?? ctx.profileContext ?? null
+    return safeService('profileContext') ?? null
   }
 
   function resolveUiPluginsPath() {
@@ -796,6 +861,72 @@ export function install(rt) {
           search: Array.isArray(raw?.search) ? raw.search.map(cleanWebProvider).filter(p => p.id !== '') : [],
           fetch: Array.isArray(raw?.fetch) ? raw.fetch.map(cleanWebProvider).filter(p => p.id !== '') : [],
         }
+      }
+      case 'credentials-describe': {
+        const creds = credentialsService()
+        if (creds === undefined || typeof creds.describe !== 'function') {
+          return { available: false, views: {} }
+        }
+        const rawRefs = Array.isArray(body.refs) ? body.refs : (body.ref !== undefined ? [body.ref] : [])
+        if (rawRefs.length === 0 || rawRefs.length > MAX_CREDENTIAL_REFS) {
+          throw invalid('Credential describe requires 1 to 16 references')
+        }
+        const unique = [...new Set(rawRefs.map(validateCredentialRef))]
+        for (const ref of unique) assertAllowedCredentialRef(ref)
+        const views = {}
+        for (const ref of unique) {
+          const info = await creds.describe(ref)
+          views[ref] = cleanCredentialInfo(info)
+        }
+        return { available: true, views }
+      }
+      case 'credentials-set': {
+        writeCheck()
+        const settings = settingsService()
+        if (settings !== undefined && !settings.writable) {
+          throw refused('Engine settings are read-only in this profile')
+        }
+        const creds = credentialsService()
+        if (creds === undefined || typeof creds.set !== 'function') {
+          throw refused('Credential storage is not available on this host')
+        }
+        const ref = validateCredentialRef(body.ref)
+        assertAllowedCredentialRef(ref)
+        const value = typeof body.value === 'string' ? body.value.trim() : ''
+        if (value === '' || Buffer.byteLength(value, 'utf8') > MAX_CREDENTIAL_VALUE_BYTES) {
+          throw invalid('A non-empty credential value is required')
+        }
+        if (typeof creds.describe === 'function') {
+          const current = await creds.describe(ref)
+          if (current?.writable === false) {
+            throw refused(`Credential "${ref}" is managed externally and cannot be modified here`)
+          }
+        }
+        await creds.set(ref, value)
+        const info = typeof creds.describe === 'function' ? await creds.describe(ref) : { configured: true, writable: true }
+        return { ref, ...cleanCredentialInfo(info) }
+      }
+      case 'credentials-unset': {
+        writeCheck()
+        const settings = settingsService()
+        if (settings !== undefined && !settings.writable) {
+          throw refused('Engine settings are read-only in this profile')
+        }
+        const creds = credentialsService()
+        if (creds === undefined || typeof creds.unset !== 'function') {
+          throw refused('Credential storage is not available on this host')
+        }
+        const ref = validateCredentialRef(body.ref)
+        assertAllowedCredentialRef(ref)
+        if (typeof creds.describe === 'function') {
+          const current = await creds.describe(ref)
+          if (current?.writable === false) {
+            throw refused(`Credential "${ref}" is managed externally and cannot be cleared here`)
+          }
+        }
+        await creds.unset(ref)
+        const info = typeof creds.describe === 'function' ? await creds.describe(ref) : { configured: false, writable: true }
+        return { ref, ...cleanCredentialInfo(info) }
       }
       case 'model-catalog': {
         const llm = llmService()
