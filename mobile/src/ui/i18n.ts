@@ -1,8 +1,8 @@
-import { DICTIONARY } from '../../../ds-bot/src/client/i18n.js'
+import { ZH as DESKTOP_ZH } from '../../../ds-bot/src/client/locales/zh.js'
 
 // Phone copy shares the desktop dictionary. Mobile-only strings have their own
 // Chinese entries here; the English source stays the key, as on the desktop.
-const ZH = DICTIONARY.zh as Record<string, string>
+const ZH = DESKTOP_ZH as Record<string, string>
 // Words the desktop uses in another sense (its "New" badge, "Light" motion, the
 // browser's "Back", the "Not parsed" meaning of "Unknown", OAuth "Verified");
 // the phone's own meaning wins for these.

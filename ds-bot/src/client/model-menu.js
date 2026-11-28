@@ -725,9 +725,10 @@ function setupChoices(actions) {
 // plugin's model sign-in entry renders here with the plugin's own operations.
 export function DeepSeekSignIn({ useUi, actions }) {
   const open = useUi(state => state.signIn)
-  const entry = open ? actions.signInEntry?.() : null
+  const [shown, leaving] = useLinger(open, 160)
+  const entry = shown ? actions.signInEntry?.() : null
   if (!entry) return null
-  return h(SignInHost, { key: open, entry, actions })
+  return h(SignInHost, { key: shown, entry, actions, leaving })
 }
 
 function makeSourceHook(source) {
@@ -736,16 +737,21 @@ function makeSourceHook(source) {
   }
 }
 
-function SignInHost({ entry, actions }) {
+function SignInHost({ entry, actions, leaving = false }) {
   const [ops] = useState(() => entry.inject?.() ?? {})
   const close = () => actions.closeSignIn()
   const [hooks] = useState(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }))
   return h(entry.component, {
     ...ops,
     ...hooks,
+    leaving,
     t: actions.accountT(),
     complete: close,
-    useApiKey: () => { close(); actions.openHarnessOnboarding('deepseek-official') },
+    useApiKey: () => {
+      close()
+      if (typeof actions.openHarnessOnboarding === 'function') actions.openHarnessOnboarding('deepseek-official')
+      else actions.openModels?.()
+    },
   })
 }
 
@@ -833,7 +839,7 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 /* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
-.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+.bt-model-dock{width:100%;max-width:var(--bt-chat-w,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 /* The scroll box clips at its padding edge, so 3px of padding keeps the chips' focus rings visible; the negative margins cancel it so the chips stay in place. */
 .bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;box-sizing:border-box;padding:3px;margin:-3px 0 -3px 27px;max-width:min(566px,calc(100% - 27px));max-height:min(246px,calc(36vh + 6px));max-height:min(246px,calc(36dvh + 6px));overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}

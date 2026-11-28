@@ -401,6 +401,49 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     return bot !== undefined && localAgentOf(bot) !== undefined
   }
 
+  // Honest execution boundaries for the coordination scheduler (`dsh-adapter.js`):
+  // local CLIs own their internal tool loop, cannot be mid-turn forked to background,
+  // serialize per CLI session, and require exclusive workspace access unless isolated.
+  const localAgentCapability = (botOrId) => {
+    const bot = typeof botOrId === 'string'
+      ? (rt.botOf?.(botOrId) ?? rt.botOf?.(rt.selfOf?.(botOrId)))
+      : botOrId
+    const ref = localAgentOf(bot)
+    if (ref === undefined) {
+      return {
+        isLocalAgent: false,
+        route: null,
+        engineKind: null,
+        executionKind: 'dsh',
+        supportsD1D4: true,
+        supportsSteer: true,
+        serialPerSession: false,
+        allowForkHandoff: true,
+        exclusiveWorkspace: false,
+        cwdPerProcess: false,
+      }
+    }
+    const route = splitRef(ref)?.provider ?? null
+    const baseRoute = route ? splitProfileRoute(route).baseRoute : null
+    const spec = baseRoute ? engineSpecOf(baseRoute, customAgents()) : undefined
+    const engineKind = spec?.kind ?? null
+    // Codex (`turn/steer`) and Claude Code (`stream-json` stdin) accept mid-turn steer;
+    // ACP engines process one prompt at a time and queue follow-ups as the next turn.
+    const supportsSteer = engineKind === 'codex' || engineKind === 'claude'
+    return {
+      isLocalAgent: true,
+      route,
+      engineKind,
+      executionKind: 'local_cli',
+      supportsD1D4: false,
+      supportsSteer,
+      serialPerSession: true,
+      allowForkHandoff: false,
+      exclusiveWorkspace: true,
+      cwdPerProcess: spec?.cwdPerProcess === true,
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // approve_agent_action: served only to abot sessions; the CLI's permission
   // prompts arrive through it as an ordinary approval card. It stays off
@@ -684,6 +727,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
 
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
+    localAgentCapability,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     isLocalAgentAvailable: route => registeredRoutes.has(route),
     localAgentSupportsFork,

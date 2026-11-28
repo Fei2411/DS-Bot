@@ -5,9 +5,20 @@
 
 ## 为什么
 
-DS Bot 以 DSH 插件形态运行，严格遵守「不修改 DSH、只调用公开插件接口」的硬规则。当 DSH 的全局设计或界面结构与 Bot 的正确行为冲突时，不为了兼容 DSH 无限堆砌复杂度；不得不做的让步统一记在这张表里，待上游补齐接口或桌面应用切换为自绘前端后逐条清理。
+DS Bot 以 DSH 插件形态运行，优先通过公开插件接口协作，避免为了兼容旧限制无限堆砌宿主绕法。当 DSH 的全局设计或界面结构与 Bot 的正确行为冲突时，不得不做的让步统一记在这张表里，随上游补齐能力或桌面应用自绘前端逐条清理。
 
 判断一个现象是 DS Bot 的 bug 还是 DSH 的限制时，先查本表；属于上游限制的 Issue 打 `upstream` 标签。
+
+## 协调层双模能力（D1–D4）
+
+`ds-bot/src/host/dsh-adapter.js` 在运行时按能力探测自动适配 DSH 协调钩子，原生具备时直连，运行于 `0.2.2-rc.5` 等旧版 DSH 时自动走等价降级路径，保证零破坏兼容：
+
+| 能力 | 原生 DSH 接口 | `0.2.2-rc.5` 降级路径 | 解决的根因 |
+|---|---|---|---|
+| **D1 零唤醒注记** | `agent.appendNote(msg, { idempotencyKey })`（随下一次真实唤醒 `claim` 注入，不触发驱动） | 写 `coordination.sqlite` `inbox(kind='note')`，在 `agent/pre-step` 首个真实唤醒步附着并于 `user/message` 单行确认 | 消除 `note_bot` / `cancel_work` 误唤醒目标 Bot |
+| **D2 幂等键与冷读状态** | `send/followup/steer(..., { idempotencyKey })` + `sessionController.deliveryStatus` / `sessionQuery.queryDeliveryStatus` | 通过冷会话事件回放按真实 `agent/inbox/spliced` 与 `tool/result` 语义还原投递状态 | 崩溃重启零丢不重、识别中断写工具与日志损坏 |
+| **D3 发送前门禁** | `session/before-prompt` 钩子（`pass` / `redirect` / `handled` / `reject`） | 不包装 `sessionController.prompt`；前台隐藏轮隔离走公开 `agent/inbox/inserted` + 持久化转移日志（#2309） | 消除隐藏轮隔离时的抢收件箱与额外转移日志复杂度 |
+| **D4 确定性让出回合** | 工具执行上下文 `exec.yieldTurn(reason)`（`turn/end` 标记 `yielded`） | 调用 `exec.concludeTurn()` 并在 `agent/pre-step` 干净收尾 | 消除 `ask_back` / `ask_user` / `show_view` / `group_relay` 额外空转步 |
 
 ## 当前仍生效的让步
 
@@ -22,7 +33,7 @@ DS Bot 以 DSH 插件形态运行，严格遵守「不修改 DSH、只调用公�
 | C7 | #127 #169 #245 #246 | 其他插件样式可覆盖 ds-bot；插件布局仍部分依赖 DSH 私有 DOM 结构与类名 | 局部关键布局使用 `!important` 与精确选择器覆盖 | 升级 DSH 时 DOM/类名变动可能破坏布局 | 桌面应用改用自绘前端，不再覆盖 DSH DOM |
 | C8 | #118 #123 #172 | UI 插槽「声明即占有」，不允许重复声明或透传未声明子插槽（影响工具视图与会话头） | 仅补齐必要工具视图；Bot 会话头自定义渲染 | 第三方插件注入原插槽的自定义视图或操作在 Bot 会话中不可见 | 桌面应用自绘聊天流与工具视图，统一承载插件插槽 |
 | C9 | #112 #141 | profile 中禁用或损坏 `bot` 行时插件根本不加载，无法自诊 | 提供排障文档与 `npx ds-bot doctor` 手动修复命令 | 用户遇到配置损坏需手动排查 | 启动器在加载插件前做 profile 预检 |
-| C10 | #129 | 模型流卡死时 DSH 无回合看门狗 | 合并未读消息并在 `list_bots` / `message_bot` 暴露实时状态，供用户或同伴察觉 | 卡死回合仍需用户手动停止 | 宿主实现回合与任务看门狗 |
+| C10 | #129 | 模型流卡死时 DSH 无回合看门狗 | 宿主通过 `coordination.sqlite` 记录活跃投递与实时状态、无进展硬信号自动暂停，并在 `list_bots` 暴露状态供用户或同伴察觉与单点叫停 | 单次流式模型请求彻底假死时仍需用户手动停止 | 上游或宿主增加流式静音看门狗 |
 | C11 | #362 #1044 #1231 | DSH 网页前端无原生无边框材质与窗口控件接口；桌面模式强依赖 DSH Desktop 原生桥 | 保持网页模式，由 `app/src/material.css`、`windows.css`、`macos.css` 注入 Windows 11 Mica 与 macOS 侧栏 vibrancy | 升级锁定 DSH 时样式适配需回归检查 | 桌面应用自绘前端后由应用统一绘制窗口外框 |
 | C12 | #398 #425 | DeepSeek 账号登录/退出由 DSH 账号插件管理，无独立 UI 接口 | Bot 账号菜单复用账号插件注入项并转交系统浏览器授权 | 账号插件改动条目结构时入口可能失效 | 桌面应用自绘账号登录/退出界面 |
 | C13 | #456 #470 #489 | DSH 右侧栏（终端、文件树、预览）仅能渲染在 DSH 自身右栏且无公开展开状态订阅 | 通过 `MutationObserver` 监听 `data-rightbar-collapsed` / `data-rightbar-fullscreen` 实现与 Bot 右栏互斥，并将终端/文件树入口收进 `···` 菜单 | DSH 改属性名则互斥失效；外观风格与 Bot 栏割裂 | 桌面应用自绘终端与文件预览，移除 DSH 右侧栏 |
@@ -37,6 +48,7 @@ DS Bot 以 DSH 插件形态运行，严格遵守「不修改 DSH、只调用公�
 | C22 | — | `dsh-agent-loop` 变更可见工具列表时会向会话追加 `developer/message` 事件；部分兼容提供方路由不接受 `role: 'developer'`，在已有该事件的会话上请求会被提供方拒绝 | 不修改 DSH 事件模型或篡改既有会话日志；换段或新建会话可隔离旧事件 | 切换到不接受 `role: 'developer'` 的兼容提供方路由时，含历史 `developer/message` 的会话继续请求可能报角色错误 | 向上游申请在不支持 `developer` 角色的提供方适配器中做角色降级映射 |
 | C23 | — | `dsh-llm-retry` 对 HTTP 429 统一按重试策略等待并重发，不区分瞬时限流与重置时间在数小时后的硬性额度耗尽 | 保持 `dsh-llm-retry` 原样不打补丁；本地 Agent 路径单独识别配额耗尽快速失败，模型路由错误按 DSH 事件透传给用户 | 模型路由遇到数小时后才重置的硬性 429 额度耗尽时仍会触发无效退避重试，拖长失败反馈 | 向上游申请在重置时间远超策略边界或明确为硬性额度耗尽时直接快速失败 |
 | C24 | — | DSH 未提供后台增量会话文本索引接口，检索归档与长历史只能按需通过 `sessionController.page` 同步分页回扫 | DS Bot 自建本地 SQLite FTS5 `chat-index.sqlite`（`chat-index.js`），查询或读取旧段时按需追平并封存已结束段 | 大体量会话首次冷搜或重建索引时仍须同步分页回扫，存在冷搜延迟与分页上限约束 | 向上游申请后台/增量会话索引能力，替代冷搜时的同步分页回扫 |
+| C25 | #2435 | DSH Desktop 更新锁排空（10 s）通过 `connection/request` 拦截新请求并等待已接纳 HTTP 请求结束，未向 `ctx.connection.fetch.register` 注册的 SSE 路由提供「开始排空 / 即将停机」公开事件或中止信号 | `feed.js` 保留 6 秒连接轮换以便更新锁及时排空，并通过单调序号与 `hello { resumed: true }` 续接消除轮换导致的客户端重读 | 空闲时仍有每 6 秒一次轻量级本地 SSE 重连握手（无全量重读） | 向上游申请在更新排空开始时向长连接 Fetch 路由下发公开排空/中止信号，改为常驻长连接 |
 
 ## 已清理的让步
 
@@ -49,8 +61,11 @@ DS Bot 以 DSH 插件形态运行，严格遵守「不修改 DSH、只调用公�
 | 会话头重复右栏开关 | Bot 会话头与右侧栏存在两个收起入口 | 已处理：移除会话头右侧栏开关，改由文件链接、快捷键与 `···` 菜单触发（#470） |
 | macOS 系统标题栏 | macOS 桌面窗口保留系统标题栏 | 已处理：macOS 启用无边框标题带与侧栏 vibrancy（#1231） |
 | 隐藏引导步骤跳模型页 | 无法直接跳转到设置「模型」页，借用隐藏 `settings.onboarding` 步骤 | 已处理：DS Bot 接管设置外壳后移除隐藏引导步骤（#1136） |
+| 异步派活抢收件箱与双文件暂存 | 缺少发送前门禁、零唤醒注记、冷读幂等状态与确定性回合让出 | 已处理：`dsh-adapter.js` 落地 D1–D4 双模适配（原生直连 + `0.2.2-rc.5` 兼容降级），配合 `<home>/coordination.sqlite` 移除双文件暂存与抢收件箱绕法 |
 
 ## 变更
 
 - 2026-11-22：合并整理全部在用与已清理的 DSH 限制条目为仓库唯一总账，拆出「已清理的让步」表，去除冗余的作废夹注。
 - 2026-11-24：补录 5 项已核实的上游 DSH 限制（`C20`–`C24`）：`compactNow()` 硬编码 `retainTokens = 0`、切小窗口模型 `threshold <= retainTokens` 抛 `MODEL_SWITCH_COMPACTION_FAILED`、`developer/message` 角色兼容、`llm/retry` 对长期 429 配额耗尽的重试、以及缺少后台增量会话索引。
+- 2026-11-25：新增「协调层双模能力（D1–D4）」对照表，记录 `dsh-adapter.js` 对原生 D1–D4 钩子与 `0.2.2-rc.5` 降级路径的适配，并更新 C10 与已清理让步记录。
+- 2026-11-27：补录 `C25`（#2435）：DSH Desktop 更新排空缺少向 `ctx.connection.fetch.register` SSE 路由发出的公开排空/中止信号，保留 6 秒轮换并改为可续接推送消除重读代价。

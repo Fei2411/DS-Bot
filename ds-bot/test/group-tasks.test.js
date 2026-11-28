@@ -320,19 +320,21 @@ test('group task approval carries roomId + taskId and lateRoomReply keeps batch 
   env.rt.answerApproval(opened[0].id, 'allow')
   assert.equal(await reqPromise, 'allowed-once')
 
-  // Register a group batch waiting on Helper ('b'), then fire lateRoomReply while task is still running.
-  env.rt.state.roomBatches = {
-    b1: { key: 'b1', roomId: 'r1', by: 'a', pending: ['b'], done: [], doneIds: [], results: [], worked: true, answered: false, at: Date.now() },
-  }
-  await env.rt.lateRoomReply('grp-r1-b', { role: 'room', roomId: 'r1', askedBy: 'a' }, 'Started background task for migration.', { shown: false, toolCount: 1 })
-  assert.deepEqual(env.rt.state.roomBatches.b1.pending, ['b'], 'batch must stay open while member has an active group task')
+  // Register a group call waiting on Helper ('b'), then fire lateRoomReply while task is still running.
+  const roomCall = env.rt.openRoomCall(env.rt.roomOf('r1'), 'a', [env.rt.botOf('b')])
+  const callWorkId = roomCall.children[0].work.workId
+  assert.equal(env.rt.roomBatchPending('r1'), true)
+  await env.rt.lateRoomReply('grp-r1-b', { role: 'room', roomId: 'r1', askedBy: 'a', work: callWorkId }, 'Started background task for migration.', { shown: false, toolCount: 1 })
+  assert.equal(env.rt.roomBatchPending('r1'), true, 'group call must stay open while member has an active group task')
+  assert.equal(env.rt.coordDb.getWork(callWorkId).status, 'running')
 
-  // Stopping the group task via stopMemberWork stops the task and removes member from batch.
+  // Stopping the group task via stopMemberWork stops the task and closes the waiting call.
   const stopped = await env.rt.stopMemberWork('r1', 'b')
   assert.equal(stopped, true)
   assert.equal(task.status, 'stopped')
   assert.equal(env.rt.hasRoomTasks('r1', 'b'), false)
-  assert.equal(env.rt.state.roomBatches.b1, undefined, 'stopMemberWork must close waiting batch')
+  assert.equal(env.rt.roomBatchPending('r1'), false, 'stopMemberWork must close waiting group call')
+  assert.equal(env.rt.coordDb.getWork(callWorkId).status, 'stopped')
 })
 
 test('deleting room or removing member stops active group tasks and sendUser redirects group task sessionId to room', async (t) => {
@@ -369,16 +371,19 @@ test('individual rt.stopTask on a group task reconciles waiting group batch so c
   await env.tool('task_start').execute({ title: 'Solo task', brief: 'Work' }, execOf(grpB))
   const taskB = env.rt.botOf('b').tasks[0]
 
-  // Batch where Reviewer ('c') already finished and Helper ('b') is the last pending member.
-  env.rt.state.roomBatches = {
-    b2: { key: 'b2', roomId: 'r1', by: 'a', pending: ['b'], done: ['Reviewer'], doneIds: ['c'], results: [], worked: true, answered: false, at: Date.now() },
-  }
+  // Group call where Reviewer ('c') already finished and Helper ('b') is the last pending member.
+  const opened = env.rt.openRoomCall(env.rt.roomOf('r1'), 'a', [env.rt.botOf('b'), env.rt.botOf('c')])
+  const parentWorkId = opened.parentWork.workId
+  const revWorkId = opened.children.find(item => item.peer.id === 'c').work.workId
+  await env.rt.lateRoomReply('grp-r1-c', { role: 'room', roomId: 'r1', askedBy: 'a', work: revWorkId }, 'Reviewer done.', { shown: false, toolCount: 1 })
+  assert.equal(env.rt.roomBatchPending('r1'), true)
 
   await env.rt.stopTask('b', taskB.id)
   assert.equal(taskB.status, 'stopped')
+  assert.equal(env.rt.roomBatchPending('r1'), false)
   // Group's own Session receives the batch-closing post to wake Chief ('a').
   const roomAgent = env.agentMap.get('room-r1')
-  const wakePost = roomAgent.followups.find(m => m.source?.role === 'post' && m.source?.batch === 'b2' && m.source?.batchEnd === true)
+  const wakePost = roomAgent.followups.find(m => m.source?.role === 'post' && m.source?.batch === parentWorkId && m.source?.askedBy === 'a')
   assert.ok(wakePost !== undefined, 'stopping the last pending member task must wake the batch caller')
   assert.equal(wakePost.source.askedBy, 'a')
 })
@@ -421,6 +426,11 @@ test('P0-2: reconcileStoppedRoomTask wakes batch caller even when a group round 
   await env.tool('task_start').execute({ title: 'Active round stop', brief: 'Work' }, execOf(grpB))
   const taskB = env.rt.botOf('b').tasks[0]
 
+  const opened = env.rt.openRoomCall(env.rt.roomOf('r1'), 'a', [env.rt.botOf('b'), env.rt.botOf('c')])
+  const revWorkId = opened.children.find(item => item.peer.id === 'c').work.workId
+  await env.rt.lateRoomReply('grp-r1-c', { role: 'room', roomId: 'r1', askedBy: 'a', work: revWorkId }, 'Reviewer done.', { shown: false, toolCount: 1 })
+  assert.equal(env.rt.roomBatchPending('r1'), true)
+
   // Simulate an active running round in room r1!
   let nudged = 0
   const activeRound = {
@@ -436,9 +446,6 @@ test('P0-2: reconcileStoppedRoomTask wakes batch caller even when a group round 
     abort: new AbortController(),
   }
   env.rt.roomProgress.set('call-active', activeRound)
-  env.rt.state.roomBatches = {
-    b3: { key: 'b3', roomId: 'r1', by: 'a', pending: ['b'], done: ['Reviewer'], doneIds: ['c'], results: [], worked: true, answered: false, at: Date.now() },
-  }
 
   await env.rt.stopTask('b', taskB.id)
   env.rt.roomProgress.delete('call-active')
@@ -446,7 +453,7 @@ test('P0-2: reconcileStoppedRoomTask wakes batch caller even when a group round 
   assert.equal(taskB.status, 'stopped')
   assert.ok(activeRound.slots.some(slot => slot.id === 'a'), 'batch caller Chief must be queued into the active round')
   assert.ok(nudged >= 1, 'active round must be nudged to run the woken caller')
-  assert.equal(env.rt.state.roomBatches.b3, undefined, 'batch must close after waking caller')
+  assert.equal(env.rt.roomBatchPending('r1'), false, 'batch must close after waking caller')
 })
 
 test('P0-3: valid subdirectory inside room.workDir passes realpath within() check (even via explicit symlink) and rejects team workspace', async (t) => {
@@ -478,6 +485,11 @@ test('P0-4: reconcileTasksAfterRestart before settleRoomBatches settles zombie g
   await env.tool('task_start').execute({ title: 'Zombie group task', brief: 'Will orphan on restart' }, execOf(grpB))
   const taskB = env.rt.botOf('b').tasks[0]
 
+  const opened = env.rt.openRoomCall(env.rt.roomOf('r1'), 'a', [env.rt.botOf('b'), env.rt.botOf('c')])
+  const parentWorkId = opened.parentWork.workId
+  const revWorkId = opened.children.find(item => item.peer.id === 'c').work.workId
+  await env.rt.lateRoomReply('grp-r1-c', { role: 'room', roomId: 'r1', askedBy: 'a', work: revWorkId }, 'Reviewer done.', { shown: false, toolCount: 1 })
+
   // Simulate that the initial prompt was already consumed before restart (no unread inflight left),
   // and drop Helper's group session so task-report cannot be delivered.
   const delivered = env.deliveries.find(d => d.sessionId === taskB.sessionId)
@@ -487,9 +499,6 @@ test('P0-4: reconcileTasksAfterRestart before settleRoomBatches settles zombie g
   taskAgent.inbox.nextTurn.length = 0
   env.rt.unreadOf = () => []
   delete env.rt.roomOf('r1').sessions.b
-  env.rt.state.roomBatches = {
-    b4: { key: 'b4', roomId: 'r1', by: 'a', pending: ['b'], done: ['Reviewer'], doneIds: ['c'], results: [], worked: true, answered: false, at: Date.now() },
-  }
 
   // Exact resume.js order: reconcileTasksAfterRestart BEFORE settleRoomBatches.
   await env.rt.reconcileTasksAfterRestart(new Set())
@@ -498,8 +507,9 @@ test('P0-4: reconcileTasksAfterRestart before settleRoomBatches settles zombie g
 
   await env.rt.settleRoomBatches()
   const roomAgent = env.agentMap.get('room-r1')
-  const wakePost = roomAgent.followups.find(m => m.source?.role === 'post' && m.source?.batch === 'b4')
+  const wakePost = roomAgent.followups.find(m => m.source?.role === 'post' && m.source?.batch === parentWorkId && m.source?.askedBy === 'a')
   assert.ok(wakePost !== undefined, 'settleRoomBatches must wake batch caller once zombie group task is interrupted')
+  assert.equal(env.rt.roomBatchPending('r1'), false)
 })
 
 test('P1: setPermission respects room.permission, tools isolate (bot, roomId), and spliced user msg on group task redirects to room', async (t) => {
@@ -640,9 +650,10 @@ test('P1-3: settleTask reconciles waiting group batch when member group session 
   await env.tool('task_start').execute({ title: 'Deliver fail task', brief: 'Work' }, execOf(grpB))
   const taskB = env.rt.botOf('b').tasks[0]
 
-  env.rt.state.roomBatches = {
-    b5: { key: 'b5', roomId: 'r1', by: 'a', pending: ['b'], done: ['Reviewer'], doneIds: ['c'], results: [], worked: true, answered: false, at: Date.now() },
-  }
+  const opened = env.rt.openRoomCall(env.rt.roomOf('r1'), 'a', [env.rt.botOf('b'), env.rt.botOf('c')])
+  const parentWorkId = opened.parentWork.workId
+  const revWorkId = opened.children.find(item => item.peer.id === 'c').work.workId
+  await env.rt.lateRoomReply('grp-r1-c', { role: 'room', roomId: 'r1', askedBy: 'a', work: revWorkId }, 'Reviewer done.', { shown: false, toolCount: 1 })
 
   // Force rt.deliver to fail for the task-report to grp-r1-b.
   const origDeliver = env.rt.deliver
@@ -657,8 +668,9 @@ test('P1-3: settleTask reconciles waiting group batch when member group session 
   await env.emit(taskB.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   const roomAgent = env.agentMap.get('room-r1')
-  await waitFor(() => roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === 'b5'))
-  assert.ok(roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === 'b5'), 'waiting batch must still wake when task-report delivery fails')
+  await waitFor(() => roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === parentWorkId && m.source?.askedBy === 'a'))
+  assert.ok(roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === parentWorkId && m.source?.askedBy === 'a'), 'waiting batch must still wake when task-report delivery fails')
+  assert.equal(env.rt.roomBatchPending('r1'), false)
 })
 
 test('P1-4: background task working_directory persists approved dir and team workspace (null) across rollover without re-prompting', async (t) => {

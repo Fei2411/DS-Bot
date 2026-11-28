@@ -249,7 +249,7 @@ export function QueueDock({ useSession, useProjection, updateQueue, loadImage, r
 }
 
 export const QUEUE_CSS = `
-.bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,8px) - 3px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none}
+.bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--bt-composer-side,0px) - var(--bt-composer-side,0px) - var(--bt-composer-dock-inset,0px) - var(--bt-composer-dock-inset,0px));max-width:calc(var(--bt-composer-max-w,748px) - var(--bt-composer-dock-inset,0px) - var(--bt-composer-dock-inset,0px));margin:0 auto calc(0px - var(--bt-composer-gap,8px) - 3px);padding:0 var(--bt-composer-dock-inset,0px);flex:none}
 .bt-queue-panel{position:relative;isolation:isolate;width:100%;padding:2px 0;border-radius:var(--dsw-radius-lg,14px) var(--dsw-radius-lg,14px) 0 0;overflow:hidden}
 .bt-queue-panel:before{z-index:-1;border-radius:inherit;background:var(--dsw-specific-menu,var(--bt-main));backdrop-filter:var(--dsw-menu-backdrop-filter,none);content:"";pointer-events:none;position:absolute;inset:0}
 .bt-queue-panel:after{border:.5px solid var(--bt-line-2);border-bottom:none;border-radius:inherit;content:"";pointer-events:none;position:absolute;inset:0}

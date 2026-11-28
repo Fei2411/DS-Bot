@@ -141,6 +141,18 @@ export function keepDraftFiles({ chatId, part, files }) {
 }
 
 /**
+ * Whether any chat in this window currently holds unsent in-memory attachments
+ * (files, images, or long pasted text folded into files) that a full reload would discard.
+ * @returns {boolean}
+ */
+export function hasKeptDraftFiles() {
+  for (const entry of keptFiles.values()) {
+    if (Array.isArray(entry?.files) && entry.files.length > 0) return true
+  }
+  return false
+}
+
+/**
  * Update only the stored text draft for a chat while keeping any in-memory files
  * already held for that chat intact (e.g. a queued-message withdrawal that finishes
  * after the user switched to another chat).

@@ -1,7 +1,7 @@
 // Waits a Bot gave up: one hand-off that will not come back is closed with an explicit
 // result, so the work above it goes on instead of waiting forever.
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -92,6 +92,8 @@ async function startHost(home, team, options = {}) {
   rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data) => {
+    if (type === 'turn/start') agentOf(id).status = 'running'
+    if (type === 'turn/end') agentOf(id).status = 'idle'
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
@@ -109,7 +111,7 @@ async function startHost(home, team, options = {}) {
   }))).json()
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await tool('list_bots', {}, 'a')
-  return { ctx, agents, agentOf, emit, emitScoped, tool, call, home, stop: () => ctx.dispose() }
+  return { rt, ctx, agents, agentOf, emit, emitScoped, tool, call, home, stop: () => ctx.dispose() }
 }
 
 // The plugin folder of a test, and the hosts over it. A second host over the same
@@ -154,10 +156,31 @@ function turnTaker(agents, emit) {
   return { take, open, end, userTurn }
 }
 
-// The works the team file holds, once the saves made so far are done.
-const worksIn = async ({ call, home }) => {
-  await call('set-prefs', {})
-  return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).works ?? {}
+// Active non-foreground works in SQLite `coordDb`, mapped with open child waits and settled child results.
+const worksIn = async ({ rt }) => {
+  const db = rt.coordDb
+  const out = {}
+  for (const work of db.listWorks({ activeOnly: true, limit: 500 })) {
+    if (work.kind === 'foreground' || work.originKind === 'request_dedup') continue
+    const open = db.listWaits({ workId: work.workId, kind: 'call', status: 'open', limit: 100 })
+      .map(wait => wait.targetWorkId)
+      .filter(Boolean)
+    const results = db.listCalls({ parentWorkId: work.workId, limit: 100 })
+      .filter(call => call.status !== 'open')
+      .map(call => ({
+        id: call.childWorkId,
+        text: call.resultSummary ?? '',
+        abandoned: call.error?.abandoned === true,
+        abandonedReason: call.error?.message,
+      }))
+    out[work.workId] = {
+      ...work,
+      to: work.botId,
+      open,
+      results,
+    }
+  }
+  return out
 }
 
 // Chief asks Writer for work, and Writer hands it on to Tester and ends its turn, so
@@ -306,26 +329,26 @@ test('a restart gives up a wait whose target no longer exists, and only those', 
     p3: { from: 'b', to: 'd', open: ['gone-room'], results: [], at: 5 },
     'gone-room': { from: 'd', room: 'no-such-room', parent: 'p3', open: [], results: [], at: 6 },
   }
-  const { home, start } = bench(t)
+  const { start } = bench(t)
   const host = await start(team)
+  await host.rt.adoptLiveWork()
   await settled(() => {
-    try {
-      const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-      return saved.works?.['gone-bot'] === undefined && saved.works?.['gone-room'] === undefined
-    } catch { return false }
+    const goneBot = host.rt.coordDb.getWork('handoff:gone-bot')
+    const goneRoom = host.rt.coordDb.getWork('handoff:gone-room')
+    return goneBot?.status === 'stopped' && goneRoom?.status === 'stopped'
   })
   const works = await worksIn(host)
   // The deleted Bot and the deleted group are given up, each with a result above.
-  assert.equal(works['gone-bot'], undefined)
-  assert.equal(works.p1.results[0].abandoned, true)
-  assert.equal(works.p1.results[0].abandonedReason, 'gone')
-  assert.match(works.p1.results[0].text, /is no longer on the team/)
-  assert.equal(works['gone-room'], undefined)
-  assert.equal(works.p3.results[0].abandoned, true)
+  assert.equal(works['handoff:gone-bot'], undefined)
+  assert.equal(works['handoff:p1'].results[0].abandoned, true)
+  assert.equal(works['handoff:p1'].results[0].abandonedReason, 'gone')
+  assert.match(works['handoff:p1'].results[0].text, /is no longer on the team/)
+  assert.equal(works['handoff:gone-room'], undefined)
+  assert.equal(works['handoff:p3'].results[0].abandoned, true)
   // A target that still exists and has not answered keeps waiting, even across a restart.
-  assert.ok(works['live-bot'] !== undefined)
-  assert.deepEqual(works.p2.open, ['live-bot'])
-  assert.equal(works.p2.results.length, 0)
+  assert.ok(works['handoff:live-bot'] !== undefined)
+  assert.deepEqual(works['handoff:p2'].open, ['handoff:live-bot'])
+  assert.equal(works['handoff:p2'].results.length, 0)
   // Writer hears about the wait that was given up for it.
   await settled(() => callsOf(host.agents, 'b').length >= 1)
   assert.match(textOf(callsOf(host.agents, 'b').at(-1)[1].content), /^\[Waiting given up · the other Bot did not hand back this work/)
@@ -345,20 +368,19 @@ test('a restart leaves a subagent wait alone, whatever the Session read says', a
   for (const [label, inspect] of cases) {
     const team = seed()
     delete team.bots.c
-    team.works = {
-      p1: { from: 'a', to: 'b', open: ['gone-bot'], results: [], at: 1 },
-      'gone-bot': { from: 'b', to: 'c', parent: 'p1', open: [], results: [], at: 2 },
-      p2: { from: 'a', to: 'b', open: ['r1'], results: [], at: 3 },
-      r1: { from: 'b', parent: 'p2', child: 'sub1', name: 'subagent review', open: [], results: [], at: 4 },
-    }
-    const { home, start } = bench(t)
-    const host = await start(team, { inspect })
+    const { start } = bench(t)
+    const first = await start(team, { inspect })
+    await first.rt.adoptLiveWork()
+    first.rt.openWork('p1', { from: 'a', to: 'b' })
+    first.rt.openWork('gone-bot', { from: 'b', to: 'c', parent: 'p1' })
+    first.rt.openWork('p2', { from: 'a', to: 'b' })
+    first.rt.openWork('r1', { from: 'b', parent: 'p2', child: 'sub1', name: 'subagent review' })
+    await first.stop()
+
+    const host = await start(undefined, { inspect })
+    await host.rt.adoptLiveWork()
     // The sweep ran: the work for the deleted Bot is settled.
-    await settled(() => {
-      try {
-        return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).works?.['gone-bot'] === undefined
-      } catch { return false }
-    })
+    await settled(() => host.rt.coordDb.getWork('gone-bot')?.status === 'stopped')
     const works = await worksIn(host)
     assert.equal(works['gone-bot'], undefined, label)
     assert.equal(works.p1.results[0].abandonedReason, 'gone', label)

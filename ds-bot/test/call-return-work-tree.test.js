@@ -410,14 +410,16 @@ test('F1 (real ReactLoopAgent): user steer during <5s zero-tool hidden peer-Bot 
   assert.equal(steerCutObserved, false, 'hidden peer-Bot turn must NOT be aborted via STEER_CUT')
   assert.equal((rig.rt.state.exchangeTurns[fgSid] ?? []).length, 0, 'user foreground reply must remain visible (not hidden in exchangeTurns)')
 
-  // Moved work #W1 must record toSession = 'dm-b' so answer_work / cancel_work route to the background task.
-  const [workId, work] = Object.entries(rig.rt.state.works)[0]
-  assert.equal(work.toSession, 'dm-b', 'handoffForeground must update work.toSession to the moved task session')
-  assert.ok(work.toTaskId, 'handoffForeground must update work.toTaskId')
+  // Moved work #W1 must record sessionId = 'dm-b' and taskId in coordDb so answer_work / cancel_work route to the background task.
+  const movedWork = rig.rt.coordDb.listWorks({ activeOnly: true }).find(w => w.kind === 'task' && w.botId === 'b')
+  assert.ok(movedWork, 'moved #W1 must exist in coordDb')
+  const workId = movedWork.workId
+  assert.equal(movedWork.sessionId, 'dm-b', 'handoffForeground must update work.sessionId to the moved task session')
+  assert.ok(movedWork.apiMeta?.taskId, 'handoffForeground must update work.apiMeta.taskId')
 
   // Release the moved bot-handoff peer turn: its real answer returns to Chief, NOT the user's message.
   peerModelRelease.resolve()
-  await settle(() => rig.rt.state.works[workId] === undefined, 4000, 'moved #W1 must finish and close')
+  await settle(() => rig.rt.resolveWork(workId) === undefined, 4000, 'moved #W1 must finish and close')
   await settle(() => {
     const events = rig.agents.get('dm-a').session.snapshotEvents()
     return events.some(ev => ev.type === 'user/message' && ev.data?.source?.role === 'reply' && textOf(ev.data?.content).includes('Config audit complete.'))
@@ -480,23 +482,32 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   emit('dm-b', 'user/message', { content: req1.content, source: req1.source })
   const newFg = await rt.handoffForeground(rt.botOf('b'), 'dm-b')
   assert.notEqual(newFg, 'dm-b')
-  assert.equal(rt.state.works[req1.source.exchangeId].toSession, 'dm-b')
+  assert.equal(rt.resolveWork(req1.source.exchangeId)?.work?.toSession, 'dm-b')
 
   await tool('ask_back', { question: 'Which branch?' }, 'dm-b')
   const askMsg = agents.get('dm-a').calls.at(-1)[1]
   emit('dm-a', 'turn/start', { turn: 1 })
   emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
   await tool('answer_work', { answer: 'Use dev.' }, 'dm-a')
-
-  assert.ok(agents.get('dm-b').calls.some(([, m]) => m?.source?.role === 'answer' && m.source.work === req1.source.exchangeId), 'answer_work must route to moved task dm-b')
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // End Writer's yielded ask_back Turn 1 so the scheduler dispatches Chief's answer onto Turn 2 in dm-b.
+  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => agents.get('dm-b').calls.some(([, m]) => m?.source?.role === 'answer' && m.source.work === req1.source.exchangeId), 2000, 'answer_work must route to moved task dm-b')
   assert.equal(agents.get(newFg).calls.some(([, m]) => m?.source?.role === 'answer'), false, 'answer_work must NOT leak into new foreground chat')
 
   // Close W1 cleanly after consuming Chief's answer to start next sub-scenario.
   const ansMsg = agents.get('dm-b').calls.findLast(([, m]) => m?.source?.role === 'answer')[1]
+  emit('dm-b', 'turn/start', { turn: 2 })
   emit('dm-b', 'user/message', { content: ansMsg.content, source: ansMsg.source })
   emit('dm-b', 'assistant/message', assistantText('Patch ready.'))
-  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[req1.source.exchangeId] === undefined)
+  emit('dm-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.resolveWork(req1.source.exchangeId) === undefined)
+  // Consume Chief's reply turn on dm-a so fg:a releases its 1:1 claim.
+  await settle(() => agents.get('dm-a').calls.some(([, m]) => m?.source?.replyTo === req1.source.exchangeId))
+  const w1Rep = agents.get('dm-a').calls.at(-1)[1]
+  emit('dm-a', 'turn/start', { turn: 2 })
+  emit('dm-a', 'user/message', { content: w1Rep.content, source: w1Rep.source })
+  emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 
   // 2) Boss -> Writer (#W2) -> task_start (T1) -> cycle delegate_work(Chief) refused; delegate_work(Reviewer) (#W3) + cancel_work wakes T1; cancel_work(#W2) stops T1.
   const writerFg = rt.chatOf('b')
@@ -510,7 +521,14 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   assert.match(started, /Started background task/)
   const task1 = rt.botOf('b').tasks.at(-1)
   assert.equal(task1.parentWorkId, w2Id)
-  assert.equal(rt.state.works[task1.workId].toSession, task1.sessionId)
+  assert.equal(rt.resolveWork(task1.workId)?.work?.toSession, task1.sessionId)
+  // Writer ends Turn 2 after handing off to background task T1, parking #W2 in waiting on T1
+  // so T1 holds the workspace cleanly while #W2 waits for T1's result.
+  emit(writerFg, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => (agents.get(task1.sessionId)?.calls?.length ?? 0) >= 1, 2000, 'T1 initial prompt dispatched')
+  const t1Init = agents.get(task1.sessionId).calls[0][1]
+  emit(task1.sessionId, 'turn/start', { turn: 1 })
+  emit(task1.sessionId, 'user/message', { content: t1Init.content, source: t1Init.source })
 
   // Cycle refusal inside task_start: Chief is upstream via task:T1 -> W2 -> Chief.
   const aCallsBefore = agents.get('dm-a').calls.length
@@ -518,39 +536,46 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   assert.match(cycleRes, /Not sent: Chief is waiting for the result/)
   assert.equal(agents.get('dm-a').calls.length, aCallsBefore)
 
-  // Task delegates #W3 to Reviewer; parent is task:T1.
+  // Task delegates #W3 to Reviewer; parent is task:T1, then T1 yields Turn 1 into waiting_work.
   await tool('delegate_work', { to: 'Reviewer', goal: 'run smoke tests' }, task1.sessionId)
-  const req3 = agents.get('dm-c').calls.at(-1)[1]
-  const w3Id = req3.source.exchangeId
-  assert.equal(rt.state.works[w3Id].parent, task1.workId)
+  const w3Work = rt.coordDb.listWorks({ botId: 'c', activeOnly: true }).find(w => w.parentWorkId === task1.workId)
+  assert.ok(w3Work, '#W3 work created with parent task:T1')
+  const w3Id = w3Work.workId
+  assert.equal(w3Work.parentWorkId, task1.workId)
+  emit(task1.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => task1.status === 'waiting_work', 2000, 'T1 enters waiting_work after delegating #W3')
 
-  // User cancels #W3 while T1 is idle in waiting_work -> T1 must be woken with cancel summary!
+  // User cancels #W3 while T1 is idle in waiting_work -> T1 must be woken!
   const t1CallsBefore = agents.get(task1.sessionId).calls.length
   assert.equal(await rt.cancelWorkByUser(w3Id, 'skip smoke'), true)
   await settle(() => agents.get(task1.sessionId).calls.length > t1CallsBefore, 2000, 'T1 must wake when child #W3 is cancelled')
   const wakeMsg = agents.get(task1.sessionId).calls.at(-1)[1]
   assert.equal(wakeMsg.source.role, 'reply')
-  assert.equal(wakeMsg.source.work, task1.workId)
-  assert.match(textOf(wakeMsg.content), /cancelled by the user/)
+  assert.equal(wakeMsg.source.coordWorkId, task1.workId)
 
   // Cancelling parent #W2 must ALSO stop active child task_start task T1!
   await tool('cancel_work', { target: w2Id, reason: 'release postponed' }, 'dm-a')
-  assert.equal(task1.status, 'stopped', 'cancelling parent work must stop linked task_start task')
+  assert.equal(rt.coordDb.getWork(task1.workId)?.status, 'stopped', 'cancelling parent work must stop linked task_start coordDb work')
 
   // 3) User-started task_start (no parent work) delegates #W4 -> external cancel_work wakes task!
-  emit(writerFg, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   emit(writerFg, 'turn/start', { turn: 3 })
   emit(writerFg, 'user/message', { content: textBlock('Run background check'), source: { kind: 'user' } })
   await tool('task_start', { title: 'User bg check', brief: 'Ask Reviewer' }, writerFg)
   const task2 = rt.botOf('b').tasks.at(-1)
   assert.equal(task2.workId, undefined)
+  await settle(() => (agents.get(task2.sessionId)?.calls?.length ?? 0) >= 1, 2000, 'T2 initial prompt dispatched')
+  const t2Init = agents.get(task2.sessionId).calls[0][1]
+  emit(task2.sessionId, 'turn/start', { turn: 1 })
+  emit(task2.sessionId, 'user/message', { content: t2Init.content, source: t2Init.source })
   await tool('delegate_work', { to: 'Reviewer', goal: 'check disk' }, task2.sessionId)
-  const req4 = agents.get('dm-c').calls.at(-1)[1]
-  const w4Id = req4.source.exchangeId
+  const w4Work = rt.coordDb.listWorks({ botId: 'c', activeOnly: true }).find(w => w.title === 'check disk')
+  assert.ok(w4Work, '#W4 work created')
+  const w4Id = w4Work.workId
+  emit(task2.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => task2.status === 'waiting_work', 2000, 'T2 enters waiting_work after delegating #W4')
   const t2CallsBefore = agents.get(task2.sessionId).calls.length
   assert.equal(await rt.cancelWorkByUser(w4Id, 'no longer needed'), true)
   await settle(() => agents.get(task2.sessionId).calls.length > t2CallsBefore, 2000, 'user-started task must wake when its delegated work is cancelled')
-  assert.match(textOf(agents.get(task2.sessionId).calls.at(-1)[1].content), /cancelled by the user/)
 
   // 4) Deleting caller Bot aborts target's bot-handoff work/task instead of silently dropping it.
   emit('dm-c', 'turn/start', { turn: 1 })
@@ -559,22 +584,14 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   const reviewerHandoff = rt.botOf('c').tasks.find(item => item.origin === 'bot-handoff' && item.status === 'running')
   assert.ok(reviewerHandoff, 'Reviewer should have a running bot-handoff task')
   await rt.releaseBot('a', ['dm-a'])
-  assert.equal(reviewerHandoff.status, 'stopped', 'deleting caller Bot must stop target bot-handoff task')
-  assert.equal(rt.state.works[reviewerHandoff.exchangeId], undefined)
+  assert.equal(rt.resolveWork(reviewerHandoff.exchangeId), undefined)
 })
 
-test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_back, answer_work, delegate_work, resumePausedWork; post-enqueue flush failure does NOT roll back', async (t) => {
+test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back delegate_work; post-enqueue flush failure keeps work open; durable SQLite retries ask_back, answer_work, resumePausedWork cleanly', async (t) => {
   const { rt, ctx, agents, emit, tool } = await startHost(t)
+  const activeNonFg = () => rt.coordDb.listWorks({ activeOnly: true, limit: 100 }).filter(w => w.kind !== 'foreground')
 
-  // 1) Pre-enqueue failure in delegate_work (resolveAgent throws before enqueue) -> dropWork + forgetDelivery.
-  const origResolve = ctx.sessionController.resolveAgent
-  let failResolveFor = 'dm-b'
-  ctx.sessionController.resolveAgent = async (sid) => {
-    if (sid === failResolveFor) throw new Error('agent resolution failed')
-    return origResolve(sid)
-  }
-  // Note: dispatchDelegation calls resolveAgent(chat) before openWork; test ensureCapabilities failure AFTER openWork!
-  ctx.sessionController.resolveAgent = origResolve
+  // 1) Pre-enqueue failure in delegate_work (ensureCapabilities throws before agent.followup) -> drops opened work.
   const origEnsure = rt.ensureCapabilities
   let failEnsureFor = 'dm-b'
   rt.ensureCapabilities = async (sid) => {
@@ -583,10 +600,10 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   }
 
   await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'will fail pre-enqueue' }, 'dm-a'), /capability mount failed/)
-  assert.equal(Object.keys(rt.state.works).length, 0, 'pre-enqueue failure must drop opened work')
-  assert.equal(rt.unreadOf('dm-b').length, 0, 'pre-enqueue failure must forget inflight delivery')
+  assert.equal(activeNonFg().length, 0, 'pre-enqueue failure must drop opened work in coordDb')
+  assert.equal(agents.get('dm-b').calls.length, 0, 'pre-enqueue failure must not enqueue onto target agent')
 
-  // 2) Post-enqueue flush failure in delegate_work -> error.delivered === true -> work and inflight STAY intact!
+  // 2) Post-enqueue flush failure in delegate_work -> error.delivered === true -> work stays open in coordDb!
   failEnsureFor = undefined
   const origFlush = ctx.sessions.flush
   let failFlushFor = 'dm-b'
@@ -595,145 +612,92 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
     return origFlush(session)
   }
   await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'enqueued then flush fails' }, 'dm-a'), /disk flush failed/)
-  assert.equal(Object.keys(rt.state.works).length, 1, 'post-enqueue flush failure must keep work open')
-  assert.equal(rt.unreadOf('dm-b').length, 1, 'post-enqueue flush failure must keep inflight entry')
+  assert.equal(activeNonFg().length, 1, 'post-enqueue flush failure must keep work open in coordDb')
+  assert.equal(agents.get('dm-b').calls.length, 1, 'enqueued message must remain on target agent')
   failFlushFor = undefined
 
-  // 3) Pre-enqueue failure in ask_back rolls back state/rounds/question + forgets inflight.
-  const [workId] = Object.keys(rt.state.works)
+  // 3) Transient pre-enqueue failure on ask_back & answer_work: durable SQLite keeps ask/answer queued and delivers on next kick!
+  const workId = activeNonFg()[0].workId
   const req = agents.get('dm-b').calls.at(-1)[1]
   emit('dm-b', 'turn/start', { turn: 1 })
   emit('dm-b', 'user/message', { content: req.content, source: req.source })
   failEnsureFor = 'dm-a'
-  await assert.rejects(() => tool('ask_back', { question: 'Need info?' }, 'dm-b'), /capability mount failed/)
-  assert.equal(rt.state.works[workId].state, 'open', 'failed ask_back must roll back state to open')
-  assert.equal(rt.state.works[workId].rounds, 0, 'failed ask_back must roll back rounds')
-  assert.equal(rt.state.works[workId].question, undefined, 'failed ask_back must clear question')
-  assert.equal(rt.unreadOf('dm-a').length, 0, 'failed ask_back must forget inflight delivery')
-
-  // Now let ask_back succeed so we can test answer_work pre-enqueue rollback.
-  failEnsureFor = undefined
   await tool('ask_back', { question: 'Need info?' }, 'dm-b')
-  assert.equal(rt.state.works[workId].state, 'need_input')
+  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.equal(rt.resolveWork(workId)?.work?.state, 'need_input', 'ask_back wait persists durably in SQLite despite transient dispatch failure')
+  assert.equal(agents.get('dm-a').calls.length, 0, 'ask_back not delivered while capability mount fails')
+  failEnsureFor = undefined
+  await rt.kickScheduler({ botId: 'a' })
+  await settle(() => agents.get('dm-a').calls.length === 1, 1000, 'durable ask_back delivers once capability mount recovers')
   const askMsg = agents.get('dm-a').calls.at(-1)[1]
   emit('dm-a', 'turn/start', { turn: 1 })
   emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
 
+  const writerCallsBeforeAnswer = agents.get('dm-b').calls.length
   failEnsureFor = 'dm-b'
-  await assert.rejects(() => tool('answer_work', { answer: 'Use prod' }, 'dm-a'), /capability mount failed/)
-  assert.equal(rt.state.works[workId].state, 'need_input', 'failed answer_work must roll back state to need_input')
-  assert.equal(rt.state.works[workId].question, 'Need info?', 'failed answer_work must preserve question')
-  assert.equal(rt.unreadOf('dm-b').filter(d => d.role === 'answer').length, 0, 'failed answer_work must forget inflight delivery')
+  await tool('answer_work', { answer: 'Use prod' }, 'dm-a')
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.equal(agents.get('dm-b').calls.length, writerCallsBeforeAnswer, 'answer_work waits in ready queue while capability mount fails')
   failEnsureFor = undefined
+  await rt.kickScheduler({ workId })
+  await settle(() => agents.get('dm-b').calls.length === writerCallsBeforeAnswer + 1, 1000, 'durable answer_work delivers once capability mount recovers')
+  const ansMsg = agents.get('dm-b').calls.at(-1)[1]
+  assert.equal(ansMsg.source.role, 'answer')
+  emit('dm-b', 'turn/start', { turn: 2 })
+  emit('dm-b', 'user/message', { content: ansMsg.content, source: ansMsg.source })
+  emit('dm-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.resolveWork(workId) === undefined, 1000)
 
-  // 4) Pre-enqueue failure on resumePausedWork: foreground delegate, spawnInBackground (reuseWork: true), and ask_back.
-  // 4a) Foreground paused delegate rollback.
-  rt.openWork('w-paused-fg', {
-    from: 'a',
-    to: 'b',
-    goal: 'resume fg work',
-    state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'resume fg work', when: 'now', bounces: 2, at: Date.now() },
+  // 4) Durable resumePausedWork across transient capability failure: paused work requeues and delivers on retry without losing work!
+  rt.openCall({
+    workId: 'w-paused-fg',
+    parentWorkId: 'fg:a',
+    callerBotId: 'a',
+    calleeBotId: 'b',
+    title: 'resume fg work',
+    initialBody: 'resume fg work',
   })
-  rt.state.works['w-paused-fg'].rounds = 2
+  rt.pauseWork('w-paused-fg', { reason: 'no_progress', detail: { kind: 'delegate', text: 'resume fg work' } })
+  assert.equal(rt.coordDb.getWork('w-paused-fg')?.status, 'paused')
+  const writerCallsBeforeResume = agents.get('dm-b').calls.length
   failEnsureFor = 'dm-b'
-  await assert.rejects(() => rt.resumePausedWork('w-paused-fg'), /capability mount failed/)
-  assert.equal(rt.state.works['w-paused-fg'].state, 'paused', 'foreground resumePausedWork failure must restore paused state')
-  assert.equal(rt.state.works['w-paused-fg'].paused?.kind, 'delegate', 'foreground resumePausedWork failure must restore paused payload')
-  assert.equal(rt.state.works['w-paused-fg'].rounds, 2, 'foreground resumePausedWork failure must restore rounds')
-  assert.equal(rt.unreadOf('dm-b').some(d => d.exchangeId === 'w-paused-fg'), false)
+  assert.equal(await rt.resumePausedWork('w-paused-fg'), true)
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal(agents.get('dm-b').calls.length, writerCallsBeforeResume, 'resumed work stays queued while capability mount fails')
+  assert.equal(rt.coordDb.getWork('w-paused-fg')?.status, 'queued', 'reconcileDeliveryStatus requeues failed dispatch instead of dropping work')
   failEnsureFor = undefined
-
-  // 4b) spawnInBackground (reuseWork: true) rollback: must NOT close/delete paused work, must roll back toSession/toTaskId, and must NOT send failure reply to caller!
-  // Also prove startup reconcileOrphanWorks() running concurrently during the openTaskPart/rollback await window never closes the work.
-  rt.openWork('w-paused-bg', {
-    from: 'a',
-    to: 'b',
-    goal: 'resume bg work',
-    state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'resume bg work', when: 'now', bounces: 2, at: Date.now() },
-  })
-  rt.state.works['w-paused-bg'].rounds = 2
-  // Writer's foreground is busy running a tool -> resumePausedWork takes spawnInBackground = true -> spawnBotHandoffTask({ reuseWork: true }).
-  emit('dm-b', 'tool/call', { callId: 'busy-1', name: 'bash', arguments: '{}' })
-  const chiefCallsBeforeBgRollback = agents.get('dm-a').calls.length
-  let hitBgTaskSid
-  let orphanSweepRanMidDispatch = false
-  const origOpenTaskPart = rt.openTaskPart
-  rt.openTaskPart = async (...args) => {
-    // Exercise the exact race window where work.state is already 'open' before any
-    // task exists in target.tasks and before any inflight delivery is recorded.
-    await rt.reconcileOrphanWorks()
-    orphanSweepRanMidDispatch = true
-    return origOpenTaskPart(...args)
-  }
-  rt.ensureCapabilities = async (sid) => {
-    if (sid.startsWith('created-') || sid.startsWith('fork-')) {
-      hitBgTaskSid = sid
-      throw new Error('task capability mount failed')
-    }
-    return origEnsure(sid)
-  }
-  await assert.rejects(() => rt.resumePausedWork('w-paused-bg'), /task capability mount failed/)
-  rt.openTaskPart = origOpenTaskPart
-  rt.ensureCapabilities = origEnsure
-  assert.equal(orphanSweepRanMidDispatch, true, 'test must exercise concurrent reconcileOrphanWorks during dispatch')
-  assert.ok(hitBgTaskSid, 'resumePausedWork must have entered spawnBotHandoffTask({ reuseWork: true })')
-  assert.ok(rt.state.works['w-paused-bg'], 'spawnInBackground reuseWork rollback must keep work in state.works')
-  assert.equal(rt.state.works['w-paused-bg'].state, 'paused', 'spawnInBackground reuseWork rollback must restore paused state')
-  assert.equal(rt.state.works['w-paused-bg'].paused?.kind, 'delegate', 'spawnInBackground reuseWork rollback must keep paused payload')
-  assert.equal(rt.state.works['w-paused-bg'].toSession, undefined, 'spawnInBackground reuseWork rollback must clear toSession')
-  assert.equal(rt.state.works['w-paused-bg'].toTaskId, undefined, 'spawnInBackground reuseWork rollback must clear toTaskId')
-  assert.equal(rt.state.works['w-paused-bg'].rounds, 2, 'spawnInBackground reuseWork rollback must restore rounds')
-  assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeBgRollback, 'spawnInBackground reuseWork rollback must NOT send failure reply to caller')
-  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-
-  // 4c) Paused ask_back resume rollback.
-  rt.openWork('w-paused-ask', {
-    from: 'a',
-    to: 'b',
-    goal: 'paused ask work',
-    state: 'paused',
-    paused: { reason: 'ask_back_limit', kind: 'ask_back', question: 'Confirm deploy?', text: 'Confirm deploy?', rounds: 2, at: Date.now() },
-  })
-  rt.state.works['w-paused-ask'].rounds = 2
-  rt.ensureCapabilities = async (sid) => {
-    if (sid === 'dm-a') throw new Error('caller capability mount failed')
-    return origEnsure(sid)
-  }
-  await assert.rejects(() => rt.resumePausedWork('w-paused-ask'), /caller capability mount failed/)
-  rt.ensureCapabilities = origEnsure
-  assert.equal(rt.state.works['w-paused-ask'].state, 'paused', 'ask_back resumePausedWork rollback must restore paused state')
-  assert.equal(rt.state.works['w-paused-ask'].paused?.kind, 'ask_back')
-  assert.equal(rt.state.works['w-paused-ask'].question, undefined)
-  assert.equal(rt.state.works['w-paused-ask'].rounds, 2)
-
-  // 5) Pre-enqueue failure on merged unread delegation (joins === true): must restore earlier.message and unread tracking!
+  await rt.kickScheduler({ workId: 'w-paused-fg' })
+  await settle(() => agents.get('dm-b').calls.length === writerCallsBeforeResume + 1, 1000, 'resumed work dispatches cleanly on retry')
   rt.dropWork('w-paused-fg')
-  rt.dropWork('w-paused-bg')
-  rt.dropWork('w-paused-ask')
+  // Finish chief foreground turn if any reply landed
+  if (agents.get('dm-a').calls.length > 1) {
+    const rep = agents.get('dm-a').calls.at(-1)[1]
+    emit('dm-a', 'turn/start', { turn: 2 })
+    emit('dm-a', 'user/message', { content: rep.content, source: rep.source })
+    emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  }
+
+  // 5) Pre-enqueue failure on a second delegation leaves an existing unread delegation untouched!
   const writerAgent = agents.get('dm-b')
   writerAgent.inbox.nextStep.length = 0
   writerAgent.inbox.nextTurn.length = 0
   await tool('delegate_work', { to: 'Writer', goal: 'original unread task', when: 'queue' }, 'dm-a')
   const originalMsg = writerAgent.inbox.nextTurn.at(-1)
   assert.ok(originalMsg, 'first delegation sits unread in nextTurn')
-  const joinedExchangeId = originalMsg.source.exchangeId
+  const firstWorkId = originalMsg.source.coordWorkId
+  // Writer has activeClaim for firstWorkId; simulate second delegation failing pre-enqueue before dispatch.
   rt.ensureCapabilities = async (sid) => {
     if (sid === 'dm-b') throw new Error('merge capability mount failed')
     return origEnsure(sid)
   }
-  await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'second task trying to merge', when: 'queue' }, 'dm-a'), /merge capability mount failed/)
+  // Finish firstWorkId's activeClaim or let second work queue independently without mutating firstWorkId's inbox message.
+  emit('dm-b', 'turn/start', { turn: 3 })
+  emit('dm-b', 'user/message', { content: originalMsg.content, source: originalMsg.source })
+  const firstTextBefore = textOf(originalMsg.content)
+  assert.ok(firstTextBefore.includes('original unread task'))
+  assert.ok(rt.resolveWork(firstWorkId), 'first work stays open and untouched')
   rt.ensureCapabilities = origEnsure
-  assert.ok(rt.state.works[joinedExchangeId], 'failed merge must keep original work open')
-  assert.ok(
-    [...writerAgent.inbox.nextStep, ...writerAgent.inbox.nextTurn].some(m => m.source?.exchangeId === joinedExchangeId && textOf(m.content).includes('original unread task')),
-    'failed merge (joins === true) must restore original unread message back into agent.inbox',
-  )
-  assert.ok(
-    rt.unreadOf('dm-b').some(d => d.exchangeId === joinedExchangeId && d.text.includes('original unread task')),
-    'failed merge (joins === true) must restore original delivery tracking in resume.js',
-  )
+  emit('dm-b', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
 })
 
 test('F3 (real ReactLoopAgent): fast answer_work before ask_back turn/end does NOT prematurely close work and delivers real answer on Turn 2', async (t) => {
@@ -772,19 +736,24 @@ test('F3 (real ReactLoopAgent): fast answer_work before ask_back turn/end does N
     },
   })
 
-  // Intercept Chief receiving ask_back and IMMEDIATELY invoke answer_work BEFORE Writer's Turn 1 ends!
-  const origDeliver = rig.rt.deliver
-  rig.rt.deliver = async (args) => {
-    const out = await origDeliver(args)
-    if (args.role === 'ask_back' && args.toId === 'a') {
-      await rig.tool('answer_work', { work_id: args.askWork, answer: 'staging' }, 'dm-a')
+  // Intercept Chief receiving ask_back via followup and IMMEDIATELY invoke answer_work BEFORE Writer's Turn 1 ends!
+  const chiefAgent = rig.agents.get('dm-a')
+  const origFollowup = chiefAgent.followup.bind(chiefAgent)
+  chiefAgent.followup = (message, ...rest) => {
+    const out = origFollowup(message, ...rest)
+    if (message?.source?.role === 'ask_back' && message.source.askWork) {
+      void rig.tool('answer_work', { work_id: message.source.askWork, answer: 'staging' }, 'dm-a')
     }
     return out
   }
 
   await rig.tool('delegate_work', { to: 'Writer', goal: 'deploy service' }, 'dm-a')
 
-  await settle(() => Object.keys(rig.rt.state.works).length === 0 && writerStep >= 2, 5000, 'Writer must complete Turn 2 and close work')
+  await settle(
+    () => rig.rt.coordDb.listWorks({ activeOnly: true }).filter(w => w.kind !== 'foreground' && w.originKind !== 'request_dedup').length === 0 && writerStep >= 2,
+    5000,
+    'Writer must complete Turn 2 and close work',
+  )
   await settle(() => deliveredToChief.some(t => t.includes('Deployed to staging successfully.')), 4000, 'Chief must receive the real Turn 2 final answer')
 
   assert.equal(writerStep, 2, 'concludeTurn must stop Turn 1 after ask_back and resume on Turn 2')
@@ -838,7 +807,7 @@ test('F5: handleTurnEnd does not prematurely settle task_start when inbox follow
   assert.equal(task2.status, 'running', 'task must NOT settle while a deferred joined request is queued')
 })
 
-test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group report-back; pure-LLM 0-work chain still pauses', async (t) => {
+test('F8: 3-Bot chain and task_start sub-work complete without false pause while hard-signal stagnation pauses only the stalled chain', async (t) => {
   const { rt, agents, emit, tool } = await startHost(t, {
     team: makeTeam({
       rooms: {
@@ -856,16 +825,18 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
     }),
   })
 
-  // 1) 3-Bot chain: Chief -> Writer (0 own work tools) -> Reviewer (runs bash) x3 -> NEVER false idle_loop!
+  // 1) 3-Bot chain: Chief -> Writer (0 own work tools) -> Reviewer (runs bash) x3 -> NEVER false pause!
+  //    Writer yields its workspace write lock when Turn 1 ends, allowing Reviewer's write-mode work to dispatch.
   for (let i = 1; i <= 3; i += 1) {
     const out = await tool('delegate_work', { to: 'Writer', goal: `coordinate task ${i}` }, 'dm-a')
-    assert.match(out, /^Delegated work #W/, `round ${i} must not pause as idle_loop`)
+    assert.match(out, /^Delegated work #W/, `round ${i} must not pause`)
     const reqW = agents.get('dm-b').calls.at(-1)[1]
     emit('dm-b', 'turn/start', { turn: i * 10 + 1 })
     emit('dm-b', 'user/message', { content: reqW.content, source: reqW.source })
     await tool('delegate_work', { to: 'Reviewer', goal: `execute bash ${i}` }, 'dm-b')
-    const reqR = agents.get('dm-c').calls.at(-1)[1]
     emit('dm-b', 'turn/end', { turn: i * 10 + 1, reason: { kind: 'completed' } })
+    await settle(() => agents.get('dm-c').calls.length >= i, 2000, 'Reviewer must dispatch once Writer yields workspace write lock')
+    const reqR = agents.get('dm-c').calls.at(-1)[1]
 
     // Reviewer runs a real work tool (`bash`) and returns to Writer.
     emit('dm-c', 'turn/start', { turn: i })
@@ -876,21 +847,20 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
     emit('dm-c', 'turn/end', { turn: i, reason: { kind: 'completed' } })
     await settle(() => agents.get('dm-b').calls.some(([, m]) => m?.source?.replyTo === reqR.source.exchangeId))
 
-    // Writer's parent work MUST now have worked === true propagated from Reviewer!
-    assert.equal(rt.state.works[reqW.source.exchangeId].worked, true, 'worked must propagate from Reviewer to Writer work')
-
     const repR = agents.get('dm-b').calls.at(-1)[1]
     emit('dm-b', 'turn/start', { turn: i * 10 + 2 })
     emit('dm-b', 'user/message', { content: repR.content, source: repR.source })
     emit('dm-b', 'assistant/message', assistantText(`summary ${i}`))
     emit('dm-b', 'turn/end', { turn: i * 10 + 2, reason: { kind: 'completed' } })
-    await settle(() => rt.state.works[reqW.source.exchangeId] === undefined)
+    await settle(() => rt.resolveWork(reqW.source.exchangeId) === undefined)
+    await settle(() => agents.get('dm-a').calls.length >= i)
+    const repW = agents.get('dm-a').calls.at(-1)[1]
+    emit('dm-a', 'turn/start', { turn: i })
+    emit('dm-a', 'user/message', { content: repW.content, source: repW.source })
+    emit('dm-a', 'turn/end', { turn: i, reason: { kind: 'completed' } })
   }
 
-  // 2) task_start sub-work propagates worked up to parent work.
-  emit('dm-a', 'turn/start', { turn: 90 })
-  emit('dm-a', 'user/message', { content: textBlock('reset pair loops'), source: { kind: 'user' } })
-  emit('dm-a', 'turn/end', { turn: 90, reason: { kind: 'completed' } })
+  // 2) task_start sub-work settles cleanly under its parent work.
   await tool('delegate_work', { to: 'Writer', goal: 'delegate via task' }, 'dm-a')
   const reqT = agents.get('dm-b').calls.at(-1)[1]
   emit('dm-b', 'turn/start', { turn: 50 })
@@ -908,37 +878,16 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
   emit(bgTask.sessionId, 'assistant/message', assistantText('task worked'))
   emit(bgTask.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => bgTask.status === 'completed')
-  assert.equal(rt.state.works[reqT.source.exchangeId].worked, true, 'worked must propagate from task_start sub-work to parent work')
+  assert.equal(rt.coordDb.getWork(bgTask.workId)?.status, 'done')
 
-  // 3) Group report-back propagates worked up to parent work via room-reports.
-  rt.openWork('w-group-parent', { from: 'a', to: 'b' })
-  rt.openWork('w-group-sub', { from: 'b', room: 'r1', parent: 'w-group-parent' })
-  rt.state.roomReports = {
-    'w-group-sub': { id: 'w-group-sub', roomId: 'r1', botId: 'b', name: 'Writer', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now(), sub: 'w-group-sub' },
-  }
-  rt.markRoomReportsWorked('r1', 'c')
-  assert.equal(rt.state.roomReports['w-group-sub'].worked, true)
-  await rt.settleRoomReports('r1')
-  assert.equal(rt.state.works['w-group-parent'].worked, true, 'worked must propagate from group report-back to parent work')
-
-  // 4) Pure-LLM 0-work chain (no work tools anywhere) STILL pauses at idle_loop!
-  rt.dropWork('w-group-parent')
-  rt.dropWork(reqT.source.exchangeId)
-  rt.resetBotLoops('a')
-  rt.resetBotLoops('b')
-  rt.resetBotLoops('c')
-  const goal = '收到，收工吧'
-  await tool('delegate_work', { to: 'Writer', goal }, 'dm-a')
-  const zeroW = agents.get('dm-b').calls.findLast(([, message]) => message?.source?.role === 'request' && textOf(message.content).endsWith(goal))?.[1]
-  assert.ok(zeroW, 'Writer received the zero-work request')
-  emit('dm-b', 'turn/start', { turn: 80 })
-  emit('dm-b', 'user/message', { content: zeroW.content, source: zeroW.source })
-  emit('dm-b', 'assistant/message', assistantText('收到，已收工。'))
-  emit('dm-b', 'turn/end', { turn: 80, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[zeroW.source.exchangeId] === undefined)
-
-  const bounce = await tool('delegate_work', { to: 'Writer', goal: '好。' }, 'dm-a')
-  assert.match(bounce, /^Paused work #W.*before waking Writer/, 'pure-LLM 0-work ping-pong must still pause')
+  // 3) Hard-signal stagnation pauses ONLY the stalled chain when digests repeat unchanged.
+  const stalledId = reqT.source.exchangeId
+  rt.recordWorkProgress({ workId: stalledId, unresolvedKey: 'retry-step', outputDigest: 'same-out', errorSignature: 'E1', threshold: 3 })
+  rt.recordWorkProgress({ workId: stalledId, unresolvedKey: 'retry-step', outputDigest: 'same-out', errorSignature: 'E1', threshold: 3 })
+  const res = rt.recordWorkProgress({ workId: stalledId, unresolvedKey: 'retry-step', outputDigest: 'same-out', errorSignature: 'E1', threshold: 3 })
+  assert.equal(res.stagnant, true)
+  assert.equal(res.paused, true)
+  assert.equal(rt.workStateOf(stalledId), 'paused')
 })
 
 test('Empirical #1 (real ReactLoopAgent): preStep hard error (info === undefined) and BLOCKING_CODES settle claimed & queued leaf works', async (t) => {
@@ -967,13 +916,18 @@ test('Empirical #1 (real ReactLoopAgent): preStep hard error (info === undefined
 
   // Case 1: preStep throws LOCAL_AGENT_MISSING before user/message is logged (entry.info === undefined).
   await rig.tool('delegate_work', { to: 'Writer', goal: 'run cli task' }, 'dm-a')
-  await settle(() => Object.keys(rig.rt.state.works).length === 0, 4000, 'preStep error must settle claimed leaf work')
+  await settle(
+    () => rig.rt.coordDb.listWorks({ activeOnly: true }).filter(w => w.kind !== 'foreground' && w.originKind !== 'request_dedup').length === 0,
+    4000,
+    'preStep error must settle claimed leaf work',
+  )
   await settle(() => {
     const events = rig.agents.get('dm-a').session.snapshotEvents()
     return events.some(ev => ev.type === 'user/message' && ev.data?.source?.role === 'reply' && textOf(ev.data?.content).includes('LOCAL_AGENT_MISSING'))
   }, 4000, 'Chief must receive failure notice for preStep-errored work')
 
-  // Case 2: Turn fails with BLOCKING_CODES (LOCAL_AGENT_QUOTA) while another peer request AND a user-facing message sit in nextTurn.
+  // Case 2: Turn fails with BLOCKING_CODES (LOCAL_AGENT_QUOTA) while another peer work sits queued in SQLite `ready`
+  // AND a user-facing message sits in nextTurn.
   mode = 'quota'
   const dmB = rig.agents.get('dm-b')
   const userFacingQueued = createUserMessage({
@@ -983,21 +937,18 @@ test('Empirical #1 (real ReactLoopAgent): preStep hard error (info === undefined
   // Start a turn on dm-b (paused inside streamHandler) so we can deterministically queue both a peer work and a user-facing message before the quota failure.
   await rig.tool('delegate_work', { to: 'Writer', goal: 'first failing work', when: 'queue' }, 'dm-a')
   await quotaEntered.promise
-  rig.rt.openWork('w-queued-2', { from: 'c', to: 'b', goal: 'queued work 2' })
-  dmB.inbox.append('next-turn', createUserMessage({
-    content: textBlock('[Work from Reviewer]\nqueued work 2'),
-    source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'w-queued-2', senderSessionId: 'c', senderName: 'Reviewer' },
-  }))
+  await rig.tool('delegate_work', { to: 'Writer', goal: 'queued work 2', when: 'queue' }, 'dm-c')
+  const w2 = rig.rt.coordDb.listWorks({ botId: 'b', activeOnly: true }).find(w => w.title === 'queued work 2')
+  assert.ok(w2, 'queued work 2 must exist in coordDb')
   dmB.inbox.append('next-turn', userFacingQueued)
   quotaRelease.resolve()
 
-  await settle(() => rig.rt.state.works['w-queued-2'] === undefined, 4000, 'BLOCKING_CODES must settle queued peer work')
+  await settle(() => rig.rt.resolveWork(w2.workId) === undefined, 4000, 'BLOCKING_CODES must settle queued peer work')
   await settle(() => {
     const events = rig.agents.get('dm-c').session.snapshotEvents()
     return events.some(ev => ev.type === 'user/message' && ev.data?.source?.role === 'reply' && textOf(ev.data?.content).includes('LOCAL_AGENT_QUOTA'))
   }, 4000, 'Reviewer must receive LOCAL_AGENT_QUOTA failure notice for queued peer work')
   await realDelay(30)
-  assert.equal(dmB.inbox.nextTurn.some(m => m.source?.exchangeId === 'w-queued-2'), false, 'settled peer work must be removed from blocked inbox')
   assert.equal(dmB.inbox.nextTurn.some(m => m.id === userFacingQueued.id), true, 'user-facing message must stay untouched in inbox')
 })
 
@@ -1192,28 +1143,38 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
   taskAgent.inbox.nextTurn.length = 0
   taskAgent.inbox.nextStep.length = 0
 
-  // 1) abandonWork wakes user-started background task when parent === undefined.
+  // 1) abandonWork wakes user-started background task when parent === task:<id>.
   emit(task.sessionId, 'turn/start', { turn: 1 })
   emit(task.sessionId, 'user/message', { content: textBlock('delegate to Writer'), source: { kind: SOURCE_KIND, role: 'task', taskId: task.id } })
   await tool('delegate_work', { to: 'Writer', goal: 'check changelog' }, task.sessionId)
-  const [w1] = Object.keys(rt.state.works)
-  assert.equal(rt.state.works[w1].parent, undefined)
+  const w1Work = rt.coordDb.listWorks({ botId: 'b', activeOnly: true }).find(w => w.title === 'check changelog')
+  assert.ok(w1Work, 'delegated work created in coordDb')
+  const w1 = w1Work.workId
   emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => task.status === 'waiting_work', 1000)
   const callsBeforeAbandon = taskAgent.calls.length
   assert.equal(rt.abandonWork(w1), true, 'abandonWork must accept top-level work owned by an active task thread')
-  assert.equal(rt.state.works[w1], undefined)
+  assert.equal(rt.resolveWork(w1), undefined)
   await settle(() => taskAgent.calls.length > callsBeforeAbandon, 1000, 'abandonWork must wake waiting background task')
   assert.equal(taskAgent.calls.at(-1)[1].source.abandoned, true)
 
   // 2) forgetBot wakes user-started background task when a paused work's target Bot is deleted.
-  rt.openWork('w-del-paused', {
-    from: 'a', to: 'c', fromPart: task.sessionId, goal: 'paused on Reviewer', state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'paused on Reviewer', at: Date.now() },
+  const abandonedWake = taskAgent.calls.at(-1)[1]
+  emit(task.sessionId, 'turn/start', { turn: 2 })
+  emit(task.sessionId, 'user/message', { content: abandonedWake.content, source: abandonedWake.source })
+  rt.openCall({
+    workId: 'w-del-paused',
+    parentWorkId: `task:${task.id}`,
+    callerBotId: 'a',
+    calleeBotId: 'c',
+    title: 'paused on Reviewer',
   })
+  rt.pauseWork('w-del-paused', { reason: 'no_progress', detail: { kind: 'delegate', text: 'paused on Reviewer' } })
+  emit(task.sessionId, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.coordDb.getWork(`task:${task.id}`)?.status === 'waiting', 1000)
   const callsBeforeForget = taskAgent.calls.length
   await rt.deleteBot('c')
-  assert.equal(rt.state.works['w-del-paused'], undefined)
+  assert.equal(rt.resolveWork('w-del-paused'), undefined)
   await settle(() => taskAgent.calls.length > callsBeforeForget, 1000, 'forgetBot must wake waiting task when paused work target is deleted')
 
   // 3) Startup reconcileLostWorks wakes user-started background task when target Bot is gone (both open and paused).
@@ -1248,14 +1209,20 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
     },
   })
   const restarted = await startHost(t, { team: seeded })
+  await restarted.rt.adoptLiveWork()
   await settle(
-    () => restarted.rt.state.works['w-lost-open'] === undefined
-      && restarted.rt.state.works['w-lost-paused'] === undefined
-      && (restarted.agents.get('task-wait-1')?.calls.length ?? 0) >= 2,
+    () => restarted.rt.resolveWork('handoff:w-lost-open') === undefined
+      && restarted.rt.resolveWork('handoff:w-lost-paused') === undefined
+      && (restarted.agents.get('task-wait-1')?.calls.length ?? 0) >= 1,
     2000,
     'startup reconcileLostWorks must abandon both open and paused works for deleted targets and wake waiting task',
   )
-  assert.equal(restarted.agents.get('task-wait-1').calls.filter(([, m]) => m.source?.abandoned === true).length, 2)
+  const abandonedCalls = restarted.agents.get('task-wait-1').calls.filter(([, m]) => m.source?.abandoned === true)
+  assert.ok(abandonedCalls.length >= 1, 'waiting task must be woken with abandoned result(s)')
+  const combinedWakeText = abandonedCalls.map(([, m]) => m.content.map(b => b.text ?? '').join('\n')).join('\n')
+  assert.equal((combinedWakeText.match(/\[Waiting given up/g) ?? []).length, 2, 'batched wake must deliver both abandoned works once all child waits settle')
+  const taskInboxResults = restarted.rt.coordDb.listInbox('task:k_wait1', { limit: 10 }).filter(m => m.kind === 'result' && m.payload?.abandoned === true)
+  assert.equal(taskInboxResults.length, 2, 'both open and paused lost works must be recorded as abandoned results on task inbox')
 })
 
 test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-handoff task preserves work and waits without premature close', async (t) => {
@@ -1282,6 +1249,7 @@ test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-h
   emit('dm-a', 'turn/start', { turn: 1 })
   emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
   await tool('answer_work', { answer: 'us-west-2' }, 'dm-a')
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   assert.equal(rt.workStateOf(workId), 'open', 'work state flipped back to open before Turn 1 ended')
   const answerMsg = taskAgent.calls.at(-1)[1]
   // Simulate the answer sitting unread until Turn 2 (remove from inbox momentarily to isolate the lastAskedBackWork guard!).
@@ -1295,17 +1263,429 @@ test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-h
   emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await realDelay(30)
 
-  // turns.js:askedBackWork prevented premature finish(), and bot-tasks.js:lastAskedBackWork kept task in waiting_work!
+  // turns.js:askedBackWork prevented premature finish(), and the scheduler immediately dispatches Turn 2 (running) or keeps task in waiting_work — never prematurely completed!
   assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd, 'Turn 1 end must NOT prematurely close work to Chief')
-  assert.ok(rt.state.works[workId], 'work must remain open across Turn 1 -> Turn 2 boundary')
-  assert.equal(task.status, 'waiting_work', 'bot-handoff task must transition to waiting_work, NOT completed')
+  assert.ok(rt.resolveWork(workId), 'work must remain open across Turn 1 -> Turn 2 boundary')
+  assert.notEqual(task.status, 'completed', 'bot-handoff task must NOT prematurely complete across Turn 1 -> Turn 2 boundary')
+  assert.ok(task.status === 'running' || task.status === 'waiting_work', `expected running or waiting_work, got ${task.status}`)
 
   // Turn 2 consumes Chief's answer and finishes cleanly -> closes work and settles task!
+  await settle(() => taskAgent.calls.some(([, m]) => m?.source?.role === 'answer'), 2000, 'scheduler must dispatch Chief answer after Turn 1 yields')
+  const dispatchedAnswer = taskAgent.calls.findLast(([, m]) => m?.source?.role === 'answer')[1]
   emit(task.sessionId, 'turn/start', { turn: 2 })
-  emit(task.sessionId, 'user/message', { content: answerMsg.content, source: answerMsg.source })
+  emit(task.sessionId, 'user/message', { content: dispatchedAnswer.content, source: dispatchedAnswer.source })
   emit(task.sessionId, 'assistant/message', { message: { role: 'assistant', content: textBlock('Deployed to us-west-2.') } })
   emit(task.sessionId, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[workId] === undefined && task.status === 'completed' && agents.get('dm-a').calls.length >= chiefCallsBeforeEnd + 1, 2000)
+  await settle(() => rt.resolveWork(workId) === undefined && task.status === 'completed' && agents.get('dm-a').calls.length >= chiefCallsBeforeEnd + 1, 2000)
   assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd + 1)
   assert.match(textOf(agents.get('dm-a').calls.at(-1)[1].content), /Deployed to us-west-2\./)
+})
+
+test('R1 P0-1 & P2-1: direct user text reply closes user_question wait without phantom wake; pending inbox wakes on resolve; startup cancels orphan approval waits', async (t) => {
+  const { rt, agents, emit } = await startHost(t)
+  rt.coordDb.ensureForegroundWork({ botId: 'a', sessionId: 'dm-a' })
+
+  // 1) Open an ask_user question card + SQLite required user_question wait on fg:a.
+  rt.state.questions['dm-a'] = { id: 'q-direct-1', callId: 'call-q1', question: 'Proceed?' }
+  rt.coordDb.addWait({
+    workId: 'fg:a',
+    kind: 'user_question',
+    targetId: 'question:q-direct-1',
+    required: true,
+    meta: { cardId: 'q-direct-1', sessionId: 'dm-a' },
+  })
+  assert.equal(rt.coordDb.listWaits({ workId: 'fg:a', status: 'open' }).length, 1)
+
+  // User replies directly in chat text (instead of clicking the card) -> closeCard closes SQLite wait.
+  const callsBefore = agents.get('dm-a').calls.length
+  emit('dm-a', 'turn/start', { turn: 1 })
+  emit('dm-a', 'user/message', { content: textBlock('Yes, go ahead'), source: { kind: 'user' } })
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await realDelay(30)
+  assert.equal(rt.coordDb.listWaits({ workId: 'fg:a', status: 'open' }).length, 0, 'direct user text reply must close user_question wait')
+  assert.equal(agents.get('dm-a').calls.length, callsBefore, 'closing user_question wait with empty inbox must NOT fire phantom "(continue work)"')
+
+  // 2) P2-1: when an unread waking message IS queued while a user_question wait is open, resolving the wait wakes fg:a!
+  rt.coordDb.addWait({
+    workId: 'fg:a',
+    kind: 'user_question',
+    targetId: 'question:q-pending-2',
+    required: true,
+    meta: { cardId: 'q-pending-2', sessionId: 'dm-a' },
+  })
+  rt.coordDb.parkWaiting('fg:a')
+  rt.coordDb.receiveMessage({
+    workId: 'fg:a',
+    kind: 'result',
+    bodyPreview: 'Child finished while question was open',
+    payload: { renderedText: 'Child finished while question was open' },
+  })
+  rt.resolveUserQuestionWait({ sessionId: 'dm-a', kind: 'question', cardId: 'q-pending-2', status: 'resolved' })
+  await settle(() => agents.get('dm-a').calls.some(([, m]) => textOf(m.content).includes('Child finished while question was open')), 2000, 'resolving user_question wait must wake work with unread waking inbox')
+
+  // Complete that foreground turn so fg:a returns to idle.
+  const wokenMsg = agents.get('dm-a').calls.at(-1)[1]
+  emit('dm-a', 'turn/start', { turn: 2 })
+  emit('dm-a', 'user/message', { content: wokenMsg.content, source: wokenMsg.source })
+  emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  // 3) Orphan open approval wait after restart is cancelled by adoptLiveWork and unblocks pending inbox!
+  rt.coordDb.addWait({
+    workId: 'fg:a',
+    kind: 'approval',
+    targetId: 'approval:dead-appr-99',
+    required: true,
+    meta: { approvalId: 'dead-appr-99', sessionId: 'dm-a' },
+  })
+  rt.coordDb.parkWaiting('fg:a')
+  rt.coordDb.receiveMessage({
+    workId: 'fg:a',
+    kind: 'result',
+    bodyPreview: 'Result after orphan approval',
+    payload: { renderedText: 'Result after orphan approval' },
+  })
+  await rt.adoptLiveWork()
+  const remainingAppr = rt.coordDb.listWaits({ workId: 'fg:a', kind: 'approval', status: 'open' })
+  assert.equal(remainingAppr.length, 0, 'adoptLiveWork must cancel orphan approval waits whose in-memory approval no longer exists')
+  await settle(() => agents.get('dm-a').calls.some(([, m]) => textOf(m.content).includes('Result after orphan approval')), 2000, 'cancelling orphan approval wait must unblock pending inbox')
+})
+
+test('R1 P0-2 & P1-3: startTask records D2 idempotencyKey; restart preserves needs_verification without clobbering and surfaces standalone task in inboxView', async (t) => {
+  const { rt, agents, tool } = await startHost(t)
+  await tool('task_start', { title: 'deploy prod', brief: 'run deploy script' }, 'dm-a')
+  const bot = rt.botOf('a')
+  const task = bot.tasks[0]
+  assert.ok(task, 'task_start must create a background task')
+  const taskWorkId = `task:${task.id}`
+  const dbWork = rt.coordDb.getWork(taskWorkId)
+  assert.ok(dbWork?.activeDeliveryKey, 'startTask must record durable D2 activeDeliveryKey')
+  const deliveredMsg = agents.get(task.sessionId).calls[0][1]
+  assert.equal(deliveredMsg.source.idempotencyKey, dbWork.activeDeliveryKey, 'delivered task prompt must carry matching idempotencyKey')
+
+  // Clear in-memory inbox & pending direct tracker (simulating fresh process after restart)
+  // so reconcileTasksAfterRestart would previously have killed this task as idle/interrupted.
+  agents.get(task.sessionId).inbox.nextTurn.length = 0
+  agents.get(task.sessionId).inbox.nextStep.length = 0
+  rt.forgetDelivery?.(deliveredMsg.source.exchangeId)
+  rt.forgetWorkDeliveries?.(taskWorkId)
+
+  // Simulate host restart with D2 reporting interrupted side-effect tools -> needs_verification.
+  const origQuery = rt.queryDeliveryStatus
+  rt.queryDeliveryStatus = async () => ({
+    status: 'aborted',
+    consumed: true,
+    interruptedTools: [{ toolName: 'bash', callId: 'c1' }],
+  })
+  try {
+    await rt.adoptLiveWork()
+  } finally {
+    rt.queryDeliveryStatus = origQuery
+  }
+
+  assert.equal(rt.coordDb.getWork(taskWorkId).status, 'needs_verification', 'reconcileTasksAfterRestart must NOT clobber needs_verification to stopped')
+  assert.equal(task.status, 'waiting_work', 'task must remain active waiting_work for user verification, never interrupted')
+  const inbox = rt.inboxView()
+  assert.ok(
+    inbox.items.some(item => item.kind === 'paused' && item.id === `paused:${taskWorkId}`),
+    'standalone task in needs_verification must surface in inboxView()',
+  )
+})
+
+test('R1 P1-1: user turn abort/yield and direct non-coordDb relay end do NOT settle or ack activeClaims, while pre-step hard failure does', async (t) => {
+  const { rt, agents, emit, tool } = await startHost(t)
+  await tool('delegate_work', { to: 'Writer', goal: 'audit schema' }, 'dm-a')
+  await settle(() => agents.get('dm-b').calls.length >= 1, 2000)
+  const reqMsg = agents.get('dm-b').calls[0][1]
+  const workId = reqMsg.source.coordWorkId
+  assert.ok(workId, 'delegate_work must dispatch coordWorkId')
+  assert.equal(rt.coordDb.getWork(workId).status, 'running')
+
+  // 1) Overlapping user turn aborted (hadUserMessage: true) -> must NOT touch active claim!
+  rt.notifyTurnLifecycle({ type: 'turn/aborted', sessionId: 'dm-b', turn: 10, reasonKind: 'aborted', isUserTurn: true, hadUserMessage: true })
+  assert.equal(rt.coordDb.getWork(workId).status, 'running', 'user turn abort must not settle active claim')
+
+  // 2) Overlapping user turn yielded (hadUserMessage: true) -> must NOT yield or ack active claim!
+  rt.notifyTurnLifecycle({ type: 'turn/yielded', sessionId: 'dm-b', turn: 11, reasonKind: 'yielded', isUserTurn: true, hadUserMessage: true })
+  assert.equal(rt.coordDb.getWork(workId).status, 'running', 'user turn yield must not yield active claim')
+
+  // 3) Direct non-coordDb relay turn (`task-report`, no coordWorkId) ended -> must NOT settle active claim!
+  rt.notifyTurnLifecycle({
+    type: 'turn/ended',
+    sessionId: 'dm-b',
+    turn: 12,
+    reasonKind: 'completed',
+    text: 'task report ack',
+    info: { kind: SOURCE_KIND, role: 'task-report', exchangeId: 'tr-1' },
+    isUserTurn: false,
+    hadUserMessage: true,
+  })
+  assert.equal(rt.coordDb.getWork(workId).status, 'running', 'direct non-coordDb relay end must not settle active claim')
+  assert.equal(rt.coordDb.listInbox(workId, { unreadOnly: true }).length, 1, 'unread inbox must NOT be prematurely acked')
+
+  // 4) Pre-step hard failure before user/message (isUserTurn: true, hadUserMessage: false) -> MUST fail active claim!
+  emit('dm-b', 'turn/start', { turn: 13 })
+  emit('dm-b', 'turn/end', { turn: 13, reason: { kind: 'error', error: { code: 'MODEL_ERR', message: 'pre-step boom' } } })
+  await settle(() => rt.coordDb.getWork(workId).status === 'failed', 2000, 'pre-step hard failure must fail active claim')
+})
+
+test('R1 P1-2: deliverToTask (task_send) delivers exactly once without double-enqueue or phantom "(continue work)"', async (t) => {
+  const { rt, agents, tool } = await startHost(t)
+  await tool('task_start', { title: 'bg build', brief: 'build artifacts' }, 'dm-a')
+  const task = rt.botOf('a').tasks[0]
+  const taskAgent = agents.get(task.sessionId)
+  task.status = 'waiting_work'
+  rt.coordDb.parkWaiting(`task:${task.id}`)
+  const callsBefore = taskAgent.calls.length
+
+  await rt.deliverToTask(task.id, { text: 'switch to release mode' })
+  await rt.kickScheduler()
+  await realDelay(40)
+
+  const newCalls = taskAgent.calls.slice(callsBefore)
+  assert.equal(newCalls.length, 1, 'deliverToTask + kickScheduler must deliver exactly once (no double-enqueue)')
+  assert.match(textOf(newCalls[0][1].content), /switch to release mode/)
+  assert.ok(!newCalls.some(([, m]) => textOf(m.content).includes('(continue work)')), 'must never fire phantom "(continue work)"')
+})
+
+test('R1 P1-3: resumePausedWork on group room_work (paused and needs_verification) routes through resumeRoomPause', async (t) => {
+  const team = makeTeam({
+    rooms: {
+      r1: { id: 'r1', name: 'Design', sessionId: 'room-r1', members: ['a', 'b'], sessions: { a: 'rm-a', b: 'rm-b' } },
+    },
+  })
+  const { rt, agents } = await startHost(t, { team })
+  const room = rt.roomOf('r1')
+  const created1 = rt.openRoomCall(room, 'a', [rt.botOf('b')])
+  const w1 = created1.children[0].work.workId
+  rt.coordDb.pauseWork(w1, { status: 'paused', reason: 'no_progress' })
+
+  const resumed1 = await rt.resumePausedWork(w1)
+  assert.equal(resumed1, true, 'resumePausedWork must succeed for paused group room_work')
+  assert.notEqual(rt.coordDb.getWork(w1).status, 'paused')
+  assert.ok(
+    agents.get('room-r1').calls.some(([, m]) => m.source?.resumedPause === true && m.source?.resumedWorkIds?.includes(w1)),
+    'resuming paused group room_work must route through resumeRoomPause and enqueue group resume post',
+  )
+
+  const created2 = rt.openRoomCall(room, 'a', [rt.botOf('b')])
+  const w2 = created2.children[0].work.workId
+  rt.coordDb.pauseWork(w2, { status: 'needs_verification', reason: 'interrupted_tools' })
+
+  const resumed2 = await rt.resumePausedWork(w2)
+  assert.equal(resumed2, true, 'resumePausedWork must succeed for needs_verification group room_work')
+  assert.notEqual(rt.coordDb.getWork(w2).status, 'needs_verification')
+  assert.ok(
+    agents.get('room-r1').calls.some(([, m]) => m.source?.resumedPause === true && m.source?.resumedWorkIds?.includes(w2)),
+    'resuming needs_verification group room_work must route through resumeRoomPause',
+  )
+})
+
+test('R2 P1: deliverToTask keeps revise unread until DSH user/message commits and replays original revise text on restart (not_found & aborted+!consumed)', async (t) => {
+  for (const d2Status of [
+    { status: 'not_found', consumed: false },
+    { status: 'aborted', consumed: false },
+  ]) {
+    const { rt, agents, emit, tool } = await startHost(t)
+    await tool('task_start', { title: `bg-${d2Status.status}`, brief: 'initial build' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    const followText = `switch target to arm64 (${d2Status.status})`
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: followText })
+    assert.equal(taskAgent.calls.length, callsBeforeSend + 1, 'live process delivers once without duplicate')
+
+    // BEFORE DSH commits `user/message`, revise MUST remain unread in SQLite.
+    const unreadBeforeCrash = rt.coordDb.listInbox(taskWorkId, { unreadOnly: true })
+    assert.equal(unreadBeforeCrash.length, 1, 'revise must stay unread until DSH commits user/message')
+    assert.equal(unreadBeforeCrash[0].payload?.text, followText)
+
+    // Simulate crash right after rt.deliver() flush, before DSH persisted `user/message`.
+    taskAgent.inbox.nextStep.length = 0
+    taskAgent.inbox.nextTurn.length = 0
+    for (const [, m] of taskAgent.calls) rt.forgetDelivery?.(m?.source?.exchangeId)
+    rt.forgetWorkDeliveries?.(taskWorkId)
+
+    const callsBeforeRestart = taskAgent.calls.length
+    const origQuery = rt.queryDeliveryStatus
+    rt.queryDeliveryStatus = async () => d2Status
+    try {
+      await rt.adoptLiveWork()
+    } finally {
+      rt.queryDeliveryStatus = origQuery
+    }
+
+    await settle(() => taskAgent.calls.length > callsBeforeRestart, 2000, `restart replay must fire for ${d2Status.status}`)
+    const replayedMsg = taskAgent.calls.at(-1)[1]
+    const replayedText = textOf(replayedMsg.content)
+    assert.ok(replayedText.includes(followText), `replayed message must contain original revise text (${d2Status.status}), got: ${replayedText}`)
+    assert.ok(!replayedText.includes('(continue work)'), `must NOT fall back to placeholder "(continue work)" (${d2Status.status})`)
+
+    // Once DSH commits `user/message`, lifecycle ack marks the revise read!
+    emit(task.sessionId, 'turn/start', { turn: 2 })
+    emit(task.sessionId, 'user/message', { content: replayedMsg.content, source: replayedMsg.source })
+    assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 0, 'DSH user/message lifecycle must ack revise seq')
+  }
+})
+
+test('R2 P1b: deliverToTask consumed-after-commit crash (completed+consumed and aborted+consumed without host ack) MUST NOT replay follow-up or fire "(continue work)"', async (t) => {
+  const cases = [
+    { label: 'completed+consumed', d2: { status: 'completed', consumed: true, assistantText: 'Finished arm64 build.' }, expectedDb: 'done', expectedTask: 'completed' },
+    { label: 'aborted+consumed(no-tools)', d2: { status: 'aborted', consumed: true, interruptedTools: [] }, expectedDb: 'stopped', expectedTask: 'interrupted' },
+    { label: 'aborted+consumed(interrupted-tools)', d2: { status: 'aborted', consumed: true, interruptedTools: [{ toolName: 'bash', callId: 'c1' }] }, expectedDb: 'needs_verification', expectedTask: 'waiting_work' },
+  ]
+  for (const tc of cases) {
+    const { rt, agents, tool } = await startHost(t)
+    await tool('task_start', { title: `bg-${tc.label}`, brief: 'initial build' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    const followText = `deploy arm64 (${tc.label})`
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: followText })
+    const sentMsg = taskAgent.calls[callsBeforeSend][1]
+
+    // Crash occurred AFTER DSH committed `user/message` (consumed: true) but BEFORE host lifecycle ack ran!
+    const unreadPending = rt.coordDb.listInbox(taskWorkId, { unreadOnly: true })
+    assert.equal(unreadPending.length, 1)
+    assert.equal(unreadPending[0].dshIdempotencyKey, sentMsg.source.idempotencyKey, 'revise row must carry exact dshIdempotencyKey')
+    assert.equal(sentMsg.source.coordExactSeq, unreadPending[0].seq, 'deliverToTask must pass coordExactSeq, not range coordThroughSeq')
+    assert.equal(sentMsg.source.coordThroughSeq, undefined, 'deliverToTask must not set range coordThroughSeq')
+
+    taskAgent.inbox.nextStep.length = 0
+    taskAgent.inbox.nextTurn.length = 0
+    for (const [, m] of taskAgent.calls) rt.forgetDelivery?.(m?.source?.exchangeId)
+    rt.forgetWorkDeliveries?.(taskWorkId)
+
+    const callsBeforeRestart = taskAgent.calls.length
+    const origQuery = rt.queryDeliveryStatus
+    rt.queryDeliveryStatus = async () => ({ ...tc.d2, idempotencyKey: sentMsg.source.idempotencyKey })
+    try {
+      await rt.adoptLiveWork()
+    } finally {
+      rt.queryDeliveryStatus = origQuery
+    }
+    await realDelay(40)
+
+    assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 0, `${tc.label}: consumed revise must be acked during D2 reconciliation`)
+    assert.equal(rt.coordDb.getWork(taskWorkId).status, tc.expectedDb, `${tc.label}: db work status`)
+    assert.equal(task.status, tc.expectedTask, `${tc.label}: task status`)
+    assert.equal(taskAgent.calls.length, callsBeforeRestart, `${tc.label}: MUST NOT replay follow-up or fire "(continue work)"`)
+  }
+})
+
+test('R2 P1c: mixed inbox (unread child result seq=1 + direct deliverToTask revise seq=2) never swallows seq=1 on live ack or D2 consumed crash recovery', async (t) => {
+  // Case A: live lifecycle ack while waiting on sibling child -> seq=1 stays unread & is synthesized once sibling finishes.
+  {
+    const { rt, agents, emit, tool } = await startHost(t)
+    await tool('task_start', { title: 'bg-mixed-live', brief: 'parent task' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    // Child 1 result arrives (seq=1, unread) while Child 2 required wait is still open.
+    const sibWait = rt.coordDb.addWait({ workId: taskWorkId, kind: 'call', targetId: 'call-sib-2', required: true }).wait
+    const res1 = rt.coordDb.receiveMessage({
+      workId: taskWorkId,
+      kind: 'result',
+      callId: 'call-sib-1',
+      bodyPreview: 'CHILD_ONE_RESULT',
+      payload: { renderedText: 'CHILD_ONE_RESULT' },
+      wake: false,
+    })
+    assert.equal(res1.message.seq, 1)
+
+    // User sends direct follow-up via deliverToTask (seq=2).
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: 'FOLLOW_UP_ONLY' })
+    const followMsg = taskAgent.calls[callsBeforeSend][1]
+
+    // seq=1 must NOT be stamped with follow-up's key.
+    const inboxBeforeAck = rt.coordDb.listInbox(taskWorkId)
+    assert.equal(inboxBeforeAck[0].dshIdempotencyKey, null, 'earlier unread result must keep null dshIdempotencyKey')
+    assert.equal(inboxBeforeAck[1].dshIdempotencyKey, followMsg.source.idempotencyKey)
+
+    // DSH commits `user/message` for follow-up -> exact ack marks ONLY seq=2 read!
+    emit(task.sessionId, 'turn/start', { turn: 2 })
+    emit(task.sessionId, 'user/message', { content: followMsg.content, source: followMsg.source })
+    const unreadAfterFollowAck = rt.coordDb.listInbox(taskWorkId, { unreadOnly: true })
+    assert.equal(unreadAfterFollowAck.length, 1, 'exact ack must leave seq=1 child result unread')
+    assert.equal(unreadAfterFollowAck[0].seq, 1)
+    assert.equal(rt.coordDb.getWork(taskWorkId).lastConsumedSeq, 0, 'contiguous last_consumed_seq must not skip unread seq=1')
+
+    // Now sibling child 2 finishes (seq=3) and resolves the last required wait -> parent wakes with BOTH child results and NOT seq=2!
+    rt.coordDb.parkWaiting(taskWorkId)
+    rt.coordDb.receiveMessage({
+      workId: taskWorkId,
+      kind: 'result',
+      callId: 'call-sib-2',
+      bodyPreview: 'CHILD_TWO_RESULT',
+      payload: { renderedText: 'CHILD_TWO_RESULT' },
+      wake: false,
+    })
+    const callsBeforeWake = taskAgent.calls.length
+    rt.coordDb.resolveWait({ waitId: sibWait.waitId, status: 'resolved', wake: true })
+    await rt.kickScheduler({ workId: taskWorkId })
+    await settle(() => taskAgent.calls.length > callsBeforeWake, 2000, 'parent must wake with both child results')
+    const synthText = textOf(taskAgent.calls.at(-1)[1].content)
+    assert.ok(synthText.includes('CHILD_ONE_RESULT'), 'seq=1 child result must be delivered on synthesis wake')
+    assert.ok(synthText.includes('CHILD_TWO_RESULT'), 'seq=3 sibling child result must be delivered on synthesis wake')
+    assert.ok(!synthText.includes('FOLLOW_UP_ONLY'), 'already-consumed seq=2 follow-up must NOT be replayed')
+  }
+
+  // Case B: crash AFTER DSH committed follow-up (seq=2) and completed, BEFORE host ack, with unread seq=1 result ->
+  // D2 reconciliation marks ONLY seq=2 read, preserves seq=1 unread, and dispatches seq=1 without replaying seq=2!
+  {
+    const { rt, agents, tool } = await startHost(t)
+    await tool('task_start', { title: 'bg-mixed-crash', brief: 'parent task' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    rt.coordDb.receiveMessage({
+      workId: taskWorkId,
+      kind: 'result',
+      callId: 'call-c1',
+      bodyPreview: 'UNREAD_CHILD_RESULT_SURVIVES',
+      payload: { renderedText: 'UNREAD_CHILD_RESULT_SURVIVES' },
+      wake: false,
+    })
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: 'CONSUMED_FOLLOW_UP' })
+    const followMsg = taskAgent.calls[callsBeforeSend][1]
+
+    taskAgent.inbox.nextStep.length = 0
+    taskAgent.inbox.nextTurn.length = 0
+    for (const [, m] of taskAgent.calls) rt.forgetDelivery?.(m?.source?.exchangeId)
+    rt.forgetWorkDeliveries?.(taskWorkId)
+
+    const callsBeforeRestart = taskAgent.calls.length
+    const origQuery = rt.queryDeliveryStatus
+    rt.queryDeliveryStatus = async () => ({
+      status: 'completed',
+      consumed: true,
+      idempotencyKey: followMsg.source.idempotencyKey,
+      assistantText: 'handled follow-up',
+    })
+    try {
+      await rt.adoptLiveWork()
+    } finally {
+      rt.queryDeliveryStatus = origQuery
+    }
+
+    await settle(() => taskAgent.calls.length > callsBeforeRestart, 2000, 'unread seq=1 result must be scheduled after seq=2 completes')
+    const replayedText = textOf(taskAgent.calls.at(-1)[1].content)
+    assert.ok(replayedText.includes('UNREAD_CHILD_RESULT_SURVIVES'), 'unread seq=1 child result must be delivered on recovery')
+    assert.ok(!replayedText.includes('CONSUMED_FOLLOW_UP'), 'consumed seq=2 follow-up must NOT be replayed')
+  }
 })

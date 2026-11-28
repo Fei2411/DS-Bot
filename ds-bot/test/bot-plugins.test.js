@@ -1392,3 +1392,41 @@ test('legacy saved dsh:dsh-ego-browser snapshot loads cleanly offline and can sw
   assert.equal(rt.state.plugins.snapshots['dsh:dsh-ego-browser'], undefined)
   assert.equal(uninstall.value.plugins.some(p => p.id === 'dsh:dsh-ego-browser'), false)
 })
+
+test('plugins-list surfaces readable error text for real DSH incompatible-version bundles without diagnostic field', async (t) => {
+  const fakePm = {
+    async listBundles() {
+      return [{
+        name: 'community-old-tool',
+        official: false,
+        availability: 'profile',
+        version: '0.9.0',
+        enabled: false,
+        installed: true,
+        optional: false,
+        removable: true,
+        updatable: false,
+        error: {
+          code: 'incompatible-version',
+          incompatible: [{
+            name: 'community-old-tool',
+            version: '0.9.0',
+            runtimeVersion: '0.2.2-rc.5',
+            requirements: { 'engines.dsh': '0.2.2-rc.1' },
+          }],
+        },
+        rows: [],
+        overrides: [],
+      }]
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  const listed = await call('plugins-list', {})
+  assert.equal(listed.ok, true)
+  const item = listed.value.plugins.find(p => p.id === 'dsh:community-old-tool')
+  assert.ok(item, 'installed incompatible bundle must remain visible in plugins-list')
+  assert.match(item.error ?? '', /Incompatible with DSH 0\.2\.2-rc\.5: community-old-tool@0\.9\.0 requires engines\.dsh 0\.2\.2-rc\.1/)
+})
