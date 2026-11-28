@@ -85,18 +85,27 @@ export function parseDelimitedTable(text, delimiter = ',', maxRows = MAX_TABLE_R
   return { headers, rows, truncatedRows }
 }
 
+function decodeBase64Bytes(base64) {
+  if (typeof base64 !== 'string' || base64 === '') return null
+  try {
+    if (typeof Uint8Array.fromBase64 === 'function') {
+      return Uint8Array.fromBase64(base64)
+    }
+    if (typeof globalThis.atob !== 'function') return null
+    const binary = globalThis.atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
 function base64ToBlobUrl(base64, mime) {
   if (!base64 || typeof URL?.createObjectURL !== 'function') return null
+  const bytes = decodeBase64Bytes(base64)
+  if (!bytes) return null
   try {
-    let bytes
-    if (typeof base64 === 'string' && typeof Uint8Array.fromBase64 === 'function') {
-      bytes = Uint8Array.fromBase64(base64)
-    } else {
-      if (typeof globalThis.atob !== 'function') return null
-      const binary = globalThis.atob(base64)
-      bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-    }
     return URL.createObjectURL(new Blob([bytes], { type: mime }))
   } catch {
     return null
@@ -387,15 +396,18 @@ function PdfPreview({ file }) {
 
 function ImagePreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime)
-  const [copiedImg, setCopiedImg] = useState(false)
+  const [copyState, setCopyState] = useState('idle') // 'idle' | 'copied' | 'error'
   const copyTimer = useRef(0)
-  useEffect(() => { setCopiedImg(false) }, [file?.path, file?.base64])
+  useEffect(() => { setCopyState('idle') }, [file?.path, file?.base64])
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
   const src = blobUrl ?? (file.base64 ? `data:${file.mime};base64,${file.base64}` : '')
   if (!src) return h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment'))
 
+  const isSvg = file.kind === 'svg' || file.mime === 'image/svg+xml'
+
   const copyImage = async () => {
+    if (isSvg) return
     let ok = false
     const bridge = typeof window !== 'undefined' ? window.dsBotApp : null
     if (typeof bridge?.copyImage === 'function' && file.base64) {
@@ -405,17 +417,17 @@ function ImagePreview({ file }) {
       } catch { ok = false }
     } else if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.write === 'function' && typeof ClipboardItem === 'function' && file.base64) {
       try {
-        const bytes = decodeBase64(file.base64)
-        const blob = new Blob([bytes], { type: file.mime || 'image/png' })
-        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
-        ok = true
+        const bytes = decodeBase64Bytes(file.base64)
+        if (bytes) {
+          const blob = new Blob([bytes], { type: file.mime || 'image/png' })
+          await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+          ok = true
+        }
       } catch { ok = false }
     }
-    if (ok) {
-      setCopiedImg(true)
-      if (copyTimer.current) clearTimeout(copyTimer.current)
-      copyTimer.current = setTimeout(() => { copyTimer.current = 0; setCopiedImg(false) }, 1200)
-    }
+    setCopyState(ok ? 'copied' : 'error')
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => { copyTimer.current = 0; setCopyState('idle') }, ok ? 1200 : 1800)
   }
 
   const saveImage = async () => {
@@ -434,15 +446,22 @@ function ImagePreview({ file }) {
     }
   }
 
-  return h('div', { className: 'dsb-pv-img-pane' },
-    h('div', { className: 'dsb-pv-banner dsb-pv-img-bar' },
+  const copyLabel = copyState === 'copied'
+    ? t('Copied')
+    : copyState === 'error'
+      ? t('Copy failed')
+      : t('Copy image')
+
+  return h('div', { className: 'dsb-pv-image-shell' },
+    h('div', { className: 'dsb-pv-banner dsb-pv-image-bar' },
       h('span', null, file.name),
-      h('div', { className: 'dsb-pv-img-actions' },
-        h('button', {
+      h('div', { className: 'dsb-pv-image-actions' },
+        !isSvg ? h('button', {
           type: 'button',
           className: 'bt-soft bt-soft-sm',
+          'data-copy-state': copyState,
           onClick: () => { void copyImage() },
-        }, copiedImg ? h(CheckIcon) : h(CopyIcon), copiedImg ? t('Copied') : t('Copy image')),
+        }, copyState === 'copied' ? h(CheckIcon) : h(CopyIcon), copyLabel) : null,
         h('button', {
           type: 'button',
           className: 'bt-soft bt-soft-sm',

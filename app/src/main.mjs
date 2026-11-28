@@ -39,7 +39,7 @@ import { pickPreferredLanguageTag } from './locale-match.mjs'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
-import { detectInstalledApps, openInExternalApp, OpenInAppStore } from './open-in-app.mjs'
+import { collectWorkspaceRoots, detectInstalledApps, openInExternalApp, OpenInAppStore, validateWorkspaceTarget } from './open-in-app.mjs'
 
 installSocketTosGuard()
 
@@ -1313,6 +1313,15 @@ function handleIpc() {
   })
   // "Open in app", FileTree drag-out, and preview image copy / save-as.
   const openInAppStore = new OpenInAppStore(join(app.getPath('userData'), 'open-in-app-defaults.json'))
+  const resolveWorkspacePath = (candidatePath) => {
+    const roots = collectWorkspaceRoots({
+      places,
+      userDshHome: typeof userDshHome === 'function' ? userDshHome() : '',
+      userData: app.getPath('userData'),
+      env: process.env,
+    })
+    return validateWorkspaceTarget(candidatePath, roots)
+  }
   const MAX_IMAGE_IPC_BYTES = 16 * 1024 * 1024
   const decodeImageBase64 = (raw) => {
     if (typeof raw !== 'string' || raw === '') return null
@@ -1325,7 +1334,11 @@ function handleIpc() {
   ipcMain.handle(IPC.openInAppList, (event, dirPath) => {
     assertWindow(event)
     const detected = detectInstalledApps()
-    const defaultId = typeof dirPath === 'string' && dirPath ? openInAppStore.getDefault(dirPath) : null
+    let safeDir = null
+    if (typeof dirPath === 'string' && dirPath) {
+      try { safeDir = resolveWorkspacePath(dirPath) } catch { safeDir = null }
+    }
+    const defaultId = safeDir ? openInAppStore.getDefault(safeDir) : null
     const validDefault = detected.some(entry => entry.id === defaultId) ? defaultId : (detected[0]?.id ?? null)
     return {
       apps: detected.map(({ id, name, category }) => ({ id, name, category })),
@@ -1337,20 +1350,26 @@ function handleIpc() {
     if (typeof appId !== 'string' || !appId || typeof targetPath !== 'string' || !isAbsolute(targetPath)) {
       throw new Error('Invalid app or target path')
     }
-    const resolvedTarget = resolve(targetPath)
-    if (!existsSync(resolvedTarget)) throw new Error('File or folder not found')
+    const resolvedTarget = resolveWorkspacePath(targetPath)
     const detected = detectInstalledApps()
     const chosen = detected.find(entry => entry.id === appId)
     if (!chosen) throw new Error(`App is not installed: ${appId}`)
     await openInExternalApp(chosen, resolvedTarget)
-    const rememberDir = typeof dirPath === 'string' && isAbsolute(dirPath) ? dirPath : ''
+    let rememberDir = ''
+    if (typeof dirPath === 'string' && isAbsolute(dirPath)) {
+      try { rememberDir = resolveWorkspacePath(dirPath) } catch { rememberDir = '' }
+    }
     if (rememberDir) openInAppStore.setDefault(rememberDir, chosen.id)
     return { ok: true, defaultId: chosen.id }
   })
   ipcMain.on(IPC.startDrag, (event, filePath) => {
     if (!fromWindow(event) || typeof filePath !== 'string' || !isAbsolute(filePath)) return
-    const resolved = resolve(filePath)
-    if (!existsSync(resolved)) return
+    let resolved
+    try {
+      resolved = resolveWorkspacePath(filePath)
+    } catch {
+      return
+    }
     try {
       const icon = nativeImage.createFromPath(iconFile).resize({ width: 24, height: 24 })
       event.sender.startDrag({ file: resolved, icon })

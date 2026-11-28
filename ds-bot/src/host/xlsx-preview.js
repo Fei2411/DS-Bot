@@ -679,6 +679,8 @@ async function parseWorksheetStream(buf, entry, budget, textBudget, {
     inT = false
     rPhDepth = 0
 
+    if (hasF) formulaCount += 1
+
     if (!cellInBounds) {
       if (!outOfBoundsContent) return
       if (cellRow > maxSeenRow) maxSeenRow = cellRow
@@ -725,7 +727,6 @@ async function parseWorksheetStream(buf, entry, budget, textBudget, {
     }
 
     const formula = hasF && rawF.trim() !== '' ? `=${rawF.trim()}` : undefined
-    if (hasF) formulaCount += 1
     const hasContent = display !== '' || formula !== undefined
     if (!hasContent) return
 

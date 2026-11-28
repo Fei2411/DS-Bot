@@ -2579,6 +2579,7 @@ export const KO = {
   "Open in app": "앱에서 열기",
   "Open in {app}": "{app}에서 열기",
   "Copy image": "이미지 복사",
+  "Copy failed": "복사에 실패했습니다",
   "Save as…": "다른 이름으로 저장…",
   "Formulas show cached values only and are not recalculated": "수식은 캐시된 값만 표시하며 다시 계산되지 않습니다",
   "Some elements are not shown in preview: {items}": "일부 요소는 미리보기에 표시되지 않습니다: {items}",

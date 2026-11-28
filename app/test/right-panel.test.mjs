@@ -2000,3 +2000,132 @@ test('FileTree Open-in-App & drag-out, ImagePreview copy/save, Excel hints, and 
     sandbox.window.dsBotApp = prevBridge
   }
 })
+
+test('OpenInAppMenu uses portal clamping and ESCAPE_PRIORITY.MENU, context menu has no 6-app cap, and ImagePreview supports Web Clipboard fallback + SVG/error feedback', async () => {
+  const prevBridge = sandbox.window.dsBotApp
+  const prevClipboard = sandbox.navigator.clipboard
+  const prevClipboardItem = sandbox.ClipboardItem
+  const prevInnerHeight = sandbox.window.innerHeight
+  const apps8 = Array.from({ length: 8 }, (_, i) => ({
+    id: `app-${i + 1}`,
+    name: `Editor ${i + 1}`,
+    category: i < 6 ? 'editor' : 'terminal',
+  }))
+  sandbox.window.dsBotApp = {
+    openInApp: {
+      list: async () => ({ apps: apps8, defaultId: 'app-1' }),
+      open: async (appId) => ({ ok: true, defaultId: appId }),
+    },
+    startDrag: () => {},
+    copyImage: async () => ({ ok: false, error: 'unsupported-image' }),
+    saveImage: async () => ({ ok: true }),
+  }
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'workspace-list') {
+      return {
+        root: '/repo', rootName: 'repo', path: '', truncated: false,
+        entries: [{ name: 'a.txt', path: 'a.txt', kind: 'file', size: 4, ext: '.txt' }],
+      }
+    }
+    if (endpoint === 'workspace-watch') return { watchId: 'w-oia', root: '/repo', recursive: true }
+    return {}
+  }
+
+  try {
+    sandbox.window.innerHeight = 220
+    const team = createTeam()
+    const treeInst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+    try {
+      treeInst.render()
+      await tick()
+      treeInst.render()
+      await tick()
+      let tree = treeInst.render()
+
+      // 1. OpenInAppMenu renders via portal, clamps inside short viewport, and Escape closes ONLY the menu (stopImmediatePropagation / higher priority).
+      const caretBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-caret'))[0]
+      assert.ok(caretBtn)
+      caretBtn.props.ref.current.getBoundingClientRect = () => ({ left: 1180, right: 1204, top: 70, bottom: 98, width: 24, height: 28 })
+      caretBtn.props.onClick()
+      tree = treeInst.render()
+      tree = treeInst.render()
+      const menuNode = all(tree, n => n.props?.role === 'menu' && String(n.props?.className ?? '').includes('dsb-ft-openapp-menu'))[0]
+      assert.ok(menuNode, 'OpenInAppMenu renders')
+      const { top, left, maxHeight } = menuNode.props.style
+      assert.ok(Number.isFinite(top) && Number.isFinite(left) && Number.isFinite(maxHeight))
+      assert.ok(top + maxHeight <= sandbox.window.innerHeight - 8 + 1, 'OpenInAppMenu clamps maxHeight within short viewport')
+      assert.equal(all(menuNode, n => n.props?.role === 'menuitem').length, 8, 'OpenInAppMenu renders all 8 apps')
+
+      // Simulate Escape key through overlay-hooks window/document listeners -> menu closes cleanly with defaultPrevented.
+      const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+      for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
+      for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
+      assert.equal(escEvt.defaultPrevented, true, 'OpenInAppMenu Escape must preventDefault via ESCAPE_PRIORITY.MENU')
+      tree = treeInst.render()
+      assert.equal(all(tree, n => n.props?.role === 'menu' && String(n.props?.className ?? '').includes('dsb-ft-openapp-menu') && n.props?.['data-leaving'] === undefined).length, 0)
+
+      // 2. FileTreeContextMenu lists all 8 apps with no arbitrary 6-item cap.
+      const fileRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'a.txt')[0]
+      fileRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 50, clientY: 60, currentTarget: {} })
+      tree = treeInst.render()
+      const ctxAppItems = all(tree, n => n.type === 'button' && String(n.props?.['data-ft-action'] ?? '').startsWith('app:'))
+      assert.equal(ctxAppItems.length, 8, 'context menu must not cap openApps at 6 items')
+    } finally {
+      treeInst.unmount()
+    }
+
+    // 3. ImagePreview shows visible Copy failed feedback when bridge returns ok:false, and omits Copy image on SVG previews.
+    const errImg = mount(FilePreview, {
+      file: { kind: 'image', name: 'bad.png', path: 'bad.png', size: 12, mime: 'image/png', base64: 'iVBORw0KGgo=' },
+    })
+    try {
+      let tree = errImg.render()
+      const copyBtn = all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n)))[0]
+      copyBtn.props.onClick()
+      await tick()
+      tree = errImg.render()
+      assert.match(textOf(tree), /Copy failed/, 'failed copyImage must show visible feedback')
+    } finally {
+      errImg.unmount()
+    }
+
+    const svgImg = mount(FilePreview, {
+      file: { kind: 'svg', name: 'icon.svg', path: 'icon.svg', size: 24, mime: 'image/svg+xml', text: '<svg/>', base64: 'PHN2Zy8+' },
+    })
+    try {
+      const tree = svgImg.render()
+      assert.equal(all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n))).length, 0, 'SVG preview must hide unsupported Copy image button')
+      assert.equal(all(tree, n => n.type === 'button' && /Save as/.test(textOf(n))).length, 1, 'SVG preview keeps Save as…')
+    } finally {
+      svgImg.unmount()
+    }
+
+    // 4. Non-Electron Web Clipboard fallback uses decodeBase64Bytes cleanly without ReferenceError.
+    sandbox.window.dsBotApp = undefined
+    const writtenItems = []
+    sandbox.ClipboardItem = class FakeClipboardItem {
+      constructor(map) { this.map = map }
+    }
+    sandbox.navigator.clipboard = {
+      write: async (items) => { writtenItems.push(...items) },
+    }
+    const webImg = mount(FilePreview, {
+      file: { kind: 'image', name: 'web.png', path: 'web.png', size: 8, mime: 'image/png', base64: 'iVBORw0KGgo=' },
+    })
+    try {
+      let tree = webImg.render()
+      all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n)))[0].props.onClick()
+      await tick()
+      tree = webImg.render()
+      assert.equal(writtenItems.length, 1, 'Web Clipboard fallback writes ClipboardItem')
+      assert.match(textOf(tree), /Copied/, 'Web Clipboard fallback transitions button to Copied')
+    } finally {
+      webImg.unmount()
+    }
+  } finally {
+    sandbox.window.dsBotApp = prevBridge
+    sandbox.navigator.clipboard = prevClipboard
+    sandbox.ClipboardItem = prevClipboardItem
+    sandbox.window.innerHeight = prevInnerHeight
+  }
+})

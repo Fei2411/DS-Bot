@@ -1270,4 +1270,19 @@ test('parseXlsxBuffer reports formula and unsupported-feature hints and classify
   const res = await rt.workspaceEndpoint('read', { sessionId: 'b1', path: 'locked.docx' })
   assert.equal(res.kind, 'office-unavailable')
   assert.equal(res.reason, 'encrypted')
+
+  // 4. Out-of-bounds formulas (beyond maxRows/maxCols) still report hints.hasFormulas and formulaCount.
+  const oobZip = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Big" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1"><c r="A1"><v>1</v></c></row>
+        <row r="15"><c r="A15"><f>SUM(A1:A14)</f><v>100</v></c></row>
+      </sheetData>
+    </worksheet>`,
+  })
+  const oobParsed = await parseXlsxBuffer(oobZip, { maxRows: 5, maxCols: 5 })
+  assert.equal(oobParsed.hints.hasFormulas, true, 'formula outside maxRows must still set hints.hasFormulas')
+  assert.equal(oobParsed.hints.formulaCount, 1, 'formula outside maxRows must still be counted')
 })

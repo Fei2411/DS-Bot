@@ -1,13 +1,136 @@
 // Local editor, terminal, and file-manager detection, launching, and per-directory
 // default preference storage for the desktop app's "Open in app" right-panel feature.
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve, sep as nativeSep, win32 as win32Path } from 'node:path'
 
-const SENSITIVE_ENV_RE = /KEY|PASSWORD|SECRET|TOKEN/i
+const SENSITIVE_ENV_RE = /KEY|PASSWORD|SECRET|TOKEN|AUTH|CREDENTIAL|COOKIE|PRIVATE/i
 const STRIPPED_ENV_RE = /^(DS_BOT_|DSBOT_|DSH_|ELECTRON_RUN_AS_NODE$|ACP_BACKEND$|DEEPSEEK_|ANTIGRAVITY_|AGY_)/i
 const MAX_STORED_DIR_DEFAULTS = 200
+const WIN_BATCH_RE = /\.(cmd|bat)$/i
+
+export function withinRoot(inner, outer, platform = process.platform) {
+  if (typeof inner !== 'string' || typeof outer !== 'string' || !inner || !outer) return false
+  const sep = platform === 'win32' ? '\\' : nativeSep
+  const norm = p => (platform === 'win32' ? p.replace(/\//g, '\\').toLowerCase() : p)
+  const a = norm(inner)
+  const b = norm(outer)
+  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
+}
+
+/**
+ * Collects active workspace roots (team workspace + Bot/Group configured workDirs/extraDirs)
+ * and protected data directories (`dataDir`, `DSH_HOME`, `userDshHome`, `userData`).
+ */
+export function collectWorkspaceRoots({ places, userDshHome = '', userData = '', env = process.env, readFileFn = readFileSync } = {}) {
+  const allowed = new Set()
+  const addAllowed = (p) => {
+    if (typeof p === 'string' && p.trim() !== '' && isAbsolute(p.trim())) allowed.add(p.trim())
+  }
+  addAllowed(places?.workspace)
+  addAllowed(env?.DS_BOT_WORKSPACE)
+  if (places?.dataDir) {
+    // Also include Bot/Group custom workDir and extraDirs persisted in `<dataDir>/bot/state.json`.
+    try {
+      const raw = JSON.parse(readFileFn(join(places.dataDir, 'bot', 'state.json'), 'utf8'))
+      if (raw && typeof raw === 'object') {
+        for (const group of [raw.bots, raw.rooms]) {
+          if (!group || typeof group !== 'object') continue
+          for (const entry of Object.values(group)) {
+            if (!entry || typeof entry !== 'object') continue
+            addAllowed(entry.workDir)
+            if (Array.isArray(entry.extraDirs)) {
+              for (const dir of entry.extraDirs) addAllowed(dir)
+            }
+            if (entry.memberDirs && typeof entry.memberDirs === 'object') {
+              for (const dir of Object.values(entry.memberDirs)) addAllowed(dir)
+            }
+          }
+        }
+      }
+    } catch { /* state.json missing or unreadable */ }
+  }
+
+  const protectedRoots = []
+  const addProtected = (p) => {
+    if (typeof p === 'string' && p.trim() !== '' && isAbsolute(p.trim())) protectedRoots.push(p.trim())
+  }
+  addProtected(places?.dataDir)
+  if (places?.dataDir) addProtected(join(places.dataDir, 'bot'))
+  addProtected(env?.DSH_HOME)
+  addProtected(userDshHome)
+  addProtected(userData)
+
+  return { allowedRoots: [...allowed], protectedRoots }
+}
+
+/**
+ * Resolves `targetPath` via `realpath` and enforces that it lies inside one of `allowedRoots`
+ * and never enters or encloses any protected data directory (`dataDir`, `DSH_HOME`, `userData`).
+ * Mirrors `resolveSafeTarget` + `isProtectedData` in `ds-bot/src/host/workspace-panel.js`.
+ */
+export function validateWorkspaceTarget(targetPath, {
+  allowedRoots = [],
+  protectedRoots = [],
+  realpathFn = realpathSync,
+  platform = process.platform,
+} = {}) {
+  if (typeof targetPath !== 'string' || targetPath.trim() === '' || targetPath.includes('\0') || !isAbsolute(targetPath)) {
+    throw new Error('Invalid file or folder path')
+  }
+  let realTarget
+  try {
+    realTarget = realpathFn(resolve(targetPath))
+  } catch {
+    throw new Error('File or folder not found')
+  }
+
+  const realAllowed = []
+  for (const root of allowedRoots) {
+    if (typeof root !== 'string' || !root || !isAbsolute(root)) continue
+    try {
+      realAllowed.push(realpathFn(resolve(root)))
+    } catch { /* skip missing root */ }
+  }
+  if (realAllowed.length === 0) {
+    throw new Error('Path is outside the active workspace')
+  }
+
+  const realProtected = []
+  for (const prot of protectedRoots) {
+    if (typeof prot !== 'string' || !prot || !isAbsolute(prot)) continue
+    try {
+      realProtected.push(realpathFn(resolve(prot)))
+    } catch {
+      realProtected.push(resolve(prot))
+    }
+  }
+
+  const containingRoots = realAllowed.filter(root => withinRoot(realTarget, root, platform))
+  if (containingRoots.length === 0) {
+    throw new Error('Path is outside the active workspace')
+  }
+
+  // Reject if `realTarget` encloses a protected root OR lies inside a protected root
+  // (except when contained inside an explicit workspace subfolder strictly inside that protected root,
+  // e.g. the plugin's default `<dataDir>/workspace`).
+  for (const prot of realProtected) {
+    if (withinRoot(prot, realTarget, platform)) {
+      throw new Error('Path is inside protected data')
+    }
+    if (withinRoot(realTarget, prot, platform)) {
+      const allowedWorkspaceInsideProt = containingRoots.some(
+        root => root !== prot && withinRoot(root, prot, platform),
+      )
+      if (!allowedWorkspaceInsideProt) {
+        throw new Error('Path is inside protected data')
+      }
+    }
+  }
+
+  return realTarget
+}
 
 function scrubbedLaunchEnv(env = process.env) {
   const out = {}
@@ -19,6 +142,24 @@ function scrubbedLaunchEnv(env = process.env) {
   return out
 }
 
+function resolveWindowsExeFromCmd(cmdNames, siblingExeName, env = process.env, existsFn = existsSync) {
+  const pathKey = Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH'
+  const rawPath = env[pathKey] ?? ''
+  const dirs = rawPath.split(';').map(s => s.trim()).filter(Boolean)
+  for (const dir of dirs) {
+    for (const cmdName of cmdNames) {
+      const cmdPath = win32Path.join(dir, cmdName)
+      try {
+        if (!existsFn(cmdPath)) continue
+        // VS Code / Cursor / Windsurf place `<App>.exe` one directory above `bin/<code>.cmd`.
+        const sibling = win32Path.join(win32Path.dirname(dir), siblingExeName)
+        if (existsFn(sibling)) return sibling
+      } catch { /* ignore */ }
+    }
+  }
+  return null
+}
+
 function findInPath(names, env = process.env, platform = process.platform, existsFn = existsSync) {
   const pathKey = platform === 'win32'
     ? (Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH')
@@ -26,9 +167,10 @@ function findInPath(names, env = process.env, platform = process.platform, exist
   const rawPath = env[pathKey] ?? ''
   const sep = platform === 'win32' ? ';' : ':'
   const dirs = rawPath.split(sep).map(s => s.trim()).filter(Boolean)
+  const pathJoin = platform === 'win32' ? win32Path.join : join
   for (const dir of dirs) {
     for (const name of names) {
-      const full = join(dir, name)
+      const full = pathJoin(dir, name)
       try {
         if (existsFn(full)) return full
       } catch { /* unreadable dir */ }
@@ -163,22 +305,26 @@ export function detectInstalledApps({
       {
         id: 'cursor', name: 'Cursor', category: 'editor',
         paths: [...(localApp ? [`${localApp}\\Programs\\cursor\\Cursor.exe`] : []), `${pf}\\cursor\\Cursor.exe`],
-        bins: ['cursor.cmd', 'cursor.exe'],
+        bins: ['Cursor.exe', 'cursor.exe'],
+        cmdResolve: [['cursor.cmd'], 'Cursor.exe'],
       },
       {
         id: 'vscode', name: 'VS Code', category: 'editor',
         paths: [...(localApp ? [`${localApp}\\Programs\\Microsoft VS Code\\Code.exe`] : []), `${pf}\\Microsoft VS Code\\Code.exe`, `${pf86}\\Microsoft VS Code\\Code.exe`],
-        bins: ['code.cmd', 'Code.exe'],
+        bins: ['Code.exe'],
+        cmdResolve: [['code.cmd'], 'Code.exe'],
       },
       {
         id: 'vscode-insiders', name: 'VS Code Insiders', category: 'editor',
         paths: [...(localApp ? [`${localApp}\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe`] : []), `${pf}\\Microsoft VS Code Insiders\\Code - Insiders.exe`],
-        bins: ['code-insiders.cmd'],
+        bins: ['Code - Insiders.exe'],
+        cmdResolve: [['code-insiders.cmd'], 'Code - Insiders.exe'],
       },
       {
         id: 'windsurf', name: 'Windsurf', category: 'editor',
         paths: [...(localApp ? [`${localApp}\\Programs\\Windsurf\\Windsurf.exe`] : []), `${pf}\\Windsurf\\Windsurf.exe`],
-        bins: ['windsurf.cmd'],
+        bins: ['Windsurf.exe'],
+        cmdResolve: [['windsurf.cmd'], 'Windsurf.exe'],
       },
       {
         id: 'zed', name: 'Zed', category: 'editor',
@@ -218,7 +364,10 @@ export function detectInstalledApps({
       let found = def.paths ? firstExisting(def.paths, existsFn) : null
       if (!found && def.jb) found = findJetBrainsWindowsExe(jbDirs, def.jb[0], def.jb[1], existsFn, readdirFn)
       if (!found && def.bins) found = findInPath(def.bins, env, platform, existsFn)
-      if (found) apps.push({ id: def.id, name: def.name, category: def.category, kind: 'win-exe', target: found })
+      if (!found && def.cmdResolve) found = resolveWindowsExeFromCmd(def.cmdResolve[0], def.cmdResolve[1], env, existsFn)
+      if (found && !WIN_BATCH_RE.test(found)) {
+        apps.push({ id: def.id, name: def.name, category: def.category, kind: 'win-exe', target: found })
+      }
     }
     apps.push({ id: 'explorer', name: 'File Explorer', category: 'file-manager', kind: 'explorer', target: 'explorer.exe' })
     return apps
@@ -280,8 +429,12 @@ export function buildLaunchSpec(app, targetPath, { platform = process.platform, 
  * Spawns the chosen external app cleanly without shell interpolation.
  */
 export function openInExternalApp(app, targetPath, { platform = process.platform, env = process.env, spawnFn = spawn, statFn = statSync } = {}) {
-  if (!app || typeof targetPath !== 'string' || !isAbsolute(targetPath)) {
+  const checkAbs = platform === 'win32' ? win32Path.isAbsolute : isAbsolute
+  if (!app || typeof targetPath !== 'string' || !checkAbs(targetPath)) {
     throw new Error('Invalid app or target path')
+  }
+  if (platform === 'win32' && typeof app.target === 'string' && WIN_BATCH_RE.test(app.target)) {
+    throw new Error('Refusing to spawn batch wrapper without a shell')
   }
   const info = statFn(targetPath)
   const isDirectory = info.isDirectory()
@@ -349,10 +502,14 @@ export class OpenInAppStore {
       if (oldest === undefined) break
       map.delete(oldest)
     }
+    const tmpPath = `${this.#filePath}.${process.pid}.${Date.now()}.tmp`
     try {
       mkdirSync(dirname(this.#filePath), { recursive: true })
-      writeFileSync(this.#filePath, JSON.stringify(Object.fromEntries(map), null, 2), 'utf8')
-    } catch { /* best-effort persistence */ }
+      writeFileSync(tmpPath, JSON.stringify(Object.fromEntries(map), null, 2), 'utf8')
+      renameSync(tmpPath, this.#filePath)
+    } catch {
+      try { unlinkSync(tmpPath) } catch { /* ignore */ }
+    }
   }
 
   getDefault(dirPath) {

@@ -365,7 +365,7 @@ function FileTreeContextMenu({ menu, expanded, openApps = [], defaultAppId = nul
   const appItems = openApps.length > 0 && typeof onOpenInApp === 'function'
     ? [
         { sep: true },
-        ...openApps.slice(0, 6).map(app => ({
+        ...openApps.map(app => ({
           key: `app:${app.id}`,
           icon: app.category === 'terminal' ? TerminalIcon : OpenExternalIcon,
           label: t('Open in {app}', { app: app.name }),
@@ -412,6 +412,93 @@ function FileTreeContextMenu({ menu, expanded, openApps = [], defaultAppId = nul
       'data-ft-action': item.key,
       onClick: item.onClick,
     }, h(item.icon), h('span', null, item.label)))))
+
+  const target = typeof document !== 'undefined' && document?.body ? document.body : null
+  return target ? createPortal(node, target) : node
+}
+
+function OpenInAppMenu({ open, anchorRef, apps, defaultAppId, onSelect, onClose }) {
+  const [shown, leaving] = useLinger(open, 120)
+  const menuRef = useRef(null)
+  const [place, setPlace] = useState({ left: 16, top: 16, maxHeight: 320 })
+  const tick = useViewport(shown)
+
+  useEscape(onClose, open, ESCAPE_PRIORITY.MENU)
+
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return undefined
+    const down = (event) => {
+      if (menuRef.current?.contains?.(event.target)) return
+      if (anchorRef?.current?.contains?.(event.target)) return
+      onClose()
+    }
+    const key = (event) => {
+      if (event.key === 'Tab') { onClose(); return }
+      if (stepMenuFocus(menuRef.current, event)) event.preventDefault()
+    }
+    document.addEventListener?.('pointerdown', down, true)
+    document.addEventListener?.('keydown', key)
+    return () => {
+      document.removeEventListener?.('pointerdown', down, true)
+      document.removeEventListener?.('keydown', key)
+    }
+  }, [open, anchorRef, onClose])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const raf = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame(() => { menuRef.current?.querySelector?.('[role="menuitem"]')?.focus?.() })
+      : null
+    return () => {
+      if (raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
+      anchorRef?.current?.focus?.()
+    }
+  }, [open, anchorRef])
+
+  useLayoutEffect(() => {
+    if (!shown) return
+    const trigger = anchorRef?.current?.getBoundingClientRect?.()
+    const box = menuRef.current?.getBoundingClientRect?.()
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 800
+    const vh = viewBottom()
+    const width = box?.width || 196
+    const rawHeight = box?.height || Math.min(320, Math.max(44, apps.length * 34 + 12))
+    const margin = 8
+    const anchorRight = trigger?.right ?? (vw - margin)
+    const anchorBottom = trigger?.bottom ?? 48
+    const anchorTop = trigger?.top ?? 20
+    const spaceBelow = Math.max(0, vh - anchorBottom - 4 - margin)
+    const spaceAbove = Math.max(0, anchorTop - 4 - margin)
+    const openUp = rawHeight > spaceBelow && spaceAbove > spaceBelow
+    const maxHeight = Math.max(80, Math.min(360, openUp ? spaceAbove : spaceBelow))
+    const renderedHeight = Math.min(rawHeight, maxHeight)
+    const top = openUp
+      ? Math.max(margin, anchorTop - 4 - renderedHeight)
+      : Math.max(margin, Math.min(anchorBottom + 4, vh - renderedHeight - margin))
+    const left = Math.max(margin, Math.min(anchorRight - width, vw - width - margin))
+    setPlace({ left, top, maxHeight })
+  }, [shown, anchorRef, apps.length, tick])
+
+  if (!shown || apps.length === 0) return null
+
+  const node = h('div', {
+    ref: menuRef,
+    className: 'bt-menu dsb-ft-openapp-menu',
+    role: 'menu',
+    'aria-label': t('Open in app'),
+    'data-leaving': leaving ? '' : undefined,
+    style: place,
+  },
+  apps.map(app => h('button', {
+    key: app.id,
+    type: 'button',
+    role: 'menuitem',
+    className: 'bt-menu-item',
+    'data-app-id': app.id,
+    onClick: () => onSelect(app.id),
+  },
+  h('span', { className: 'dsb-ft-openapp-item-name' }, app.name),
+  app.id === defaultAppId ? h(CheckIcon) : null)))
 
   const target = typeof document !== 'undefined' && document?.body ? document.body : null
   return target ? createPortal(node, target) : node
@@ -628,27 +715,13 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     return () => { alive = false }
   }, [rootInfo.root])
 
-  useEffect(() => {
-    if (!appMenuOpen || typeof document === 'undefined') return undefined
-    const onDown = (event) => {
-      if (appMenuRef.current && typeof appMenuRef.current.contains === 'function' && appMenuRef.current.contains(event.target)) return
-      setAppMenuOpen(false)
-    }
-    const onKey = (event) => { if (event.key === 'Escape') setAppMenuOpen(false) }
-    document.addEventListener?.('mousedown', onDown, true)
-    document.addEventListener?.('keydown', onKey, true)
-    return () => {
-      document.removeEventListener?.('mousedown', onDown, true)
-      document.removeEventListener?.('keydown', onKey, true)
-    }
-  }, [appMenuOpen])
-
   // When returning from a hidden tab (e.g. Preview/Terminal), refresh once cleanly.
   useEffect(() => {
     const wasActive = prevActiveRef.current
     prevActiveRef.current = active
     if (!active) {
       setMenu(null)
+      setAppMenuOpen(false)
       return
     }
     if (!wasActive) {
@@ -931,6 +1004,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     })
   }, [actions])
 
+  const closeAppMenu = useCallback(() => setAppMenuOpen(false), [])
   const defaultApp = openApps.find(app => app.id === defaultAppId) ?? openApps[0] ?? null
 
   const rootEntries = childrenByPath[''] ?? []
@@ -956,7 +1030,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     h('div', { className: 'dsb-ft-bar' },
       h('span', { className: 'dsb-ft-root', title: rootInfo.root }, rootInfo.rootName || t('Workspace')),
       h('div', { className: 'dsb-ft-actions' },
-        defaultApp ? h('div', { ref: appMenuRef, className: 'dsb-ft-openapp' },
+        defaultApp ? h('div', { className: 'dsb-ft-openapp' },
           h('button', {
             type: 'button',
             className: 'bt-soft bt-soft-sm dsb-ft-openapp-btn',
@@ -964,6 +1038,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
             onClick: () => openInAppTarget(defaultApp.id, '', rootInfo.root),
           }, h(OpenExternalIcon), h('span', { className: 'dsb-ft-openapp-label' }, defaultApp.name)),
           openApps.length > 1 ? h('button', {
+            ref: appMenuRef,
             type: 'button',
             className: 'bt-icon-btn dsb-ft-openapp-caret',
             'aria-label': t('Open in app'),
@@ -972,17 +1047,14 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
             title: t('Open in app'),
             onClick: () => setAppMenuOpen(v => !v),
           }, h(ChevronDownIcon)) : null,
-          appMenuOpen ? h('div', { className: 'bt-menu dsb-ft-openapp-menu', role: 'menu' },
-            openApps.map(app => h('button', {
-              key: app.id,
-              type: 'button',
-              role: 'menuitem',
-              className: 'bt-menu-item',
-              'data-app-id': app.id,
-              onClick: () => openInAppTarget(app.id, '', rootInfo.root),
-            },
-            h('span', { className: 'dsb-ft-openapp-item-name' }, app.name),
-            app.id === defaultApp.id ? h(CheckIcon) : null))) : null) : null,
+          h(OpenInAppMenu, {
+            open: appMenuOpen && openApps.length > 1,
+            anchorRef: appMenuRef,
+            apps: openApps,
+            defaultAppId: defaultApp.id,
+            onSelect: appId => openInAppTarget(appId, '', rootInfo.root),
+            onClose: closeAppMenu,
+          })) : null,
         h('button', {
           type: 'button',
           className: 'bt-soft bt-soft-sm',

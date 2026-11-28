@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { buildLaunchSpec, detectInstalledApps, openInExternalApp, OpenInAppStore } from '../src/open-in-app.mjs'
+import { buildLaunchSpec, collectWorkspaceRoots, detectInstalledApps, openInExternalApp, OpenInAppStore, validateWorkspaceTarget } from '../src/open-in-app.mjs'
 
 test('detectInstalledApps detects macOS bundles/CLI, Windows programs/JetBrains/wt.exe, and Linux PATH binaries', () => {
   // 1. macOS
@@ -107,13 +107,129 @@ test('OpenInAppStore remembers per-directory default apps across reloads and ope
     dir,
     {
       platform: 'darwin',
-      env: { PATH: '/usr/bin', OPENAI_API_KEY: 'sk-secret', DS_BOT_TOKEN: 'hidden' },
+      env: {
+        PATH: '/usr/bin',
+        OPENAI_API_KEY: 'sk-secret',
+        DS_BOT_TOKEN: 'hidden',
+        GITHUB_AUTH: 'gh-auth',
+        MY_CREDENTIAL: 'cred',
+        SESSION_COOKIE: 'sid=1',
+        SSH_PRIVATE_PEM: 'priv',
+      },
       spawnFn,
       statFn: () => ({ isDirectory: () => true }),
     },
   )
   assert.equal(captured.command, 'open')
   assert.equal(captured.options.shell, false)
-  assert.equal(Object.hasOwn(captured.options.env, 'OPENAI_API_KEY'), false)
-  assert.equal(Object.hasOwn(captured.options.env, 'DS_BOT_TOKEN'), false)
+  for (const leaked of ['OPENAI_API_KEY', 'DS_BOT_TOKEN', 'GITHUB_AUTH', 'MY_CREDENTIAL', 'SESSION_COOKIE', 'SSH_PRIVATE_PEM']) {
+    assert.equal(Object.hasOwn(captured.options.env, leaked), false, `must scrub ${leaked}`)
+  }
+  assert.equal(readdirSync(dir).some(f => f.endsWith('.tmp')), false, 'atomic store write leaves no leftover .tmp files')
+})
+
+test('Windows detection resolves bin/*.cmd to native .exe and never spawns .cmd with shell:false', async () => {
+  // Custom install where PATH contains `D:\Apps\VSCode\bin` with `code.cmd` and sibling `D:\Apps\VSCode\Code.exe`,
+  // plus an orphan `windsurf.cmd` with NO sibling `.exe` that must be skipped.
+  const winPaths = new Set([
+    'd:\\apps\\vscode\\bin\\code.cmd',
+    'd:\\apps\\vscode\\code.exe',
+    'd:\\apps\\orphan\\bin\\windsurf.cmd',
+  ])
+  const apps = detectInstalledApps({
+    platform: 'win32',
+    env: {
+      LOCALAPPDATA: 'X:\\MockHome\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      SystemRoot: 'C:\\Windows',
+      PATH: 'D:\\Apps\\VSCode\\bin;D:\\Apps\\Orphan\\bin',
+    },
+    existsFn: p => winPaths.has(p.toLowerCase()),
+    readdirFn: () => [],
+  })
+  const vscode = apps.find(a => a.id === 'vscode')
+  assert.ok(vscode, 'resolves VS Code from bin/code.cmd to sibling Code.exe')
+  assert.equal(vscode.target.toLowerCase(), 'd:\\apps\\vscode\\code.exe')
+  assert.equal(apps.some(a => /\.cmd$/i.test(a.target)), false, 'must never return .cmd wrappers on win32')
+  assert.equal(apps.some(a => a.id === 'windsurf'), false, 'orphan .cmd without sibling .exe must not be advertised')
+
+  assert.throws(
+    () => openInExternalApp(
+      { id: 'vscode', name: 'VS Code', category: 'editor', kind: 'win-exe', target: 'C:\\VSCode\\bin\\code.cmd' },
+      'C:\\repo',
+      { platform: 'win32', statFn: () => ({ isDirectory: () => true }) },
+    ),
+    /batch wrapper/i,
+  )
+})
+
+test('validateWorkspaceTarget enforces realpath workspace containment, blocks symlink escapes and protected data directories', (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'dsb-oia-sec-'))
+  t.after(() => rmSync(base, { recursive: true, force: true }))
+
+  const dataDir = join(base, 'data')
+  const userData = join(base, 'userData')
+  const dshHome = join(base, 'dsh-home')
+  const workspace = join(base, 'workspace')
+  const botWorkDir = join(base, 'bot-extra-repo')
+  const outside = join(base, 'outside-secret')
+  mkdirSync(join(dataDir, 'bot'), { recursive: true })
+  mkdirSync(userData, { recursive: true })
+  mkdirSync(dshHome, { recursive: true })
+  mkdirSync(workspace, { recursive: true })
+  mkdirSync(botWorkDir, { recursive: true })
+  mkdirSync(outside, { recursive: true })
+
+  writeFileSync(join(workspace, 'hello.txt'), 'ok')
+  writeFileSync(join(botWorkDir, 'bot-file.txt'), 'ok')
+  writeFileSync(join(outside, 'id_rsa'), 'secret')
+  writeFileSync(join(dataDir, 'bot', 'state.json'), JSON.stringify({
+    bots: { b1: { workDir: botWorkDir } },
+    rooms: {},
+  }))
+  writeFileSync(join(dshHome, 'config.json'), '{}')
+
+  let hasSymlink = false
+  try {
+    symlinkSync(join(outside, 'id_rsa'), join(workspace, 'escape-link'))
+    symlinkSync(dataDir, join(workspace, 'data-link'))
+    hasSymlink = true
+  } catch { /* Windows without symlink privilege */ }
+
+  const roots = collectWorkspaceRoots({
+    places: { dataDir, workspace },
+    userDshHome: dshHome,
+    userData,
+    env: { DSH_HOME: dshHome },
+  })
+
+  // Legitimate workspace and configured Bot workDir targets succeed.
+  assert.ok(validateWorkspaceTarget(join(workspace, 'hello.txt'), roots).endsWith('hello.txt'))
+  assert.ok(validateWorkspaceTarget(join(botWorkDir, 'bot-file.txt'), roots).endsWith('bot-file.txt'))
+
+  // Outside paths and protected directories are rejected.
+  assert.throws(() => validateWorkspaceTarget(join(outside, 'id_rsa'), roots), /outside the active workspace/i)
+  assert.throws(() => validateWorkspaceTarget(join(dataDir, 'bot', 'state.json'), roots), /outside|protected/i)
+  assert.throws(() => validateWorkspaceTarget(join(dshHome, 'config.json'), roots), /outside|protected/i)
+  assert.throws(() => validateWorkspaceTarget(userData, roots), /outside|protected/i)
+
+  // Symlink inside workspace escaping to outside or protected dataDir is rejected via realpath.
+  if (hasSymlink) {
+    assert.throws(() => validateWorkspaceTarget(join(workspace, 'escape-link'), roots), /outside the active workspace/i)
+    assert.throws(() => validateWorkspaceTarget(join(workspace, 'data-link'), roots), /outside|protected/i)
+  }
+
+  // Default workspace lying inside dataDir (`<dataDir>/workspace`) is permitted while sibling dataDir files remain blocked.
+  const nestedWs = join(dataDir, 'workspace')
+  mkdirSync(nestedWs, { recursive: true })
+  writeFileSync(join(nestedWs, 'nested.txt'), 'ok')
+  const nestedRoots = collectWorkspaceRoots({
+    places: { dataDir, workspace: nestedWs },
+    userDshHome: dshHome,
+    userData,
+    env: {},
+  })
+  assert.ok(validateWorkspaceTarget(join(nestedWs, 'nested.txt'), nestedRoots).endsWith('nested.txt'))
+  assert.throws(() => validateWorkspaceTarget(join(dataDir, 'bot', 'state.json'), nestedRoots), /outside|protected/i)
 })

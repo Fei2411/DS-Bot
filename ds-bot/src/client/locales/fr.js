@@ -2545,6 +2545,7 @@ export const FR = {
   "Open in app": "Ouvrir dans l’application",
   "Open in {app}": "Ouvrir dans {app}",
   "Copy image": "Copier l’image",
+  "Copy failed": "Échec de la copie",
   "Save as…": "Enregistrer sous…",
   "Formulas show cached values only and are not recalculated": "Les formules affichent uniquement les valeurs en cache et ne sont pas recalculées",
   "Some elements are not shown in preview: {items}": "Certains éléments ne s’affichent pas dans l’aperçu : {items}",

@@ -2381,6 +2381,7 @@ export const ZH = {
   "Open in app": "在应用中打开",
   "Open in {app}": "在 {app} 中打开",
   "Copy image": "复制图片",
+  "Copy failed": "复制失败",
   "Save as…": "另存为…",
   "Formulas show cached values only and are not recalculated": "公式仅显示缓存结果，不会重新计算",
   "Some elements are not shown in preview: {items}": "预览不显示部分内容：{items}",

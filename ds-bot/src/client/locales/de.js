@@ -2579,6 +2579,7 @@ export const DE = {
   "Open in app": "In App öffnen",
   "Open in {app}": "In {app} öffnen",
   "Copy image": "Bild kopieren",
+  "Copy failed": "Kopieren fehlgeschlagen",
   "Save as…": "Speichern unter…",
   "Formulas show cached values only and are not recalculated": "Formeln zeigen nur zwischengespeicherte Werte an und werden nicht neu berechnet",
   "Some elements are not shown in preview: {items}": "Einige Elemente werden in der Vorschau nicht angezeigt: {items}",

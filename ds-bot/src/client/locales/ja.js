@@ -2545,6 +2545,7 @@ export const JA = {
   "Open in app": "アプリで開く",
   "Open in {app}": "{app} で開く",
   "Copy image": "画像をコピー",
+  "Copy failed": "コピーに失敗しました",
   "Save as…": "名前を付けて保存…",
   "Formulas show cached values only and are not recalculated": "数式はキャッシュされた値のみを表示し、再計算されません",
   "Some elements are not shown in preview: {items}": "プレビューに表示されない要素があります：{items}",
