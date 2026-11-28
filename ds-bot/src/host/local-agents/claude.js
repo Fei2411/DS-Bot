@@ -99,7 +99,8 @@ class ClaudeSession {
     this.waiters = []
     this.dead = false
     this.retired = false
-    this.turnFinished = false
+    this.pendingPrompts = 0
+    this.settledTurn = false
     this.idWaiters = []
     this.turnCalls = new Set()
     this.pendingToolUses = new Set()
@@ -285,21 +286,19 @@ class ClaudeSession {
       this.cancelResultTimer()
       this.dead = true
       this.cleanupSystemFile()
-      if (this.retired || (this.turnFinished && code === 0 && signal === null)) {
+      if (this.retired || (this.pendingPrompts === 0 && this.settledTurn)) {
         for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         return
       }
-      if (code === 0 && signal === null && !this.turnFinished && this.canFinishWithoutResult()) {
+      if (code === 0 && signal === null && this.pendingPrompts > 0 && this.canFinishWithoutResult()) {
         for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         this.finishWithoutResult({ retireChild: false })
         return
       }
       for (const resolve of this.idWaiters.splice(0)) resolve(undefined)
-      if (!this.turnFinished) {
-        this.turnFinished = true
-        this.running = false
-        this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
-      }
+      this.pendingPrompts = 0
+      this.running = false
+      this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
     })
     // The CLI sends `system/init` only once the first message arrives on stdin,
     // and this engine writes that message after start resolves: waiting for init
@@ -406,30 +405,16 @@ class ClaudeSession {
           const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
           if (used > 0) this.emit({ type: 'context', used })
         }
-        let sawToolUse = false
-        let sawText = false
         for (const block of event.message?.content ?? []) {
-          if (block.type === 'text') {
-            this.emit({ type: 'text', text: block.text ?? '' })
-            if (topLevel && typeof block.text === 'string' && block.text !== '') sawText = true
-          } else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
+          if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
+          else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
           else if (block.type === 'tool_use') {
             // Shells, subagents and custom tools may change cwd without reporting it.
             if (!READ_TOOLS.has(block.name)) this.cwd = undefined
-            if (topLevel) {
-              sawToolUse = true
-              this.messageHasToolUse = true
-              this.turnHasAssistantOutput = false
-              if (typeof block.id === 'string' && block.id !== '') this.pendingToolUses.add(block.id)
-              else this.awaitingToolResult = true
-            }
             this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
           }
         }
-        if (topLevel) {
-          if (!sawToolUse && sawText) this.turnHasAssistantOutput = true
-          this.maybeScheduleResultFallback()
-        }
+        if (topLevel) this.noteAssistantBlocks(event.message?.content)
         break
       }
       case 'user': {
@@ -474,12 +459,13 @@ class ClaudeSession {
       }
       case 'result':
         this.cancelResultTimer()
-        if (this.turnFinished) break
+        if (this.pendingPrompts === 0) break
         // A resume of a conversation the CLI no longer has ends at once, before
         // init and with no turn.
         if (this.resumeId !== undefined && this.cliSessionId === undefined && event.is_error === true && (event.num_turns ?? 0) === 0) {
           this.resumeMissing = true
-          this.turnFinished = true
+          this.pendingPrompts = 0
+          this.settledTurn = true
           this.running = false
           // It exits next and reads no more input.
           this.dead = true
@@ -494,10 +480,13 @@ class ClaudeSession {
         }
         const observedCalls = this.turnCalls.size
         this.resetTurnState()
-        this.pendingPermissions.clear()
+        this.pendingPrompts -= 1
+        this.running = this.pendingPrompts > 0
+        if (this.pendingPrompts === 0) {
+          this.settledTurn = true
+          this.pendingPermissions.clear()
+        }
         const calls = positiveInt(event.num_turns) ?? (observedCalls > 0 ? observedCalls : undefined)
-        this.turnFinished = true
-        this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage, calls) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
@@ -535,8 +524,26 @@ class ClaudeSession {
     this.turnUsage = undefined
   }
 
+  noteAssistantBlocks(blocks) {
+    let sawToolUse = false
+    let sawText = false
+    for (const block of blocks ?? []) {
+      if (block.type === 'text' && typeof block.text === 'string' && block.text !== '') {
+        sawText = true
+      } else if (block.type === 'tool_use') {
+        sawToolUse = true
+        this.messageHasToolUse = true
+        this.turnHasAssistantOutput = false
+        if (typeof block.id === 'string' && block.id !== '') this.pendingToolUses.add(block.id)
+        else this.awaitingToolResult = true
+      }
+    }
+    if (!sawToolUse && sawText) this.turnHasAssistantOutput = true
+    this.maybeScheduleResultFallback()
+  }
+
   canFinishWithoutResult() {
-    if (this.running !== true || this.retired || this.turnFinished) return false
+    if (this.pendingPrompts === 0 || this.retired) return false
     if (!this.turnHasAssistantOutput) return false
     if ((this.inMessage && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) || this.messageHasToolUse) return false
     if (this.messageStopReason !== null && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) return false
@@ -573,8 +580,9 @@ class ClaudeSession {
   // closing `result` line (#2382). Complete the turn with the output already
   // streamed and retire the wedged child so the next turn resumes cleanly.
   finishWithoutResult({ retireChild }) {
-    if (this.turnFinished) return
-    this.turnFinished = true
+    if (this.pendingPrompts === 0) return
+    this.pendingPrompts = 0
+    this.settledTurn = true
     const observedCalls = this.turnCalls.size
     const calls = observedCalls > 0 ? observedCalls : undefined
     const usage = usageOf(this.turnUsage, calls)
@@ -602,7 +610,7 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
-    if (this.running !== true) {
+    if (this.pendingPrompts === 0) {
       this.resetTurnState()
     } else {
       this.cancelResultTimer()
@@ -612,7 +620,8 @@ class ClaudeSession {
       this.messageStopped = false
       this.turnHasAssistantOutput = false
     }
-    this.turnFinished = false
+    this.pendingPrompts += 1
+    this.settledTurn = false
     this.running = true
     this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()

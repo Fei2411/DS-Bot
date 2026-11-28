@@ -338,15 +338,16 @@ process.stdin.on('data', (chunk) => {
 
   const drainEvents = async (sessionId, promptText) => {
     const session = await engine.open(sessionId, { cwd: dir, mode: 'default', model: 'claude-sonnet' })
+    const closed = new Promise(resolve => session.child.once('close', resolve))
     await engine.prompt(session, [{ type: 'text', text: promptText }])
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('child did not close in time')), 5_000)),
+    ])
+    await new Promise(resolve => setImmediate(resolve))
     const terminal = []
-    const deadline = Date.now() + 2_000
-    while (Date.now() < deadline) {
-      const event = await Promise.race([
-        session.next(),
-        new Promise(resolve => setTimeout(() => resolve(null), 180)),
-      ])
-      if (event === null) break
+    while (session.events.length > 0) {
+      const event = session.events.shift()
       if (event.type === 'done' || event.type === 'error') terminal.push(event)
     }
     return terminal
@@ -370,19 +371,95 @@ process.stdin.on('data', (chunk) => {
   )
   t.after(() => shortEngine.close())
   const lateSession = await shortEngine.open('d-after', { cwd: dir, mode: 'default', model: 'claude-sonnet' })
+  const lateClosed = new Promise(resolve => lateSession.child.once('close', resolve))
   await shortEngine.prompt(lateSession, [{ type: 'text', text: 'after-grace-result' }])
-  const afterGrace = []
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline) {
-    const event = await Promise.race([
-      lateSession.next(),
-      new Promise(resolve => setTimeout(() => resolve(null), 250)),
-    ])
-    if (event === null) break
-    if (event.type === 'done' || event.type === 'error') afterGrace.push(event)
-  }
+  await Promise.race([
+    lateClosed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('retired child did not close in time')), 5_000)),
+  ])
+  await new Promise(resolve => setImmediate(resolve))
+  const afterGrace = lateSession.events.filter(event => event.type === 'done' || event.type === 'error')
   assert.equal(afterGrace.length, 1, `expected exactly one terminal event after grace, got ${JSON.stringify(afterGrace)}`)
   assert.equal(afterGrace[0].type, 'done')
+})
+
+test('claude: steered prompt while running receives its own result without hanging (#2382)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-steer-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const fixture = join(dir, 'fake-claude-steer.mjs')
+  writeFileSync(fixture, `
+import { createInterface } from 'node:readline'
+const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\\n')
+const prompts = []
+let started = false
+const flush = () => {
+  if (prompts.length < 2 || started) return
+  started = true
+  const [first, second] = prompts
+  send({ type: 'system', subtype: 'init', session_id: 'claude-steer-' + process.pid })
+  send({ type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'reply-1' }], stop_reason: 'end_turn' } })
+  send({ type: 'result', subtype: 'success', session_id: 'claude-steer-' + process.pid, result: 'ok-1', usage: { input_tokens: 10, output_tokens: 2 } })
+  setTimeout(() => {
+    send({ type: 'system', subtype: 'init', session_id: 'claude-steer-' + process.pid })
+    send({ type: 'assistant', parent_tool_use_id: null, message: { id: 'm2', content: [{ type: 'text', text: 'reply-2' }], stop_reason: 'end_turn' } })
+    if (second.includes('steer-fail')) {
+      send({ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: 'claude-steer-' + process.pid, result: 'second prompt failed' })
+    } else {
+      send({ type: 'result', subtype: 'success', session_id: 'claude-steer-' + process.pid, result: 'ok-2', usage: { input_tokens: 20, output_tokens: 4 } })
+    }
+    if (first.includes('exit-after')) process.exit(0)
+  }, 40)
+}
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
+rl.on('line', (line) => {
+  const msg = JSON.parse(line)
+  if (msg.type === 'user') {
+    const blocks = msg.message?.content ?? []
+    const text = Array.isArray(blocks) ? blocks.map(b => b.text ?? '').join('') : String(blocks)
+    prompts.push(text)
+    flush()
+  }
+})
+`)
+  const engine = new ClaudeEngine(
+    'local-claude-code',
+    { name: 'Claude Code', kind: 'claude', command: process.execPath, args: [fixture] },
+    { findExecutable: p => p, resultGraceMs: 250, resultFallbackMs: 400 },
+  )
+  t.after(() => engine.close())
+
+  // 1. Steered prompt emits a second `done` result, and clean exit after both emits no extra terminal event.
+  const s1 = await engine.open('steer-ok', { cwd: dir, mode: 'default', model: 'claude-sonnet' })
+  const s1Closed = new Promise(resolve => s1.child.once('close', resolve))
+  await engine.prompt(s1, [{ type: 'text', text: 'first exit-after' }])
+  assert.equal(engine.canSteer(s1), true)
+  await engine.steer(s1, [{ type: 'text', text: 'second ok' }])
+  await Promise.race([
+    s1Closed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('steer-ok child did not close')), 5_000)),
+  ])
+  await new Promise(resolve => setImmediate(resolve))
+  const s1Terminal = s1.events.filter(event => event.type === 'done' || event.type === 'error')
+  assert.equal(s1Terminal.length, 2, `expected two terminal events, got ${JSON.stringify(s1Terminal)}`)
+  assert.equal(s1Terminal[0].type, 'done')
+  assert.equal(s1Terminal[1].type, 'done')
+  assert.equal(s1Terminal[1].usage?.inputTokens, 20)
+
+  // 2. Steered prompt ending in an error result preserves the error instead of hanging.
+  const s2 = await engine.open('steer-err', { cwd: dir, mode: 'default', model: 'claude-sonnet' })
+  const s2Closed = new Promise(resolve => s2.child.once('close', resolve))
+  await engine.prompt(s2, [{ type: 'text', text: 'first exit-after' }])
+  await engine.steer(s2, [{ type: 'text', text: 'steer-fail' }])
+  await Promise.race([
+    s2Closed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('steer-err child did not close')), 5_000)),
+  ])
+  await new Promise(resolve => setImmediate(resolve))
+  const s2Terminal = s2.events.filter(event => event.type === 'done' || event.type === 'error')
+  assert.equal(s2Terminal.length, 2, `expected two terminal events, got ${JSON.stringify(s2Terminal)}`)
+  assert.equal(s2Terminal[0].type, 'done')
+  assert.equal(s2Terminal[1].type, 'error')
+  assert.match(s2Terminal[1].error.message, /second prompt failed/)
 })
 
 test('claude: retries stream, ask, and maintain when older CLI rejects --include-partial-messages and --include-hook-events', async (t) => {
