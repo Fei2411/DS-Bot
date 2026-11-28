@@ -158,3 +158,35 @@ test('Shift+Enter and IME confirmation keep their default behavior', async () =>
     assert.deepEqual(calls.send, [])
   }
 })
+
+test('recipient hover tracks real pointer movement and ignores stationary coordinates', () => {
+  const bots = [
+    { id: 'chief', name: 'Chief', role: 'main' },
+    { id: 'worker', name: 'Worker', role: 'helper' },
+    { id: 'coder', name: 'Coder', role: 'dev' },
+  ]
+  const roster = { ready: true, prefs: {}, bots, byId: Object.fromEntries(bots.map(bot => [bot.id, bot])), roomsById: {}, agents: [] }
+  const actions = { closeOverlay() {}, openSession() {}, setFlags: async () => {}, send: async () => {} }
+  const view = mount({ mode: 'new', roster, actions })
+  const selectedIndex = () => options(view.render()).findIndex(row => row.props['aria-selected'] === true)
+
+  assert.equal(selectedIndex(), 0)
+  // Real pointer move updates the active row immediately.
+  let rows = options(view.render())
+  assert.equal(rows[2].props.onMouseEnter, undefined)
+  rows[2].props.onMouseMove({ clientX: 360, clientY: 160 })
+  assert.equal(selectedIndex(), 2)
+
+  // Moving with the keyboard advances active; a stationary-coordinate mousemove on an
+  // older row (e.g. rows scrolling under a resting cursor) must not hijack selection back.
+  const input = all(view.render(), child => child.type === 'input')[0]
+  input.props.onKeyDown({ key: 'ArrowDown', nativeEvent: { isComposing: false }, preventDefault() {} })
+  assert.equal(selectedIndex(), 3)
+  rows = options(view.render())
+  rows[2].props.onMouseMove({ clientX: 360, clientY: 160 })
+  assert.equal(selectedIndex(), 3)
+
+  // Once the pointer actually moves, tracking resumes.
+  rows[1].props.onMouseMove({ clientX: 360, clientY: 120 })
+  assert.equal(selectedIndex(), 1)
+})

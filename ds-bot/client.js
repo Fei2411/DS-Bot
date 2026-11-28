@@ -25303,7 +25303,8 @@ var SPRING_LEAD = springEasing(784, 48.2);
 var SPRING_TRAIL = springEasing(289, 29.2);
 var SPRING_GLIDE = springEasing(1e3, 63);
 var SPRING_SLIDE = springEasing(784, 56);
-var QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) };
+var QUICK_GLIDE = springEasing(1296, 72);
+var QUICK_EDGES = { lead: QUICK_GLIDE, trail: QUICK_GLIDE };
 var spring = (curve, ...properties) => properties.map((property) => `${property} ${curve.duration}ms ${curve.easing}`).join(",");
 function liveSprings(apply2) {
   const values = /* @__PURE__ */ new Map();
@@ -25391,24 +25392,51 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
   const thumb = (0, import_react.useRef)(null);
   const own = (0, import_react.useRef)(null);
   if (own.current === null) {
+    const px = (value) => `${Math.round(Math.max(0, value) * 100) / 100}px`;
     own.current = {
       key: void 0,
       syncKey: void 0,
       axis,
       node: null,
       observer: null,
+      thumbNode: null,
+      lastW: "",
+      lastH: "",
       springs: liveSprings((values) => {
         const knob = thumb.current;
         if (!knob) return;
-        const currentAxis = own.current.axis;
+        const state = own.current;
+        if (state.thumbNode !== knob) {
+          state.thumbNode = knob;
+          state.lastW = "";
+          state.lastH = "";
+        }
+        const currentAxis = state.axis;
         if (currentAxis === "both") {
           knob.style.transform = `translate3d(${values.x0}px,${values.y0}px,0)`;
-          knob.style.width = `${Math.max(0, values.x1 - values.x0)}px`;
-          knob.style.height = `${Math.max(0, values.y1 - values.y0)}px`;
+          const width = px(values.x1 - values.x0);
+          const height = px(values.y1 - values.y0);
+          if (width !== state.lastW) {
+            state.lastW = width;
+            knob.style.width = width;
+          }
+          if (height !== state.lastH) {
+            state.lastH = height;
+            knob.style.height = height;
+          }
           return;
         }
         knob.style.transform = currentAxis === "x" ? `translateX(${values.start}px)` : `translateY(${values.start}px)`;
-        knob.style[currentAxis === "x" ? "width" : "height"] = `${Math.max(0, values.end - values.start)}px`;
+        const size = px(values.end - values.start);
+        if (currentAxis === "x") {
+          if (size !== state.lastW) {
+            state.lastW = size;
+            knob.style.width = size;
+          }
+        } else if (size !== state.lastH) {
+          state.lastH = size;
+          knob.style.height = size;
+        }
       })
     };
   }
@@ -25424,16 +25452,20 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
     }
     const { springs } = own.current;
     const before = springs.target();
+    const now2 = springs.current();
     const hidden = knob.dataset.hidden !== void 0;
     if (currentAxis === "both") {
       const x0 = chosen.offsetLeft;
       const x1 = x0 + chosen.offsetWidth;
       const y0 = chosen.offsetTop;
       const y1 = y0 + chosen.offsetHeight;
-      if (jump && !hidden && before?.x0 === x0 && before?.x1 === x1 && before?.y0 === y0 && before?.y1 === y1 && container.dataset.glide !== void 0) return;
+      const settled2 = !springs.isRunning() && now2?.x0 === x0 && now2?.x1 === x1 && now2?.y0 === y0 && now2?.y1 === y1;
+      if (!hidden && before?.x0 === x0 && before?.x1 === x1 && before?.y0 === y0 && before?.y1 === y1 && container.dataset.glide !== void 0 && (springs.isRunning() || settled2)) return;
       delete knob.dataset.hidden;
-      const forwardX = before === null || x0 >= before.x0;
-      const forwardY = before === null || y0 >= before.y0;
+      const refX = now2?.x0 ?? before?.x0;
+      const refY = now2?.y0 ?? before?.y0;
+      const forwardX = refX === void 0 || x0 >= refX;
+      const forwardY = refY === void 0 || y0 >= refY;
       springs.set(
         { x0, x1, y0, y1 },
         {
@@ -25449,9 +25481,11 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
     }
     const start = currentAxis === "x" ? chosen.offsetLeft : chosen.offsetTop;
     const end = start + (currentAxis === "x" ? chosen.offsetWidth : chosen.offsetHeight);
-    if (jump && !hidden && before?.start === start && before?.end === end && container.dataset.glide !== void 0) return;
+    const settled = !springs.isRunning() && now2?.start === start && now2?.end === end;
+    if (!hidden && before?.start === start && before?.end === end && container.dataset.glide !== void 0 && (springs.isRunning() || settled)) return;
     delete knob.dataset.hidden;
-    const forward = before === null || start >= before.start;
+    const refStart = now2?.start ?? before?.start;
+    const forward = refStart === void 0 || start >= refStart;
     springs.set({ start, end }, forward ? { start: trail, end: lead } : { start: lead, end: trail }, jump || hidden || before === null || reducedMotion());
     container.dataset.glide = "";
   };
@@ -25467,6 +25501,8 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
     state.syncKey = syncKey;
     if (axisChanged) {
       state.axis = axis;
+      state.lastW = "";
+      state.lastH = "";
       state.springs.reset();
       if (thumb.current) {
         thumb.current.style.transform = "";
@@ -26064,7 +26100,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 .bt-drop{position:absolute;top:calc(100% + 4px);left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12px;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;z-index:10;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
 .bt-option{display:flex;align-items:center;gap:10px;border:0;background:none;border-radius:8px;padding:7px 8px;min-height:36px;box-sizing:border-box;font-size:13px;line-height:18px;color:var(--bt-ink);cursor:pointer;text-align:left;width:100%}
 .bt-option[aria-selected=true]{background:var(--bt-active)}
-.bt-drop-list>.bt-option:not([aria-selected=true]):hover{background:var(--bt-hover)}
+.bt-drop-list:not([data-glide])>.bt-option:not([aria-selected=true]):hover{background:var(--bt-hover)}
 .bt-option-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-option-hint{font-size:11px;color:var(--bt-ink-2);flex:none;animation:bt-veil-in .16s ease-out}
 .bt-option-icon{width:22px;height:22px;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;flex:none}
@@ -27019,7 +27055,7 @@ body[data-ds-dark-theme] .bt-menu{background:color-mix(in srgb,var(--bt-card) 96
 @keyframes bt-check-pop{from{opacity:0;scale:.4}}
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span,.bt-sel-tick svg{animation:none}.bt-sel-caret{transition:none}}
 .bt-brand:hover{background:var(--bt-hover)}
-.bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
+.bt-drop-list{position:relative;flex:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
 .bt-sel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;width:auto;min-width:min(148px,100%);max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-ink);padding:0 10px 0 12px;font:inherit;font-size:13px;line-height:18px;font-weight:450;text-align:left;cursor:pointer;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-sel:hover:not(:disabled),.bt-sel[aria-expanded=true]{background:var(--bt-hover);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-sel:disabled{opacity:.45;cursor:default}
@@ -70436,6 +70472,13 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
   useFlip(glide2.box, listed, "[data-flip]");
   const drop = (0, import_react89.useRef)(null);
   useMorph(drop, listed);
+  const pointerRef = (0, import_react89.useRef)(null);
+  const scrollActiveRef = (0, import_react89.useRef)(false);
+  (0, import_react89.useEffect)(() => {
+    if (!scrollActiveRef.current) return;
+    scrollActiveRef.current = false;
+    glide2.box.current?.querySelector("[aria-selected=true]")?.scrollIntoView?.({ block: "nearest" });
+  }, [active, listed]);
   if (draft) {
     return (0, import_react89.createElement)(
       "div",
@@ -70504,9 +70547,11 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
               if (event.nativeEvent.isComposing || event.keyCode === 229) return;
               if (event.key === "ArrowDown") {
                 event.preventDefault();
+                scrollActiveRef.current = true;
                 setCursor(Math.min(active + 1, options.length - 1));
               } else if (event.key === "ArrowUp") {
                 event.preventDefault();
+                scrollActiveRef.current = true;
                 setCursor(Math.max(active - 1, 0));
               } else if (event.key === "Enter" && options[active]) {
                 event.preventDefault();
@@ -70536,7 +70581,16 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
               className: "bt-option",
               "aria-selected": index === active,
               "data-flip": option.key,
-              onMouseEnter: () => setCursor(index),
+              onMouseMove: (event) => {
+                const x = event?.clientX;
+                const y = event?.clientY;
+                if (Number.isFinite(x) && Number.isFinite(y)) {
+                  const last = pointerRef.current;
+                  if (last && last.x === x && last.y === y) return;
+                  pointerRef.current = { x, y };
+                }
+                if (active !== index) setCursor(index);
+              },
               onClick: option.run
             },
             option.bot ? (0, import_react89.createElement)(BotMark, { bot: option.bot, size: 22 }) : (0, import_react89.createElement)("span", { className: "bt-option-icon" }, option.icon),
