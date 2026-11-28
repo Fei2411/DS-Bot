@@ -24,6 +24,7 @@ import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { quoteMarkdown } from '../../../ds-bot/src/client/text-annotation.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { WorkPauseDock } from '../../../ds-bot/src/client/work-pause-card.js'
+import { CardDock } from '../../../ds-bot/src/client/ui/card.js'
 import { ApprovalDock } from './approval-dock.js'
 import { ClassicControls } from './classic-controls.js'
 import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
@@ -1404,22 +1405,23 @@ export const ComposerArea = memo(function ComposerArea({
     : name ? t('Message {name}', { name }) : t('Message')
 
   return h('div', { ref: composerRootRef, className: 'dsb-composer-root' },
-    !viewingSubagent ? h(MemoMemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
-    !viewingSubagent ? h(MemoModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !viewingSubagent ? h(MemoQuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoWidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoSecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoMailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoWorkPauseDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoAppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MemoApprovalDock, { botId, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
-    !isRoom && !viewingSubagent ? h(MemoClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
-    !isRoom && !viewingSubagent ? h(MemoClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
-    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(MemoBtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(MemoLearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !viewingSubagent ? h(CardDock, null,
+      h(MemoMemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }),
+      h(MemoModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
+      h(MemoQuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }),
+      !isRoom ? h(MemoWidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(MemoSecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(MemoConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(MemoMailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(MemoWorkPauseDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, actions }) : null,
+      !isRoom ? h(MemoHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
+      !isRoom ? h(MemoComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+      !isRoom ? h(MemoAppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+      !isRoom ? h(MemoApprovalDock, { botId, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
+      !isRoom ? h(MemoClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+      !isRoom ? h(MemoClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+      !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(MemoBtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+      !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(MemoLearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null) : null,
     !viewingSubagent ? h(MemoDesktopQueueDock, {
       sessionId: activeSessionId,
       running,

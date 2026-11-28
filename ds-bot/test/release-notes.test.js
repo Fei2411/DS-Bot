@@ -586,6 +586,13 @@ test('ReleaseNotesDialog shows only current version (never older ones), renders 
   assert.match(dialog.textContent, /Thanks!/)
   assert.doesNotMatch(dialog.textContent, /Earlier B|Earlier versions|Hide earlier/)
   assert.ok(dialog.querySelector('a.bt-rn-link'))
+  const scrim = dom.window.document.querySelector('.bt-scrim')
+  assert.ok(scrim, 'ReleaseNotesDialog renders backdrop scrim')
+  assert.equal(Boolean(scrim.inert), false, 'scrim inside Dialog mask must stay non-inert so backdrop click-to-close works')
+  assert.equal(prevBtn.inert, true, 'background sibling outside Dialog mask is isolated with inert')
+  await act(async () => { scrim.click() })
+  assert.deepEqual(closed, ['release-notes'])
+  closed.length = 0
 
   // Escape closes only ReleaseNotesDialog, not underlying Settings layer.
   await act(async () => {

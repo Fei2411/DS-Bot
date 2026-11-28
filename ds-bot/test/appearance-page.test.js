@@ -46,6 +46,8 @@ function withDocument(t) {
 
 const GRADIENT = { kind: 'gradient', from: '#223344', to: '#445566', angle: 90 }
 
+const keyEvent = key => ({ key, preventDefault() {}, stopPropagation() {} })
+
 test('a background slider that rests after "None" was picked changes nothing', async (t) => {
   withDocument(t)
   const { harness, BackgroundEditor } = await load()
@@ -53,7 +55,7 @@ test('a background slider that rests after "None" was picked changes nothing', a
   const save = (background) => { saves.push(background); return new Promise(() => {}) }
   const draw = value => harness.render(harness.React.createElement(BackgroundEditor, { value, save, actions: {}, run: p => p, Row, Choice }))
   const tree = draw(GRADIENT)
-  byLabel(tree, 'Dim').props.onChange({ target: { value: '40' } })
+  byLabel(tree, 'Dim').props.onKeyDown(keyEvent('PageUp'))
   kindButton(tree, 'none').props.onClick()
   await sleep(REST_MS)
   assert.deepEqual(saves, [null])
@@ -65,8 +67,11 @@ test('a kind picked right after a slider keeps what the slider set', async (t) =
   const { harness, BackgroundEditor } = await load()
   const saves = []
   const save = (background) => { saves.push(background); return new Promise(() => {}) }
-  const tree = harness.render(harness.React.createElement(BackgroundEditor, { value: GRADIENT, save, actions: {}, run: p => p, Row, Choice }))
-  byLabel(tree, 'Surface opacity').props.onChange({ target: { value: '90' } })
+  const draw = () => harness.render(harness.React.createElement(BackgroundEditor, { value: GRADIENT, save, actions: {}, run: p => p, Row, Choice }))
+  let tree = draw()
+  byLabel(tree, 'Surface opacity').props.onKeyDown(keyEvent('End'))
+  tree = draw()
+  byLabel(tree, 'Surface opacity').props.onKeyDown(keyEvent('PageDown'))
   await sleep(REST_MS)
   // The opacity is sent and not back yet when the color is picked.
   kindButton(tree, 'color').props.onClick()
@@ -101,10 +106,15 @@ test('a picture still uploading gives way to a kind picked meanwhile; one that l
   // Dim moved while another picture uploads: the picture lands with it.
   harness.unmount()
   saves.length = 0
-  const again = harness.render(harness.React.createElement(BackgroundEditor, { value: GRADIENT, save, actions, run: p => p, Row, Choice }))
+  const drawAgain = () => harness.render(harness.React.createElement(BackgroundEditor, { value: GRADIENT, save, actions, run: p => p, Row, Choice }))
+  let again = drawAgain()
   find(again, node => node.type === 'input' && node.props?.type === 'file').props.onChange({ target: { files: [file], value: 'x' } })
   await sleep(5)
-  byLabel(again, 'Dim').props.onChange({ target: { value: '40' } })
+  byLabel(again, 'Dim').props.onKeyDown(keyEvent('PageUp'))
+  for (let i = 0; i < 3; i += 1) {
+    again = drawAgain()
+    byLabel(again, 'Dim').props.onKeyDown(keyEvent('ArrowRight'))
+  }
   await sleep(REST_MS)
   uploaded({ id: 'b'.repeat(64) })
   await sleep(5)

@@ -120,7 +120,8 @@ test('the page shows the host\'s list in its three groups, directly actionable w
   assert.match(textOf(rowOf(tree, 'blocked:coder')), /RATE_LIMIT 429/)
   assert.ok(button(rowOf(tree, 'question:q-group'), 'Open in chat'))
   // The tabs count what waits; the filter pills list every Bot and group something waits in.
-  assert.deepEqual(all(tree, node => node.type === 'button' && node.props['aria-pressed'] !== undefined && !hasClass(node, 'bt-ib-pill')).map(textOf), ['Waiting for you9', 'New replies'])
+  const tabBar = all(tree, node => hasClass(node, 'bt-ib-seg'))[0]
+  assert.deepEqual(all(tabBar, node => node.type === 'button' && node.props['aria-pressed'] !== undefined).map(textOf), ['Waiting for you9', 'New replies'])
   assert.deepEqual(all(tree, node => hasClass(node, 'bt-ib-pill')).map(textOf), ['All', 'Chief', 'Writer', 'Desk', 'Coder'])
 })
 

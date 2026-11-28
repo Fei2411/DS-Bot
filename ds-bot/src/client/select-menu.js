@@ -206,10 +206,12 @@ export function SelectMenu({
   id,
   title,
   minMenuWidth,
+  label,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledby,
   'data-tour': dataTour,
 }) {
+  const resolvedAriaLabel = ariaLabel ?? label
   const listboxId = useId()
   const button = useRef(null)
   const menu = useRef(null)
@@ -419,7 +421,7 @@ export function SelectMenu({
       'aria-haspopup': 'listbox',
       'aria-expanded': isOpen,
       'aria-controls': isOpen ? listboxId : undefined,
-      'aria-label': ariaLabel,
+      'aria-label': resolvedAriaLabel,
       'aria-labelledby': ariaLabelledby,
       title: title ?? (typeof displayLabel === 'string' && displayLabel !== '' ? displayLabel : undefined),
       disabled: isDisabled,
@@ -448,7 +450,7 @@ export function SelectMenu({
       role: 'listbox',
       tabIndex: -1,
       className: popupClass,
-      'aria-label': ariaLabel,
+      'aria-label': resolvedAriaLabel,
       'aria-labelledby': ariaLabelledby,
       'data-compact': variant === 'compact' ? '' : undefined,
       'data-leaving': leaving ? '' : undefined,

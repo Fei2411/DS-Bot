@@ -362,7 +362,7 @@ test('Escape and outside clicks while composing clear compose and open together'
   const calls = []
   const actions = { closeGoalCompose: () => calls.push('compose'), closeGoal: () => calls.push('open') }
   const node = renderHeader(team(), { goalCompose: 'r1', goalOpen: 'r1' }, {}, actions)
-  const outside = findComp(node, 'GoalOutside')
+  const outside = findComp(node, 'IslandDismiss')
   assert.ok(outside)
   outside.props.close()
   assert.deepEqual(calls, ['compose', 'open'])

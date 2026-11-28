@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { keyLetter, useOptionKeys } from 'deep-view/react'
-import { ChevronDownIcon, CloseIcon, CheckIcon } from './icons.js'
+import { CheckIcon } from './icons.js'
 import { CellEmpty } from './cell-empty.js'
 import { sendsOnEnter } from './enter-key.js'
 import { t } from './i18n.js'
@@ -8,6 +8,7 @@ import { useDockHold } from './card-hold.js'
 import { blockingQuestionId } from './question-draft.js'
 import { SPRING_SHAPE, reducedEffects, reducedMotion, useMorph } from './motion.js'
 import { heldCardKey } from './sources.js'
+import { ActionCard, SettledCard } from './ui/card.js'
 
 // -------------------------------------------------------------------------
 // Question cards. `ask_user` cards sit in the transcript and never block the Bot;
@@ -92,23 +93,28 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, onOwnChange, 
   } else if ((raised || multi) && canSubmit) {
     foot = h('div', { className: 'bt-q-foot' }, h('button', { type: 'submit', className: 'bt-q-submit', disabled: busy }, t('Submit')))
   }
-  return h('form', {
-    className: raised ? 'bt-q bt-q-raised' : 'bt-q', 'aria-labelledby': titleId,
-    'aria-busy': busy || undefined,
-    onFocusCapture: onInteract, onPointerDownCapture: onInteract,
+  return h(ActionCard, {
+    mode: raised ? 'dock' : 'inline',
+    as: 'form',
+    wrap: false,
+    titleId,
+    busy,
+    title: [question.header ? `${question.header} · ` : '', question.question],
+    detail: question.detail || null,
+    headMeta: raised && multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null,
+    onDismiss,
+    dismissLabel: t('Dismiss question'),
+    dismissTitle: t('Dismiss'),
+    dismissDisabled: busy,
+    footer: foot,
+    onFocusCapture: onInteract,
+    onPointerDownCapture: onInteract,
     onSubmit: (event) => { event.preventDefault(); submit() },
   },
-    h('div', { className: 'bt-q-head' },
-      h('div', { className: 'bt-q-text' },
-        h('p', { className: 'bt-q-title', id: titleId }, question.header ? `${question.header} · ` : '', question.question),
-        question.detail ? h('div', { className: 'bt-q-detail' }, question.detail) : null,
-        raised && multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null),
-      h('button', { type: 'button', className: 'bt-q-x', 'aria-label': t('Dismiss question'), title: t('Dismiss'), onClick: onDismiss, disabled: busy }, h(CloseIcon))),
-    rows.length > 0 ? h('div', { className: 'bt-q-list', role: 'group' }, rows) : null,
-    field && !raised ? h('div', { className: 'bt-q-custom' },
-      h('label', { className: 'bt-q-field' }, field),
-      !multi && canSubmit ? h('button', { type: 'submit', className: 'bt-q-submit', disabled: busy }, t('Submit')) : null) : null,
-    foot)
+  rows.length > 0 ? h('div', { className: 'bt-q-list', role: 'group' }, rows) : null,
+  field && !raised ? h('div', { className: 'bt-q-custom' },
+    h('label', { className: 'bt-q-field' }, field),
+    !multi && canSubmit ? h('button', { type: 'submit', className: 'bt-q-submit', disabled: busy }, t('Submit')) : null) : null)
 }
 
 // How a card closed without an answer on it reads on its badge.
@@ -230,36 +236,26 @@ export function SettledQuestion({ question, answer, closed }) {
   useAnswerMorph(cardRef, 'question', question?.id)
   const fold = useFoldCard(cardRef, bodyRef, hasDetail)
   const badge = answered ? null : h('span', { className: 'bt-q-badge' }, closedLabel(closed))
-  const head = hasDetail
-    ? h('button', {
-      type: 'button', className: 'bt-q-head bt-q-fold',
-      'aria-expanded': fold.open, title: fold.open ? t('Show less') : t('Show more'), onClick: fold.toggle,
-    },
-    h('span', { className: 'bt-q-text' }, prompt ? h('span', { className: 'bt-q-title' }, prompt) : null),
+  return h(SettledCard, {
+    inline: false,
+    cardRef,
+    bodyRef,
+    title: prompt || null,
+    ariaLabel: prompt,
     badge,
-    h('span', { className: 'bt-q-chevron', 'aria-hidden': true }, h(ChevronDownIcon)))
-    : h('div', { className: 'bt-q-head' },
-      h('div', { className: 'bt-q-text' }, prompt ? h('p', { className: 'bt-q-title' }, prompt) : null),
-      badge)
-  return h('div', {
-    ref: cardRef,
-    className: answered ? 'bt-q bt-q-settled bt-q-answered' : 'bt-q bt-q-settled bt-q-dismissed',
-    'data-open': fold.open ? '' : undefined,
-    'data-expandable': hasDetail ? '' : undefined,
-    role: 'group',
-    'aria-label': prompt,
-    onClick: hasDetail && !fold.open ? fold.onCardClick : undefined,
-  },
-  head,
-  !fold.open && chosen.length > 0 ? h('div', { className: 'bt-q-list bt-q-summary', role: 'group', 'aria-label': t('Your answer') }, chosen.map(({ label, at }, index) =>
-    h('div', { key: `${label}-${index}`, className: 'bt-q-opt', title: t('Selected') },
-      at >= 0 ? h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(at)) : null,
-      h('span', { className: 'bt-q-body' }, h('span', { className: 'bt-q-label' }, label))))) : null,
-  fold.showBody ? h('div', {
-    ref: bodyRef,
-    className: 'bt-q-expand',
-    'data-leaving': fold.leaving ? '' : undefined,
-    style: fold.leaving ? { '--bt-fold-top': `${fold.foldTop}px` } : undefined,
+    answered,
+    dismissed: !answered,
+    expandable: hasDetail,
+    open: fold.open,
+    onToggle: fold.toggle,
+    onCardClick: fold.onCardClick,
+    showBody: fold.showBody,
+    leaving: fold.leaving,
+    foldTop: fold.foldTop,
+    summary: chosen.length > 0 ? h('div', { className: 'bt-q-list bt-q-summary', role: 'group', 'aria-label': t('Your answer') }, chosen.map(({ label, at }, index) =>
+      h('div', { key: `${label}-${index}`, className: 'bt-q-opt', title: t('Selected') },
+        at >= 0 ? h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(at)) : null,
+        h('span', { className: 'bt-q-body' }, h('span', { className: 'bt-q-label' }, label))))) : null,
   },
   detail !== '' ? h('div', { className: 'bt-q-detail' }, detail) : null,
   options.length > 0 || (answered && custom !== '')
@@ -287,7 +283,7 @@ export function SettledQuestion({ question, answer, closed }) {
       h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(options.length)),
       h('span', { className: 'bt-q-body' }, h('span', { className: 'bt-q-label' }, custom)),
       h('span', { className: 'bt-q-check', title: t('Selected') }, h(CheckIcon))) : null)
-    : null) : null)
+    : null)
 }
 
 export function QuestionCard({ sessionId, matched, actions }) {

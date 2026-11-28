@@ -97,7 +97,15 @@ runInNewContext(bundle.outputFiles[0].text, {
 })
 const { ModelMenu, EffortBar, MODEL_CSS, effortCache } = module.exports
 
-const nodes = (tree, match) => (!tree || typeof tree !== 'object' ? [] : [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))])
+const nodes = (tree, match) => {
+  if (!tree || typeof tree !== 'object') return []
+  if (typeof tree.type === 'function' && tree.type.name === 'Slider') {
+    const prev = instance
+    instance = { slots: [], cursor: 0, effects: [], update() {} }
+    try { return nodes(tree.type(tree.props), match) } finally { instance = prev }
+  }
+  return [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))]
+}
 const settle = () => new Promise(done => setImmediate(done))
 const keydown = key => ({ key, preventDefault() {}, stopPropagation() {} })
 const listener = name => listeners.findLast(entry => entry.name === name)?.fn

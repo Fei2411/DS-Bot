@@ -47,7 +47,7 @@ const mod = run(outputFiles[0].text)
 const render = (component, props) => {
   current = { index: 0, slots: [], effects: [] }
   const tree = mod[component](props)
-  return tree
+  return tree && typeof tree.type === 'function' && tree.type.name === 'ActionCard' ? tree.type(tree.props) : tree
 }
 const texts = (node, found = []) => {
   if (typeof node === 'string' || typeof node === 'number') found.push(String(node))

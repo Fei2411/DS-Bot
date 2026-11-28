@@ -76,6 +76,16 @@ runInNewContext(outputFiles[0].text, {
   URL,
 })
 const { useDockHold, PendingQuestion, SettledQuestion, SecretCard, PendingView, AnsweredReply, SettledView, AnsweredCell, HandoffCall, HandoffDock, PendingHandoff, SettledHandoff, CellEmpty } = module.exports
+const UI_CARRIERS = new Set(['ActionCard', 'SettledCard'])
+const expand = (node) => {
+  if (Array.isArray(node)) return node.map(expand)
+  if (!node || typeof node !== 'object') return node
+  if (typeof node.type === 'function' && UI_CARRIERS.has(node.type.name)) {
+    return expand(node.type(node.props))
+  }
+  if (!node.props || !('children' in node.props)) return node
+  return { ...node, props: { ...node.props, children: expand(node.props.children) } }
+}
 const mount = (Component, props) => {
   const instance = {
     slots: [], effects: [], props,
@@ -83,7 +93,7 @@ const mount = (Component, props) => {
       instance.props = next
       instance.index = 0
       current = instance
-      const out = Component(next)
+      const out = expand(Component(next))
       current = undefined
       for (const run of instance.effects.splice(0)) run()
       return out
@@ -550,17 +560,17 @@ test('the dock draws a handoff the transcript does not, and keeps one the user s
 })
 
 test('an answered handoff keeps its title and how it ended, and nothing to press', () => {
-  const done = SettledHandoff({ handoff: { reason: 'payment', note: 'Pay the invoice.', outcome: 'done' } })
+  const done = mount(SettledHandoff, { handoff: { reason: 'payment', note: 'Pay the invoice.', outcome: 'done' } }).render()
   assert.equal(byClass(done, 'bt-q-title').props.children[0], 'Payment needed')
   assert.ok(byClass(done, 'bt-q-check'))
   assert.equal(byClass(done, 'bt-q-badge'), undefined)
   assert.equal(buttons(done).length, 0)
-  const skipped = SettledHandoff({ handoff: { reason: 'login', note: '', outcome: 'skipped' } })
+  const skipped = mount(SettledHandoff, { handoff: { reason: 'login', note: '', outcome: 'skipped' } }).render()
   assert.equal(byClass(skipped, 'bt-q-badge').props.children[0], 'Skipped')
   assert.equal(byClass(skipped, 'bt-q-check'), undefined)
   assert.match(skipped.props.children[0].props.className, /bt-q-dismissed/)
   assert.doesNotMatch(done.props.children[0].props.className, /bt-q-dismissed/)
-  const returned = SettledHandoff({ handoff: { reason: 'login', note: '', outcome: 'returned' } })
+  const returned = mount(SettledHandoff, { handoff: { reason: 'login', note: '', outcome: 'returned' } }).render()
   assert.equal(byClass(returned, 'bt-q-badge').props.children[0], 'Returned')
   assert.equal(byClass(returned, 'bt-q-check'), undefined)
   assert.doesNotMatch(returned.props.children[0].props.className, /bt-q-dismissed/)

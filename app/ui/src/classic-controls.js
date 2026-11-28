@@ -8,7 +8,7 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CloseIcon, ShieldIcon } from '../../../ds-bot/src/client/icons.js'
 import { Caret, ModelMenu, useAnchoredMenu } from '../../../ds-bot/src/client/model-menu.js'
 import { useLinger } from '../../../ds-bot/src/client/motion.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { Dialog } from '../../../ds-bot/src/client/ui/dialog.js'
 
 const PRESET_LABELS = {
   'read-only': 'Read only',
@@ -95,8 +95,6 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
     }
   }, [preset])
 
-  useEscape(() => { if (!busy) onCancel() }, Boolean(preset), { priority: 30 })
-
   if (!shown) return null
   const isFull = shown === 'danger-full-access'
   const title = isFull ? t('Switch to Full access?') : t('Switch to Auto review?')
@@ -104,19 +102,22 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
     ? t('Full access lets the agent run commands and edit files outside this workspace without asking.')
     : t('Auto review uses a model to review actions for this session only.')
 
-  const dialog = h('div', {
-    className: 'dsb-risk-layer',
-    role: 'presentation',
-    'data-leaving': leaving ? '' : undefined,
-    onMouseDown: (event) => { if (event.target === event.currentTarget && !busy && !leaving) onCancel() },
-  },
-  h('div', {
+  return h(Dialog, {
+    open: Boolean(preset),
+    leaving,
+    portal: true,
+    ariaLabelledBy: titleId,
+    size: 'sm',
+    maskClassName: 'dsb-risk-layer',
     className: 'dsb-risk-dialog',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-labelledby': titleId,
-    'aria-describedby': descId,
-    'data-danger': isFull ? '' : undefined,
+    closeOnBackdrop: !busy && !leaving,
+    escapePriority: 30,
+    autoFocus: false,
+    onClose: () => { if (!busy) onCancel() },
+    dataAttrs: {
+      'aria-describedby': descId,
+      'data-danger': isFull ? '' : undefined,
+    },
   },
   h('div', { className: 'dsb-risk-head' },
     h('span', { className: 'dsb-risk-ico', 'aria-hidden': true }, presetIcon(shown)),
@@ -144,9 +145,7 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
       className: isFull ? 'bt-q-submit dsb-risk-danger-btn' : 'bt-q-submit',
       disabled: !ack || busy || leaving,
       onClick: () => onConfirm(shown),
-    }, t('Switch preset')))))
-
-  return typeof document !== 'undefined' && document.body ? createPortal(dialog, document.body) : dialog
+    }, t('Switch preset'))))
 }
 
 export function ClassicPermissionMenu({ sessionId, permission, disabled, actions, onUpdated }) {

@@ -1,9 +1,9 @@
 import { createElement as h, useEffect, useId, useRef, useState } from 'react'
-import { CheckIcon } from './icons.js'
 import { BotAvatar } from './mark.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
+import { ActionCard, SettledCard } from './ui/card.js'
 import { lookOf } from './characters.js'
 import { inkFill } from './inks.js'
 import { t } from './i18n.js'
@@ -159,20 +159,19 @@ export function PendingAppAccess({ ask, actions, inline }) {
       actions.reportError?.(error, 'computer')
     }).finally(() => { busyRef.current = false })
   }
-  return h('div', {
-    className: inline ? 'bt-q-inline' : 'bt-q-dock',
-    style: closed ? { display: 'none' } : undefined,
+  return h(ActionCard, {
+    mode: inline ? 'inline' : 'dock',
+    titleId,
+    hidden: closed,
     onFocusCapture: keep,
     onPointerDownCapture: keep,
-  },
-    h('section', { className: inline ? 'bt-q' : 'bt-q bt-q-raised', role: 'group', 'aria-labelledby': titleId },
-      h('div', { className: 'bt-q-head' },
-        h('div', { className: 'bt-q-text' },
-          h('p', { className: 'bt-q-title', id: titleId }, t('Allow {name} to use {app}?', { name: ask.botName ?? 'a Bot', app: ask.appName })))),
-      h('div', { className: 'bt-q-foot' },
-        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('deny') }, t('Deny')),
-        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('once') }, t('This time')),
-        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('always') }, t('Always')))))
+    title: t('Allow {name} to use {app}?', { name: ask.botName ?? 'a Bot', app: ask.appName }),
+    buttons: [
+      { key: 'deny', label: t('Deny'), variant: 'secondary', onClick: () => answer('deny') },
+      { key: 'once', label: t('This time'), variant: 'secondary', onClick: () => answer('once') },
+      { key: 'always', label: t('Always'), variant: 'primary', onClick: () => answer('always') },
+    ],
+  })
 }
 
 // One line per computer call: the app and the action. A screenshot result adds a
@@ -259,24 +258,24 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
     await actions.computerTakeover(bot.id)
     actions.showDetails?.(sessionId, 'computer')
   }, false)
-  return h('div', {
-    className: inline ? 'bt-q-inline' : 'bt-q-dock',
-    style: closed ? { display: 'none' } : undefined,
+  return h(ActionCard, {
+    mode: inline ? 'inline' : 'dock',
+    className: 'bt-handoff',
+    titleId,
+    hidden: closed,
     onFocusCapture: keep,
     onPointerDownCapture: keep,
-  },
-    h('section', { className: inline ? 'bt-q bt-handoff' : 'bt-q bt-q-raised bt-handoff', role: 'group', 'aria-labelledby': titleId },
-      h('div', { className: 'bt-q-head' },
-        h('div', { className: 'bt-q-text' },
-          h('p', { className: 'bt-q-title', id: titleId }, handoffTitle(hold)),
-          hold.note ? h('div', { className: 'bt-q-detail' }, hold.note) : null,
-          taken ? h('div', { className: 'bt-handoff-state', role: 'status' },
-            h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
-            t('You control the computer')) : null)),
-      h('div', { className: 'bt-q-foot' },
-        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
-        taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
-        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done")))))
+    title: handoffTitle(hold),
+    detail: hold.note || null,
+    headMeta: taken ? h('div', { className: 'bt-handoff-state', role: 'status' },
+      h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
+      t('You control the computer')) : null,
+    buttons: [
+      { key: 'skip', label: t('Skip'), variant: 'secondary', onClick: () => answer('skip') },
+      taken ? null : { key: 'takeover', label: t('Take over'), variant: 'secondary', onClick: takeOver },
+      { key: 'done', label: t("I'm done"), variant: 'primary', onClick: () => answer('done') },
+    ],
+  })
 }
 
 export function ComputerHandoffCall({ sessionId, callId, roster, actions, heldCards, hooks }) {
@@ -302,13 +301,13 @@ export function SettledComputerHandoff({ handoff }) {
   const skipped = handoff.outcome === 'skipped'
   const returned = handoff.outcome === 'returned'
   const title = t(HANDOFF_TITLES[handoff.reason] ?? HANDOFF_TITLES.other)
-  return h('div', { className: 'bt-q-inline' },
-    h('div', { className: skipped ? 'bt-q bt-q-settled bt-q-dismissed' : 'bt-q bt-q-settled', role: 'group', 'aria-label': title },
-      h('div', { className: 'bt-q-head' },
-        h('div', { className: 'bt-q-text' }, h('p', { className: 'bt-q-title' }, title)),
-        skipped || returned
-          ? h('span', { className: 'bt-q-badge' }, t(skipped ? 'Skipped' : 'Returned'))
-          : h('span', { className: 'bt-q-check', title: t('Done') }, h(CheckIcon)))))
+  return h(SettledCard, {
+    title,
+    dismissed: skipped,
+    badge: skipped || returned ? h('span', { className: 'bt-q-badge' }, t(skipped ? 'Skipped' : 'Returned')) : null,
+    checked: !skipped && !returned,
+    checkedLabel: t('Done'),
+  })
 }
 
 // ---- The indicator: who is on the computer, with a Stop for each. ----

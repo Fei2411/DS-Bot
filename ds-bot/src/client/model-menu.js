@@ -4,14 +4,15 @@ import { currentPart } from './text.js'
 import { CheckIcon, SlidersIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
-import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
+import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
-import { registerPopupOwner } from './popup-ownership.js'
-import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { lruGet, lruSet } from './memo.js'
+import { Slider } from './ui/slider.js'
+import { Collapse, useAnchoredMenu, useInlineMenu } from './ui/popover.js'
 
-const MENU_EXIT_MS = 120
+export { Collapse, useAnchoredMenu, useInlineMenu }
+
 const MAX_EFFORT_CACHE = 200
 
 // -------------------------------------------------------------------------
@@ -80,21 +81,15 @@ export function effortStops(reasoning) {
     : [{ effort: undefined, label: t('Default') }, ...efforts.map(effort => ({ effort: effort.id, label: effort.name }))]
 }
 
-const ResetIcon = () => h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-  h('path', { d: 'M2.8 6.5A5.5 5.5 0 1 1 4 11.8' }),
-  h('path', { d: 'M2.5 3.2v3.4h3.4' }))
-
 export function EffortBar({ reasoning, current, onPick }) {
   const stops = effortStops(reasoning)
-  const track = useRef(null)
-  const drag = useRef(null)
   const [picked, setPicked] = useState(current)
-  const [dragRatio, setDragRatio] = useState(null)
   // One write at a time. A pick that lands while a write is out replaces the single
   // pending target and follows it, so an older save cannot land last and pull the knob
   // off the level the user chose. The knob keeps that level until the queue finishes,
   // and a failed save falls back to the roster.
   const queue = useRef({ busy: false, hasPending: false, pending: undefined })
+  const dragging = useRef(false)
   const chosen = useRef(undefined)
   const latest = useRef(current)
   const pick = useRef(onPick)
@@ -102,7 +97,7 @@ export function EffortBar({ reasoning, current, onPick }) {
   pick.current = onPick
   const same = (a, b) => (a ?? null) === (b ?? null)
   useEffect(() => {
-    if (drag.current || queue.current.busy || queue.current.hasPending) return
+    if (dragging.current || queue.current.busy || queue.current.hasPending) return
     if (chosen.current !== undefined && !same(current, chosen.current)) return
     chosen.current = undefined
     setPicked(current)
@@ -112,8 +107,6 @@ export function EffortBar({ reasoning, current, onPick }) {
   const activeEffort = picked ?? (hasDefault ? reasoning.defaultEffort : undefined)
   const activeIndex = Math.max(0, stops.findIndex(stop => (stop.effort ?? null) === (activeEffort ?? null)))
   const active = stops[activeIndex]
-  const stopRatio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1)
-  const ratio = dragRatio ?? stopRatio
   const drain = async () => {
     const state = queue.current
     if (state.busy) return
@@ -134,7 +127,6 @@ export function EffortBar({ reasoning, current, onPick }) {
           try { ok = await saving }
           catch { ok = false }
           if (ok === false) {
-            // A newer pick is already waiting, so this level is not the one that lands.
             if (state.hasPending && !same(state.pending, effort)) continue
             failed = true
             break
@@ -149,7 +141,7 @@ export function EffortBar({ reasoning, current, onPick }) {
     if (failed) {
       state.hasPending = false
       chosen.current = undefined
-      if (!drag.current) setPicked(latest.current)
+      if (!dragging.current) setPicked(latest.current)
       return
     }
     if (didWrite) chosen.current = written
@@ -165,86 +157,22 @@ export function EffortBar({ reasoning, current, onPick }) {
     state.hasPending = true
     if (!state.busy) void drain()
   }
-  const ratioAt = (clientX) => {
-    const rect = track.current?.getBoundingClientRect()
-    if (!rect || stops.length <= 1) return 1
-    const span = Math.max(1, rect.width - 22)
-    return Math.max(0, Math.min(1, (clientX - rect.left - 11) / span))
-  }
-  const nearestStop = r => stops[Math.round(r * (stops.length - 1))] ?? stops[0]
-  const onPointerDown = (event) => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    try { event.currentTarget.setPointerCapture?.(event.pointerId) } catch {}
-    const r = ratioAt(event.clientX)
-    const next = nearestStop(r)
-    drag.current = { id: event.pointerId, startX: event.clientX, moved: false, effort: next?.effort }
-    if (next) setPicked(next.effort)
-  }
-  const onPointerMove = (event) => {
-    const state = drag.current
-    if (!state || state.id !== event.pointerId) return
-    if (!state.moved && Math.abs(event.clientX - state.startX) > 2) state.moved = true
-    const r = ratioAt(event.clientX)
-    const next = nearestStop(r)
-    if (state.moved) setDragRatio(r)
-    if (next) {
-      state.effort = next.effort
-      setPicked(next.effort)
-    }
-  }
-  const finishDrag = (event) => {
-    const state = drag.current
-    if (!state || (event && state.id !== event.pointerId)) return
-    drag.current = null
-    setDragRatio(null)
-    commit(state.effort)
-  }
-  const onKeyDown = (event) => {
-    if (!['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    event.stopPropagation()
-    const nextIndex = event.key === 'Home' ? 0
-      : event.key === 'End' ? stops.length - 1
-        : (event.key === 'ArrowLeft' || event.key === 'ArrowDown') ? Math.max(0, activeIndex - 1)
-          : Math.min(stops.length - 1, activeIndex + 1)
-    const next = stops[nextIndex]
-    if (next) commit(next.effort)
-  }
-  return h('div', { className: 'bt-effort-bar', role: 'group', 'aria-label': t('Thinking level') },
-    h('div', { className: 'bt-effort-head' },
-      h('span', { className: 'bt-effort-label' }, t('Thinking level')),
-      h('span', { className: 'bt-effort-meta' },
-        picked === undefined && hasDefault ? h('span', { className: 'bt-effort-tag' }, t('Default')) : null,
-        h('span', { className: 'bt-effort-val' }, active.label),
-        picked !== undefined || !hasDefault
-          ? h('button', {
-              type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'),
-              disabled: picked === undefined, onClick: () => commit(undefined),
-            }, h(ResetIcon))
-          : null)),
-    h('div', {
-      ref: track, className: 'bt-effort-track', role: 'slider', tabIndex: 0,
-      'aria-label': t('Thinking level'), 'aria-valuemin': 0, 'aria-valuemax': stops.length - 1,
-      'aria-valuenow': activeIndex, 'aria-valuetext': active.label,
-      'data-dragging': dragRatio !== null ? '' : undefined,
-      style: { '--bt-effort-p': ratio },
-      onPointerDown, onPointerMove,
-      onPointerUp: finishDrag, onPointerCancel: finishDrag, onLostPointerCapture: finishDrag,
-      onKeyDown,
-    },
-    h('span', { className: 'bt-effort-fill', 'aria-hidden': true }),
-    stops.map((stop, index) => {
-      const dotRatio = stops.length <= 1 ? 1 : index / (stops.length - 1)
-      return h('span', {
-        key: stop.effort ?? 'default',
-        className: 'bt-effort-dot',
-        'data-filled': dotRatio <= ratio + 0.001 || undefined,
-        style: { '--bt-dot-p': dotRatio },
-        'aria-hidden': true,
-      })
-    }),
-    h('span', { className: 'bt-effort-knob', 'aria-hidden': true })))
+  return h(Slider, {
+    label: t('Thinking level'),
+    headerLabel: t('Thinking level'),
+    stops: stops.map(stop => ({ key: stop.effort ?? 'default', value: stop.effort, label: stop.label })),
+    activeIndex,
+    defaultTag: picked === undefined && hasDefault ? t('Default') : '',
+    valueLabel: active.label,
+    showDots: true,
+    onDragChange: activeDrag => { dragging.current = activeDrag },
+    onChange: effort => setPicked(effort),
+    onCommit: effort => commit(effort),
+    onReset: picked !== undefined || !hasDefault ? () => commit(undefined) : null,
+    resetLabel: t('Default'),
+    resetDisabled: picked === undefined,
+    resetClassName: 'bt-effort-reset',
+  })
 }
 
 // The stable id of a provider group: the models' provider, never the display name,
@@ -333,99 +261,6 @@ export function ModelRows({ roster, current, onPick, query = '', filtering = fal
 }
 
 export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, height: 12, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M5.5 8l4.5 4.5L14.5 8' }))
-
-// A menu that opens under its trigger, or above when the window has no room below. A
-// click outside, Escape, or a scroll outside it closes it.
-export function useAnchoredMenu(minWidth = 240, align = 'right') {
-  const [anchor, setAnchor] = useState(null)
-  const [place, setPlace] = useState(null)
-  const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
-  const button = useRef(null)
-  const menu = useRef(null)
-  useLayoutEffect(() => registerPopupOwner(button, menu), [button, menu])
-  const tick = useViewport(anchor !== null || Boolean(shownPlace))
-  const close = () => { setAnchor(null); setPlace(null) }
-  useEffect(() => {
-    if (place === null) return undefined
-    const onDown = (event) => {
-      if (menu.current?.contains(event.target) || button.current?.contains(event.target)) return
-      close()
-    }
-    const onKey = (event) => {
-      stepMenuFocus(menu.current, event, button.current)
-    }
-    const onScroll = (event) => { if (!menu.current?.contains(event.target)) close() }
-    window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('scroll', onScroll, true)
-    return () => {
-      window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('scroll', onScroll, true)
-    }
-  }, [place])
-  useEscape(() => { close(); button.current?.focus() }, place !== null, { priority: ESCAPE_PRIORITY.MENU })
-  const open = () => setAnchor({})
-  // Re-reads the trigger's rect whenever the visible viewport moves: the menu
-  // tracks its anchor through the on-screen keyboard, not past it.
-  useLayoutEffect(() => {
-    if (anchor === null || !button.current) return
-    const rect = button.current.getBoundingClientRect()
-    const width = Math.min(Math.max(minWidth, rect.width), window.innerWidth - 16)
-    const rawLeft = align === 'left' ? rect.left : rect.right - width
-    const left = Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8))
-    const below = viewBottom() - rect.bottom
-    const originX = align === 'left' ? 'left' : 'right'
-    setPlace(below >= 260 || below >= rect.top
-      ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': `top ${originX}` }
-      : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': `bottom ${originX}` })
-  }, [anchor, tick, minWidth, align])
-  return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
-}
-
-// The same menu opened in the flow under its trigger, so what follows it moves with it.
-// A click outside the group (trigger, list, and what sits under them) or Escape closes it.
-export function useInlineMenu() {
-  const [isOpen, setOpen] = useState(false)
-  const root = useRef(null)
-  const button = useRef(null)
-  const menu = useRef(null)
-  const close = () => setOpen(false)
-  useEffect(() => {
-    if (!isOpen) return undefined
-    const onDown = (event) => { if (!root.current?.contains(event.target)) close() }
-    const onKey = (event) => {
-      stepMenuFocus(menu.current, event, button.current)
-    }
-    window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [isOpen])
-  useEscape(() => { close(); button.current?.focus() }, isOpen, { priority: ESCAPE_PRIORITY.MENU })
-  return { isOpen, root, button, menu, open: () => setOpen(true), close }
-}
-
-// Content that grows from nothing and shrinks back to nothing in the flow, so what
-// follows it moves with it. It stays mounted for the length of the shrink and keeps what
-// it last showed meanwhile; a quick reopen turns the move around where it stands.
-export function Collapse({ open, children }) {
-  const [shown] = useLinger(open, SPRING_SHAPE.duration)
-  const [expanded, setExpanded] = useState(open)
-  const box = useRef(null)
-  const last = useRef(children)
-  if (open) last.current = children
-  useLayoutEffect(() => {
-    // Reading the height settles the collapsed layout first, so the opening has a start.
-    if (open) void box.current?.offsetHeight
-    setExpanded(open)
-  }, [open])
-  if (!shown) return null
-  return h('div', { ref: box, className: 'bt-collapse', 'data-open': expanded || undefined },
-    h('div', { className: 'bt-collapse-in' }, open ? children : last.current))
-}
 
 // A local agent's list comes from its CLI, which only its own menu asks: the menu opens
 // at once and fills in when the CLI has answered.

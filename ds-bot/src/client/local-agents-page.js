@@ -7,6 +7,7 @@ import { AgentLogo, shortVersion } from './agent-cards.js'
 import { PlusIcon, TrashIcon } from './icons.js'
 import { call } from './api.js'
 import { t } from './i18n.js'
+import { SelectMenu } from './ui/controls.js'
 
 
 function AgentForm({ initial, submit, close }) {
@@ -63,10 +64,15 @@ function ProfileForm({ initial, detected, submit, close }) {
         ? h('label', { className: 'bt-set-field' },
           h('span', null, t('Agent')),
           h('input', { className: 'bt-input', value: detected.find(item => item.route === initial.baseRoute)?.name ?? initial.baseRoute, disabled: true }))
-        : h('label', { className: 'bt-set-field' },
+        : h('div', { className: 'bt-set-field' },
           h('span', null, t('Agent')),
-          h('select', { className: 'bt-select', value: selectedBaseRoute, disabled: saving || detected.length === 0, onChange: event => setBaseRoute(event.target.value) },
-            detected.map(agent => h('option', { key: agent.route, value: agent.route }, agent.name)))),
+          h(SelectMenu, {
+            'aria-label': t('Agent'),
+            value: selectedBaseRoute,
+            disabled: saving || detected.length === 0,
+            options: detected.map(agent => ({ value: agent.route, label: agent.name })),
+            onChange: value => setBaseRoute(value),
+          })),
       h('label', { className: 'bt-set-field' },
         h('span', null, t('Profile name')),
         h('input', { className: 'bt-input', value: name, autoFocus: true, disabled: saving, placeholder: 'Work', maxLength: 32, onChange: event => setName(event.target.value) }))),

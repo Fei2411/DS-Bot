@@ -3,14 +3,14 @@ import { createPortal } from 'react-dom'
 import { maskOf } from '../../../ds-bot/src/client/characters.js'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
-import { HeaderPill } from '../../../ds-bot/src/client/header.js'
+import { ConnectionIslandPod, HeaderPill } from '../../../ds-bot/src/client/header.js'
+import { DynamicIsland } from '../../../ds-bot/src/client/ui/island.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { inkText, paintCss } from '../../../ds-bot/src/client/inks.js'
 import { PendingLearning } from '../../../ds-bot/src/client/learning-card.js'
 import { lookOf } from '../../../ds-bot/src/client/mark.js'
 import { DeepSeekSignIn } from '../../../ds-bot/src/client/model-menu.js'
-import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { ReloadConfirmHost } from '../../../ds-bot/src/client/reload-recovery.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
@@ -177,24 +177,20 @@ function ClassicTitleToggle({ hidden, onToggle }) {
   }, h(SidebarIcon)), document.body)
 }
 
-function ConnectionBanner({ useConnection, onReconnect }) {
-  const conn = useConnection ? useConnection(state => state) : null
-  const active = conn && conn.status !== 'connected' ? conn : null
-  const [shown, leaving] = useLinger(active, 180)
-  if (!shown) return null
-  const isError = shown.status === 'error'
-  return h('div', {
-    className: 'dsb-conn-banner',
-    role: isError ? 'alert' : 'status',
-    'aria-live': isError ? 'assertive' : 'polite',
-    'data-tone': isError ? 'error' : 'warn',
-    'data-leaving': leaving ? '' : undefined,
-  },
-  h('span', { className: 'dsb-conn-dot', 'aria-hidden': true }),
-  h('span', { className: 'dsb-conn-text' }, isError ? t('Live updates paused: message too large') : t('Reconnecting…')),
-  isError && typeof onReconnect === 'function'
-    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm dsb-conn-btn', onClick: onReconnect }, t('Reconnect'))
-    : null)
+const noConn = () => null
+
+// Fallback DynamicIsland connection indicator when HeaderPill is not mounted (Classic mode or empty state).
+function StandaloneConnectionIsland({ useConnection, onReconnect }) {
+  const useReadConn = useConnection ?? noConn
+  const conn = useReadConn(state => state)
+  const status = conn && conn.status !== 'connected' ? conn.status : null
+  if (!status) return null
+  return h('div', { className: 'dsb-head-conn' },
+    h(DynamicIsland, {
+      pill: null,
+      morphKey: `conn:${status}`,
+      pods: [{ id: 'connection', node: h(ConnectionIslandPod, { status, onReconnect }), open: false }],
+    }))
 }
 
 export function App() {
@@ -732,7 +728,7 @@ export function App() {
   // The unified right panel makes room by giving `[data-bt-center]` a right margin.
   h('main', { className: 'dsb-main', 'data-bt-center': '', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
-    h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
+    (!shown || shownAgent) ? h(StandaloneConnectionIsland, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }) : null,
     isNarrow && !drawerOpen ? h('button', {
       ref: mobileMenuRef,
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': false,
@@ -751,7 +747,7 @@ export function App() {
             readOnly,
             sidebarWide: isNarrow ? drawerOpen : !classicHidden,
           })
-          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), PendingLearning })),
+          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown), useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed, PendingLearning })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
       : (inClassicMode
         ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true }))

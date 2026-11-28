@@ -1,9 +1,10 @@
 import { createElement as h, useId, useRef, useState } from 'react'
-import { CheckIcon, GlobeIcon } from './icons.js'
+import { GlobeIcon } from './icons.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
+import { ActionCard, SettledCard } from './ui/card.js'
 
 // -------------------------------------------------------------------------
 // Browser handoff: a Bot's browser reached a step only the user can do (a sign-in,
@@ -60,25 +61,27 @@ export function PendingHandoff({ sessionId, bot, hold, hooks, actions, inline })
     await actions.browserTakeover(bot.id)
     actions.openBrowser?.(bot.id)
   }, false)
-  return h('div', {
-    className: inline ? 'bt-q-inline' : 'bt-q-dock',
-    style: closed ? { display: 'none' } : undefined,
+  return h(ActionCard, {
+    mode: inline ? 'inline' : 'dock',
+    className: 'bt-handoff',
+    titleId,
+    hidden: closed,
     onFocusCapture: keep,
     onPointerDownCapture: keep,
-  },
-  h('section', { className: inline ? 'bt-q bt-handoff' : 'bt-q bt-q-raised bt-handoff', role: 'group', 'aria-labelledby': titleId },
-    h('div', { className: 'bt-q-head' },
-      h('div', { className: 'bt-q-text' },
-        h('p', { className: 'bt-q-title', id: titleId }, titleOf(hold.reason)),
-        hold.note ? h('div', { className: 'bt-q-detail' }, hold.note) : null,
-        host ? h('div', { className: 'bt-handoff-site' }, h(GlobeIcon), h('span', null, host)) : null,
-        taken ? h('div', { className: 'bt-handoff-state', role: 'status' },
-          h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
-          t('You control this browser')) : null)),
-    h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
-      taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
-      h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done")))))
+    title: titleOf(hold.reason),
+    detail: hold.note || null,
+    headMeta: [
+      host ? h('div', { key: 'site', className: 'bt-handoff-site' }, h(GlobeIcon), h('span', null, host)) : null,
+      taken ? h('div', { key: 'state', className: 'bt-handoff-state', role: 'status' },
+        h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
+        t('You control this browser')) : null,
+    ],
+    buttons: [
+      { key: 'skip', label: t('Skip'), variant: 'secondary', onClick: () => answer('skip') },
+      taken ? null : { key: 'takeover', label: t('Take over'), variant: 'secondary', onClick: takeOver },
+      { key: 'done', label: t("I'm done"), variant: 'primary', onClick: () => answer('done') },
+    ],
+  })
 }
 
 // The browser_handoff call in the transcript. A component of its own so it can read
@@ -111,13 +114,13 @@ export function SettledHandoff({ handoff }) {
   const skipped = handoff.outcome === 'skipped'
   const returned = handoff.outcome === 'returned'
   const title = titleOf(handoff.reason)
-  return h('div', { className: 'bt-q-inline' },
-    h('div', { className: skipped ? 'bt-q bt-q-settled bt-q-dismissed' : 'bt-q bt-q-settled', role: 'group', 'aria-label': title },
-      h('div', { className: 'bt-q-head' },
-        h('div', { className: 'bt-q-text' }, h('p', { className: 'bt-q-title' }, title)),
-        skipped || returned
-          ? h('span', { className: 'bt-q-badge' }, t(skipped ? 'Skipped' : 'Returned'))
-          : h('span', { className: 'bt-q-check', title: t('Done') }, h(CheckIcon)))))
+  return h(SettledCard, {
+    title,
+    dismissed: skipped,
+    badge: skipped || returned ? h('span', { className: 'bt-q-badge' }, t(skipped ? 'Skipped' : 'Returned')) : null,
+    checked: !skipped && !returned,
+    checkedLabel: t('Done'),
+  })
 }
 
 export const HANDOFF_CSS = `

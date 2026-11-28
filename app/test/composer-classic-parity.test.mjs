@@ -474,7 +474,7 @@ test('Classic composer renders compact ModelMenu, PermissionMenu with risk confi
     tree = inst.render()
     all(tree, n => n.type === 'button' && n.props?.role === 'menuitemradio')[2].props.onClick()
     tree = inst.render()
-    const dialog = all(tree, n => n.props?.role === 'dialog' && n.props?.['aria-modal'] === 'true')[0]
+    const dialog = all(tree, n => n.props?.role === 'dialog' && (n.props?.['aria-modal'] === true || n.props?.['aria-modal'] === 'true'))[0]
     assert.ok(dialog, 'RiskConfirmDialog opens for danger-full-access')
     const confirmBtnBefore = all(dialog, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-q-submit'))[0]
     assert.equal(confirmBtnBefore.props.disabled, true, 'confirm button stays disabled before ack checkbox')

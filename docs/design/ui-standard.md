@@ -6,7 +6,10 @@
 
 - **等级**：「必须」不能违反；「应该」默认照做，有理由可以例外并在代码注释说明；「可以」是推荐做法。
 - **标杆界面**：顶部胶囊（灵动岛）与设置页用量视图。新表面的变形与动效手感以这两处为准。
-- **自动化检查**：`npm test` 会校验 `src/client/` 中的颜色变量（`--bt-*`）、圆角档位和弹簧常量，历史豁免记录在 `ds-bot/test/style-debt.json`（只减不增；清掉一处后运行 `node scripts/style-debt.mjs --write` 更新）。`npm run lint` 在 `src/client/**/*.js` 强制执行 `react/rules-of-hooks` 规则，防止浮层与设置页出现 Hook 顺序崩溃。
+- **自动化检查**：`npm test` 会同时运行两道架构门禁：
+  1. **样式门禁**（`scripts/style-debt.mjs` / `test/style-debt.json`）：校验 `src/client/` 中的颜色变量（`--bt-*`）、圆角档位和弹簧常量，只减不增（清掉后运行 `node scripts/style-debt.mjs --write`）。
+  2. **统一载体门禁**（`scripts/ui-architecture-guard.mjs` / `test/ui-architecture-debt.json`）：跨 `ds-bot/src/client/` 与 `app/ui/src/` 强制要求开关、滑块、下拉、卡片、顶部弹窗与对话框全部复用 `ds-bot/src/client/ui/` 中的唯一交互载体，禁止新造裸控件或平行组件（清掉历史债后运行 `node scripts/ui-architecture-guard.mjs --write`）。
+  `npm run lint` 在 `src/client/**/*.js` 强制执行 `react/rules-of-hooks` 规则，防止浮层与设置页出现 Hook 顺序崩溃。
 - **浮层隔离**：全局弹层与设置对话框由可复位的 `OverlayBoundary` 包裹，捕获异常后安全关闭出问题的浮层并弹出 toast，在下次打开或目标切换时复位，避免拖垮主聊天页。
 - **原创与多语言**：只用原创图形与自绘图标；界面源文案写英文，多语言翻译在 `i18n.js` 与 `locales/`（共 8 种语言：英、简中、繁中、日、韩、西、法、德）。
 
@@ -276,7 +279,18 @@ Bot 形象色定义在 `inks.js`（均含浅色、深色双值）：
 - 避免给大面积整页加模糊，避免在流式渲染路径引入重排选择器（如大范围 `:has()`）。
 - JS 动画启动前必须检查 `reducedMotion()` / `reducedEffects()`。
 
-## 10. 核心组件规格
+## 10. 核心组件与唯一交互载体（`ds-bot/src/client/ui/`）
+
+所有产品交互表面（插件态与桌面端共用）必须从 `ds-bot/src/client/ui/` 组合，严禁在业务文件中重复实现同类交互外壳：
+
+| 交互族 | 唯一载体模块 | 导出组件 |
+|---|---|---|
+| **顶部弹窗 / 通知 / 状态胶囊** | `ui/island.js` | `DynamicIsland`、`IslandNotice`、`IslandPod`、`IslandPanel`、`IslandPager` |
+| **交互卡片 / 完成态 / 工具卡 / Dock** | `ui/card.js` | `ActionCard`、`SettledCard`、`CardShell`、`CardDock`（与 `deep-view.js` `ViewCard` 共用 `.bt-q` 体系） |
+| **连续与分档滑块** | `ui/slider.js` | `Slider`（内置弹簧轨迹、键盘、拖拽与重置） |
+| **居中模态对话框** | `ui/dialog.js` | `Dialog`（内置无边框顶栏拖拽带、Escape 栈、焦点陷阱与弹簧升降） |
+| **锚定菜单与折叠** | `ui/popover.js` | `PopoverMenu`、`useAnchoredMenu`、`useInlineMenu`、`Collapse` |
+| **设置与表单基础控件** | `ui/controls.js` | `Switch`、`SwitchRow`、`SettingSection`、`SettingCard`、`SettingRow`、`Choice`、`SelectMenu`、`Segmented`、`InlineText`、`StatusAlert`、`EmptyState`、`SearchInput` |
 
 - **按钮**：主按钮 `.bt-send`（高 40 / 小号 28，胶囊，强调色底）、次按钮 `.bt-soft` / `.bt-soft-sm`（高 36 / 28，`--bt-hover` 底）、圆形 `.bt-round`（36 × 36）、图标 `.bt-icon-btn`（28 × 28）、迷你 `.bt-mini`（12px，圆角 6）。危险操作用 `--bt-danger`，放菜单末尾并加分隔线，不可逆操作需二次确认。
 - **输入与选择**：`.bt-input`（高 36，圆角 8）、`.bt-select`（高 34，圆角 8）、`.bt-input-area`（最小高 80）、`Segmented`（2–4 互斥项）、`.bt-switch`（36 × 20 开关）、`.bt-swatch`（22 × 22 色块）。
@@ -314,3 +328,4 @@ Bot 形象色定义在 `inks.js`（均含浅色、深色双值）：
 | 2026-10-23 | 思考过程与上下文行 | 思考过程默认关闭（可在外观中开启）；Bot 对话隐藏 DSH 上下文杂项行，动作行作为唯一进行中提示（#465） |
 | 2026-11-06 | 设置 → 连接器页 | 两列分类卡片网格；未连接图标置灰，首次连接成功时褪色转彩、图标轻弹并掠过淡光，打开页面时已连接行不动 |
 | 2026-11-22 | 设置总控台与浮层防线 | 设置改用 Overview 概览 + ⌘K 搜索 + 分类一页滚动锚点 + 外观实时预览（#2028）；全部浮层接入 `OverlayBoundary` 并启用 `react/rules-of-hooks` lint 门禁（#2027） |
+| 2026-11-28 | 统一交互载体与架构门禁 | 在 `ds-bot/src/client/ui/` 沉淀 6 类产品级唯一交互载体（灵动岛、卡片、滑块、对话框、弹出菜单、基础控件），插件与桌面端全面收口并新增 `ui-architecture-guard` CI 门禁 |

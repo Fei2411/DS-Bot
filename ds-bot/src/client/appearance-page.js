@@ -16,6 +16,7 @@ import { Segmented, useLinger } from './motion.js'
 import { registerPopupOwner } from './popup-ownership.js'
 import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { measureSelectPlace } from './select-menu.js'
+import { Slider as UiSlider } from './ui/slider.js'
 import { hostText, t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -94,10 +95,7 @@ function useResting(value, save, delay = 350, scope = undefined) {
 }
 
 export function Slider({ label, value, min, max, step, format = String, save }) {
-  const [shown, pick] = useResting(value, save)
-  return h('div', { className: 'bt-range', style: { '--bt-fill': `${((shown - min) / (max - min)) * 100}%` } },
-    h('input', { type: 'range', min, max, step, value: shown, 'aria-label': label, 'aria-valuetext': format(shown), onChange: event => pick(Number(event.target.value)) }),
-    h('output', null, format(shown)))
+  return h(UiSlider, { label, value, min, max, step, format, delay: 350, onCommit: save })
 }
 
 function ColorField({ label, value, save, hint }) {
@@ -812,7 +810,7 @@ button.bt-look-theme:active,.bt-look-theme-pick:active{transform:scale(.98)}
 .bt-swatch:active{transform:scale(.92)}
 @keyframes bt-swatch-pop{0%{transform:scale(.84)}60%{transform:scale(1.14)}100%{transform:scale(1)}}
 .bt-swatch[aria-pressed=true],.bt-swatch[data-on=true]{animation:bt-swatch-pop .24s cubic-bezier(.22,1,.36,1)}
-body[data-bt-color-morph]:not([data-bt-effects=off]) :is(.bt-settings,.bt-settings-rail,.bt-settings-main,.bt-settings-item,.bt-settings-nav>.bt-thumb,.bt-set-card,.bt-send,.bt-voice,.bt-switch,.bt-look,.bt-look-side,.bt-look-chat,.bt-look-user,.bt-look-bot,.bt-look-think,.bt-look-composer,.bt-look-send,.bt-look-theme,.bt-look-kind,.bt-main-pill,.bt-range input,.bt-anchor,.bt-seg,.bt-seg>.bt-thumb,.bt-sel-tick){transition:background-color .22s cubic-bezier(.22,1,.36,1),color .22s cubic-bezier(.22,1,.36,1),border-color .22s cubic-bezier(.22,1,.36,1),box-shadow .22s cubic-bezier(.22,1,.36,1),fill .22s cubic-bezier(.22,1,.36,1),stroke .22s cubic-bezier(.22,1,.36,1)}
+body[data-bt-color-morph]:not([data-bt-effects=off]) :is(.bt-settings,.bt-settings-rail,.bt-settings-main,.bt-settings-item,.bt-settings-nav>.bt-thumb,.bt-set-card,.bt-send,.bt-voice,.bt-switch,.bt-look,.bt-look-side,.bt-look-chat,.bt-look-user,.bt-look-bot,.bt-look-think,.bt-look-composer,.bt-look-send,.bt-look-theme,.bt-look-kind,.bt-main-pill,.bt-slider-track-slim,.bt-anchor,.bt-seg,.bt-seg>.bt-thumb,.bt-sel-tick){transition:background-color .22s cubic-bezier(.22,1,.36,1),color .22s cubic-bezier(.22,1,.36,1),border-color .22s cubic-bezier(.22,1,.36,1),box-shadow .22s cubic-bezier(.22,1,.36,1),fill .22s cubic-bezier(.22,1,.36,1),stroke .22s cubic-bezier(.22,1,.36,1)}
 body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transition:none}
 @media (prefers-reduced-motion:reduce){.bt-swatch,.bt-look-theme{animation:none;transition:none}body[data-bt-color-morph] *{transition:none!important}}
 .bt-look-theme-pick{display:flex;flex-direction:column;width:100%;padding:0;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}

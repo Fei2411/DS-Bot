@@ -1,5 +1,6 @@
 import { createElement as h, useId, useRef, useState } from 'react'
 import { t } from './i18n.js'
+import { ActionCard } from './ui/card.js'
 
 // -------------------------------------------------------------------------
 // Paused Bot-to-Bot work card: shown above the composer (and inside the Bot
@@ -47,24 +48,22 @@ export function WorkPauseCard({ work, roster, actions, inline = false, showViewC
     }).finally(() => { busyRef.current = false })
   }
 
-  return h('div', {
-    className: inline ? 'bt-q-inline' : 'bt-q-dock',
-    style: closed ? { display: 'none' } : undefined,
-  },
-  h('section', { className: inline ? 'bt-q bt-work-pause' : 'bt-q bt-q-raised bt-work-pause', role: 'group', 'aria-labelledby': titleId },
-    h('div', { className: 'bt-q-head' },
-      h('div', { className: 'bt-q-text' },
-        h('p', { className: 'bt-q-title', id: titleId },
-          refTag ? h('span', { className: 'bt-tag', style: { marginRight: '6px' } }, refTag) : null,
-          titleFor(work, fromName, toName)),
-        h('div', { className: 'bt-q-detail' }, reasonFor(work)),
-        detail ? h('div', { className: 'bt-work-pause-goal' }, detail) : null)),
-    h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', onClick: () => run(() => actions.cancelWork?.(work.id)) }, t('Cancel')),
+  return h(ActionCard, {
+    mode: inline ? 'inline' : 'dock',
+    className: 'bt-work-pause',
+    titleId,
+    hidden: closed,
+    title: [refTag ? h('span', { key: 'ref', className: 'bt-tag', style: { marginRight: '6px' } }, refTag) : null, titleFor(work, fromName, toName)],
+    detail: reasonFor(work),
+    headMeta: detail ? h('div', { className: 'bt-work-pause-goal' }, detail) : null,
+    buttons: [
+      { key: 'cancel', label: t('Cancel'), variant: 'secondary', onClick: () => run(() => actions.cancelWork?.(work.id)) },
       showViewChat && work.from && work.to
-        ? h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openExchange?.(work.from, work.to) }, t('View chat'))
+        ? { key: 'view', label: t('View chat'), variant: 'secondary', onClick: () => actions.openExchange?.(work.from, work.to) }
         : null,
-      h('button', { type: 'button', className: 'bt-q-submit', onClick: () => run(() => actions.resumeWork?.(work.id)) }, t('Continue')))))
+      { key: 'resume', label: t('Continue'), variant: 'primary', onClick: () => run(() => actions.resumeWork?.(work.id)) },
+    ],
+  })
 }
 
 // Mounted in conversation.input.dock: surfaces paused Bot-to-Bot works involving the open Bot.

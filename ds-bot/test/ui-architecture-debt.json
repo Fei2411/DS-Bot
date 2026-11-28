@@ -1,0 +1,133 @@
+{
+  "cards": {
+    "ds-bot/src/client/connectors.js": {
+      "bt-q-dock": 2
+    },
+    "ds-bot/src/client/questions.js": {
+      "bt-q-dock": 2
+    },
+    "ds-bot/src/client/secret-card.js": {
+      "bt-q-dock": 1
+    }
+  },
+  "curves": {
+    "app/ui/src/app.css": {
+      "cubic-bezier(.2,0,0,1)": 2,
+      "cubic-bezier(.4,0,1,1)": 1
+    },
+    "app/ui/src/message-parity.css": {
+      "cubic-bezier(.22,1,.36,1)": 1,
+      "cubic-bezier(.4,0,1,1)": 1
+    },
+    "ds-bot/src/client/activity-row.js": {
+      "cubic-bezier(.23,1,.32,1)": 1
+    },
+    "ds-bot/src/client/appearance-page.js": {
+      "cubic-bezier(.22,1,.36,1)": 9
+    },
+    "ds-bot/src/client/browser-pane.js": {
+      "cubic-bezier(.16,1,.3,1)": 2,
+      "cubic-bezier(.4,0,.2,1)": 1
+    },
+    "ds-bot/src/client/connectors-page.js": {
+      "cubic-bezier(.25,.8,.3,1)": 1,
+      "cubic-bezier(.3,1.5,.5,1)": 1
+    },
+    "ds-bot/src/client/group-settings.js": {
+      "cubic-bezier(.22,1,.36,1)": 1,
+      "cubic-bezier(.34,1.56,.64,1)": 2
+    },
+    "ds-bot/src/client/member-status.js": {
+      "cubic-bezier(.34,1.56,.64,1)": 1,
+      "cubic-bezier(.4,0,1,1)": 1
+    },
+    "ds-bot/src/client/schedules.js": {
+      "cubic-bezier(.22,1,.36,1)": 1
+    },
+    "ds-bot/src/client/secret-card.js": {
+      "cubic-bezier(.22,1,.36,1)": 2
+    },
+    "ds-bot/src/client/side-chat.js": {
+      "cubic-bezier(.16,1,.3,1)": 2,
+      "cubic-bezier(.4,0,1,1)": 1
+    },
+    "ds-bot/src/client/sidebar.js": {
+      "cubic-bezier(.2,.65,.3,1)": 1,
+      "cubic-bezier(.4,0,1,1)": 1,
+      "cubic-bezier(.45,0,.25,1)": 1,
+      "cubic-bezier(.45,0,.55,1)": 1
+    },
+    "ds-bot/src/client/styles.js": {
+      "cubic-bezier(.16,1,.3,1)": 2,
+      "cubic-bezier(.2,0,0,1)": 2,
+      "cubic-bezier(.22,1,.36,1)": 9,
+      "cubic-bezier(.23,1,.32,1)": 1,
+      "cubic-bezier(.25,.8,.3,1)": 2,
+      "cubic-bezier(.3,.7,.4,1)": 1,
+      "cubic-bezier(.3,1.5,.5,1)": 2,
+      "cubic-bezier(.34,1.56,.64,1)": 1,
+      "cubic-bezier(.4,0,1,1)": 7
+    },
+    "ds-bot/src/client/text-annotation.js": {
+      "cubic-bezier(.22,1,.36,1)": 1
+    },
+    "ds-bot/src/client/usage-page.js": {
+      "cubic-bezier(.22,1,.36,1)": 1
+    }
+  },
+  "dialogs": {
+    "app/ui/src/image-lightbox.js": {
+      "role:'dialog'": 1
+    },
+    "app/ui/src/settings-entry-lazy.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/bot-settings.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/create-bot.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/exchange.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/group-search.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/memory-panel.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/new-chat.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/palette.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/reload-recovery.js": {
+      "role:'alertdialog'": 1
+    },
+    "ds-bot/src/client/settings-palette.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/settings-tour.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/settings.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/sidebar.js": {
+      "role:'alertdialog'": 1,
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/usage-page.js": {
+      "role:'dialog'": 1
+    },
+    "ds-bot/src/client/voice.js": {
+      "role:'dialog'": 1
+    }
+  },
+  "selects": {},
+  "sliders": {},
+  "switches": {},
+  "topBanners": {}
+}

@@ -83,6 +83,7 @@ function loadHarness() {
       return active.s[i].val
     },
     useCallback: fn => fn,
+    useId: () => 'approval-id',
     useEffect(fn, deps) {
       const i = active.i++
       const prev = active.s[i]
@@ -290,7 +291,7 @@ test('ApprovalDock keeps Allow once primary, scopes shortcuts to card focus with
     assert.equal((winListeners.get('keydown')?.size ?? 0), 0)
 
     // Card itself has tabIndex=0 and handles card-focused Enter/Esc, ignoring Shift+Enter.
-    const cardNode = all(tree, n => n.props?.className === 'dsb-approval')[0]
+    const cardNode = all(tree, n => String(n.props?.className ?? '').split(/\s+/).includes('dsb-approval'))[0]
     assert.equal(cardNode.props.tabIndex, 0)
     const fakeCardDom = { tagName: 'DIV', contains: node => node === fakeCardDom }
 

@@ -36,6 +36,9 @@ const { groupModels, ModelChoiceDock, ModelKeyCard, effortStops, EffortBar, step
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
+  if (typeof tree.type === 'function' && tree.type.name === 'Slider') {
+    return nodes(tree.type(tree.props), match)
+  }
   return [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))]
 }
 

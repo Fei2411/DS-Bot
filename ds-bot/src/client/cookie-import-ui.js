@@ -1,6 +1,7 @@
 // Shared cookie import flow (hook + UI views) used by both the Bot browser panel
 // (`browser-pane.js`) and Settings → Browser (`browser-settings.js`).
 import { createElement as h, useEffect, useRef, useState } from 'react'
+import { Switch } from './ui/controls.js'
 import { STORAGE } from './storage.js'
 import { Segmented, stepMenuFocus } from './motion.js'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, InfoIcon, SearchIcon } from './icons.js'
@@ -625,12 +626,11 @@ export function PreviewCard({ flow, page = { url: '' }, busy, canApply = true, i
         })) : null,
     hasSession ? h('div', { className: 'bt-import-opt-row' },
       h('span', { className: 'bt-import-opt-label' }, t('Keep session logins after app restart')),
-      h('button', {
-        type: 'button', role: 'switch', className: 'bt-switch',
-        'aria-checked': persistSession,
-        'aria-label': t('Keep session logins after app restart'),
-        onClick: () => setPersistSession((value) => !value),
-      }, h('span', { className: 'bt-switch-knob', 'aria-hidden': true }))) : null,
+      h(Switch, {
+        on: persistSession,
+        label: t('Keep session logins after app restart'),
+        onChange: next => setPersistSession(next),
+      })) : null,
     preview.skipped.length || preview.warnings.length ? h('div', { className: 'bt-import-meta-group' },
       preview.skipped.length ? h('details', { className: 'bt-import-disclosure' },
         h('summary', null,

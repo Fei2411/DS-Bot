@@ -3,14 +3,15 @@
 // lists the saved keys and who may use them. Values only ever travel from these
 // inputs to the host; nothing here reads one back.
 import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from './icons.js'
+import { CheckIcon, LockIcon, PlusIcon, TrashIcon, WarnIcon } from './icons.js'
 import { BotAvatar, BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
 import { dateLocale, t } from './i18n.js'
-import { SPRING_POP, SPRING_SHAPE, reducedMotion, spring } from './motion.js'
+import { SPRING_POP, SPRING_SHAPE, Segmented, reducedMotion, spring } from './motion.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
+import { ActionCard, SettledCard } from './ui/card.js'
 
 const MIN_VALUE = 4
 const MAX_OP_REF_LENGTH = 512
@@ -26,10 +27,6 @@ const validOpRef = value => {
 
 export const KeyIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('circle', { cx: 6.75, cy: 10, r: 3.25 }), h('path', { d: 'M10 10h7M14.25 10v2.5M16.75 10v1.8' }))
-const LockIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-  h('path', { d: 'M6.5 9V7a3.5 3.5 0 0 1 7 0v2' }), h('rect', { x: 4.5, y: 9, width: 11, height: 8, rx: 2 }))
-const WarnIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-  h('path', { d: 'M10 3.5l7 12.5H3z' }), h('path', { d: 'M10 8.5v3.5M10 14.2h.01' }))
 
 // Password managers ignore a text field masked by CSS, so it never offers to save the
 // key; browsers without that CSS fall back to a new-password field.
@@ -106,29 +103,18 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
 
 function ScopeSwitch({ value, onChange, bot }) {
   const options = [['all', t('All Bots')], ['bot', t('Only {name}', { name: bot.name })]]
-  return h('div', { className: 'bt-secret-scope', role: 'radiogroup', 'aria-label': t('Who may use it') },
-    h('span', { className: 'bt-secret-glide', 'data-at': value === 'all' ? 0 : 1, 'aria-hidden': true }),
+  return h(Segmented, { label: t('Who may use it'), value, className: 'bt-secret-scope-seg' },
     options.map(([id, text]) => h('button', {
-      key: id, type: 'button', role: 'radio', 'aria-checked': value === id, className: 'bt-secret-seg', onClick: () => onChange(id),
+      key: id, type: 'button', 'aria-pressed': value === id, onClick: () => onChange(id),
     }, text)))
 }
 
 function SourceSwitch({ value, onChange }) {
   const options = [['value', t('Direct value')], ['onepassword', t('1Password (op://)')]]
-  return h('div', { className: 'bt-secret-scope', role: 'radiogroup', 'aria-label': t('Secret source') },
-    h('span', { className: 'bt-secret-glide', 'data-at': value === 'value' ? 0 : 1, 'aria-hidden': true }),
+  return h(Segmented, { label: t('Secret source'), value, className: 'bt-secret-scope-seg' },
     options.map(([id, text]) => h('button', {
-      key: id, type: 'button', role: 'radio', 'aria-checked': value === id, className: 'bt-secret-seg', onClick: () => onChange(id),
+      key: id, type: 'button', 'aria-pressed': value === id, onClick: () => onChange(id),
     }, text)))
-}
-
-function SecretHead({ bot, title, detail, name, onClose }) {
-  return h('div', { className: 'bt-q-head bt-secret-head' },
-    h('span', { className: 'bt-secret-who' }, h(BotMark, { bot, size: 28 }), h('span', { className: 'bt-secret-lock' }, h(LockIcon))),
-    h('div', { className: 'bt-q-text' },
-      h('p', { className: 'bt-q-title' }, title),
-      h('div', { className: 'bt-q-detail' }, h('code', { className: 'bt-secret-name' }, name), detail ? ` · ${detail}` : '')),
-    onClose ? h('button', { type: 'button', className: 'bt-q-x', 'aria-label': t('Cancel the request'), title: t('Cancel'), onClick: onClose }, h(CloseIcon)) : null)
 }
 
 export function SecretCard({ sessionId, bot, request, roster, actions, inline = false }) {
@@ -205,45 +191,27 @@ export function SecretCard({ sessionId, bot, request, roster, actions, inline = 
   const submitLabel = busy
     ? t('Saving…')
     : isRef ? t('Provide once') : isFile ? t('Save to file') : t('Save')
-  return h('div', { className: 'bt-q bt-secret', role: 'group', 'aria-describedby': noteId, 'data-kind': request.kind, 'data-delivery': delivery, onFocusCapture: hold, onPointerDownCapture: hold },
-    h(SecretHead, {
-      bot,
-      title: request.kind === 'allow' ? t('Let {bot} use {name}?', { bot: bot.name, name: request.name }) : t('{name} needs a key', { name: bot.name }),
-      detail: request.purpose,
-      name: request.name,
-      onClose: busy ? undefined : cancel,
-    }),
-    request.kind === 'allow' ? h('div', { className: 'bt-secret-saved' }, h(KeyIcon), t('Saved for {scope}', { scope: scopeLabel(secret?.scope, roster) })) : null,
-    fileWarn,
-    filling ? h('div', { className: 'bt-secret-body' },
-      isVault ? h(SourceSwitch, { value: source, onChange: next => { hold(); setSource(next) } }) : null,
-      usingExternal
-        ? h('input', {
-            className: 'bt-input bt-secret-ref-input',
-            value: reference,
-            disabled: busy,
-            autoFocus: replacing,
-            spellCheck: false,
-            autoComplete: 'off',
-            'aria-label': t('1Password reference'),
-            placeholder: 'op://vault/item/field',
-            onChange: event => { hold(); setReference(event.target.value) },
-            onKeyDown: (event) => {
-              if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return
-              event.preventDefault()
-              save()
-            },
-          })
-        : h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: next => { hold(); setValue(next) }, onEnter: save, label: t('Value of {name}', { name: request.name }), autoFocus: replacing, multiline: true })),
-      isVault && request.kind === 'fill' ? h(ScopeSwitch, { value: scope, onChange: next => { hold(); setScope(next) }, bot }) : null) : null,
-    h('div', { className: 'bt-secret-note', id: noteId }, ...note),
-    warn,
-    error ? h('div', { className: 'bt-secret-error', role: 'alert' }, error) : null,
-    h('div', { className: 'bt-q-foot' },
+  return h(ActionCard, {
+    as: 'div',
+    wrap: false,
+    className: 'bt-secret',
+    headClassName: 'bt-secret-head',
+    ariaDescribedBy: noteId,
+    dataAttrs: { 'data-kind': request.kind, 'data-delivery': delivery },
+    onFocusCapture: hold,
+    onPointerDownCapture: hold,
+    icon: h('span', { className: 'bt-secret-who' }, h(BotMark, { bot, size: 28 }), h('span', { className: 'bt-secret-lock' }, h(LockIcon))),
+    title: request.kind === 'allow' ? t('Let {bot} use {name}?', { bot: bot.name, name: request.name }) : t('{name} needs a key', { name: bot.name }),
+    detail: [h('code', { key: 'n', className: 'bt-secret-name' }, request.name), request.purpose ? ` · ${request.purpose}` : ''],
+    onDismiss: busy ? null : cancel,
+    dismissLabel: t('Cancel the request'),
+    dismissTitle: t('Cancel'),
+    buttons: [
       request.kind === 'allow' && !replacing
-        ? h('button', {
-            type: 'button',
-            className: 'bt-q-btn',
+        ? {
+            key: 'replace',
+            label: t('Replace value'),
+            variant: 'secondary',
             disabled: busy,
             onClick: () => {
               hold()
@@ -255,12 +223,40 @@ export function SecretCard({ sessionId, bot, request, roster, actions, inline = 
               }
               setReplacing(true)
             },
-          }, t('Replace value'))
+          }
         : null,
-      h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: cancel }, t('Cancel')),
+      { key: 'cancel', label: t('Cancel'), variant: 'secondary', disabled: busy, onClick: cancel },
       filling
-        ? h('button', { type: 'button', className: 'bt-q-submit', disabled: !ready || busy, onClick: save }, submitLabel)
-        : h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: allow }, busy ? t('Allowing…') : t('Allow'))))
+        ? { key: 'save', label: submitLabel, variant: 'primary', disabled: !ready || busy, onClick: save }
+        : { key: 'allow', label: busy ? t('Allowing…') : t('Allow'), variant: 'primary', disabled: busy, onClick: allow },
+    ],
+  },
+  request.kind === 'allow' ? h('div', { className: 'bt-secret-saved' }, h(KeyIcon), t('Saved for {scope}', { scope: scopeLabel(secret?.scope, roster) })) : null,
+  fileWarn,
+  filling ? h('div', { className: 'bt-secret-body' },
+    isVault ? h(SourceSwitch, { value: source, onChange: next => { hold(); setSource(next) } }) : null,
+    usingExternal
+      ? h('input', {
+          className: 'bt-input bt-secret-ref-input',
+          value: reference,
+          disabled: busy,
+          autoFocus: replacing,
+          spellCheck: false,
+          autoComplete: 'off',
+          'aria-label': t('1Password reference'),
+          placeholder: 'op://vault/item/field',
+          onChange: event => { hold(); setReference(event.target.value) },
+          onKeyDown: (event) => {
+            if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return
+            event.preventDefault()
+            save()
+          },
+        })
+      : h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: next => { hold(); setValue(next) }, onEnter: save, label: t('Value of {name}', { name: request.name }), autoFocus: replacing, multiline: true })),
+    isVault && request.kind === 'fill' ? h(ScopeSwitch, { value: scope, onChange: next => { hold(); setScope(next) }, bot }) : null) : null,
+  h('div', { className: 'bt-secret-note', id: noteId }, ...note),
+  warn,
+  error ? h('div', { className: 'bt-secret-error', role: 'alert' }, error) : null)
 }
 
 function SettledSecret({ bot, request, roster }) {
@@ -271,12 +267,17 @@ function SettledSecret({ bot, request, roster }) {
       : delivery === 'ref' ? t('Provided {name} once', { name: request.name })
         : delivery === 'file' ? t('Saved {name} to temp file', { name: request.name })
           : t('Saved {name}', { name: request.name })
-  return h('div', { className: 'bt-q bt-q-settled bt-secret bt-secret-done', role: 'group', 'aria-label': text, 'data-status': request.status },
-    h('div', { className: 'bt-q-head' },
-      h('span', { className: 'bt-secret-who' }, h(BotMark, { bot, size: 22 })),
-      h('div', { className: 'bt-q-text' }, h('p', { className: 'bt-q-title' }, text,
-        canceled || delivery !== 'vault' ? null : h('span', { className: 'bt-secret-scope-tag' }, ` · ${scopeLabel(request.scope, roster)}`))),
-      canceled ? h('span', { className: 'bt-q-badge' }, t('Canceled')) : h('span', { className: 'bt-q-check bt-secret-check', title: t('Done') }, h(CheckIcon))))
+  return h(SettledCard, {
+    inline: false,
+    className: 'bt-secret bt-secret-done',
+    ariaLabel: text,
+    dataAttrs: { 'data-status': request.status },
+    icon: h('span', { className: 'bt-secret-who' }, h(BotMark, { bot, size: 22 })),
+    title: [text, canceled || delivery !== 'vault' ? null : h('span', { key: 'sc', className: 'bt-secret-scope-tag' }, ` · ${scopeLabel(request.scope, roster)}`)],
+    badge: canceled
+      ? h('span', { className: 'bt-q-badge' }, t('Canceled'))
+      : h('span', { className: 'bt-q-check bt-secret-check', title: t('Done') }, h(CheckIcon)),
+  })
 }
 
 function RequestView({ sessionId, bot, request, roster, actions }) {
@@ -635,6 +636,7 @@ export const SECRET_CSS = `
 .bt-secret-input[data-masked="blur"]{color:transparent;text-shadow:0 0 7px var(--bt-ink);caret-color:var(--bt-ink)}
 .bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0;-webkit-text-security:none;text-shadow:none}
 .bt-secret-scope{position:relative;display:inline-grid;grid-template-columns:1fr 1fr;align-self:flex-start;padding:2px;border-radius:999px;background:var(--bt-hover)}
+.bt-secret-scope-seg{align-self:flex-start}
 .bt-secret-glide{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);border-radius:999px;background:var(--bt-main);box-shadow:0 1px 3px rgba(20,20,20,.08),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 6%,transparent);transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-secret-glide[data-at="1"]{transform:translateX(100%)}
 .bt-secret-seg{position:relative;z-index:1;height:28px;padding:0 14px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer;transition:color .16s ease}

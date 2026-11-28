@@ -91,7 +91,7 @@ function hasHigherModalThan(container, doc) {
 
 // Traps Tab / Shift+Tab and isolates background siblings with ref-counted `inert`
 // while a foreground modal (such as ShortcutsDialog or PresetConfigModal) is open.
-export function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}) {
+export function useModalFocusTrap(containerRef, active = true, { initialFocusRef, isolateRootRef } = {}) {
   useSafeLayoutEffect(() => {
     if (!active) return undefined
     const container = containerRef?.current ?? null
@@ -169,8 +169,13 @@ export function useModalFocusTrap(containerRef, active = true, { initialFocusRef
         allowedRoots = [container]
         return
       }
-      allowedRoots = [container, ...ownedPopups([container])]
-      isolateBody(allowedRoots)
+      const popups = ownedPopups([container])
+      allowedRoots = [container, ...popups]
+      const isolationRoot = isolateRootRef?.current
+      const isolationRoots = isolationRoot && typeof isolationRoot.contains === 'function' && isolationRoot.contains(container)
+        ? [isolationRoot, ...popups]
+        : allowedRoots
+      isolateBody(isolationRoots)
       if (!isAllowed(doc.activeElement)) focusInside()
     }
 
@@ -202,18 +207,24 @@ export function useModalFocusTrap(containerRef, active = true, { initialFocusRef
       observer = new MutationObserver(sync)
       observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-leaving', 'aria-modal', 'role'] })
     }
+    const win = doc.defaultView && doc.defaultView !== doc && typeof doc.defaultView.addEventListener === 'function' ? doc.defaultView : null
+    const onWinKeyDown = (event) => {
+      if (event.target === win) onKeyDown(event)
+    }
     doc.addEventListener('focusin', onFocusIn, true)
     doc.addEventListener('keydown', onKeyDown, true)
+    win?.addEventListener('keydown', onWinKeyDown, true)
 
     return () => {
       disposed = true
       observer?.disconnect()
       doc.removeEventListener('focusin', onFocusIn, true)
       doc.removeEventListener('keydown', onKeyDown, true)
+      win?.removeEventListener('keydown', onWinKeyDown, true)
       releaseAll()
       restorePreviousFocus()
     }
-  }, [active, containerRef, initialFocusRef])
+  }, [active, containerRef, initialFocusRef, isolateRootRef])
 }
 
 // -------------------------------------------------------------------------
@@ -225,6 +236,7 @@ export const ESCAPE_PRIORITY = {
   PANEL: -1,
   DRAWER: 0,
   DIALOG: 0,
+  ISLAND: 2,
   TOUR: 5,
   PALETTE: 10,
   INLINE_ACTION: 12,

@@ -3,11 +3,10 @@
 // `signInEntry` / `canSignIn` / `accountT` contract shared views (`AccountLauncher`,
 // `FailureCell`, `ModelChoiceDock`, `DeepSeekSignIn`) expect.
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { hostText, language, t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
-import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { createSource } from '../../../ds-bot/src/client/sources.js'
+import { Dialog } from '../../../ds-bot/src/client/ui/dialog.js'
 
 const SAFE_EXTERNAL_URL = /^https?:\/\//i
 const safeExternalUrl = value => (typeof value === 'string' && SAFE_EXTERNAL_URL.test(value.trim()) ? value.trim() : null)
@@ -44,7 +43,6 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   const authorizeUrl = safeExternalUrl(attempt?.authorizeUrl)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const dialogRef = useRef(null)
   const closeRef = useRef(null)
   const mountedRef = useRef(true)
 
@@ -52,9 +50,6 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
-
-  useEscape(complete, !leaving, { priority: ESCAPE_PRIORITY.DIALOG })
-  useModalFocusTrap(dialogRef, !leaving, { initialFocusRef: closeRef })
 
   useEffect(() => {
     if (leaving) return
@@ -104,29 +99,29 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   }, [attempt?.id, busy, cancelSignIn, complete])
 
   const failureMessage = error || (attempt?.phase === 'failed' && attempt?.error ? hostText(String(attempt.error)) : '')
-  const body = h('div', {
-    className: 'dsb-signin-mask',
-    'data-leaving': leaving || undefined,
-    onMouseDown: (event) => { if (!leaving && event.target === event.currentTarget) complete() },
-  },
-  h('section', {
-    ref: dialogRef,
-    tabIndex: -1,
+  return h(Dialog, {
+    open: true,
+    leaving,
+    as: 'section',
+    size: 'sm',
+    portal: true,
+    focusTrap: true,
+    initialFocusRef: closeRef,
+    label: t('Sign in to DeepSeek'),
+    maskClassName: 'dsb-signin-mask',
     className: 'dsb-signin-dialog',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': t('Sign in to DeepSeek'),
+    onClose: complete,
+    header: h('div', { className: 'dsb-signin-head' },
+      h('h2', { className: 'dsb-signin-title' }, t('Sign in to DeepSeek')),
+      h('button', {
+        ref: closeRef,
+        type: 'button',
+        className: 'bt-icon-btn',
+        'aria-label': t('Close'),
+        title: t('Close'),
+        onClick: complete,
+      }, h(CloseIcon))),
   },
-  h('div', { className: 'dsb-signin-head' },
-    h('h2', { className: 'dsb-signin-title' }, t('Sign in to DeepSeek')),
-    h('button', {
-      ref: closeRef,
-      type: 'button',
-      className: 'bt-icon-btn',
-      'aria-label': t('Close'),
-      title: t('Close'),
-      onClick: complete,
-    }, h(CloseIcon))),
   h('div', { className: 'dsb-signin-body' },
     signingIn
       ? h('p', { className: 'dsb-signin-note', role: 'status' }, t('Complete sign-in in your browser'))
@@ -147,10 +142,7 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
         : [
             h('button', { key: 'close', type: 'button', className: 'bt-soft bt-soft-sm', onClick: complete }, t('Cancel')),
             h('button', { key: 'go', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { void begin() } }, busy ? t('Waiting for sign-in…') : (failureMessage ? t('Try again') : t('Sign in'))),
-          ]))))
-
-  const target = typeof document !== 'undefined' && document.body ? document.body : null
-  return target ? createPortal(body, target) : body
+          ])))
 }
 
 const ACCOUNT_BUS_KEY = Symbol.for('ds-bot.desktopAccountBus')
