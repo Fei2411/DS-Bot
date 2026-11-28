@@ -60,22 +60,53 @@ test('unsafe input falls back: empty, CRLF, BOM, link definitions, footnotes, ht
   assert.equal(splitMarkdownBlocks('para\n\n</div>\n\ntail\n'), null)
   // Inline angle brackets that are no tag do not stop it.
   assert.ok(splitMarkdownBlocks('a < b and c > d\n\nnext\n') !== null)
-  // Container directives and display math fences span blank lines.
+  // Container directives span blank lines and bail conservatively.
   assert.equal(splitMarkdownBlocks('::: note\ncontent\n:::\n\npara\n'), null)
-  assert.equal(splitMarkdownBlocks('$$\nx^2\n$$\n\npara\n'), null)
-  assert.equal(splitMarkdownBlocks('text\n\n  $$\nmath\n'), null)
   // Setext underlines: a line of dashes or equals right behind text.
   assert.equal(splitMarkdownBlocks('title\n===\n\nbody\n'), null)
   assert.equal(splitMarkdownBlocks('title\n---\n\nbody\n'), null)
+  // A streaming `- ` or `-` line right after a list item is a new list item, not a Setext underline.
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n- first\n- '), ['intro\n\n', '- first\n- '])
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n- first\n-'), ['intro\n\n', '- first\n-'])
   // ...but a thematic break after a blank line is not an underline and splits fine.
   assert.deepEqual(splitMarkdownBlocks('one\n\n---\n\ntwo\n'), ['one\n\n', '---\n\n', 'two\n'])
   assert.deepEqual(splitMarkdownBlocks('one\n\n***\n\ntwo\n'), ['one\n\n', '***\n\n', 'two\n'])
-  // Duplicate ATX heading slugs are numbered document-wide.
+  // Duplicate ATX heading slugs are numbered document-wide by default, and optionally allowed
+  // for renderers without rehype-slug.
   assert.equal(splitMarkdownBlocks('# Same\n\nbody\n\n# Same\n\nmore\n'), null)
   assert.equal(splitMarkdownBlocks('# Same\n\nbody\n\n# same\n\nmore\n'), null)
   assert.equal(splitMarkdownBlocks('# Same ##\n\nbody\n\n# Same\n\nmore\n'), null)
+  assert.deepEqual(
+    splitMarkdownBlocks('# Same\n\nbody\n\n# Same\n\nmore\n', { allowDuplicateHeadings: true }),
+    ['# Same\n\n', 'body\n\n', '# Same\n\n', 'more\n'],
+  )
   // Distinct headings keep the split.
   assert.deepEqual(splitMarkdownBlocks('# One\n\nbody\n\n# Two\n\nmore\n'), ['# One\n\n', 'body\n\n', '# Two\n\n', 'more\n'])
+})
+
+test('display math blocks ($$...$$ and \\[...\\]) stay intact across blank lines and split cleanly from neighbors', () => {
+  const dollarMath = 'intro\n\n$$\na^2 + b^2\n\n= c^2\n$$\n\nafter\n'
+  assert.deepEqual(splitMarkdownBlocks(dollarMath), ['intro\n\n', '$$\na^2 + b^2\n\n= c^2\n$$\n\n', 'after\n'])
+  assert.equal(splitMarkdownBlocks(dollarMath).join(''), dollarMath)
+
+  // Single-line display math closes on the same line.
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n$$x^2 + 1$$\n\nafter\n'), ['intro\n\n', '$$x^2 + 1$$\n\n', 'after\n'])
+
+  // Unclosed trailing `$$` keeps everything after it in the live tail block, while an
+  // indented `$$` followed by a less-indented line bails conservatively (matching code fences).
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n$$\n\\sum_{k=1}^n\n\nk^2'), ['intro\n\n', '$$\n\\sum_{k=1}^n\n\nk^2'])
+  assert.equal(splitMarkdownBlocks('text\n\n  $$\nmath\n'), null)
+
+  // LaTeX `\[...\]` display math spans blank lines and splits cleanly from surrounding blocks.
+  const latexMath = 'intro\n\n\\[\n\\int_0^1 x\\,dx\n\n= \\frac{1}{2}\n\\]\n\nafter\n'
+  assert.deepEqual(splitMarkdownBlocks(latexMath), ['intro\n\n', '\\[\n\\int_0^1 x\\,dx\n\n= \\frac{1}{2}\n\\]\n\n', 'after\n'])
+  assert.equal(splitMarkdownBlocks(latexMath).join(''), latexMath)
+  // Unclosed trailing `\[` stays in the tail block.
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n\\[\na + b\n\nc'), ['intro\n\n', '\\[\na + b\n\nc'])
+
+  // Container-prefixed display math (`> $$`, `- \[`) bails conservatively to whole-document parse.
+  assert.equal(splitMarkdownBlocks('intro\n\n> $$\n> x^2\n> $$\n\nafter\n'), null)
+  assert.equal(splitMarkdownBlocks('intro\n\n- \\[\n  x^2\n  \\]\n\nafter\n'), null)
 })
 
 test('never splits inside a fence: blank lines, fence lookalikes and boundaries inside it all stay whole', () => {

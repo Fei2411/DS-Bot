@@ -5,6 +5,8 @@
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 
 const MAX_HIGHLIGHT_CHARS = 200_000
+const HIGHLIGHT_CACHE_MAX = 128
+const highlightCache = new Map()
 
 let hljsCore = null
 let hljsCorePromise = null
@@ -198,8 +200,21 @@ export function highlightSync(code, rawLang) {
   const canonical = normalizeLanguage(rawLang)
   if (canonical === '' || canonical === 'plaintext') return null
   if (!loadedLangs.has(canonical) && !hljsCore.getLanguage(canonical)) return null
+  const cacheKey = `${canonical}\u0000${code}`
+  if (highlightCache.has(cacheKey)) {
+    const cached = highlightCache.get(cacheKey)
+    highlightCache.delete(cacheKey)
+    highlightCache.set(cacheKey, cached)
+    return cached
+  }
   try {
-    return hljsCore.highlight(code, { language: canonical, ignoreIllegals: true }).value
+    const value = hljsCore.highlight(code, { language: canonical, ignoreIllegals: true }).value
+    highlightCache.set(cacheKey, value)
+    if (highlightCache.size > HIGHLIGHT_CACHE_MAX) {
+      const oldest = highlightCache.keys().next().value
+      if (oldest !== undefined) highlightCache.delete(oldest)
+    }
+    return value
   } catch {
     return null
   }

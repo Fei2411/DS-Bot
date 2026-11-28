@@ -24,10 +24,12 @@ const reactMarkdown = fileURLToPath(import.meta.resolve('react-markdown'))
 // invocation of react-markdown's component through a shim. One bundle means one copy of
 // React, which memoization needs.
 const entryCode = `
-  export { createElement, Fragment } from 'react'
+  export { createElement, Fragment, Profiler } from 'react'
   export { createRoot } from 'react-dom/client'
   export { flushSync } from 'react-dom'
   export { MarkdownText } from './ui/src/primitives.js'
+  export { MathExpression, ensureKatex, normalizeMathDelimiters } from './ui/src/math-render.js'
+  export { ensureLanguage } from './ui/src/code-highlight.js'
 `
 // A tiny real file stands in for the react-markdown import inside the bundle and counts
 // every component invocation, so the test can measure how often anything re-parses.
@@ -61,7 +63,17 @@ const { outputFiles } = await build({
 
 const bundlePath = join(dir, 'bundle.mjs')
 writeFileSync(bundlePath, outputFiles[0].text)
-const { createElement: h, createRoot, flushSync, MarkdownText } = await import(pathToFileURL(bundlePath).href)
+const {
+  createElement: h,
+  Profiler,
+  createRoot,
+  flushSync,
+  MarkdownText,
+  MathExpression,
+  ensureKatex,
+  normalizeMathDelimiters,
+  ensureLanguage,
+} = await import(pathToFileURL(bundlePath).href)
 
 const labels = { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } }
 const renderCount = () => globalThis.__mdCount ?? 0
@@ -474,6 +486,128 @@ test('list-hosted fences never truncate top-level code blocks or restart numbere
   assert.equal(fold(streamedDeep.container.innerHTML), deepRef, '4-space closing fence inside list followed by link def matches settled')
   assert.ok(streamedDeep.container.querySelectorAll('a').length > 0, 'link definition after 4-space closing fence still resolves')
   streamedDeep.unmount()
+})
+
+test('display math (\\[...\\] and $$...$$) keeps block splitting intact and matches settled render', async () => {
+  await ensureKatex()
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const normalized = normalizeMathDelimiters('Intro paragraph \\[a^2 + b^2\\] outro paragraph')
+  assert.equal(normalized, 'Intro paragraph\n\n$$\na^2 + b^2\n$$\n\noutro paragraph')
+  assert.deepEqual(splitMarkdownBlocks(normalized), ['Intro paragraph\n\n', '$$\na^2 + b^2\n$$\n\n', 'outro paragraph'])
+
+  const mathReply = [
+    'Introduction with enough text to exceed the streaming split threshold smoothly. '.repeat(8).trim(),
+    '',
+    '\\[',
+    '\\sum_{k=1}^{n} k^2 = \\frac{n(n+1)(2n+1)}{6}',
+    '\\]',
+    '',
+    'Middle explanation with inline $E = mc^2$ and \\(\\alpha + \\beta\\) and $5 and $10 currency.',
+    '',
+    '$$',
+    '\\int_0^1 x^2\\,dx = \\frac{1}{3}',
+    '$$',
+    '',
+    'Closing summary paragraph.',
+  ].join('\n')
+
+  const settled = mounted()
+  settled.render(h(MarkdownText, { text: mathReply, labels }))
+  const fold = html => html.replace(/>\n</g, '><')
+  const reference = fold(settled.container.innerHTML)
+  settled.unmount()
+
+  const streamed = mounted()
+  let acc = ''
+  let beforeCount = renderCount()
+  const perChunk = []
+  for (let at = 0; at < mathReply.length; at += 19) {
+    acc = mathReply.slice(0, at + 19)
+    streamed.render(h(MarkdownText, { text: acc, streaming: true, labels }))
+    perChunk.push(renderCount() - beforeCount)
+    beforeCount = renderCount()
+  }
+  const beforeSettle = renderCount()
+  streamed.render(h(MarkdownText, { text: mathReply, streaming: false, labels }))
+  const settleParses = renderCount() - beforeSettle
+  assert.equal(fold(streamed.container.innerHTML), reference, 'streamed display math matches settled render')
+  assert.equal(streamed.container.querySelectorAll('.dsb-math-block').length, 2, 'both \\[...\\] and $$...$$ render as display math')
+  assert.ok(settleParses <= 1, `streaming -> settled transition only touches tail block, got ${settleParses} parses`)
+  streamed.unmount()
+})
+
+test('streaming tail defers syntax highlighting for unclosed code fences and defers KaTeX for unclosed math until closed', async () => {
+  await ensureLanguage('javascript')
+  await ensureKatex()
+
+  const prefix = 'Closed introductory paragraph long enough to pass the streaming block threshold. '.repeat(8).trim()
+  const view = mounted()
+  try {
+    // Unclosed JS fence in streaming tail renders plain code without hljs tokens.
+    const unclosedCode = `${prefix}\n\n\`\`\`javascript\nconst value = 42\nexport function run() {`
+    view.render(h(MarkdownText, { text: unclosedCode, streaming: true, labels }))
+    assert.equal(view.container.querySelectorAll('.hljs-keyword').length, 0, 'unclosed fence skips syntax highlighting while streaming')
+    assert.ok(view.container.textContent.includes('const value = 42'), 'unclosed fence still shows plain code text')
+
+    // Closing the fence highlights immediately.
+    const closedCode = `${unclosedCode}\n  return value\n}\n\`\`\``
+    view.render(h(MarkdownText, { text: closedCode, streaming: true, labels }))
+    assert.ok(view.container.querySelectorAll('.hljs-keyword').length > 0, 'closed fence syntax-highlights')
+
+    // Unclosed `$$` display math in streaming tail skips KaTeX until closing `$$`.
+    const unclosedDollar = `${prefix}\n\n$$\n\\frac{a + b}{c`
+    view.render(h(MarkdownText, { text: unclosedDollar, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed $$ skips KaTeX while streaming')
+    assert.ok(view.container.textContent.includes('\\frac{a + b}{c'), 'unclosed $$ displays raw TeX fallback')
+
+    const closedDollar = `${unclosedDollar}}\n$$`
+    view.render(h(MarkdownText, { text: closedDollar, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), true, 'closed $$ renders KaTeX')
+
+    // Unclosed single-line `$$` and unclosed inline `$` skip KaTeX while streaming.
+    const unclosedInlineDollar = `${prefix}\n\nThe partial formula is $E = m c^2`
+    view.render(h(MarkdownText, { text: unclosedInlineDollar, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed single $ skips KaTeX')
+
+    const unclosedSingleLineDisplay = `${prefix}\n\n$$x^2 + y^2`
+    view.render(h(MarkdownText, { text: unclosedSingleLineDisplay, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed single-line $$ skips KaTeX')
+
+    // Unclosed ```math fence skips KaTeX until closed.
+    const unclosedMathFence = `${prefix}\n\n\`\`\`math\nx^2 + y^2`
+    view.render(h(MarkdownText, { text: unclosedMathFence, streaming: true, labels }))
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed ```math fence skips KaTeX')
+  } finally {
+    view.unmount()
+  }
+})
+
+test('MathExpression is memoized and skips re-render when tex and display are unchanged', async () => {
+  await ensureKatex()
+  assert.equal(MathExpression.$$typeof, Symbol.for('react.memo'), 'MathExpression is wrapped in React.memo')
+  let renders = 0
+  const origType = MathExpression.type
+  MathExpression.type = function SpyMathExpression(props) {
+    renders += 1
+    return origType(props)
+  }
+  function Wrapper({ tick, tex }) {
+    return h('div', { 'data-tick': tick },
+      h(MathExpression, { tex, display: false }))
+  }
+  const view = mounted()
+  try {
+    view.render(h(Wrapper, { tick: 1, tex: 'E = mc^2' }))
+    assert.equal(renders, 1)
+    view.render(h(Wrapper, { tick: 2, tex: 'E = mc^2' }))
+    view.render(h(Wrapper, { tick: 3, tex: 'E = mc^2' }))
+    assert.equal(renders, 1, 'memoized MathExpression does not re-render on unrelated parent updates')
+    view.render(h(Wrapper, { tick: 4, tex: 'a^2 + b^2' }))
+    assert.equal(renders, 2, 'memoized MathExpression re-renders when tex changes')
+  } finally {
+    MathExpression.type = origType
+    view.unmount()
+  }
 })
 
 after(() => {

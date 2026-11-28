@@ -4,7 +4,7 @@
 // can change what they mean, because the split only happens at a blank-line boundary the
 // CommonMark block structure itself places there, and any syntax whose meaning is decided
 // document-wide (link reference definitions, footnotes, raw HTML blocks, container
-// directives, display math, Setext underlines, duplicate heading slugs) stops the split
+// directives, Setext underlines, duplicate heading slugs) stops the split
 // entirely instead of risking one wrong block. The renderer then parses each closed block
 // once and only re-parses the live trailing piece as it grows, instead of re-parsing the
 // whole message per chunk.
@@ -35,6 +35,20 @@ const CONTAINER_PREFIX = /^(?:>+[ \t]*|\d{1,9}[.)][ \t]+|[-+*][ \t]+|[ \t]*)/
 // Container prefixes a definition can hide behind, stripped as far as they nest
 // (`> > [x]: url` is a definition inside a quote inside a quote).
 const stripContainerPrefixes = (line) => {
+  if (line === '') return ''
+  const first = line.charCodeAt(0)
+  // Fast path: ordinary prose/heading/code lines cannot start with a container prefix.
+  if (
+    first !== 32 /* ' ' */
+    && first !== 9 /* '\t' */
+    && first !== 62 /* '>' */
+    && first !== 45 /* '-' */
+    && first !== 43 /* '+' */
+    && first !== 42 /* '*' */
+    && (first < 48 || first > 57) /* '0'-'9' */
+  ) {
+    return line
+  }
   let rest = line
   while (true) {
     const next = rest.replace(CONTAINER_PREFIX, '')
@@ -43,9 +57,9 @@ const stripContainerPrefixes = (line) => {
   }
 }
 
-// Whether the line can open a link reference (or footnote) definition once its container
-// prefixes are off. A definition is `[` label `]` immediately followed by `:`, so the
-// scan walks the label escape-aware:
+// Whether a line (already stripped of container prefixes) can open a link reference
+// (or footnote) definition. A definition is `[` label `]` immediately followed by `:`,
+// so the scan walks the label escape-aware:
 //   - no unescaped `]` on the line at all (including a trailing `\` before EOL) could
 //     be a label the next line finishes (`[long` / `label]: url` is one definition), so
 //     it conservatively bails;
@@ -54,8 +68,7 @@ const stripContainerPrefixes = (line) => {
 //   - anything else (`[x] = compute()`, `- [ ] todo`, `[text](url)`) never opens a
 //     definition, and the split stands. False positives only cost the split; a missed
 //     definition would corrupt the render.
-const opensLinkDefinition = (line) => {
-  const rest = stripContainerPrefixes(line)
+const opensLinkDefinitionStripped = (rest) => {
   if (!rest.startsWith('[')) return false
   for (let index = 1; index < rest.length; index += 1) {
     const char = rest[index]
@@ -69,7 +82,8 @@ const opensLinkDefinition = (line) => {
 }
 const RAW_HTML_BLOCK = /^ {0,3}<[A-Za-z/!?]/
 const CONTAINER_DIRECTIVE = /^ {0,3}:::/
-const DISPLAY_MATH = /^ {0,3}\$\$/
+const MATH_FENCE_OPEN = /^ {0,3}(\${2,})(.*)$/
+const INDENTED_MATH_CLOSE = /^ {4,}(\${2,})[ \t]*$/
 const ATX_HEADING = /^ {0,3}(#{1,6})(?:[ \t]+|$)/
 const SETEXT_DASHES = /^ {0,3}-+[ \t]*$/
 const SETEXT_EQUALS = /^ {0,3}=+[ \t]*$/
@@ -106,25 +120,92 @@ const fenceClose = (line, fence) => {
   return match[1][0] === fence.char && match[1].length >= fence.length
 }
 
+// Display math `$$` fence opener:
+// - `$$` followed only by whitespace opens a multi-line flow math block (spans blank lines).
+// - `$$...$$` on a single line (closed by matching `$`s at line end) is self-contained.
+// - `$$text` without closing `$` on the same line (e.g. a streaming inline display math
+//   line) is tracked as `inlineCandidate` so it stays unsplit through EOF unless a blank
+//   line appears inside it, in which case the splitter bails conservatively.
+const mathFenceOpen = (line) => {
+  const match = MATH_FENCE_OPEN.exec(line)
+  if (match === null) return null
+  const marker = match[1]
+  const rest = match[2]
+  if (BLANK.test(rest)) {
+    return { length: marker.length, indent: leadingSpaces(line), inlineCandidate: false }
+  }
+  // Single-line `$$ ... $$` closes on the same line and never spans blank lines.
+  const trimmed = rest.trimEnd()
+  if (trimmed.length > marker.length && trimmed.endsWith(marker) && !trimmed.endsWith(`\\${marker}`)) {
+    return null
+  }
+  return { length: marker.length, indent: leadingSpaces(line), inlineCandidate: true }
+}
+
+const mathFenceClose = (line, mathFence) => {
+  const match = /^ {0,3}(\${2,})[ \t]*$/.exec(line)
+  if (match === null) return false
+  return match[1].length >= mathFence.length
+}
+
+// Tracks unescaped `\[` ... `\]` LaTeX display math balance on a line (skipping inline
+// backtick code spans). Returns `'open'` if the line leaves `\[` open, `'closed'` if an
+// open `\[` closes on this line, or `'same'` when state is unchanged.
+function scanLatexDisplayLine(line, currentlyOpen) {
+  let open = currentlyOpen
+  let i = 0
+  while (i < line.length) {
+    const ch = line[i]
+    if (!open && ch === '`') {
+      let ticks = 0
+      while (i + ticks < line.length && line[i + ticks] === '`') ticks += 1
+      const needle = '`'.repeat(ticks)
+      let close = line.indexOf(needle, i + ticks)
+      let found = -1
+      while (close !== -1) {
+        const beforeOk = close === 0 || line[close - 1] !== '`'
+        const afterOk = close + ticks >= line.length || line[close + ticks] !== '`'
+        if (beforeOk && afterOk) { found = close + ticks; break }
+        close = line.indexOf(needle, close + 1)
+      }
+      i = found !== -1 ? found : i + ticks
+      continue
+    }
+    if (ch === '\\' && i + 1 < line.length) {
+      const next = line[i + 1]
+      if (!open && next === '[') open = true
+      else if (open && next === ']') open = false
+      i += 2
+      continue
+    }
+    i += 1
+  }
+  return open
+}
+
 /**
  * Split Markdown source at safe closed-block boundaries.
  * @param {string} text
+ * @param {{ allowDuplicateHeadings?: boolean }} [options]
  * @returns {string[] | null} the pieces, or null when the document must be parsed whole
  */
-export function splitMarkdownBlocks(text) {
+export function splitMarkdownBlocks(text, options = {}) {
   if (typeof text !== 'string' || text === '') return null
   // CRLF pairs are block-structure characters in Markdown; normalizing them would break
   // the exact-join contract, and re-parsing whole is cheap enough for such input.
   if (text.includes('\r') || text.includes('﻿')) return null
 
+  const checkDuplicateHeadings = options?.allowDuplicateHeadings !== true
   const lines = text.split('\n')
   // Character offset at which each line starts; the end of line `index` (its newline
   // included) is the start of the next one.
   const starts = [0]
   for (const line of lines) starts.push(starts.at(-1) + line.length + 1)
   const ends = []
-  const slugs = new Set()
+  const slugs = checkDuplicateHeadings ? new Set() : null
   let fence = null
+  let mathFence = null
+  let latexMathOpen = false
   let previousBlank = true
   let inList = false
   let previousLineIndented = false
@@ -157,38 +238,79 @@ export function splitMarkdownBlocks(text) {
       }
       continue
     }
+    if (mathFence !== null) {
+      const blankInside = BLANK.test(line)
+      if (mathFence.inlineCandidate && blankInside) return null
+      if (!blankInside && mathFence.indent > 0 && leadingSpaces(line) < mathFence.indent) return null
+      if (mathFence.indent > 0) {
+        const deepClose = INDENTED_MATH_CLOSE.exec(line)
+        if (deepClose !== null && deepClose[1].length >= mathFence.length) return null
+      }
+      if (mathFenceClose(line, mathFence)) {
+        const wasIndented = mathFence.indent > 0
+        mathFence = null
+        previousBlank = false
+        if (!wasIndented) inList = false
+        previousLineIndented = wasIndented
+      }
+      continue
+    }
+    if (latexMathOpen) {
+      if (!scanLatexDisplayLine(line, true)) {
+        latexMathOpen = false
+        previousBlank = false
+        inList = false
+        previousLineIndented = false
+      }
+      continue
+    }
     const blank = BLANK.test(line)
     if (!blank) {
+      const stripped = stripContainerPrefixes(line)
       const opening = fenceOpen(line)
       if (opening !== null) {
         fence = opening
         if (opening.indent === 0) inList = false
       } else {
-        // A fence nested behind a container prefix (`- ```js`, `> ```js`, `    ```js`)
-        // cannot be tracked safely without container state: its later indented closing
-        // marker could be misread as a new opening fence. Fall back to whole-doc parse.
-        const stripped = stripContainerPrefixes(line)
-        if (stripped !== line && fenceOpen(stripped) !== null) return null
-        // Duplicate ATX heading slugs are resolved document-wide (`# A` then `# A` again
-        // becomes `a` and `a-1`); checking them in the same pass keeps fence state identical.
-        const heading = ATX_HEADING.exec(line)
-        if (heading !== null) {
-          const slug = slugOf(line.slice(heading[0].length))
-          if (slug !== '') {
-            if (slugs.has(slug)) return null
-            slugs.add(slug)
+        const mathOpening = mathFenceOpen(line)
+        if (mathOpening !== null) {
+          mathFence = mathOpening
+          if (mathOpening.indent === 0) inList = false
+        } else {
+          // A fence or display math nested behind a container prefix (`- ```js`, `> $$`)
+          // cannot be tracked safely without container state. Fall back to whole-doc parse.
+          if (stripped !== line && (fenceOpen(stripped) !== null || MATH_FENCE_OPEN.test(stripped))) return null
+          if (line.includes('\\[') && scanLatexDisplayLine(line, false)) {
+            if (stripped !== line) return null
+            latexMathOpen = true
+            inList = false
+            previousBlank = false
+            previousLineIndented = false
+            continue
+          }
+          // Duplicate ATX heading slugs are resolved document-wide (`# A` then `# A` again
+          // becomes `a` and `a-1`); checking them in the same pass keeps fence state identical.
+          if (slugs !== null) {
+            const heading = ATX_HEADING.exec(line)
+            if (heading !== null) {
+              const slug = slugOf(line.slice(heading[0].length))
+              if (slug !== '') {
+                if (slugs.has(slug)) return null
+                slugs.add(slug)
+              }
+            }
           }
         }
       }
       // Anything whose reach crosses block boundaries stops the split outright.
-      if (opensLinkDefinition(line)) return null
-      if (FOOTNOTE_REFERENCE.test(line)) return null
-      if (RAW_HTML_BLOCK.test(line)) return null
-      if (CONTAINER_DIRECTIVE.test(line)) return null
-      if (DISPLAY_MATH.test(line)) return null
-      if (!previousBlank && (SETEXT_DASHES.test(line) || SETEXT_EQUALS.test(line))) return null
+      if (opensLinkDefinitionStripped(stripped)) return null
+      if (line.includes('[^') && FOOTNOTE_REFERENCE.test(line)) return null
+      if (line.includes('<') && RAW_HTML_BLOCK.test(line)) return null
+      if (line.includes(':::') && CONTAINER_DIRECTIVE.test(line)) return null
+      const isListMarker = LIST_MARKER.test(line)
+      if (!previousBlank && (SETEXT_EQUALS.test(line) || (SETEXT_DASHES.test(line) && !(inList && isListMarker)))) return null
       previousBlank = false
-      if (LIST_MARKER.test(line)) inList = true
+      if (isListMarker) inList = true
       else if (ATX_HEADING.test(line) || THEMATIC_BREAK.test(line)) inList = false
       previousLineIndented = line.startsWith(' ') || line.startsWith('\t')
       continue
