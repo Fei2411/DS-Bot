@@ -571,7 +571,7 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .d
   .dsb-classic-row[data-has-actions] .dsb-classic-btn{padding-right:64px}
 }
 .dsb-classic-editing{padding:4px 4px}
-.dsb-classic-input{width:100%;height:30px;min-height:30px;padding:0 8px;font-size:13px}
+.dsb-classic-input{width:100%;box-sizing:border-box;height:30px;min-height:30px;padding:0 8px;font-size:13px}
 .dsb-classic-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:32px 12px;text-align:center}
 .dsb-classic-empty-mark{display:inline-flex;color:var(--bt-ink-2);opacity:.35}
 .dsb-classic-empty-text{font-size:12px;line-height:16px;color:var(--bt-ink-3)}

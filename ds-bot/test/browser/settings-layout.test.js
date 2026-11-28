@@ -515,6 +515,19 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           </div>
         </div>
       </section>
+      <section class="bt-set-section">
+        <div class="bt-set-card" data-card="privacy-switch">
+          <div class="bt-set-row" id="row-privacy-switch">
+            <div class="bt-set-copy"><span>Upload Session Log to DeepSeek API</span><span class="bt-set-hint">Sends incremental session logs to DeepSeek when using the official DeepSeek API. Private Bots are always excluded.</span></div>
+            <div class="bt-set-control"><button type="button" role="switch" aria-checked="false" class="bt-switch"><span class="bt-switch-knob"></span></button></div>
+          </div>
+        </div>
+      </section>
+      <div class="bt-create-inline">
+        <div class="bt-create-card" id="create-card-probe">
+          <div class="bt-create-looks"><div class="bt-shapes"></div></div>
+        </div>
+      </div>
     </div>
   `
   const inspectScript = () => {
@@ -522,7 +535,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
       const scope = document.getElementById(scopeId)
       const cards = [...scope.querySelectorAll('.bt-set-card')]
       const overflowCards = cards.filter(card => card.scrollWidth > card.clientWidth + 1).map(card => card.dataset.card)
-      const rowIds = ['row-name', 'row-label', 'row-label-de', 'row-group-name', 'row-instructions', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-computer-page', 'row-task-target', 'row-task-name', 'row-im']
+      const rowIds = ['row-name', 'row-label', 'row-label-de', 'row-group-name', 'row-instructions', 'row-engine', 'row-model', 'row-preset', 'row-computer', 'row-switch', 'row-privacy-switch', 'row-computer-page', 'row-task-target', 'row-task-name', 'row-im']
       const rows = {}
       for (const id of rowIds) {
         const row = scope.querySelector(`#${id}`)
@@ -550,7 +563,9 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           clipped: ctrlRect.right > cardRect.right + 1 || innerCtrlRect.right > cardRect.right + 1 || copyRect.right > cardRect.right + 1,
         }
       }
-      return { overflowCards, rows }
+      const createCard = scope.querySelector('#create-card-probe')
+      const createCardOverflow = createCard ? createCard.scrollWidth > createCard.clientWidth + 1 : false
+      return { overflowCards, createCardOverflow, rows }
     }
     return Object.fromEntries([...document.querySelectorAll('.wrap')].map(el => [el.id, inspect(el.id)]))
   }
@@ -571,6 +586,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
 
       for (const scopeName of ['narrow', 'edge440', 'edge441', 'wide']) {
         assert.deepEqual(report[scopeName].overflowCards, [], `${scopeName}: ${JSON.stringify(report[scopeName])}`)
+        assert.equal(report[scopeName].createCardOverflow, false, `${scopeName} create card overflowed`)
         // Multiline .bt-bs-area must stay full-width at every card width (never capped at 58%).
         const area = report[scopeName].rows['row-instructions']
         assert.equal(area.stacked, true, `${scopeName} instructions should stack: ${JSON.stringify(area)}`)
@@ -587,7 +603,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           assert.ok(r.innerCtrlW >= r.innerW - 2, `${scopeName} ${id} control width too small: ${JSON.stringify(r)}`)
           assert.ok(r.labelH <= 24, `${scopeName} ${id} label wrapped vertically: ${JSON.stringify(r)}`)
         }
-        for (const id of ['row-engine', 'row-switch']) {
+        for (const id of ['row-engine', 'row-switch', 'row-privacy-switch']) {
           const r = report[scopeName].rows[id]
           assert.equal(r.stacked, false, `${scopeName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${scopeName} ${id} clipped: ${JSON.stringify(r)}`)
@@ -627,13 +643,14 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
         await page.setContent(docHtml([[vpName, cardWidth]]))
         const vpReport = (await page.evaluate(inspectScript))[vpName]
         assert.deepEqual(vpReport.overflowCards, [], `${vpName}: ${JSON.stringify(vpReport)}`)
+        assert.equal(vpReport.createCardOverflow, false, `${vpName} create card overflowed`)
         for (const id of [...stackedInNarrow, 'row-instructions']) {
           const r = vpReport.rows[id]
           assert.equal(r.stacked, true, `${vpName} ${id} should stack: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${vpName} ${id} clipped: ${JSON.stringify(r)}`)
           assert.ok(r.innerCtrlW >= r.innerW - 2, `${vpName} ${id} control width too small: ${JSON.stringify(r)}`)
         }
-        for (const id of ['row-engine', 'row-switch']) {
+        for (const id of ['row-engine', 'row-switch', 'row-privacy-switch']) {
           const r = vpReport.rows[id]
           assert.equal(r.stacked, false, `${vpName} ${id} should stay horizontal: ${JSON.stringify(r)}`)
           assert.equal(r.clipped, false, `${vpName} ${id} clipped: ${JSON.stringify(r)}`)
