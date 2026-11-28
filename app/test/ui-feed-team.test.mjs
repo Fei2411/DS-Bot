@@ -106,14 +106,14 @@ test('openFeed passes after, boot, and Last-Event-ID on reconnect and parses chu
     requests.push({ url, headers: init?.headers })
     calls += 1
     if (calls === 1) {
-      // Split CRLF (\r | \n) and frame separator (\n | \n) across chunks.
+      // Split CRLF (\r | \n), frame separator (\n | \n), and boot-scoped SSE id (`b-1:8`) across chunks.
       return {
         ok: true,
         status: 200,
         body: makeStream([
-          'id: 7\r',
+          'id: b-1:7\r',
           '\nevent: hello\r\ndata: {"revision":1,"boot":"b-1","feedSeq":7,"resumed":false}\r\n\r',
-          '\nid: 8\nevent: live\ndata: {}\n',
+          '\nid: b-1:8\nevent: live\ndata: {}\n',
           '\n: rotate\n\n',
         ]),
       }
@@ -128,7 +128,7 @@ test('openFeed passes after, boot, and Last-Event-ID on reconnect and parses chu
             async read() {
               if (!sent) {
                 sent = true
-                return { value: new TextEncoder().encode('id: 8\nevent: hello\ndata: {"revision":1,"boot":"b-1","feedSeq":8,"resumed":true}\n\n'), done: false }
+                return { value: new TextEncoder().encode('id: b-1:8\nevent: hello\ndata: {"revision":1,"boot":"b-1","feedSeq":8,"resumed":true}\n\n'), done: false }
               }
               return await new Promise(() => {})
             },
@@ -152,6 +152,40 @@ test('openFeed passes after, boot, and Last-Event-ID on reconnect and parses chu
     ['live', {}],
     ['hello', { revision: 1, boot: 'b-1', feedSeq: 8, resumed: true }],
   ])
+  stop()
+})
+
+test('openFeed decodes multi-byte UTF-8 characters split across SSE byte chunks without corruption', async (t) => {
+  const origFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = origFetch })
+
+  const full = new TextEncoder().encode('id: b-utf:1\nevent: message\ndata: {"text":"你好 🚀 世界"}\n\n')
+  // Split right inside multi-byte UTF-8 sequences (1-byte slices across the CJK and emoji bytes).
+  const chunks = []
+  for (let i = 0; i < full.length; i += 2) {
+    chunks.push(full.slice(i, i + 2))
+  }
+  let idx = 0
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (idx < chunks.length) return { value: chunks[idx++], done: false }
+            return await new Promise(() => {})
+          },
+          async cancel() {},
+        }
+      },
+    },
+  })
+
+  const events = []
+  const stop = openFeed((event, data) => events.push([event, data]))
+  for (let i = 0; i < chunks.length + 4; i += 1) await tick()
+  assert.deepEqual(events, [['message', { text: '你好 🚀 世界' }]])
   stop()
 })
 

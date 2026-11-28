@@ -776,27 +776,129 @@ test('useSessionFollow preserves already-loaded earlier pages on bot/stale and f
   }
 })
 
-test('useSessionFollow in read-only mode ignores hello { resumed: true } and reopens on hello { resumed: false }', async () => {
+test('useSessionFollow falls back cleanly when bot/stale gap fill fails and ignores stale gap fills after superseding snapshot', async () => {
   fetchCtrl.reset()
-  const listeners = new Set()
-  const feed = { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } }
-  const emit = (ev, data) => { for (const fn of listeners) fn(ev, data) }
+  const origCall = sandbox.__testCall
+  const msg = (seq, text) => ({ type: 'assistant/message', seq, time: seq * 10, data: { turn: seq, step: 1, message: { content: [{ type: 'text', text }] } } })
+
+  // Part 1: fillGap failure falls back to opening events + historyReloaded: true (never leaves a silent middle hole).
+  sandbox.__testCall = async (name) => {
+    if (name === 'session-page') throw new Error('network failed')
+    return { records: [], hasMore: false }
+  }
   let view
   const Probe = () => {
-    view = useSessionFollow({ sessionId: 'b1', enabled: true, feed, readOnly: true })
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
     return null
   }
   const inst = mount(Probe, {})
   try {
     inst.render()
     await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [10, 11, 12], 'failed gap fill must drop unreachable prefix instead of leaving a permanent middle hole')
+    assert.equal(view.log.hasMore, true, 'failed gap fill restores snapshot hasMore so Load earlier works')
+    assert.equal(view.historyReloaded, true, 'failed gap fill surfaces historyReloaded banner')
+  } finally {
+    sandbox.__testCall = origCall
+    inst.unmount()
+    fetchCtrl.reset()
+  }
+
+  // Part 2: superseding snapshot/rewind arriving while fillGap is in flight cancels the old gap fill.
+  let resolveGap
+  sandbox.__testCall = (name) => {
+    if (name === 'session-page') {
+      return new Promise((resolve) => { resolveGap = resolve })
+    }
+    return Promise.resolve({ records: [], hasMore: false })
+  }
+  const inst2 = mount(Probe, {})
+  try {
+    inst2.render()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: false,
+      records: [1, 2, 3, 4, 5].map(seq => ({ type: 'event', event: msg(seq, `init ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'stale' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 12, hasMore: true,
+      records: [10, 11, 12].map(seq => ({ type: 'event', event: msg(seq, `new ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    assert.equal(typeof resolveGap, 'function', 'fillGap should be in flight')
+
+    // Superseding rewind snapshot arrives while fillGap is still pending.
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'rewound' })
+    await tick()
+    await tick()
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 4, hasMore: false,
+      records: [2, 3, 4].map(seq => ({ type: 'event', event: msg(seq, `rewind ${seq}`) })), assistantStream: { revision: 0 },
+    })
+    await tick()
+
+    // Old fillGap now resolves with outdated gap events 6..9 -> must be ignored!
+    resolveGap({ records: [6, 7, 8, 9].map(seq => ({ type: 'event', event: msg(seq, `stale-gap ${seq}`) })), hasMore: false })
+    await tick()
+    await tick()
+    inst2.render()
+    assert.deepEqual(plain(view.log.events.map(e => e.seq)), [2, 3, 4], 'stale in-flight fillGap must not splice outdated events into superseding snapshot')
+    assert.equal(view.log.cursor, 4)
+  } finally {
+    sandbox.__testCall = origCall
+    inst2.unmount()
+    fetchCtrl.reset()
+  }
+})
+
+test('useSessionFollow in read-only mode ignores hello { resumed: true }, reopens on hello { resumed: false } and catalog updatedAt change', async () => {
+  fetchCtrl.reset()
+  const listeners = new Set()
+  const feed = { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } }
+  const emit = (ev, data) => { for (const fn of listeners) fn(ev, data) }
+  let view
+  const Probe = ({ updatedAt }) => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true, feed, readOnly: true, readOnlyUpdatedAt: updatedAt })
+    return null
+  }
+  const inst = mount(Probe, { updatedAt: 100 })
+  try {
+    inst.render({ updatedAt: 100 })
+    await tick()
     assert.equal(fetchCtrl.calls.length, 1)
     emit('hello', { revision: 1, feedSeq: 1, resumed: true })
     await tick()
     assert.equal(fetchCtrl.calls.length, 1, 'resumed hello must not reopen read-only session follow')
+    // Same updatedAt keeps it idle.
+    inst.render({ updatedAt: 100 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1, 'unchanged updatedAt must not reopen read-only session follow')
+    // Advancing catalog updatedAt (same DM segment updated in writer process) reopens to pick up new messages.
+    inst.render({ updatedAt: 200 })
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'advancing readOnlyUpdatedAt reopens read-only session follow')
     emit('hello', { revision: 1, feedSeq: 1, resumed: false })
     await tick()
-    assert.equal(fetchCtrl.calls.length, 2, 'unresumed hello reopens read-only session follow')
+    assert.equal(fetchCtrl.calls.length, 3, 'unresumed hello reopens read-only session follow')
     void view
   } finally {
     inst.unmount()

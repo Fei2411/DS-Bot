@@ -107,6 +107,26 @@ async function readEventStream(body, onParsed, onComment) {
   }
 }
 
+function parseFeedId(raw) {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed === '') return null
+  let boot = null
+  let seqText = trimmed
+  const colon = trimmed.lastIndexOf(':')
+  if (colon > 0) {
+    const tail = trimmed.slice(colon + 1)
+    if (/^\d+$/.test(tail)) {
+      boot = trimmed.slice(0, colon)
+      seqText = tail
+    }
+  }
+  if (!/^\d+$/.test(seqText)) return null
+  const seq = Number(seqText)
+  if (!Number.isSafeInteger(seq) || seq < 0) return null
+  return { boot, seq }
+}
+
 // Read over fetch: EventSource does not load from the window's own scheme. After a
 // break the feed reconnects with the last seen sequence number so clean rotations resume
 // without forcing a full re-read.
@@ -118,12 +138,11 @@ export function openFeed(onEvent) {
   let lastSeq = null
   let lastBoot = null
   const buildFeedRequest = () => {
-    if (lastSeq === null) return { url: 'api/bot/feed', headers: undefined }
-    const params = new URLSearchParams({ after: String(lastSeq) })
-    if (lastBoot) params.set('boot', lastBoot)
+    if (lastSeq === null || lastBoot === null) return { url: 'api/bot/feed', headers: undefined }
+    const params = new URLSearchParams({ after: String(lastSeq), boot: lastBoot })
     return {
       url: `api/bot/feed?${params.toString()}`,
-      headers: { 'Last-Event-ID': lastBoot ? `${lastBoot}:${lastSeq}` : String(lastSeq) },
+      headers: { 'Last-Event-ID': `${lastBoot}:${lastSeq}` },
     }
   }
   const run = async () => {
@@ -145,9 +164,10 @@ export function openFeed(onEvent) {
         await readEventStream(response.body, (event, data, id) => {
           receivedEvent = true
           failures = 0
-          if (id !== undefined && id !== '') {
-            const parsedSeq = Number(id)
-            if (Number.isSafeInteger(parsedSeq) && parsedSeq >= 0) lastSeq = parsedSeq
+          const parsedId = parseFeedId(id)
+          if (parsedId !== null) {
+            if (parsedId.boot !== null) lastBoot = parsedId.boot
+            lastSeq = parsedId.seq
           }
           if (event === 'hello') {
             if (typeof data?.boot === 'string' && data.boot !== '') lastBoot = data.boot

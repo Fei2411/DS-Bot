@@ -65,11 +65,12 @@ export function install(rt) {
   /** @type {{ seq: number, chunk: Uint8Array, bytes: number }[]} */
   const history = []
   let lastLocalLeftAt = 0
-  /** @type {Set<ReadableStreamDefaultController<Uint8Array>>} */
+  /** @type {Set<{ controller: ReadableStreamDefaultController<Uint8Array>, pending: { chunk: Uint8Array, live: boolean }[], liveQueued: number, closed: boolean }>} */
   const clients = new Set()
   const formatSse = (event, data, id) => encoder.encode(
     `${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
   )
+  const formatFeedId = (boot, seq) => `${boot}:${seq}`
   const localReplayActive = () => clients.size > 0 || (lastLocalLeftAt > 0 && Date.now() - lastLocalLeftAt < REPLAY_IDLE_MS)
   const invalidateReplay = () => {
     feedSeq += 1
@@ -77,12 +78,42 @@ export function install(rt) {
     historyBytes = 0
     droppedBeforeSeq = feedSeq
   }
-  const send = (controller, chunk) => {
-    if ((controller.desiredSize ?? 0) < -MAX_QUEUED) {
-      leave(controller)
-      return
+  rt.invalidateFeedReplay = invalidateReplay
+  const flush = (client) => {
+    while (!client.closed && client.pending.length > 0 && (client.controller.desiredSize ?? 0) > 0) {
+      const next = client.pending.shift()
+      if (next.live) client.liveQueued -= 1
+      try {
+        client.controller.enqueue(next.chunk)
+      } catch {
+        leave(client)
+        return false
+      }
     }
-    try { controller.enqueue(chunk) } catch { leave(controller) }
+    return !client.closed
+  }
+  const send = (client, chunk) => {
+    if (client.closed) return false
+    if (client.pending.length > 0) {
+      if (client.liveQueued >= MAX_QUEUED) {
+        leave(client)
+        return false
+      }
+      client.pending.push({ chunk, live: true })
+      client.liveQueued += 1
+      return flush(client)
+    }
+    if ((client.controller.desiredSize ?? 0) < -MAX_QUEUED) {
+      leave(client)
+      return false
+    }
+    try {
+      client.controller.enqueue(chunk)
+      return true
+    } catch {
+      leave(client)
+      return false
+    }
   }
   const publishLocal = (event, data) => {
     if (!localReplayActive()) {
@@ -90,7 +121,7 @@ export function install(rt) {
       return
     }
     const seq = ++feedSeq
-    const chunk = formatSse(event, data, seq)
+    const chunk = formatSse(event, data, formatFeedId(bootId(), seq))
     const bytes = chunk.byteLength
     if (bytes > REPLAY_MAX_BYTES) {
       history.length = 0
@@ -105,7 +136,7 @@ export function install(rt) {
         if (evicted.seq > droppedBeforeSeq) droppedBeforeSeq = evicted.seq
       }
     }
-    for (const controller of clients) send(controller, chunk)
+    for (const client of clients) send(client, chunk)
   }
   const publish = (event, data) => {
     for (const tap of taps) {
@@ -156,6 +187,10 @@ export function install(rt) {
   }
   const listening = () => clients.size > 0 || taps.size > 0 || localReplayActive()
   const offSaved = rt.onSaved(() => {
+    if (listening()) publish('revision', { revision: state.revision })
+    else if (lastLocalLeftAt > 0) invalidateReplay()
+  })
+  const offAdopted = rt.onAdopted?.(() => {
     if (listening()) publish('revision', { revision: state.revision })
     else if (lastLocalLeftAt > 0) invalidateReplay()
   })
@@ -272,14 +307,18 @@ export function install(rt) {
     localConnectListeners.add(listener)
     return () => { localConnectListeners.delete(listener) }
   }
-  const leave = (controller, { rotated = false } = {}) => {
-    const had = clients.delete(controller)
-    clearTimeout(lifetimes.get(controller))
-    lifetimes.delete(controller)
-    const connection = requests.get(controller)
+  const leave = (client, { rotated = false } = {}) => {
+    if (!client) return
+    client.closed = true
+    client.pending.length = 0
+    client.liveQueued = 0
+    const had = clients.delete(client)
+    clearTimeout(lifetimes.get(client))
+    lifetimes.delete(client)
+    const connection = requests.get(client)
     connection?.request.signal.removeEventListener('abort', connection.abort)
-    requests.delete(controller)
-    try { controller.close() } catch { /* already closed or errored */ }
+    requests.delete(client)
+    try { client.controller.close() } catch { /* already closed or errored */ }
     if (had && clients.size === 0) {
       lastLocalLeftAt = Date.now()
       clearTimeout(rotateGraceTimer)
@@ -309,49 +348,69 @@ export function install(rt) {
       const alreadyAborted = request.signal.aborted
       const cursor = parseResumeCursor(request)
       const currentBoot = bootId()
+      const replayWarm = clients.size > 0 || lastLocalLeftAt === 0 || Date.now() - lastLocalLeftAt < REPLAY_IDLE_MS
       const canResume = cursor !== null
         && cursor.invalid !== true
-        && (cursor.boot === null || cursor.boot === currentBoot)
+        && cursor.boot !== null
+        && cursor.boot === currentBoot
+        && replayWarm
         && cursor.after >= droppedBeforeSeq
         && cursor.after <= feedSeq
-      let controller
+      let client = null
       const body = new ReadableStream({
         start(own) {
-          controller = own
+          client = { controller: own, pending: [], liveQueued: 0, closed: false }
           rotateGraceUntil = 0
           clearTimeout(rotateGraceTimer)
           rotateGraceTimer = undefined
           if (canResume) {
-            send(own, formatSse('hello', feedHello({ resumed: true, feedSeq: cursor.after }), cursor.after))
+            client.pending.push({
+              chunk: formatSse('hello', feedHello({ resumed: true, feedSeq: cursor.after }), formatFeedId(currentBoot, cursor.after)),
+              live: false,
+            })
             for (const entry of history) {
-              if (entry.seq > cursor.after) send(own, entry.chunk)
+              if (entry.seq > cursor.after) client.pending.push({ chunk: entry.chunk, live: false })
             }
           } else {
             const baseSeq = feedSeq
             pruneWriting()
-            send(own, formatSse('hello', feedHello({ resumed: false, feedSeq: baseSeq }), baseSeq))
+            client.pending.push({
+              chunk: formatSse('hello', feedHello({ resumed: false, feedSeq: baseSeq }), formatFeedId(currentBoot, baseSeq)),
+              live: false,
+            })
             for (const [attemptId, { text, updatedAt: _updatedAt, ...target }] of writing) {
-              send(own, formatSse('stream', { ...target, attemptId, phase: 'start' }))
-              if (text !== '') send(own, formatSse('stream', { ...target, attemptId, text }))
+              client.pending.push({ chunk: formatSse('stream', { ...target, attemptId, phase: 'start' }), live: false })
+              if (text !== '') client.pending.push({ chunk: formatSse('stream', { ...target, attemptId, text }), live: false })
             }
           }
-          clients.add(own)
-          if (!alreadyAborted && !localConnected) {
+          if (!flush(client)) return
+          if (alreadyAborted) {
+            leave(client, { rotated: false })
+            return
+          }
+          clients.add(client)
+          if (!localConnected) {
             localConnected = true
             notifyLocalConnected()
           }
           notifyLocalClients()
         },
-        cancel() { leave(controller, { rotated: false }) },
+        pull() {
+          if (client) flush(client)
+        },
+        cancel() { leave(client, { rotated: false }) },
       })
-      const abort = () => leave(controller, { rotated: false })
-      requests.set(controller, { request, abort })
-      lifetimes.set(controller, setTimeout(() => {
-        try { controller.enqueue(encoder.encode(': rotate\n\n')) } catch { /* already closed or errored */ }
-        leave(controller, { rotated: true })
-      }, MAX_LIFETIME_MS))
-      request.signal.addEventListener('abort', abort, { once: true })
-      if (alreadyAborted) leave(controller)
+      if (!alreadyAborted && client && !client.closed) {
+        const abort = () => leave(client, { rotated: false })
+        requests.set(client, { request, abort })
+        lifetimes.set(client, setTimeout(() => {
+          if (!client.closed && client.pending.length === 0) {
+            try { client.controller.enqueue(encoder.encode(': rotate\n\n')) } catch { /* already closed or errored */ }
+          }
+          leave(client, { rotated: true })
+        }, MAX_LIFETIME_MS))
+        request.signal.addEventListener('abort', abort, { once: true })
+      }
       return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } })
     },
   }), 'ds-bot: live feed route')
@@ -367,7 +426,8 @@ export function install(rt) {
       historyBytes = 0
       localConnected = false
       offSaved()
-      for (const controller of clients) leave(controller)
+      offAdopted?.()
+      for (const client of clients) leave(client)
       localConnectListeners.clear()
       localDisconnectListeners.clear()
       localListeners.clear()

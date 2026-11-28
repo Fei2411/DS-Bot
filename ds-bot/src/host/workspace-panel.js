@@ -446,6 +446,7 @@ export function install(rt) {
       orphanWatchTimer = setTimeout(() => {
         orphanWatchTimer = null
         if (typeof rt.localFeedClientCount === 'function' && rt.localFeedClientCount() > 0) return
+        if (rootWatches.size > 0) rt.invalidateFeedReplay?.()
         void closeAllWatches()
       }, graceMs)
       orphanWatchTimer.unref?.()

@@ -5,6 +5,7 @@ import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
+import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
@@ -124,13 +125,16 @@ function ClassicTitleToggle({ hidden, onToggle }) {
 
 function ConnectionBanner({ useConnection, onReconnect }) {
   const conn = useConnection ? useConnection(state => state) : null
-  if (!conn || conn.status === 'connected') return null
-  const isError = conn.status === 'error'
+  const active = conn && conn.status !== 'connected' ? conn : null
+  const [shown, leaving] = useLinger(active, 180)
+  if (!shown) return null
+  const isError = shown.status === 'error'
   return h('div', {
     className: 'dsb-conn-banner',
     role: isError ? 'alert' : 'status',
     'aria-live': isError ? 'assertive' : 'polite',
     'data-tone': isError ? 'error' : 'warn',
+    'data-leaving': leaving ? '' : undefined,
   },
   h('span', { className: 'dsb-conn-dot', 'aria-hidden': true }),
   h('span', { className: 'dsb-conn-text' }, isError ? t('Live updates paused: message too large') : t('Reconnecting…')),

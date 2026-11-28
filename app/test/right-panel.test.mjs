@@ -1335,21 +1335,25 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
     tree = panel.render()
     assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses file tree context menu')
 
-    // Clean resumed hello does NOT trigger a redundant full tree refresh.
+    // Clean resumed hello does NOT trigger a redundant full tree refresh or watch re-registration.
     const listsBeforeResumed = calls.filter(([ep]) => ep === 'workspace-list').length
+    const watchesBeforeResumed = calls.filter(([ep]) => ep === 'workspace-watch').length
     team.chat.emit('hello', { resumed: true })
     await tick()
     await tick()
     assert.equal(calls.filter(([ep]) => ep === 'workspace-list').length, listsBeforeResumed, 'hello { resumed: true } must not refresh file tree')
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-watch').length, watchesBeforeResumed, 'hello { resumed: true } must not re-register workspace watch')
 
-    // SSE 'hello' reconnect triggers silent refresh so changes across an unresumed reconnect gap are never missed.
+    // SSE 'hello' (resumed: false) renews workspace-watch (in case orphan cleanup expired it) and refreshes tree.
     const listsBeforeHello = calls.filter(([ep]) => ep === 'workspace-list').length
+    const watchesBeforeHello = calls.filter(([ep]) => ep === 'workspace-watch').length
     subDirTruncated = true
     team.chat.emit('hello', {})
     await tick()
     await tick()
     tree = panel.render()
     assert.ok(calls.filter(([ep]) => ep === 'workspace-list').length > listsBeforeHello, 'SSE hello triggers tree catch-up refresh')
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-watch').length > watchesBeforeHello, 'unresumed SSE hello renews workspace watch')
     assert.match(textOf(tree), /Showing first 500 entries/, 'truncated subfolder renders visible truncation notice')
 
     // Toggling "Show hidden" must NOT tear down or restart the OS watcher!

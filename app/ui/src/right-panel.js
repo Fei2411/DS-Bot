@@ -589,49 +589,62 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   }, [active])
 
   // Watch the active workspace folder while Files tab is visible; rebind on root changes,
-  // refresh on SSE `hello` reconnect so 6 s feed recycles never drop changes, and release on unload.
+  // renew the watch and refresh on unresumed SSE `hello` reconnects (e.g. after >30 s orphan
+  // watch cleanup or Host restart), skip redundant reloads on resumed 6 s rotations, and release on unload.
   useEffect(() => {
     if (!active) return undefined
     let alive = true
     let activeWatchId = null
+    let watchGen = 0
     watchIdRef.current = null
     watchRecursiveRef.current = true
-    const initialDirs = [...expandedRef.current].sort()
-    syncedDirsKeyRef.current = initialDirs.join('\0')
-    void call('workspace-watch', {
-      sessionId,
-      dirs: initialDirs,
-      ...(rootInfo.root ? { expectedRoot: rootInfo.root } : {}),
-    })
-      .then((res) => {
-        if (!alive) {
-          if (res?.watchId) void call('workspace-unwatch', { watchId: res.watchId }).catch(() => {})
-          return
-        }
-        activeWatchId = res?.watchId ?? null
-        watchIdRef.current = activeWatchId
-        watchRecursiveRef.current = res?.recursive === true
-        // Sync folders expanded while the initial non-recursive watch request was still in flight.
-        if (activeWatchId && !watchRecursiveRef.current) {
-          const currentDirs = [...expandedRef.current].sort()
-          const currentKey = currentDirs.join('\0')
-          if (currentKey !== syncedDirsKeyRef.current) {
-            syncedDirsKeyRef.current = currentKey
-            void call('workspace-watch', {
-              sessionId,
-              watchId: activeWatchId,
-              dirs: currentDirs,
-            }).catch(() => {})
-          }
-        }
+    const registerWatch = () => {
+      const myWatchGen = ++watchGen
+      const initialDirs = [...expandedRef.current].sort()
+      syncedDirsKeyRef.current = initialDirs.join('\0')
+      void call('workspace-watch', {
+        sessionId,
+        dirs: initialDirs,
+        ...(rootInfo.root ? { expectedRoot: rootInfo.root } : {}),
       })
-      .catch(() => {})
+        .then((res) => {
+          if (!alive || myWatchGen !== watchGen) {
+            if (res?.watchId) void call('workspace-unwatch', { watchId: res.watchId }).catch(() => {})
+            return
+          }
+          const prevWatchId = activeWatchId
+          activeWatchId = res?.watchId ?? null
+          watchIdRef.current = activeWatchId
+          watchRecursiveRef.current = res?.recursive === true
+          if (prevWatchId && prevWatchId !== activeWatchId) {
+            void call('workspace-unwatch', { watchId: prevWatchId }).catch(() => {})
+          }
+          // Sync folders expanded while the initial non-recursive watch request was still in flight.
+          if (activeWatchId && !watchRecursiveRef.current) {
+            const currentDirs = [...expandedRef.current].sort()
+            const currentKey = currentDirs.join('\0')
+            if (currentKey !== syncedDirsKeyRef.current) {
+              syncedDirsKeyRef.current = currentKey
+              void call('workspace-watch', {
+                sessionId,
+                watchId: activeWatchId,
+                dirs: currentDirs,
+              }).catch(() => {})
+            }
+          }
+        })
+        .catch(() => {})
+    }
+    registerWatch()
 
     const off = typeof feed?.on === 'function'
       ? feed.on((event, data) => {
         if (!alive) return
         if (event === 'hello') {
-          if (data?.resumed !== true && rootPathRef.current) void refreshTreeRef.current({ silent: true, reset: false })
+          if (data?.resumed !== true) {
+            registerWatch()
+            if (rootPathRef.current) void refreshTreeRef.current({ silent: true, reset: false })
+          }
           return
         }
         if (event !== 'workspace-changed') return

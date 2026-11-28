@@ -449,15 +449,15 @@ test('HTTP feed clean rotation resumes with resumed: true and zero duplicate eve
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const connect = (query = '', headers = {}) => routes['/api/bot/feed'].fetch(new Request(`http://localhost/api/bot/feed${query}`, { headers }))
 
-  // Initial connect without cursor reports resumed: false and its current monotonic feedSeq.
+  // Initial connect without cursor reports resumed: false and boot-scoped SSE id `<boot>:<seq>`.
   const first = reader(await connect(), { withId: true })
   const hello1 = await first()
   assert.equal(hello1.event, 'hello')
   assert.equal(hello1.data.resumed, false)
   assert.equal(Number.isSafeInteger(hello1.data.feedSeq), true)
-  assert.equal(hello1.id, String(hello1.data.feedSeq))
   const boot = hello1.data.boot
   assert.equal(typeof boot, 'string')
+  assert.equal(hello1.id, `${boot}:${hello1.data.feedSeq}`)
 
   // Rotate cleanly while idle: reconnect with ?after=&boot= returns resumed: true and replays nothing.
   t.mock.timers.tick(6_000)
@@ -467,14 +467,15 @@ test('HTTP feed clean rotation resumes with resumed: true and zero duplicate eve
   assert.equal(hello2.event, 'hello')
   assert.equal(hello2.data.resumed, true)
   assert.equal(hello2.data.feedSeq, hello1.data.feedSeq)
+  assert.equal(hello2.id, `${boot}:${hello1.data.feedSeq}`)
 
   // Emit a live event while connected, then rotate and emit two events during the reconnect gap.
   const onEvent = ctx.listeners.get('session/event').at(-2)
   onEvent({ id: 'm1c' }, userMessage('before-gap', 60))
   const msg1 = await second()
   assert.equal(msg1.event, 'message')
-  const seq1 = Number(msg1.id)
-  assert.equal(seq1, hello1.data.feedSeq + 1)
+  const seq1 = hello1.data.feedSeq + 1
+  assert.equal(msg1.id, `${boot}:${seq1}`)
 
   t.mock.timers.tick(6_000)
   assert.equal(await second(), undefined)
@@ -483,7 +484,7 @@ test('HTTP feed clean rotation resumes with resumed: true and zero duplicate eve
   await call('set-prefs', { motion: 'lively' })
   onEvent({ id: 'm1c' }, userMessage('during-gap', 61))
 
-  // Reconnect using Last-Event-ID header (without query params) also resumes cleanly.
+  // Reconnect using boot-scoped Last-Event-ID header (without query params) also resumes cleanly.
   const third = reader(await connect('', { 'Last-Event-ID': `${boot}:${seq1}` }), { withId: true })
   const hello3 = await third()
   assert.equal(hello3.event, 'hello')
@@ -492,12 +493,124 @@ test('HTTP feed clean rotation resumes with resumed: true and zero duplicate eve
   const missed1 = await third()
   const missed2 = await third()
   assert.equal(missed1.event, 'revision')
-  assert.equal(Number(missed1.id), seq1 + 1)
+  assert.equal(missed1.id, `${boot}:${seq1 + 1}`)
   assert.equal(missed2.event, 'message')
   assert.equal(missed2.data.item.text, 'during-gap')
-  assert.equal(Number(missed2.id), seq1 + 2)
+  assert.equal(missed2.id, `${boot}:${seq1 + 2}`)
   t.mock.timers.tick(6_000)
   assert.equal(await third(), undefined)
+})
+
+test('HTTP feed rejects boot-less or old-boot cursors after host restart (resumed: false)', async (t) => {
+  // Host 1 starts and emits a boot-scoped id.
+  const host1 = start()
+  t.after(host1.stop)
+  await host1.call('state')
+  const first = reader(await host1.routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')), { withId: true })
+  const hello1 = await first()
+  assert.equal(hello1.event, 'hello')
+  const oldBoot = hello1.data.boot
+  const oldSeq = hello1.data.feedSeq
+  assert.equal(hello1.id, `${oldBoot}:${oldSeq}`)
+
+  // Host 2 simulates a restart (new boot, feedSeq = 0).
+  const host2 = start()
+  t.after(host2.stop)
+  await host2.call('state')
+  const connect2 = (query = '', headers = {}) => host2.routes['/api/bot/feed'].fetch(new Request(`http://localhost/api/bot/feed${query}`, { headers }))
+
+  // Bare numeric Last-Event-ID: 0 (no boot) must NOT resume across restart.
+  const bareHeader = reader(await connect2('', { 'Last-Event-ID': String(oldSeq) }), { withId: true })
+  const bareHello = await bareHeader()
+  assert.equal(bareHello.event, 'hello')
+  assert.equal(bareHello.data.resumed, false, 'boot-less Last-Event-ID must never return resumed: true')
+
+  // Bare ?after=0 without boot query param must NOT resume.
+  const bareQuery = reader(await connect2(`?after=${oldSeq}`), { withId: true })
+  const bareQueryHello = await bareQuery()
+  assert.equal(bareQueryHello.event, 'hello')
+  assert.equal(bareQueryHello.data.resumed, false, 'boot-less ?after= must never return resumed: true')
+
+  // Old boot Last-Event-ID from Host 1 must NOT resume on Host 2.
+  const staleBoot = reader(await connect2('', { 'Last-Event-ID': `${oldBoot}:${oldSeq}` }), { withId: true })
+  const staleHello = await staleBoot()
+  assert.equal(staleHello.event, 'hello')
+  assert.equal(staleHello.data.resumed, false, 'previous host boot id must never return resumed: true')
+  assert.notEqual(staleHello.data.boot, oldBoot)
+})
+
+test('HTTP feed delivers full 512-event replay with concurrent live events without slow-consumer eviction', async (t) => {
+  const { ctx, call, stop, routes } = start()
+  t.after(stop)
+  await call('state')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const connect = (query = '', headers = {}) => routes['/api/bot/feed'].fetch(new Request(`http://localhost/api/bot/feed${query}`, { headers }))
+
+  const first = reader(await connect(), { withId: true })
+  const hello1 = await first()
+  const boot = hello1.data.boot
+  const startSeq = hello1.data.feedSeq
+  t.mock.timers.tick(6_000)
+  assert.equal(await first(), undefined)
+
+  // Fill the replay ring to its full 512-event capacity during the rotation gap.
+  const onEvent = ctx.listeners.get('session/event').at(-2)
+  for (let i = 1; i <= 512; i += 1) {
+    onEvent({ id: 'm1c' }, userMessage(`replay-${i}`, 100 + i))
+  }
+
+  // Reconnect with full 512-event replay pending, and publish 5 concurrent live events BEFORE the reader pulls.
+  const res = await connect(`?after=${startSeq}&boot=${encodeURIComponent(boot)}`)
+  for (let i = 1; i <= 5; i += 1) {
+    onEvent({ id: 'm1c' }, userMessage(`live-${i}`, 700 + i))
+  }
+
+  const next = reader(res, { withId: true })
+  const resumedHello = await next()
+  assert.equal(resumedHello.event, 'hello')
+  assert.equal(resumedHello.data.resumed, true)
+  assert.equal(resumedHello.data.feedSeq, startSeq)
+
+  // Drain all 512 replayed events + 5 concurrent live events in strict FIFO order without premature disconnect.
+  for (let i = 1; i <= 512; i += 1) {
+    const ev = await next()
+    assert.ok(ev, `replay event ${i} must not be dropped by slow-consumer eviction`)
+    assert.equal(ev.event, 'message')
+    assert.equal(ev.data.item.text, `replay-${i}`)
+    assert.equal(ev.id, `${boot}:${startSeq + i}`)
+  }
+  for (let i = 1; i <= 5; i += 1) {
+    const ev = await next()
+    assert.ok(ev, `concurrent live event ${i} must arrive in order after full replay`)
+    assert.equal(ev.event, 'message')
+    assert.equal(ev.data.item.text, `live-${i}`)
+    assert.equal(ev.id, `${boot}:${startSeq + 512 + i}`)
+  }
+  t.mock.timers.tick(6_000)
+  assert.equal(await next(), undefined)
+})
+
+test('HTTP feed invalidates resume after 30s local disconnect outage even with zero intervening events', async (t) => {
+  const { call, stop, routes } = start()
+  t.after(stop)
+  await call('state')
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const connect = (query = '', headers = {}) => routes['/api/bot/feed'].fetch(new Request(`http://localhost/api/bot/feed${query}`, { headers }))
+
+  const first = reader(await connect(), { withId: true })
+  const hello1 = await first()
+  const boot = hello1.data.boot
+  const seq = hello1.data.feedSeq
+  t.mock.timers.tick(6_000)
+  assert.equal(await first(), undefined)
+
+  // Stay disconnected for > 30s (past orphan workspace watch grace window) with zero events.
+  t.mock.timers.tick(35_000)
+  const afterOutage = reader(await connect(`?after=${seq}&boot=${encodeURIComponent(boot)}`), { withId: true })
+  const helloAfter = await afterOutage()
+  assert.equal(helloAfter.event, 'hello')
+  assert.equal(helloAfter.data.resumed, false, 'outage beyond 30s must return resumed: false so watches and state refresh')
+  t.mock.timers.tick(6_000)
 })
 
 test('HTTP feed reports resumed: false on sequence gap, future cursor, or mismatched boot', async (t) => {

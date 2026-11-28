@@ -1649,6 +1649,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
   }, [])
 
+  const viewedUpdatedAt = useSessions(list => list.byId[viewedSessionId]?.updatedAt)
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
   const dmChat = useSessionFollow({
     sessionId: viewedSessionId,
@@ -1657,6 +1658,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     enabled: !isRoom && Boolean(viewedSessionId),
     feed,
     readOnly: Boolean(roster.readOnly),
+    readOnlyUpdatedAt: roster.readOnly ? viewedUpdatedAt : undefined,
     onUserMessage: viewingSubagent ? undefined : onSessionUser,
     keep,
   })
@@ -1758,7 +1760,9 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const sessionNotice = !isRoom && (dmChat.terminalError || dmChat.failed)
     ? h('div', { className: 'dsb-session-error', role: 'alert' },
-      h('span', null, dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
+      h('span', null, dmChat.terminalError?.code === 'bot/stream-overflow'
+        ? t('Live updates paused: message too large')
+        : dmChat.terminalError ? t('Session unavailable') : t('Couldn’t load this conversation')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
     : null
 

@@ -1149,7 +1149,6 @@ export function createTeam() {
     let timer
     let lostTimer
     let lostSince = 0
-    let liveDeferred = false
     let closeFeed = () => {}
     const read = () => {
       void pull().catch((error) => {
@@ -1171,7 +1170,6 @@ export function createTeam() {
       if (stopped) return
       if (document.hidden) stopTimer()
       else {
-        liveDeferred = false
         read()
         startTimer()
       }
@@ -1210,11 +1208,9 @@ export function createTeam() {
       clearLost()
       if (event === 'revision') read()
       else if (event === 'live') {
-        if (typeof document !== 'undefined' && document.hidden) liveDeferred = true
-        else read()
+        if (typeof document === 'undefined' || !document.hidden) read()
       } else if (event === 'hello' && data?.resumed !== true) {
-        if (typeof document !== 'undefined' && document.hidden) liveDeferred = true
-        else read()
+        if (typeof document === 'undefined' || !document.hidden) read()
       }
       onFeed(event, data)
     }
@@ -1442,7 +1438,6 @@ export function createTeam() {
       clearTimeout(lostTimer)
       lostTimer = undefined
       lostSince = 0
-      void liveDeferred
       wakeUpdate = () => {}
       scheduleUpdate = () => {}
       restartFeed = () => {}
