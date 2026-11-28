@@ -4,8 +4,11 @@ import { call } from '../../../ds-bot/src/client/api.js'
 export const MarkdownImageSession = createContext(null)
 
 export function isLocalMarkdownImage(src) {
-  if (!src || /^(?:[/\\]{2}|[?#])/.test(src)) return false
-  return /^(?:file:\/\/|[a-z]:[/\\])/i.test(src) || !/^[^/\\?#]*:/.test(src)
+  let path = src?.trim().split(/[?#]/, 1)[0]
+  if (!path) return false
+  try { path = decodeURIComponent(path) } catch { /* keep raw if malformed % */ }
+  if (/^[/\\]{2}/.test(path)) return false
+  return /^(?:file:\/\/|[a-z]:[/\\])/i.test(path) || !/^[a-z][a-z\d+.-]*:/i.test(path)
 }
 
 function WorkspaceImage({ sessionId, path, ...props }) {
