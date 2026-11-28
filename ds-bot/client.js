@@ -51555,13 +51555,14 @@ function TeamSidebar(props) {
     main ? (0, import_react47.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react47.createElement)(BootFailed, { actions }) : (0, import_react47.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
     (0, import_react47.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react47.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react47.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react47.createElement)(PluginsButton, { actions })) : (0, import_react47.createElement)(
+  const foot = wideContent ? (0, import_react47.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react47.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react47.createElement)(PluginsButton, { actions }), props.renderFooterActions?.(wideContent)) : (0, import_react47.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react47.createElement)(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
     (0, import_react47.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react47.createElement)(PlusIcon)),
     (0, import_react47.createElement)(AccountLauncher, { seat: false, actions }),
-    (0, import_react47.createElement)(PluginsButton, { actions })
+    (0, import_react47.createElement)(PluginsButton, { actions }),
+    props.renderFooterActions?.(wideContent)
   );
   const content = (0, import_react47.createElement)(
     "div",
@@ -51583,6 +51584,7 @@ function TeamSidebar(props) {
           if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null);
         }
       },
+      props.renderPluginRows?.(wideContent),
       wideContent ? main ? (0, import_react47.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react47.createElement)(BootFailed, { actions }) : (0, import_react47.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")) : null,
       sections.length > 0 && wideContent ? (0, import_react47.createElement)("div", {
         className: "bt-sec-ungrouped",
@@ -76796,6 +76798,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconci
     const statusMap = statuses?.getSnapshot();
     const uiSnap = ui?.getSnapshot?.();
     const inboxOpen = uiSnap?.inbox === true;
+    const covered = inboxOpen || uiSnap?.chatCovered === true;
     const rawTarget = typeof uiSnap?.inboxTarget === "string" && uiSnap.inboxTarget !== "" ? uiSnap.inboxTarget : null;
     if (inboxOpen) {
       lastTarget = null;
@@ -76812,7 +76815,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconci
       const id = currentPart(bot);
       parts.add(id);
       const row = list.byId[id];
-      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen && (pendingTarget === null || pendingTarget === id);
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !covered && (pendingTarget === null || pendingTarget === id);
       const status = statusMap?.get(id);
       const hidden = team.exchangeTurns?.[id] ?? [];
       const outline2 = turnOutlineOf(list, id);
