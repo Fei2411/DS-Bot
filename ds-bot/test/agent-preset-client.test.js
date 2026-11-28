@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createPayload } from '../src/client/bot-draft.js'
 import { createReader, defaultPreset, normalizePresets, presetHint, presetRows, presetState, presetUpdate } from '../src/client/agent-preset.js'
-import { DICTIONARY, hostText, installLocale, t } from '../src/client/i18n.js'
+import { DICTIONARY, ensureLocale, hostText, installLocale, t } from '../src/client/i18n.js'
+
+await ensureLocale('zh')
 
 // The Agent preset of a Bot: the directory the profile serves, the choice a Bot
 // keeps, and what the picker and the Bot's hint say about it.
