@@ -696,6 +696,9 @@ export function install(rt) {
           return ok(await rt.discoverModels(body))
         case 'provider-models-save':
           return ok(await rt.saveProviderModels(body))
+        case 'provider-config-save':
+          if (remote) return fail('Model provider settings can only be changed on this computer', 'bot/refused')
+          return ok(await rt.saveProviderConfig(body))
         case 'provider-remove':
           return ok(await rt.removeProvider(String(body.provider ?? '')))
         case 'duplicate-bot':

@@ -308,6 +308,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     addProvider: body => after(call('provider-add', body)),
     providerModels: body => call('provider-models', body),
     saveProviderModels: body => call('provider-models-save', body),
+    saveProviderConfig: body => after(call('provider-config-save', body)),
     removeProvider: provider => after(call('provider-remove', { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
