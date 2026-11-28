@@ -445,4 +445,125 @@ describe('dsbot-engine UI static resource', () => {
       rmSync(pluginRoot, { recursive: true, force: true })
     }
   })
+
+  test('discoverUiPlugins blocks incompatible unexempted and errored bundles while allowing compatible/exempted bundles', async () => {
+    const pluginRoot = mkdtempSync(join(tmpdir(), 'ds-bot-ui-incompat-'))
+    try {
+      const incompatDir = join(pluginRoot, 'incompat-ui-bundle')
+      const platformDir = join(pluginRoot, 'wrong-platform-bundle')
+      const missingDir = join(pluginRoot, 'missing-bundle')
+      const exemptedDir = join(pluginRoot, 'exempted-ui-bundle')
+      for (const [dir, name] of [
+        [incompatDir, 'incompat-ui-bundle'],
+        [platformDir, 'wrong-platform-bundle'],
+        [missingDir, 'missing-bundle'],
+        [exemptedDir, 'exempted-ui-bundle'],
+      ]) {
+        mkdirSync(join(dir, 'ui'), { recursive: true })
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({
+          name,
+          dsBot: { ui: { entry: './ui/index.js', name } },
+        }))
+        writeFileSync(join(dir, 'ui', 'index.js'), `export function apply() { return ${JSON.stringify(name)} }`)
+      }
+
+      const dirByName = {
+        'incompat-ui-bundle': incompatDir,
+        'wrong-platform-bundle': platformDir,
+        'missing-bundle': missingDir,
+        'exempted-ui-bundle': exemptedDir,
+      }
+      const resolveBundleDir = name => dirByName[name] ?? null
+
+      // DSH rejects unexempted incompatible bundles via `bundle.error = { code: 'incompatible-version', incompatible: [...] }`.
+      const blockedSnapshot = await discoverUiPlugins({
+        bundles: [
+          {
+            name: 'incompat-ui-bundle',
+            enabled: true,
+            availability: 'profile',
+            error: {
+              code: 'incompatible-version',
+              incompatible: [{
+                name: 'incompat-ui-bundle',
+                version: '1.0.0',
+                runtimeVersion: '0.2.2-rc.5',
+                requirements: { 'engines.dsh': '^0.1.0' },
+              }],
+            },
+            rows: [],
+          },
+          {
+            name: 'wrong-platform-bundle',
+            enabled: true,
+            availability: 'profile',
+            error: { code: 'unsupported-platform', diagnostic: 'linux only' },
+            rows: [],
+          },
+          {
+            name: 'missing-bundle',
+            enabled: true,
+            availability: 'missing',
+            rows: [],
+          },
+          {
+            name: 'exempted-ui-bundle',
+            enabled: true,
+            availability: 'profile',
+            // Metadata diagnostics on `meta.error` are not load errors in DSH.
+            meta: { error: 'dsh.bundle.listedByDefault must be a boolean' },
+            rows: [],
+          },
+        ],
+        resolveBundleDir,
+      })
+
+      assert.deepEqual(
+        blockedSnapshot.plugins.map(p => p.id),
+        ['bundle:exempted-ui-bundle'],
+        'only enabled, loadable compatible/exempted bundles may publish dsBot.ui entries',
+      )
+      assert.equal(blockedSnapshot.roots.has('bundle:incompat-ui-bundle'), false)
+      assert.equal(blockedSnapshot.roots.has('bundle:wrong-platform-bundle'), false)
+      assert.equal(blockedSnapshot.roots.has('bundle:missing-bundle'), false)
+      assert.equal(blockedSnapshot.roots.has('bundle:exempted-ui-bundle'), true)
+
+      const authGate = request => (request.headers.get('cookie') === 'dsh=1' ? undefined : new Response('unauthorized', { status: 401 }))
+      let currentSnapshot = blockedSnapshot
+      const uiPluginsResource = createUiPluginsResource({
+        getSnapshot: async () => currentSnapshot,
+        authorizeRequest: authGate,
+      })
+
+      const blockedFileRes = await uiPluginsResource(new Request(
+        'http://127.0.0.1:4123/api/ui-plugins/files/bundle%3Aincompat-ui-bundle/ui/index.js',
+        { headers: { cookie: 'dsh=1' } },
+      ))
+      assert.equal(blockedFileRes.status, 404, 'incompatible unexempted bundle JS must not be served')
+
+      const allowedFileRes = await uiPluginsResource(new Request(
+        'http://127.0.0.1:4123/api/ui-plugins/files/bundle%3Aexempted-ui-bundle/ui/index.js',
+        { headers: { cookie: 'dsh=1' } },
+      ))
+      assert.equal(allowedFileRes.status, 200)
+      assert.match(await allowedFileRes.text(), /exempted-ui-bundle/)
+
+      // Once the user grants a version exemption, DSH clears `bundle.error` and dsBot.ui publishes and serves normally.
+      currentSnapshot = await discoverUiPlugins({
+        bundles: [
+          { name: 'incompat-ui-bundle', enabled: true, availability: 'profile', rows: [] },
+        ],
+        resolveBundleDir,
+      })
+      assert.deepEqual(currentSnapshot.plugins.map(p => p.id), ['bundle:incompat-ui-bundle'])
+      const exemptedFileRes = await uiPluginsResource(new Request(
+        'http://127.0.0.1:4123/api/ui-plugins/files/bundle%3Aincompat-ui-bundle/ui/index.js',
+        { headers: { cookie: 'dsh=1' } },
+      ))
+      assert.equal(exemptedFileRes.status, 200)
+      assert.match(await exemptedFileRes.text(), /incompat-ui-bundle/)
+    } finally {
+      rmSync(pluginRoot, { recursive: true, force: true })
+    }
+  })
 })

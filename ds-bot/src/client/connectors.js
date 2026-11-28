@@ -678,6 +678,9 @@ export function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions
 }
 
 export const CONNECTOR_CSS = `
+.bt-connector-mark{--bt-mark-ink:var(--bt-ink)}
+.bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bt-provider-pair .bt-sel{height:36px}
 .bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}

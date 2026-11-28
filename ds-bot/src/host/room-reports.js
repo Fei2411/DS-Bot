@@ -1,23 +1,28 @@
-// Group report-back watchers (`state.roomReports`): a post_to_group call that wants the
-// outcome back waits until the group work it triggered truly finishes (long replies past
-// 15s, approvals, group background tasks, intra-group batches and relays, and any active
-// group_goal), then delivers once to the caller's conversation.
+// Group report-back watchers backed by `coordination.sqlite` (`rt.coordDb`):
+// A `post_to_group(report_back: true)` call opens a tracked `room_work` plus a standard
+// `call + wait(kind='call')` on the caller's work. When the group work it triggered truly
+// finishes (long turns past 15s, approvals, group background tasks, subagents, nested
+// group calls, and any active group_goal), the tracker work settles atomically in SQLite,
+// appending `inbox(kind='result')` onto the caller's work, resolving its wait, and waking
+// it once via `rt.kickScheduler()` — eliminating crash-before-delivery loss and double reports.
 import { randomUUID } from 'node:crypto'
-import { LATE_ANSWER, MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
+import { LATE_ANSWER, MESSAGE_INLINE_MAX } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
-import { addressedSession, returnAddress } from './threads.js'
+import { threadCurrentOfPart } from './threads.js'
 import { failureLine } from './turns.js'
 
 const STOPPED_RELAYS_KEPT = 200
+const REPORT_WORK_PREFIX = 'room-report:'
+const REPORT_CALL_PREFIX = 'call:report:'
+
+const reportWorkId = id => (String(id).startsWith(REPORT_WORK_PREFIX) ? String(id) : `${REPORT_WORK_PREFIX}${id}`)
+const reportCallId = id => `${REPORT_CALL_PREFIX}${id}`
+const isPrivateBot = bot => bot?.private === true || bot?.privacy === true
 
 export function createRoomReports(rt, deps) {
-  const { ctx } = rt
   const {
-    batches,
-    closeBatch,
-    exitMemberBatches,
-    releaseIdleParentBatches,
-    pendingDirectRelays,
+    hasActiveRoomCalls,
+    exitMemberRoomCalls,
     activeInRoom,
     runningRound,
     isFinalizing,
@@ -30,20 +35,19 @@ export function createRoomReports(rt, deps) {
     nextRoomSeq,
   } = deps
 
-  const reports = () => (rt.state.roomReports ??= {})
-  const returning = new Set()
-  // Follow-up relays queued on a room's own Session and not yet taken into roomInbox.
-  // Maps `roomId -> Map<exchangeId, reportId | undefined>` so startup checks each report's
-  // own relay without letting a surviving sibling mask a missing report.
+  const db = () => rt.coordDb ?? null
+  const existingDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : db())
+  const writableDb = () => {
+    const handle = db()
+    if (handle === null || handle.isClosed?.() || handle.readonly || rt.readOnly?.() !== undefined) return null
+    return handle
+  }
+
+  // In-memory live tracking for relays currently queued in this process (not persisted;
+  // SQLite holds the durable tracker `room_work` across restarts).
   const queuedRelays = new Map()
-  // Late member replies/failures mid-async-post before postToRoom queues their follow-up.
   const inFlightLate = new Map()
-  // Active or queued room work origin (`roomId -> { origin?: ImOrigin, mixed: boolean }`),
-  // so same-IM `report_back: false` posts followed by `report_back: true` stay untainted
-  // while mixed Web/IM or cross-chat posts taint cleanly.
   const roomOrigins = new Map()
-  // Monotonic mutation counter so a failed flush never rolls back concurrent taint,
-  // and deleting a room cleans up originVersions without ever reusing an old version.
   const originVersions = new Map()
   let nextOriginVersion = 0
   const bumpOriginVersion = (roomId) => {
@@ -51,22 +55,6 @@ export function createRoomReports(rt, deps) {
     originVersions.set(roomId, next)
     return next
   }
-  // Guards against scheduling duplicate idle re-checks during a DSH preStep startup window.
-  const pendingStartupRechecks = new Set()
-  // Relays that postToRoom is synchronously withdrawing after a failed flush: suppress
-  // agent/inbox/discarded so it never settles the failed report as "stopped" or settles
-  // a sibling report before postToRoom rolls back its origin taint.
-  const withdrawingRelays = new Set()
-  const withWithdrawingRelay = (exchangeId, fn) => {
-    if (typeof exchangeId === 'string' && exchangeId !== '') withdrawingRelays.add(exchangeId)
-    try {
-      return fn()
-    } finally {
-      if (typeof exchangeId === 'string' && exchangeId !== '') withdrawingRelays.delete(exchangeId)
-    }
-  }
-  // Bounded set of exchangeId / reportId values cancelled by stopRoomWork so even a
-  // relay already claimed out of the room Session inbox cannot resurrect a stopped report.
   const stoppedRelays = new Set()
 
   const rememberStoppedRelay = (id) => {
@@ -107,7 +95,104 @@ export function createRoomReports(rt, deps) {
     else inFlightLate.set(roomId, next)
   }
 
-  const createReport = (room, {
+  // Projects a SQLite `room_work` tracker row into a normalized report record.
+  const isReportWork = work => work !== undefined && work !== null
+    && (work.meta?.kind === 'room_report'
+      || work.meta?.migratedFrom === 'state.roomReports'
+      || (typeof work.workId === 'string' && work.workId.startsWith(REPORT_WORK_PREFIX)))
+
+  const projectReport = (work) => {
+    if (!isReportWork(work)) return undefined
+    const meta = work.meta ?? {}
+    const statePatch = work.apiMeta ?? {}
+    const merged = { ...meta, ...statePatch }
+    const reportId = merged.reportId ?? (work.workId.startsWith(REPORT_WORK_PREFIX) ? work.workId.slice(REPORT_WORK_PREFIX.length) : work.workId)
+    const imOriginMixed = merged.imOriginMixed === true
+    const rawOrigin = statePatch.imOrigin !== undefined ? statePatch.imOrigin : (meta.imOrigin !== undefined ? meta.imOrigin : work.imOrigin)
+    const imOrigin = imOriginMixed || rawOrigin === null ? undefined : normalizeImOrigin(rawOrigin)
+    return {
+      id: reportId,
+      workId: work.workId,
+      parentWorkId: work.parentWorkId ?? merged.parentWorkId,
+      roomId: work.roomId ?? merged.roomId,
+      botId: work.botId ?? merged.botId,
+      name: merged.name ?? rt.botOf(work.botId)?.name ?? 'Bot',
+      status: merged.status ?? 'tracking',
+      fromSeq: merged.fromSeq,
+      ...(Array.isArray(merged.ids) ? { ids: merged.ids } : {}),
+      ...(merged.paused === true || work.status === 'paused' ? { paused: true } : {}),
+      passed: Array.isArray(merged.passed) ? merged.passed : [],
+      failed: Array.isArray(merged.failed) ? merged.failed : [],
+      worked: merged.worked === true,
+      stopped: merged.stopped === true,
+      neverStarted: merged.neverStarted === true,
+      at: merged.at ?? work.createdAt ?? Date.now(),
+      ...(merged.sub ? { sub: merged.sub } : {}),
+      ...(merged.fromTaskId ? { fromTaskId: merged.fromTaskId } : {}),
+      ...(merged.fromRoomId ? { fromRoomId: merged.fromRoomId } : {}),
+      ...(merged.fromPart ? { fromPart: merged.fromPart } : {}),
+      ...(merged.returnAddress ? { returnAddress: merged.returnAddress } : {}),
+      ...(imOrigin !== undefined ? { imOrigin } : {}),
+      ...(imOriginMixed ? { imOriginMixed: true } : {}),
+    }
+  }
+
+  const listActiveReports = (roomId) => {
+    const handle = existingDb()
+    if (handle === null || handle.isClosed?.()) return []
+    const works = handle.listWorks({ kind: 'room_work', ...(roomId !== undefined ? { roomId } : {}), activeOnly: true, limit: 500 })
+    const out = []
+    for (const work of works) {
+      const projected = projectReport(work)
+      if (projected !== undefined) out.push(projected)
+    }
+    return out
+  }
+
+  const getReportById = (id) => {
+    if (typeof id !== 'string' || id === '') return undefined
+    const handle = existingDb()
+    if (handle === null || handle.isClosed?.()) return undefined
+    const work = handle.getWork(reportWorkId(id))
+    if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return undefined
+    return projectReport(work)
+  }
+
+  const patchReport = (id, patch) => {
+    const handle = writableDb()
+    if (handle === null || typeof id !== 'string' || id === '') return undefined
+    const wId = reportWorkId(id)
+    const work = handle.getWork(wId)
+    if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return undefined
+    const updated = handle.updateApiMeta(wId, current => (typeof patch === 'function' ? patch(current) : { ...current, ...patch }))
+    return projectReport(updated)
+  }
+
+  const resolveCallerParentWork = (handle, senderId, { parentWorkId, fromTaskId, fromRoomId } = {}) => {
+    if (typeof parentWorkId === 'string' && parentWorkId !== '') {
+      const explicit = handle.getWork(parentWorkId)
+      if (explicit && !['done', 'failed', 'stopped'].includes(explicit.status)) return explicit
+    }
+    if (typeof fromTaskId === 'string' && fromTaskId !== '') {
+      const taskWork = handle.getWork(`task:${fromTaskId}`) ?? handle.getWorkByLogicalAddress(`task:${fromTaskId}`)
+      if (taskWork && !['done', 'failed', 'stopped'].includes(taskWork.status)) return taskWork
+    }
+    if (typeof fromRoomId === 'string' && fromRoomId !== '') {
+      const roomWorks = handle.listWorks({ botId: senderId, kind: 'room_work', roomId: fromRoomId, activeOnly: true, limit: 20 })
+      const callerRoomWork = roomWorks.find(w => !isReportWork(w))
+      if (callerRoomWork) return callerRoomWork
+    }
+    const bot = rt.botOf(senderId)
+    return handle.ensureForegroundWork({
+      botId: senderId,
+      sessionId: rt.chatOf?.(senderId),
+      workspaceDir: bot?.workDir,
+      privacyScoped: isPrivateBot(bot),
+    }).work
+  }
+
+  // Opens a durable report tracker `room_work` + `call` + `wait(kind='call')` in SQLite.
+  const openRoomReportCall = (room, {
     id,
     botId,
     name,
@@ -116,48 +201,119 @@ export function createRoomReports(rt, deps) {
     ids,
     paused = false,
     sub,
+    parentWorkId,
+    returnAddress,
     fromTaskId,
     fromRoomId,
     fromPart,
     imOrigin,
     imOriginMixed = false,
   }) => {
+    const handle = writableDb()
+    if (handle === null) return undefined
+    const reportId = id ?? sub ?? randomUUID()
+    const wId = reportWorkId(reportId)
     const cleanOrigin = normalizeImOrigin(imOrigin)
-    return {
-      id,
-      roomId: room.id,
-      botId,
-      name: name ?? rt.botOf(botId)?.name ?? 'Bot',
-      status,
-      fromSeq,
-      ...(Array.isArray(ids) ? { ids } : {}),
-      ...(paused ? { paused: true } : {}),
-      passed: [],
-      failed: [],
-      at: Date.now(),
-      ...(sub ? { sub } : {}),
-      ...(fromTaskId ? { fromTaskId } : {}),
-      ...(fromRoomId ? { fromRoomId } : {}),
-      ...(fromPart ? { fromPart } : {}),
-      ...(cleanOrigin && !imOriginMixed ? { imOrigin: cleanOrigin } : {}),
-      ...(imOriginMixed ? { imOriginMixed: true } : {}),
-    }
+    const effectiveOrigin = cleanOrigin && !imOriginMixed ? cleanOrigin : undefined
+    const bot = rt.botOf(botId)
+
+    return handle.transaction(() => {
+      const existing = handle.getWork(wId)
+      if (existing && !['done', 'failed', 'stopped'].includes(existing.status)) {
+        const updated = handle.updateApiMeta(wId, current => ({
+          ...current,
+          status,
+          fromSeq,
+          ...(Array.isArray(ids) ? { ids } : {}),
+          ...(paused ? { paused: true } : {}),
+        }))
+        return projectReport(updated)
+      }
+      const parentWork = resolveCallerParentWork(handle, botId, { parentWorkId, fromTaskId, fromRoomId })
+      const lockedReturn = returnAddress ?? parentWork.logicalAddress
+      const at = Date.now()
+      const meta = {
+        kind: 'room_report',
+        reportId,
+        roomId: room.id,
+        botId,
+        name: name ?? bot?.name ?? 'Bot',
+        status,
+        fromSeq,
+        ...(Array.isArray(ids) ? { ids } : {}),
+        ...(paused ? { paused: true } : {}),
+        passed: [],
+        failed: [],
+        worked: false,
+        stopped: false,
+        neverStarted: false,
+        at,
+        ...(sub ? { sub } : {}),
+        ...(fromTaskId ? { fromTaskId } : {}),
+        ...(fromRoomId ? { fromRoomId } : {}),
+        ...(fromPart ? { fromPart } : {}),
+        parentWorkId: parentWork.workId,
+        returnAddress: lockedReturn,
+        ...(effectiveOrigin ? { imOrigin: effectiveOrigin } : {}),
+        ...(imOriginMixed ? { imOriginMixed: true } : {}),
+      }
+      const created = handle.createWork({
+        workId: wId,
+        botId,
+        kind: 'room_work',
+        logicalAddress: `room-report:${room.id}:${reportId}`,
+        status: paused ? 'paused' : 'waiting',
+        priority: 'background',
+        parentWorkId: parentWork.workId,
+        roomId: room.id,
+        title: `Group report from "${room.name}"`,
+        originKind: 'group_report',
+        imOrigin: effectiveOrigin,
+        visibility: isPrivateBot(bot) ? 'private' : 'direct',
+        privacyScoped: isPrivateBot(bot),
+        meta,
+      })
+      if (created.created) {
+        try {
+          handle.createCall({
+            callId: reportCallId(reportId),
+            parentWorkId: parentWork.workId,
+            childWorkId: wId,
+            callerBotId: botId,
+            calleeBotId: botId,
+            returnAddress: lockedReturn,
+            visibleScope: isPrivateBot(bot) ? 'private' : 'direct',
+            roomId: room.id,
+            required: true,
+            meta: { kind: 'room_report', reportId, roomId: room.id, role: 'report' },
+          })
+        } catch (error) {
+          // If a cycle or terminal parent prevents adding the call edge, still keep the
+          // tracker work cleanly readable and log a diagnostic.
+          rt.warn?.('ds-bot: attaching report call %s in %s failed: %s', reportId, room.name, error?.message ?? error)
+        }
+      }
+      return projectReport(created.work)
+    })
   }
 
   const dropRoomReport = (id) => {
-    if (id === undefined || reports()[id] === undefined) return
-    delete reports()[id]
-    saveSoon()
+    const handle = writableDb()
+    if (handle === null || typeof id !== 'string' || id === '') return
+    const wId = reportWorkId(id)
+    const work = handle.getWork(wId)
+    if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return
+    handle.stopWork(wId, { reason: 'Report cancelled before delivery' })
   }
 
   // Only already-tracking non-scoped reports carry whole-room outcomes (such as group_goal
   // completion); a queued post or a mid-round scoped post targeting a subset of members must
   // not suppress standalone goal notifications to the primary Main Bot.
-  const hasRoomReportFor = (roomId, botId) => Object.values(reports())
-    .some(report => report.roomId === roomId && report.botId === botId && report.status === 'tracking' && !Array.isArray(report.ids))
+  const hasRoomReportFor = (roomId, botId) => listActiveReports(roomId)
+    .some(report => report.botId === botId && report.status === 'tracking' && !Array.isArray(report.ids))
 
   const roomReportImOrigin = (roomId, targetBotId) => {
-    const active = Object.values(reports()).filter(report => report.roomId === roomId && rt.botOf(report.botId) !== undefined)
+    const active = listActiveReports(roomId).filter(report => rt.botOf(report.botId) !== undefined)
     if (active.length === 0) return undefined
     const first = active[0].imOrigin
     if (first === undefined) return undefined
@@ -174,17 +330,15 @@ export function createRoomReports(rt, deps) {
   // report is pending taints the report's IM origin so unrelated replies and local approvals
   // never leak back to the IM chat.
   const taintRoomReportOrigins = (roomId, incomingOrigin, { excludeReportId } = {}) => {
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== roomId || report.id === excludeReportId) continue
+    const handle = writableDb()
+    if (handle === null) return
+    for (const report of listActiveReports(roomId)) {
+      if (report.id === excludeReportId) continue
       if (report.imOrigin === undefined) continue
       if (!sameImOrigin(report.imOrigin, incomingOrigin)) {
-        delete report.imOrigin
-        report.imOriginMixed = true
-        changed = true
+        patchReport(report.id, { imOrigin: null, imOriginMixed: true })
       }
     }
-    if (changed) saveSoon()
   }
 
   const memberBusyForReport = (room, botId, ignoreTaskId) => {
@@ -199,20 +353,17 @@ export function createRoomReports(rt, deps) {
 
   const waitingForUser = (room, botId) => {
     const sid = room.sessions?.[botId]
-    return sid !== undefined && (rt.state.questions?.[sid] !== undefined || rt.state.views?.[sid] !== undefined)
+    if (sid !== undefined && (rt.state.questions?.[sid] !== undefined || rt.state.views?.[sid] !== undefined)) return true
+    const handle = existingDb()
+    if (handle === null || handle.isClosed?.()) return false
+    const works = handle.listWorks({ botId, kind: 'room_work', roomId: room.id, activeOnly: true, limit: 20 })
+    for (const work of works) {
+      if (isReportWork(work)) continue
+      const waits = handle.listWaits({ workId: work.workId, kind: 'user_question', status: 'open', limit: 5 })
+      if (waits.length > 0) return true
+    }
+    return false
   }
-
-  // A batch whose only remaining pending members are blocked on user answer cards
-  // (`ask_user` / interactive `show_view`), or held open solely by the waiting background
-  // task that sent this report (`ignoreTaskId`), is not blocking this report.
-  const batchMemberBusy = (room, id, ignoreTaskId, ignoreBotId) => {
-    if (!room.members.includes(id)) return false
-    if (waitingForUser(room, id)) return false
-    if (ignoreTaskId !== undefined && id === ignoreBotId && !memberBusyForReport(room, id, ignoreTaskId)) return false
-    return true
-  }
-  const batchActivelyBusy = (room, batch, ignoreTaskId, ignoreBotId) => (batch.pending.length === 0 && !batch.answered)
-    || batch.pending.some(id => batchMemberBusy(room, id, ignoreTaskId, ignoreBotId))
 
   const hasRoomPendingWork = (room, { includeAllInbox = false } = {}) =>
     runningRound(room.id) !== undefined
@@ -226,12 +377,12 @@ export function createRoomReports(rt, deps) {
 
   const isRoomWorking = (room) => hasRoomPendingWork(room, { includeAllInbox: true })
     || room.members.some(id => memberBusyForReport(room, id))
-    || Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch))
+    || hasActiveRoomCalls(room.id)
 
   const clearRoomOriginIfIdle = (room) => {
     if (room === undefined) return
     if (isRoomWorking(room)) return
-    if (Object.values(reports()).some(report => report.roomId === room.id)) return
+    if (listActiveReports(room.id).length > 0) return
     if (roomOrigins.delete(room.id)) bumpOriginVersion(room.id)
     rt.clearRoomWebRound?.(room.id)
   }
@@ -241,7 +392,7 @@ export function createRoomReports(rt, deps) {
   const applyIncomingOrigin = (room, incomingOrigin, { excludeReportId, wasWorking } = {}) => {
     const working = wasWorking ?? isRoomWorking(room)
     const origin = normalizeImOrigin(incomingOrigin)
-    const otherReports = Object.values(reports()).filter(report => report.roomId === room.id && report.id !== excludeReportId)
+    const otherReports = listActiveReports(room.id).filter(report => report.id !== excludeReportId)
     if (!working && otherReports.length === 0) {
       roomOrigins.set(room.id, { origin, mixed: false })
       return { tainted: false, version: bumpOriginVersion(room.id) }
@@ -273,9 +424,8 @@ export function createRoomReports(rt, deps) {
   const snapshotOriginState = (roomId) => {
     const priorRoom = roomOrigins.get(roomId)
     const reportOrigins = new Map()
-    for (const [id, report] of Object.entries(reports())) {
-      if (report.roomId !== roomId) continue
-      reportOrigins.set(id, {
+    for (const report of listActiveReports(roomId)) {
+      reportOrigins.set(report.id, {
         ...(report.imOrigin !== undefined ? { imOrigin: { ...report.imOrigin } } : {}),
         ...(report.imOriginMixed === true ? { imOriginMixed: true } : {}),
       })
@@ -293,54 +443,51 @@ export function createRoomReports(rt, deps) {
     if (expectedVersion !== undefined && (originVersions.get(roomId) ?? 0) !== expectedVersion) return
     if (snapshot.priorRoom === undefined) roomOrigins.delete(roomId)
     else roomOrigins.set(roomId, snapshot.priorRoom)
-    let changed = false
     for (const [id, saved] of snapshot.reportOrigins) {
-      const report = reports()[id]
-      if (report === undefined) continue
-      if (saved.imOrigin !== undefined) report.imOrigin = saved.imOrigin
-      else delete report.imOrigin
-      if (saved.imOriginMixed === true) report.imOriginMixed = true
-      else delete report.imOriginMixed
-      changed = true
+      patchReport(id, {
+        imOrigin: saved.imOrigin !== undefined ? saved.imOrigin : null,
+        imOriginMixed: saved.imOriginMixed === true,
+      })
     }
     bumpOriginVersion(roomId)
-    if (changed) saveSoon()
   }
 
   const registerQueuedReport = (room, sender, postExtra, { imOrigin, tainted = false } = {}) => {
     const reportId = postExtra.reportId ?? postExtra.sub ?? randomUUID()
     postExtra.reportId = reportId
-    reports()[reportId] = createReport(room, {
+    openRoomReportCall(room, {
       id: reportId,
       botId: sender.id,
       name: sender.name,
       status: 'queued',
       fromSeq: nextRoomSeq(room),
       sub: postExtra.sub,
+      parentWorkId: postExtra.parentWorkId,
+      returnAddress: postExtra.returnAddress,
       fromTaskId: postExtra.fromTaskId,
       fromRoomId: postExtra.fromRoomId,
       fromPart: postExtra.fromPart,
       imOrigin,
       imOriginMixed: tainted,
     })
-    saveSoon()
     return reportId
   }
 
   const trackRoundReport = (room, post, afterSeq) => {
     const id = post.reportId ?? post.sub ?? randomUUID()
-    const existing = reports()[id]
+    const existing = getReportById(id)
     if (existing !== undefined) {
-      existing.status = 'tracking'
-      existing.fromSeq = afterSeq
+      patchReport(id, { status: 'tracking', fromSeq: afterSeq })
     } else {
-      reports()[id] = createReport(room, {
+      openRoomReportCall(room, {
         id,
         botId: post.botId,
         name: post.name,
         status: 'tracking',
         fromSeq: afterSeq,
         sub: post.sub,
+        parentWorkId: post.parentWorkId,
+        returnAddress: post.returnAddress,
         fromTaskId: post.fromTaskId,
         fromRoomId: post.fromRoomId,
         fromPart: post.fromPart,
@@ -350,14 +497,16 @@ export function createRoomReports(rt, deps) {
 
   const trackScopedReport = (room, sender, extra, ids, afterSeq = nextRoomSeq(room), { paused = false } = {}) => {
     const id = extra.reportId ?? extra.sub ?? randomUUID()
-    const existing = reports()[id]
+    const existing = getReportById(id)
     if (existing !== undefined) {
-      existing.status = 'tracking'
-      existing.fromSeq = afterSeq
-      existing.ids = ids
-      if (paused) existing.paused = true
+      patchReport(id, {
+        status: 'tracking',
+        fromSeq: afterSeq,
+        ids,
+        ...(paused ? { paused: true } : {}),
+      })
     } else {
-      reports()[id] = createReport(room, {
+      openRoomReportCall(room, {
         id,
         botId: sender.id,
         name: sender.name,
@@ -366,35 +515,31 @@ export function createRoomReports(rt, deps) {
         ids,
         paused,
         sub: extra.sub,
+        parentWorkId: extra.parentWorkId,
+        returnAddress: extra.returnAddress,
         fromTaskId: extra.fromTaskId,
         fromRoomId: extra.fromRoomId,
         fromPart: extra.fromPart,
       })
     }
-    saveSoon()
   }
 
   const settleQueuedReportInRound = (room, postExtra, { paused = false } = {}) => {
     if (postExtra.reportBack !== true) return
     const id = postExtra.reportId ?? postExtra.sub
-    const existing = id === undefined ? undefined : reports()[id]
+    const existing = id === undefined ? undefined : getReportById(id)
     if (existing !== undefined) {
-      let changed = false
-      if (paused && existing.paused !== true) {
-        existing.paused = true
-        changed = true
-      }
+      const patch = {}
+      if (paused && existing.paused !== true) patch.paused = true
       if (existing.status === 'queued') {
-        existing.status = 'tracking'
-        existing.fromSeq = nextRoomSeq(room)
-        existing.ids = []
-        changed = true
+        patch.status = 'tracking'
+        patch.fromSeq = nextRoomSeq(room)
+        patch.ids = []
       }
-      if (changed) saveSoon()
+      if (Object.keys(patch).length > 0) patchReport(id, patch)
     } else if (paused && postExtra.botId !== undefined) {
-      const nextId = id ?? randomUUID()
-      reports()[nextId] = createReport(room, {
-        id: nextId,
+      openRoomReportCall(room, {
+        id: id ?? randomUUID(),
         botId: postExtra.botId,
         name: postExtra.name,
         status: 'tracking',
@@ -402,28 +547,30 @@ export function createRoomReports(rt, deps) {
         ids: [],
         paused: true,
         sub: postExtra.sub,
+        parentWorkId: postExtra.parentWorkId,
+        returnAddress: postExtra.returnAddress,
         fromTaskId: postExtra.fromTaskId,
         fromRoomId: postExtra.fromRoomId,
         fromPart: postExtra.fromPart,
       })
-      saveSoon()
     }
   }
 
   const expandScopedReports = (roomId, callerId, callees) => {
     if (callerId === undefined || callees.length === 0) return
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== roomId || report.status !== 'tracking' || !Array.isArray(report.ids)) continue
+    for (const report of listActiveReports(roomId)) {
+      if (report.status !== 'tracking' || !Array.isArray(report.ids)) continue
       if (!report.ids.includes(callerId)) continue
+      const nextIds = [...report.ids]
+      let changed = false
       for (const peer of callees) {
-        if (!report.ids.includes(peer.id)) {
-          report.ids.push(peer.id)
+        if (!nextIds.includes(peer.id)) {
+          nextIds.push(peer.id)
           changed = true
         }
       }
+      if (changed) patchReport(report.id, { ids: nextIds })
     }
-    if (changed) saveSoon()
   }
 
   const matchesReportPost = (post, report) => post !== undefined
@@ -441,17 +588,15 @@ export function createRoomReports(rt, deps) {
     if (hasRoomPendingWork(room)) return true
     if (Array.isArray(report.ids)) {
       if (report.ids.some(id => room.members.includes(id) && memberBusyForReport(room, id, report.fromTaskId))) return true
-      if (Object.values(batches()).some(batch => batch.roomId === room.id
-        && (report.ids.includes(batch.by) || batch.pending.some(id => report.ids.includes(id)))
-        && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
+      if (hasActiveRoomCalls(room.id, { memberIds: report.ids, ignoreTaskId: report.fromTaskId, ignoreBotId: report.botId, waitingForUser })) return true
       return false
     }
     if (room.members.some(id => memberBusyForReport(room, id, report.fromTaskId))) return true
-    if (Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
+    if (hasActiveRoomCalls(room.id, { ignoreTaskId: report.fromTaskId, ignoreBotId: report.botId, waitingForUser })) return true
     const activeGoalAdmin = room.admin !== undefined && room.admin !== null && room.members.includes(room.admin) && rt.botOf(room.admin) !== undefined
     if (room.goal?.status === 'active' && room.goal.idle !== true && activeGoalAdmin) {
       if (!startup) return true
-      // On startup with no active/recovering round, member, batch, or queued relay left,
+      // On startup with no active/recovering round, member, call, or queued relay left,
       // an active goal is dormant until the user continues; mark it idle instead of deadlocking reports.
       room.goal.idle = true
       room.goal.revision = (room.goal.revision ?? 0) + 1
@@ -461,250 +606,46 @@ export function createRoomReports(rt, deps) {
     return false
   }
 
-  // On startup/reload, inspect whether DSH still holds this specific queued report in a
-  // queue the new plugin will consume (live inbox, or preStep before user/message is emitted).
-  // Does not mutate room-wide state mid-loop so a surviving sibling never hides a missing report.
-  const inspectLiveQueuedRelay = async (room, report, roomAgentCache) => {
-    let agent = roomAgentCache.get(room.id)
-    if (agent === undefined && !roomAgentCache.has(room.id)) {
-      const roomSid = rt.sessionOfRoom(room)
-      agent = ctx.get?.('agents')?.get(roomSid)
-        ?? await rt.resolveAgent?.(roomSid).catch(() => undefined)
-      roomAgentCache.set(room.id, agent ?? null)
-    }
-    if (!agent) return { alive: false }
-    const matchesReport = (src) => src?.kind === SOURCE_KIND && src.role === 'post'
-      && (src.reportId === report.id || (report.sub !== undefined && src.sub === report.sub))
-    const lanes = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
-    const queuedMsg = lanes.find(msg => matchesReport(msg?.source))
-    if (queuedMsg !== undefined) {
-      // Register synchronously while the entry is confirmed in agent.inbox so if the room
-      // consumes it during a later await (e.g. resolving another room's agent), roomRelayTaken
-      // removes it cleanly instead of a deferred insert stranding the room.
-      if (typeof queuedMsg.source.exchangeId === 'string' && queuedMsg.source.exchangeId !== '') {
-        noteRoomRelayQueued(room.id, queuedMsg.source.exchangeId, report.id)
-        return { alive: true }
-      }
-      return { alive: true, recheckAgent: agent }
-    }
-    if (agent.status !== 'running') return { alive: false }
-    const snapshot = agent.session?.snapshotEvents?.()
-    if (!Array.isArray(snapshot)) return { alive: true, recheckAgent: agent }
-    const lastStart = snapshot.findLastIndex(ev => ev?.type === 'turn/start')
-    const currentTurn = lastStart === -1 ? snapshot : snapshot.slice(lastStart)
-    const ended = currentTurn.some(ev => ev?.type === 'turn/end')
-    const hasUserMessage = currentTurn.some(ev => ev?.type === 'user/message')
-    // DSH preStep window: inbox.claim() popped nextTurn before user/message was emitted.
-    // Keep queued until that turn settles and re-check once; if user/message was already
-    // emitted before reload, the old plugin's roomInbox is gone so settle cleanly instead.
-    if (!ended && !hasUserMessage) return { alive: true, recheckAgent: agent }
-    return { alive: false }
-  }
-
-  const scheduleStartupRecheck = (roomId, agent) => {
-    if (isDisposed() || pendingStartupRechecks.has(roomId) || typeof agent?.whenIdle !== 'function') return
-    pendingStartupRechecks.add(roomId)
-    void Promise.resolve(agent.whenIdle())
-      .catch(() => {})
-      .finally(() => {
-        pendingStartupRechecks.delete(roomId)
-        if (isDisposed()) return
-        void settleRoomReports(roomId, { startup: true }).catch(error => rt.warn('ds-bot: startup recheck in %s failed: %s', roomId, error))
-      })
-  }
-
   const markRoomReportsWorked = (roomId, botId) => {
     if (roomId === undefined) return
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== roomId || report.status !== 'tracking' || report.worked === true) continue
+    for (const report of listActiveReports(roomId)) {
+      if (report.status !== 'tracking' || report.worked === true) continue
       if (Array.isArray(report.ids) && botId !== undefined && !report.ids.includes(botId)) continue
-      report.worked = true
-      changed = true
+      patchReport(report.id, { worked: true })
     }
-    if (changed) saveSoon()
   }
 
   const recordRoundOnReports = (room, round, { aborted = false } = {}) => {
-    let changed = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== room.id || report.status !== 'tracking') continue
+    for (const report of listActiveReports(room.id)) {
+      if (report.status !== 'tracking') continue
       const names = Array.isArray(report.ids) ? report.ids.map(id => rt.botOf(id)?.name).filter(Boolean) : undefined
-      const passed = names === undefined ? round.passed : round.passed.filter(name => names.includes(name))
-      const failed = names === undefined ? round.failed : round.failed.filter(name => names.includes(name))
-      for (const name of passed) {
-        if (!(report.passed ??= []).includes(name)) {
-          report.passed.push(name)
-          changed = true
-        }
+      const passedAdd = names === undefined ? round.passed : round.passed.filter(name => names.includes(name))
+      const failedAdd = names === undefined ? round.failed : round.failed.filter(name => names.includes(name))
+      const passed = [...new Set([...(report.passed ?? []), ...passedAdd])]
+      const failed = [...new Set([...(report.failed ?? []), ...failedAdd])]
+      const worked = report.worked === true || (round.slots ?? []).some(slot => slot?.worked === true && (!Array.isArray(report.ids) || report.ids.includes(slot.id)))
+      const stopped = report.stopped === true || aborted
+      if (passed.length !== (report.passed?.length ?? 0)
+        || failed.length !== (report.failed?.length ?? 0)
+        || worked !== report.worked
+        || stopped !== report.stopped) {
+        patchReport(report.id, { passed, failed, worked, stopped })
       }
-      for (const name of failed) {
-        if (!(report.failed ??= []).includes(name)) {
-          report.failed.push(name)
-          changed = true
-        }
-      }
-      if (report.worked !== true && (round.slots ?? []).some(slot => slot?.worked === true && (!Array.isArray(report.ids) || report.ids.includes(slot.id)))) {
-        report.worked = true
-        changed = true
-      }
-      if (aborted && report.stopped !== true) {
-        report.stopped = true
-        changed = true
-      }
-    }
-    if (changed) saveSoon()
-  }
-
-  async function settleRoomReports(roomId, { startup = false } = {}) {
-    if (rt.readOnly?.() !== undefined) return
-    const ready = []
-    let pruned = false
-    const roomAgentCache = startup ? new Map() : undefined
-    const rechecks = new Map()
-    const touchedRoomIds = new Set()
-    if (roomId !== undefined) touchedRoomIds.add(roomId)
-    for (const [id, report] of Object.entries(reports())) {
-      if (roomId !== undefined && report.roomId !== roomId) continue
-      if (returning.has(id)) continue
-      touchedRoomIds.add(report.roomId)
-      if (rt.botOf(report.botId) === undefined) {
-        delete reports()[id]
-        pruned = true
-        continue
-      }
-      const room = rt.roomOf(report.roomId)
-      if (room === undefined) {
-        returning.add(id)
-        ready.push({ room: { id: report.roomId, name: 'a group chat' }, report, deleted: true })
-        continue
-      }
-      if (isReportBusy(room, report, { startup })) continue
-      if (startup && report.status !== 'tracking') {
-        const live = await inspectLiveQueuedRelay(room, report, roomAgentCache)
-        if (live.alive) {
-          if (live.recheckAgent !== undefined) rechecks.set(room.id, live.recheckAgent)
-          continue
-        }
-      }
-      // Re-check after awaiting resolveAgent in case a live round claimed or deleted this report.
-      const current = reports()[id]
-      if (current === undefined || returning.has(id) || isReportBusy(room, current, { startup })) continue
-      const neverStarted = current.status !== 'tracking' || current.neverStarted === true
-      returning.add(id)
-      ready.push({ room, report: current, deleted: false, neverStarted })
-    }
-    for (const [recheckRoomId, agent] of rechecks) scheduleStartupRecheck(recheckRoomId, agent)
-    if (pruned) saveSoon()
-    try {
-      for (const item of ready) await deliverRoomReport(item.room, item.report, { deleted: item.deleted, neverStarted: item.neverStarted })
-    } finally {
-      for (const item of ready) returning.delete(item.report.id)
-      for (const id of touchedRoomIds) clearRoomOriginIfIdle(rt.roomOf(id))
     }
   }
 
-  async function forgetRoomReports(room) {
-    queuedRelays.delete(room.id)
-    inFlightLate.delete(room.id)
-    roomOrigins.delete(room.id)
-    originVersions.delete(room.id)
-    rt.clearRoomWebRound?.(room.id)
-    const dropped = []
-    for (const [id, report] of Object.entries(reports())) {
-      if (report.roomId !== room.id || returning.has(id)) continue
-      returning.add(id)
-      dropped.push(report)
-    }
-    try {
-      for (const report of dropped) await deliverRoomReport(room, report, { deleted: true })
-    } finally {
-      for (const report of dropped) returning.delete(report.id)
-    }
-  }
-
-  async function forgetBotRoomReports(botId, touchedRooms = []) {
-    let pruned = false
-    for (const [id, report] of Object.entries(reports())) {
-      if (report.botId !== botId) continue
-      delete reports()[id]
-      pruned = true
-    }
-    if (pruned) saveSoon()
-    for (const room of touchedRooms) {
-      await exitMemberBatches(room, botId)
-      await settleRoomReports(room.id)
-    }
-  }
-
-  function stopRoomReports(roomId) {
-    for (const exchangeId of queuedRelays.get(roomId)?.keys() ?? []) rememberStoppedRelay(exchangeId)
-    queuedRelays.delete(roomId)
-    roomOrigins.delete(roomId)
-    bumpOriginVersion(roomId)
-    rt.clearRoomWebRound?.(roomId)
-    let marked = false
-    for (const report of Object.values(reports())) {
-      if (report.roomId !== roomId) continue
-      if (report.status === 'queued') {
-        rememberStoppedRelay(report.id)
-        report.neverStarted = true
-        report.status = 'tracking'
-        marked = true
-      }
-      if (report.stopped !== true) {
-        report.stopped = true
-        marked = true
-      }
-    }
-    if (marked) saveSoon()
-  }
-
-  function roomRelayDiscarded(source, sessionId) {
-    if (typeof source?.roomId !== 'string') return
-    if (typeof source.exchangeId === 'string' && withdrawingRelays.has(source.exchangeId)) return
-    const room = rt.roomOf(source.roomId)
-    // Ignore removals from an earlier part or while the group's own Session is moving parts.
-    if (sessionId !== undefined && room !== undefined && sessionId !== rt.sessionOfRoom(room)) return
-    if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
-    if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
-    roomRelayTaken(source.roomId, source.exchangeId)
-    const discardedParents = []
-    if (typeof source.exchangeId === 'string') {
-      const relay = pendingDirectRelays?.get(source.exchangeId)
-      if (relay !== undefined) {
-        pendingDirectRelays.delete(source.exchangeId)
-        if (relay.by !== undefined && relay.parentBatchKey !== undefined) {
-          discardedParents.push({ by: relay.by, parentBatchKey: relay.parentBatchKey })
-        }
-      }
-    }
-    if (source.batchEnd && source.batch) {
-      const batch = batches()[source.batch]
-      const parentKey = batch?.parentBatchKey ?? source.parentBatchKey
-      const callerId = batch?.by ?? source.askedBy
-      closeBatch(source.batch)
-      if (callerId !== undefined && parentKey !== undefined) {
-        discardedParents.push({ by: callerId, parentBatchKey: parentKey })
-      }
-    }
-    if (room !== undefined && discardedParents.length > 0) {
-      releaseIdleParentBatches?.(room, discardedParents)
-    }
-    if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
-      reports()[source.reportId].neverStarted = true
-      reports()[source.reportId].stopped = true
-      reports()[source.reportId].status = 'tracking'
-      saveSoon()
-    }
-    void settleRoomReports(source.roomId).catch(error => rt.warn('ds-bot: settling reports after discarded relay failed: %s', error))
+  const hasPausedRoomWork = (roomId) => {
+    const handle = existingDb()
+    if (handle === null || handle.isClosed?.()) return false
+    return handle.listWorks({ kind: 'room_work', roomId, status: 'paused', limit: 20 })
+      .some(work => !isReportWork(work))
   }
 
   async function deliverRoomReport(room, report, { deleted = false, neverStarted = false } = {}) {
+    const handle = writableDb()
     const bot = rt.botOf(report.botId)
     if (bot === undefined) {
-      delete reports()[report.id]
-      saveSoon()
+      if (handle !== null) handle.stopWork(report.workId, { reason: 'Report caller deleted' })
       return
     }
     let text
@@ -751,8 +692,8 @@ export function createRoomReports(rt, deps) {
               : goal.status === 'drafting' || (goal.status === 'active' && goal.idle === true)
                 ? `Goal "${goal.title}" is waiting for input from the user in "${room.name}".`
                 : ''
-      const pausedLine = report.paused === true || (!Array.isArray(report.ids) && room.idlePaused !== undefined)
-        ? `Paused in "${room.name}": members went back and forth without making progress; waiting for the user there.`
+      const pausedLine = report.paused === true || (!Array.isArray(report.ids) && hasPausedRoomWork(room.id))
+        ? `Paused in "${room.name}": members made no measurable progress on the same step; waiting for the user there.`
         : ''
       const goalStopped = goal?.status === 'stopped' && (goal.endedAt ?? 0) >= report.at
       const stoppedLine = report.stopped === true && !goalStopped
@@ -776,35 +717,105 @@ export function createRoomReports(rt, deps) {
         failedLine,
       ].filter(Boolean).join('\n\n') || 'Nobody replied to your post.'
     }
-    // Replies the poster waited for go on with the work it posted for.
-    const work = report.sub === undefined ? undefined : rt.closeWork(report.sub, `Group "${room.name}"`, text, report.worked === true ? { worked: true } : undefined)
-    // The wait may already have been given up: the replies still reach the poster,
-    // marked as the late answer they are, and open no work.
+
+    // Legacy sub-work compatibility if caller tracked `report.sub` through handoffs.js.
+    const work = report.sub === undefined ? undefined : rt.closeWork?.(report.sub, `Group "${room.name}"`, text, report.worked === true ? { worked: true } : undefined)
     const late = work === undefined && report.sub !== undefined ? rt.abandonedWork?.(report.sub) : undefined
     const rawBody = late === undefined ? text : LATE_ANSWER + text
     const long = rawBody.length > MESSAGE_INLINE_MAX ? await rt.attachLong?.(rawBody, `Group report from ${room.name}.txt`) : undefined
     const body = long?.text ?? rawBody
     const reportKey = report.sub ?? report.id
-    // The report goes back to the conversation the post was written from: its
-    // Session in that group when the post came from one, or the current part of
-    // that own-chat thread, else the own chat.
-    const rawAddress = report.fromTaskId ? { taskId: report.fromTaskId } : returnAddress(bot, report.fromPart, report.fromRoomId)
-    const resolvedTarget = addressedSession(rt, bot.id, rawAddress)
-    const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
-    const target = resolvedTarget ?? rt.chatOf(bot.id)
+
+    const back = rt.roomOf(report.fromRoomId)?.sessions?.[report.botId]
+    const part = back === undefined && report.fromPart !== undefined ? threadCurrentOfPart(bot, report.fromPart) : undefined
+    const target = back ?? part
     // Never carry a group IM origin onto the Bot's own chat if the Bot left or the origin group was deleted.
     const replyOrigin = report.imOriginMixed === true ? { mixed: true } : report.imOrigin
-    const eligibleReplyOrigin = replyOrigin !== undefined && !(report.fromRoomId !== undefined && resolvedTarget === undefined)
-      ? replyOrigin
-      : undefined
-    if (eligibleReplyOrigin !== undefined) {
-      rt.rememberImReplyOrigin?.(reportKey, eligibleReplyOrigin)
+    const safeOrigin = replyOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined) ? replyOrigin : undefined
+    if (safeOrigin !== undefined) {
+      rt.rememberImReplyOrigin?.(reportKey, safeOrigin)
     }
-    const exchangeId = `group-report:${reportKey}`
-    const deliverPayload = {
+
+    // Atomic single-settlement in SQLite: writes `inbox(kind='result')` onto the caller's work,
+    // resolves `wait(kind='call')`, and enqueues `ready` in ONE transaction. `dsh-adapter.js`
+    // then delivers the result via `rt.kickScheduler()` (never calling `rt.deliver` twice).
+    if (handle !== null && typeof rt.kickScheduler === 'function') {
+      const outcome = deleted || report.stopped === true ? 'stopped' : 'done'
+      const renderedText = `[Group chat "${room.name}" · replies to your post]\n${body}`
+      const resultMeta = {
+        role: 'report',
+        roomId: room.id,
+        replyTo: reportKey,
+        renderedText,
+        ...(target ? { sessionId: target } : {}),
+        ...(long?.files ? { files: long.files } : {}),
+        ...(long?.length !== undefined ? { length: long.length } : {}),
+        ...(safeOrigin !== undefined ? { imOrigin: safeOrigin } : {}),
+        ...(work ? { work } : {}),
+        source: {
+          replyTo: reportKey,
+          ...(work ? { work } : {}),
+        },
+      }
+      const settled = handle.settleWork({
+        workId: report.workId,
+        outcome,
+        force: true,
+        summary: body,
+        resultRef: long?.files?.[0]?.attachmentId,
+        resultMeta,
+      })
+      if (settled.alreadyTerminal) return
+      const kickIds = new Set(settled.wokenParents ?? [])
+      for (const call of settled.settledCalls ?? []) {
+        if (call?.parentWorkId && handle.getWork(call.parentWorkId)?.status === 'queued') {
+          kickIds.add(call.parentWorkId)
+        }
+      }
+      // Migrated legacy `state.roomReports` rows (from `importLegacyState`) have a parentWorkId
+      // without a `calls` row: deliver the result directly into parent inbox so migration never drops reports.
+      if ((settled.settledCalls?.length ?? 0) === 0) {
+        const fallbackParent = resolveCallerParentWork(handle, report.botId, {
+          parentWorkId: report.parentWorkId,
+          fromTaskId: report.fromTaskId,
+          fromRoomId: report.fromRoomId,
+        })
+        if (fallbackParent) {
+          const recv = handle.receiveMessage({
+            workId: fallbackParent.workId,
+            kind: 'result',
+            dedupKey: `call:${reportCallId(report.id)}:result`,
+            senderAddress: `room-report:${room.id}:${report.id}`,
+            senderBotId: report.botId,
+            bodyRef: long?.files?.[0]?.attachmentId,
+            bodyPreview: body,
+            payload: resultMeta,
+            wake: true,
+          })
+          if (recv.readyEnqueued || recv.work?.status === 'queued') {
+            kickIds.add(fallbackParent.workId)
+          }
+        }
+      }
+      for (const parentId of kickIds) {
+        await rt.kickScheduler({ workId: parentId }).catch(error => rt.warn('ds-bot: kicking scheduler for group report to %s failed: %s', report.name, error))
+      }
+      return
+    }
+
+    // Fallback path only when `dsh-adapter.js` scheduler is unavailable (e.g. isolated legacy unit test).
+    if (handle !== null) {
+      const settled = handle.settleWork({
+        workId: report.workId,
+        outcome: deleted || report.stopped === true ? 'stopped' : 'done',
+        force: true,
+        summary: body,
+        resultRef: long?.files?.[0]?.attachmentId,
+      })
+      if (settled.alreadyTerminal) return
+    }
+    await rt.deliver({
       toId: report.botId,
-      address,
-      exchangeId,
       ...(target ? { sessionId: target } : {}),
       role: 'report',
       roomId: room.id,
@@ -812,55 +823,175 @@ export function createRoomReports(rt, deps) {
       ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
       replyTo: reportKey,
       ...(work ? { work } : {}),
+    }).catch(error => rt.warn('ds-bot: group report to %s failed: %s', report.name, error))
+  }
+
+  const preStepRecheckRooms = new Set()
+
+  const isInPreStepWindow = (agent) => {
+    if (!agent || agent.status !== 'running') return false
+    const events = agent.session?.snapshotEvents?.()
+    if (!Array.isArray(events) || events.length === 0) return true
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const ev = events[i]
+      if (ev?.type === 'user/message' || ev?.type === 'turn/end') return false
+      if (ev?.type === 'turn/start') return true
     }
-    const obligationId = `room-report:${reportKey}`
-    // Persist the delivery obligation and watcher-removal marker atomically in SQLite
-    // before dropping the pending report from state.roomReports so a crash between SQLite
-    // commit and `state.json` save never drops OR duplicates the report, and preserves
-    // delegated child-work closure and eligible IM reply origin on recovery.
-    rt.coordination?.commitObligation?.({
-      id: obligationId,
-      kind: 'room_report',
-      ownerId: report.id,
-      botId: report.botId,
-      address,
-      payload: deliverPayload,
-      deliveryId: exchangeId,
-      terminalMarker: {
-        kind: 'room_report',
-        ownerId: report.id,
-        snapshot: {
-          roomId: room.id,
-          roomName: room.name,
-          botId: report.botId,
-          reportKey,
-          ...(report.sub !== undefined ? { sub: report.sub, workResult: text, worked: report.worked === true } : {}),
-          ...(eligibleReplyOrigin !== undefined ? { imReplyOrigin: eligibleReplyOrigin } : {}),
-        },
-      },
+    return false
+  }
+
+  const schedulePreStepRecheck = (roomId, agent) => {
+    if (preStepRecheckRooms.has(roomId) || typeof agent?.whenIdle !== 'function') return
+    preStepRecheckRooms.add(roomId)
+    void Promise.resolve(agent.whenIdle()).then(() => {
+      preStepRecheckRooms.delete(roomId)
+      if (isDisposed()) return
+      return settleRoomReports(roomId, { startup: true })
+    }).catch(() => {
+      preStepRecheckRooms.delete(roomId)
     })
-    delete reports()[report.id]
-    void rt.save().then(() => {
-      try {
-        rt.coordination?.clearTerminalMarker?.('room_report', report.id)
-      } catch (error) {
-        rt.warn?.('ds-bot: clearing room_report terminal marker %s failed: %s', report.id, error)
+  }
+
+  const roomAgentQueuedReports = async (room) => {
+    const roomSid = rt.sessionOfRoom?.(room)
+    if (!roomSid) return { agent: undefined, inPreStep: false, queuedSources: [] }
+    let agent = rt.ctx?.get?.('agents')?.get?.(roomSid)
+    if (agent === undefined && typeof rt.resolveAgent === 'function') {
+      agent = await rt.resolveAgent(roomSid).catch(() => undefined)
+    }
+    if (!agent) return { agent: undefined, inPreStep: false, queuedSources: [] }
+    const inPreStep = isInPreStepWindow(agent)
+    const queuedSources = [
+      ...(agent.inbox?.nextStep ?? []),
+      ...(agent.inbox?.nextTurn ?? []),
+    ].map(m => m?.source).filter(Boolean)
+    return { agent, inPreStep, queuedSources }
+  }
+
+  async function settleRoomReports(roomId, { startup = false } = {}) {
+    if (writableDb() === null || isDisposed()) return
+    const touchedRoomIds = new Set()
+    if (roomId !== undefined) touchedRoomIds.add(roomId)
+    const roomStates = new Map()
+    if (startup) {
+      const queuedRooms = new Map()
+      for (const report of listActiveReports(roomId)) {
+        if (report.status !== 'tracking') {
+          const r = rt.roomOf(report.roomId)
+          if (r !== undefined) queuedRooms.set(r.id, r)
+        }
       }
-    }, () => {})
-    await rt.deliver(deliverPayload).then(() => {
-      rt.coordination?.markObligation?.(obligationId, 'settled')
-    }, (error) => {
-      if (error?.code === 'bot/unresolved-return') {
-        rt.coordination?.markObligation?.(obligationId, 'cancelled')
+      for (const [rId, r] of queuedRooms.entries()) {
+        roomStates.set(rId, await roomAgentQueuedReports(r))
       }
-      rt.warn('ds-bot: group report to %s failed: %s', report.name, error)
-    })
+    }
+    const ready = []
+    for (const report of listActiveReports(roomId)) {
+      touchedRoomIds.add(report.roomId)
+      if (rt.botOf(report.botId) === undefined) {
+        dropRoomReport(report.id)
+        continue
+      }
+      const room = rt.roomOf(report.roomId)
+      if (room === undefined) {
+        ready.push({ room: { id: report.roomId, name: 'a group chat' }, report, deleted: true, neverStarted: false })
+        continue
+      }
+      if (startup && report.status !== 'tracking') {
+        // Re-check live inbox / preStep status after any awaits so a relay consumed while
+        // resolving another room is never falsely treated as still queued or never-started.
+        const liveState = roomStates.get(room.id)
+        const roomSid = rt.sessionOfRoom?.(room)
+        const liveAgent = (roomSid ? rt.ctx?.get?.('agents')?.get?.(roomSid) : undefined) ?? liveState?.agent
+        const currentSources = liveAgent
+          ? [...(liveAgent.inbox?.nextStep ?? []), ...(liveAgent.inbox?.nextTurn ?? [])].map(m => m?.source).filter(Boolean)
+          : (liveState?.queuedSources ?? [])
+        const inPreStep = liveAgent ? isInPreStepWindow(liveAgent) : (liveState?.inPreStep === true)
+        if (inPreStep) {
+          schedulePreStepRecheck(room.id, liveAgent)
+          continue
+        }
+        if (currentSources.some(src => matchesReportPost(src, report))) {
+          continue
+        }
+      }
+      if (isReportBusy(room, report, { startup })) continue
+      const neverStarted = report.status !== 'tracking' || report.neverStarted === true
+      ready.push({ room, report, deleted: false, neverStarted })
+    }
+    for (const item of ready) {
+      await deliverRoomReport(item.room, item.report, { deleted: item.deleted, neverStarted: item.neverStarted })
+    }
+    for (const id of touchedRoomIds) clearRoomOriginIfIdle(rt.roomOf(id))
+  }
+
+  async function forgetRoomReports(room) {
+    queuedRelays.delete(room.id)
+    inFlightLate.delete(room.id)
+    roomOrigins.delete(room.id)
+    originVersions.delete(room.id)
+    rt.clearRoomWebRound?.(room.id)
+    const active = listActiveReports(room.id)
+    if (active.length === 0) return
+    for (const report of active) {
+      await deliverRoomReport(room, report, { deleted: true })
+    }
+  }
+
+  async function forgetBotRoomReports(botId, touchedRooms = []) {
+    for (const report of listActiveReports()) {
+      if (report.botId === botId) dropRoomReport(report.id)
+    }
+    for (const room of touchedRooms) {
+      await exitMemberRoomCalls(room, botId)
+      await settleRoomReports(room.id)
+    }
+  }
+
+  function stopRoomReports(roomId) {
+    for (const exchangeId of queuedRelays.get(roomId)?.keys() ?? []) rememberStoppedRelay(exchangeId)
+    queuedRelays.delete(roomId)
+    roomOrigins.delete(roomId)
+    bumpOriginVersion(roomId)
+    rt.clearRoomWebRound?.(roomId)
+    for (const report of listActiveReports(roomId)) {
+      if (report.status === 'queued') {
+        rememberStoppedRelay(report.id)
+        patchReport(report.id, { neverStarted: true, stopped: true, status: 'tracking' })
+      } else if (report.stopped !== true) {
+        patchReport(report.id, { stopped: true })
+      }
+    }
+  }
+
+  const withdrawingRelays = new Set()
+  const beginWithdrawingRelay = (exchangeId) => { if (typeof exchangeId === 'string' && exchangeId !== '') withdrawingRelays.add(exchangeId) }
+  const endWithdrawingRelay = (exchangeId) => { withdrawingRelays.delete(exchangeId) }
+
+  function roomRelayDiscarded(source, sessionId) {
+    if (typeof source?.roomId !== 'string') return
+    if (typeof source.exchangeId === 'string' && withdrawingRelays.has(source.exchangeId)) return
+    const room = rt.roomOf(source.roomId)
+    if (sessionId !== undefined && room !== undefined && sessionId !== rt.sessionOfRoom(room)) return
+    if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
+    if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
+    roomRelayTaken(source.roomId, source.exchangeId)
+    if (typeof source.reportId === 'string') {
+      const report = getReportById(source.reportId)
+      if (report?.status === 'queued') {
+        patchReport(source.reportId, { neverStarted: true, stopped: true, status: 'tracking' })
+      }
+    }
+    void settleRoomReports(source.roomId).catch(error => rt.warn('ds-bot: settling reports after discarded relay failed: %s', error))
   }
 
   Object.assign(rt, {
     noteRoomRelayQueued,
     roomRelayTaken,
     roomRelayDiscarded,
+    beginWithdrawingRelay,
+    endWithdrawingRelay,
+    openRoomReportCall,
     dropRoomReport,
     hasRoomReportFor,
     roomReportImOrigin,
@@ -871,16 +1002,16 @@ export function createRoomReports(rt, deps) {
   })
 
   return {
-    reports,
+    listActiveReports,
     rememberStoppedRelay,
     isStoppedRelay,
     isBotPendingPost,
     noteRoomRelayQueued,
     roomRelayTaken,
     roomRelayDiscarded,
-    withWithdrawingRelay,
     enterLate,
     leaveLate,
+    openRoomReportCall,
     dropRoomReport,
     hasRoomReportFor,
     roomReportImOrigin,
