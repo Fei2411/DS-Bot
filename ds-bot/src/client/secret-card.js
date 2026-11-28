@@ -33,7 +33,7 @@ const WarnIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', f
 
 // Password managers ignore a text field masked by CSS, so it never offers to save the
 // key; browsers without that CSS fall back to a new-password field.
-const MASK_BY_CSS = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('-webkit-text-security', 'disc')
+const MASK_BY_CSS = typeof globalThis.CSS?.supports === 'function' && globalThis.CSS.supports('-webkit-text-security', 'disc')
 
 const insecure = () => typeof location !== 'undefined' && location.protocol === 'http:'
   && !/^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/.test(location.hostname)
