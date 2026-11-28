@@ -727,7 +727,11 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-subagent-opt-tag{flex:none;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .dsb-ui-plug-status{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:14px;font-weight:500}
 .dsb-ui-plug-status[data-status=active]{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:color-mix(in srgb,var(--bt-green) 76%,var(--bt-ink))}
+.dsb-ui-plug-status[data-status=warn]{background:color-mix(in srgb,var(--bt-warn) 14%,transparent);color:var(--bt-warn)}
 .dsb-ui-plug-status[data-status=error]{background:var(--bt-danger-soft);color:var(--bt-danger)}
+.dsb-plug-note{font-size:12px;line-height:17px;color:var(--bt-ink-2);word-break:break-word}
+.dsb-plug-note[data-tone=warn]{color:var(--bt-warn)}
+.dsb-plug-note[data-tone=error]{color:var(--bt-danger)}
 
 /* Redesigned Plugins page rows, icons, drill-down header, and More toggle. */
 .dsb-plug-row{display:flex;align-items:center;gap:12px;width:100%;min-height:54px;padding:12px 16px;border:0;background:none;color:inherit;font:inherit;text-align:left;box-sizing:border-box}

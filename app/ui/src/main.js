@@ -1,4 +1,4 @@
-import { createElement as h } from 'react'
+import { Fragment, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ABOUT_CSS } from '../../../ds-bot/src/client/about.js'
 import { AGENT_CARDS_CSS } from '../../../ds-bot/src/client/agent-cards.js'
@@ -51,6 +51,7 @@ import { registerMathStyleLoader } from './math-render.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
+import { loadExternalUiPlugins } from './ui-plugin-loader.js'
 import './app.css'
 import './composer-classic.css'
 import './message-parity.css'
@@ -79,9 +80,11 @@ setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()
 pluginRuntime.provide('slots', slots)
+pluginRuntime.provide('react', Object.freeze({ createElement: h, Fragment, useState, useEffect, useMemo, useCallback, useRef }))
 pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views', pages: ['chat'] }, () => registerBuiltinToolViews(slots))
 pluginRuntime.use({ id: 'ds-bot.classic-plan-view', name: 'Classic plan card', pages: ['chat'] }, () => registerClassicPlanView(slots))
 registerEngineSettingsPlugin(pluginRuntime, { pages: ['settings'] })
+void loadExternalUiPlugins(pluginRuntime)
 globalThis.dsBotPlugins = pluginRuntime
 document.documentElement.lang = appLocale.getLocale().active
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).

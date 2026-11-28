@@ -246,9 +246,36 @@ ctx.inject?.({ skills: null }, (sub) => {
 | Deployment Mode | How Standalone Plugins Are Installed / Preserved | Verification Command |
 | :--- | :--- | :--- |
 | **DSH Desktop / Web** | `dsh plugin --profile <profile> add <pkg-or-dir>` | `npx ds-bot doctor` |
-| **Desktop App (`app/src/profile.mjs`)** | Profile `PROFILE = 'ds-bot'`; `claimBundles(dir)` writes core `BUNDLES` first and keeps user-installed bundles afterward across restarts | `npx ds-bot doctor` |
+| **Desktop App (`app/src/profile.mjs`)** | Profile `PROFILE = 'ds-bot'`; `claimBundles(dir)` writes core `BUNDLES` (`@deepseek-ai/dsh-base`, `dsbot-engine`, `@deepseek-ai/dsh-experimental-voice-input-bundle`, `ds-bot`) first and keeps user-installed bundles afterward across restarts | `npx ds-bot doctor` |
 | **Windows source (`start.ps1`)** | Hashes package files via `.source-launcher.sha256` and refreshes links via `app/` `install-links` | `npx ds-bot doctor` |
 | **Docker** | `/data/profiles/web` is seeded from `/opt/dsh-template` on first boot only; install extras inside the container with `dsh plugin --profile web add ...` | `npx ds-bot doctor` (`--fix`) |
+
+### 4.5 Desktop App UI & Theme Plugins (`<DSH_HOME>/ui-plugins/` & `dsBot.ui`)
+
+In the standalone Desktop App (`dsbot-engine` + `app/ui/`), DSH Web frontend bundles (`@deepseek-ai/dsh-web-app`, `dsh.client`) are not mounted:
+
+- **Host-side DSH plugins and custom `cordis.patch.yml` entries** still run in the engine and appear under **Settings → Plugins → Engine plugins** (bundles under **Installed plugins**, standalone patch entries under **Custom profile plugins**). Bundles that only ship `dsh.client` UI are explicitly labeled **DSH Web UI only**; bundles skipped due to a DSH version mismatch show their incompatibility details and a confirmation-gated **Allow for this version** exemption control.
+- **Desktop themes and UI plugins** load from two authenticated, root-confined sources served by `dsbot-engine` at `/api/ui-plugins/manifest` and `/api/ui-plugins/files/<id>/<path>`:
+  1. **Drop-in folder:** `<DSH_HOME>/ui-plugins/<name>/manifest.json` (or `package.json`), opened via **Settings → Plugins → Engine plugins → Window plugins → Open folder** and hot-reloaded via **Reload**.
+  2. **Enabled profile bundle:** add `"dsBot": { "ui": "./ui/index.js" }` or `"dsBot": { "ui": { "entry": "./ui/index.js", "theme": "./theme.json", "pages": ["chat"] } }` to the bundle's `package.json`.
+- **Theme-only manifest (`<DSH_HOME>/ui-plugins/my-skin/manifest.json`):**
+
+```json
+{
+  "id": "my-skin",
+  "name": "My Skin",
+  "theme": {
+    "id": "my-skin",
+    "label": "My Skin",
+    "light": { "bg": "#fcfcfc", "sidebar": "#f4f6fa", "bubble": "#edf0f7", "card": "#ffffff", "text": "#141414", "user": "#1e3a8a", "userText": "#ffffff", "accent": "#4d6bfe" },
+    "dark": { "bg": "#12151f", "sidebar": "#181c28", "bubble": "#212738", "card": "#1b2030", "text": "#eef2fb", "user": "#3b6fd8", "userText": "#ffffff", "accent": "#6699ff" },
+    "css": ".bt-bubble { letter-spacing: 0.01em; }"
+  }
+}
+```
+
+- **ESM UI plugin (`entry: "./index.js"`):** exports `apply(ctx)` (or `default(ctx)`). `ctx` provides `ctx.slot(spec, Component)` (compatible slots: `tool.call.toolview`, `conversation.chat.node`, `sidebar.right.pane.tab`, `settings.section`, `settings.general.item`, `shell.overlay`), `ctx.theme(id, themeDef)`, `ctx.shape(id, shapeDef)`, `ctx.style(cssText)` (CSSOM-sanitized and auto-disposed), `ctx.get('react')`, `ctx.get('slots')`, and `ctx.effect(fn)`.
+- **Migrating DSH Web skins:** DSH Web theme plugins targeting `--dsw-*` tokens or `@deepseek-ai/dsh-client-ui-theme` do not mount in Desktop. Move color/background/font/CSS customizations into **Settings → Appearance** (supports custom themes, VS Code theme import, and `--bt-*` CSS) or package them as a `<DSH_HOME>/ui-plugins/<name>/` theme plugin above. Users who depend on full DSH Web frontend plugins can also run `ds-bot` inside DSH Desktop / DSH Web.
 
 ---
 
