@@ -15,8 +15,10 @@ let metaSnapshot = Object.freeze({ ...state })
 const listeners = new Set()
 const mounted = new Map()
 const pluginEpochs = new Map()
-let inFlight = null
-let syncSeq = 0
+// Single FIFO async queue so full refreshes and targeted retries never cancel each other.
+let queueTail = Promise.resolve()
+let pendingDefaultLoad = null
+let resetGeneration = 0
 
 function emitMeta() {
   metaSnapshot = Object.freeze({ ...state })
@@ -95,114 +97,119 @@ function registerDescriptor(runtime, desc, epoch, importer) {
   return runtime.use({ ...base, initialError: 'UI plugin manifest has neither entry nor theme.' })
 }
 
-export async function syncExternalUiPlugins(runtime = defaultRuntime, {
+export function syncExternalUiPlugins(runtime = defaultRuntime, {
   fetchImpl = globalThis.fetch,
   importer = defaultModuleImporter,
   forceReload = false,
   onlyId = null,
 } = {}) {
-  if (typeof fetchImpl !== 'function') return metaSnapshot
-  const mySeq = ++syncSeq
+  if (typeof fetchImpl !== 'function') return Promise.resolve(metaSnapshot)
+  const myGen = resetGeneration
   const targetId = typeof onlyId === 'string' && onlyId.trim() !== '' ? onlyId.trim() : null
-  try {
-    const res = await fetchImpl(MANIFEST_URL, { cache: 'no-store' })
-    if (mySeq !== syncSeq) return metaSnapshot
-    if (!res.ok) {
-      if (res.status !== 404) {
-        state.error = `HTTP ${res.status}`
-        emitMeta()
+
+  const run = async () => {
+    if (myGen !== resetGeneration) return metaSnapshot
+    try {
+      const res = await fetchImpl(MANIFEST_URL, { cache: 'no-store' })
+      if (myGen !== resetGeneration) return metaSnapshot
+      if (!res.ok) {
+        if (res.status !== 404) {
+          state.error = `HTTP ${res.status}`
+          emitMeta()
+        }
+        return metaSnapshot
       }
-      return metaSnapshot
-    }
-    const payload = await res.json()
-    if (mySeq !== syncSeq) return metaSnapshot
+      const payload = await res.json()
+      if (myGen !== resetGeneration) return metaSnapshot
 
-    state.uiPluginsDir = typeof payload?.uiPluginsDir === 'string' && payload.uiPluginsDir.trim() !== ''
-      ? payload.uiPluginsDir.trim()
-      : null
-    state.loaded = true
-    state.error = ''
+      state.uiPluginsDir = typeof payload?.uiPluginsDir === 'string' && payload.uiPluginsDir.trim() !== ''
+        ? payload.uiPluginsDir.trim()
+        : null
+      state.loaded = true
+      state.error = ''
 
-    const incoming = Array.isArray(payload?.plugins) ? payload.plugins : []
-    if (targetId !== null) {
-      // Targeted retry: only touch the specified plugin so healthy external plugins stay mounted.
-      const match = incoming.find(desc => desc && desc.id === targetId)
-      const prev = mounted.get(targetId)
-      if (!match) {
+      const incoming = Array.isArray(payload?.plugins) ? payload.plugins : []
+      if (targetId !== null) {
+        // Targeted retry: only touch the specified plugin so healthy external plugins stay mounted.
+        const match = incoming.find(desc => desc && desc.id === targetId)
+        const prev = mounted.get(targetId)
+        if (!match) {
+          if (prev) {
+            try { prev.dispose() } catch { /* ignore */ }
+            mounted.delete(targetId)
+          }
+          pluginEpochs.delete(targetId)
+          emitMeta()
+          return metaSnapshot
+        }
+        const nextEpoch = (pluginEpochs.get(targetId) ?? 0) + 1
+        pluginEpochs.set(targetId, nextEpoch)
         if (prev) {
           try { prev.dispose() } catch { /* ignore */ }
           mounted.delete(targetId)
         }
-        pluginEpochs.delete(targetId)
+        const dispose = registerDescriptor(runtime, match, nextEpoch, importer)
+        mounted.set(targetId, { sig: descriptorSignature(match, nextEpoch), dispose })
         emitMeta()
         return metaSnapshot
       }
-      const nextEpoch = (pluginEpochs.get(targetId) ?? 0) + 1
-      pluginEpochs.set(targetId, nextEpoch)
-      if (prev) {
-        try { prev.dispose() } catch { /* ignore */ }
-        mounted.delete(targetId)
-      }
-      const dispose = registerDescriptor(runtime, match, nextEpoch, importer)
-      mounted.set(targetId, { sig: descriptorSignature(match, nextEpoch), dispose })
-      emitMeta()
-      return metaSnapshot
-    }
 
-    const nextIds = new Set()
-    for (const desc of incoming) {
-      if (!desc || typeof desc.id !== 'string' || desc.id.trim() === '') continue
-      nextIds.add(desc.id)
-      const prevEpoch = pluginEpochs.get(desc.id) ?? 0
-      const epoch = forceReload ? prevEpoch + 1 : prevEpoch
-      if (forceReload) pluginEpochs.set(desc.id, epoch)
-      const sig = descriptorSignature(desc, epoch)
-      const prev = mounted.get(desc.id)
-      if (prev && prev.sig === sig) continue
-      if (prev) {
-        try { prev.dispose() } catch { /* ignore */ }
-        mounted.delete(desc.id)
+      const nextIds = new Set()
+      for (const desc of incoming) {
+        if (!desc || typeof desc.id !== 'string' || desc.id.trim() === '') continue
+        nextIds.add(desc.id)
+        const prevEpoch = pluginEpochs.get(desc.id) ?? 0
+        const epoch = forceReload ? prevEpoch + 1 : prevEpoch
+        if (forceReload) pluginEpochs.set(desc.id, epoch)
+        const sig = descriptorSignature(desc, epoch)
+        const prev = mounted.get(desc.id)
+        if (prev && prev.sig === sig) continue
+        if (prev) {
+          try { prev.dispose() } catch { /* ignore */ }
+          mounted.delete(desc.id)
+        }
+        const dispose = registerDescriptor(runtime, desc, epoch, importer)
+        mounted.set(desc.id, { sig, dispose })
       }
-      const dispose = registerDescriptor(runtime, desc, epoch, importer)
-      mounted.set(desc.id, { sig, dispose })
-    }
-    for (const [id, entry] of Array.from(mounted.entries())) {
-      if (!nextIds.has(id)) {
-        try { entry.dispose() } catch { /* ignore */ }
-        mounted.delete(id)
-        pluginEpochs.delete(id)
+      for (const [id, entry] of Array.from(mounted.entries())) {
+        if (!nextIds.has(id)) {
+          try { entry.dispose() } catch { /* ignore */ }
+          mounted.delete(id)
+          pluginEpochs.delete(id)
+        }
       }
+      emitMeta()
+    } catch (error) {
+      if (myGen !== resetGeneration) return metaSnapshot
+      state.error = error?.message ?? String(error)
+      emitMeta()
     }
-    emitMeta()
-  } catch (error) {
-    if (mySeq !== syncSeq) return metaSnapshot
-    state.error = error?.message ?? String(error)
-    emitMeta()
+    return metaSnapshot
   }
-  return metaSnapshot
+
+  const task = queueTail.then(run, run)
+  queueTail = task.then(() => {}, () => {})
+  return task
 }
 
 export function loadExternalUiPlugins(runtime = defaultRuntime, options = {}) {
-  if (inFlight !== null) return inFlight
+  if (pendingDefaultLoad !== null) return pendingDefaultLoad
+  const gen = resetGeneration
   const task = syncExternalUiPlugins(runtime, options)
   const wrapped = task.finally(() => {
-    if (inFlight === wrapped) inFlight = null
+    if (gen === resetGeneration && pendingDefaultLoad === wrapped) pendingDefaultLoad = null
   })
-  inFlight = wrapped
+  pendingDefaultLoad = wrapped
   return wrapped
 }
 
 export function reloadExternalUiPlugins(runtime = defaultRuntime, options = {}) {
   const onlyId = typeof options?.onlyId === 'string' && options.onlyId.trim() !== '' ? options.onlyId.trim() : null
-  const task = syncExternalUiPlugins(runtime, { ...options, forceReload: onlyId === null, onlyId })
-  const wrapped = task.finally(() => {
-    if (inFlight === wrapped) inFlight = null
-  })
-  inFlight = wrapped
-  return wrapped
+  return syncExternalUiPlugins(runtime, { ...options, forceReload: onlyId === null, onlyId })
 }
 
 export function resetExternalUiPluginsForTest() {
+  resetGeneration += 1
   for (const entry of mounted.values()) {
     try { entry.dispose() } catch { /* ignore */ }
   }
@@ -211,8 +218,8 @@ export function resetExternalUiPluginsForTest() {
   state.uiPluginsDir = null
   state.loaded = false
   state.error = ''
-  syncSeq = 0
-  inFlight = null
+  queueTail = Promise.resolve()
+  pendingDefaultLoad = null
   emitMeta()
 }
 
