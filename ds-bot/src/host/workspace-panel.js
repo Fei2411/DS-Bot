@@ -201,7 +201,7 @@ function scrubbedOpenEnv(extra = {}) {
   const out = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value !== 'string') continue
-    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key)) continue
+    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key) || isInjectedGitConfigEnvKey(key)) continue
     out[key] = value
   }
   for (const [key, value] of Object.entries(extra)) {
