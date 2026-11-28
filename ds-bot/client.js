@@ -25016,23 +25016,62 @@ function painted({ appearance, background, pictureUrl: pictureUrl2 = () => void 
   return { shown, paint: shown === void 0 ? void 0 : backgroundPaint(shown, pictureUrl2) };
 }
 var backgroundShown = (options) => painted(options).paint !== void 0;
+function dataUrlToBlob(url, fallbackMime = "") {
+  if (typeof url !== "string" || url.slice(0, 5).toLowerCase() !== "data:") return null;
+  const comma = url.indexOf(",");
+  if (comma === -1) return null;
+  const meta = url.slice(5, comma);
+  const isBase64 = /;base64$/i.test(meta);
+  const mime = (isBase64 ? meta.slice(0, -7) : meta).split(";")[0] || fallbackMime;
+  const payload = url.slice(comma + 1);
+  try {
+    let bytes;
+    if (isBase64) {
+      if (typeof Uint8Array.fromBase64 === "function") {
+        bytes = Uint8Array.fromBase64(payload);
+      } else {
+        const binary2 = atob(payload);
+        bytes = new Uint8Array(binary2.length);
+        for (let i = 0; i < binary2.length; i += 1) bytes[i] = binary2.charCodeAt(i);
+      }
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(payload));
+    }
+    return new Blob([bytes], { type: mime });
+  } catch {
+    return null;
+  }
+}
 var pictures = /* @__PURE__ */ new Map();
 var RETRY_MS = 6e4;
 function pictureUrl(id, call2, loaded) {
   const known = pictures.get(id);
   if (typeof known === "string") return known;
+  if (known instanceof Set) {
+    if (typeof loaded === "function") known.add(loaded);
+    return void 0;
+  }
   if (known === void 0 || typeof known === "number" && Date.now() - known > RETRY_MS) {
-    pictures.set(id, null);
+    const waiters = /* @__PURE__ */ new Set();
+    if (typeof loaded === "function") waiters.add(loaded);
+    pictures.set(id, waiters);
     const failed = () => pictures.set(id, Date.now());
-    void call2("background-picture", { id }).then(async (picture) => {
-      if (picture?.image === void 0) {
+    void call2("background-picture", { id }).then((picture) => {
+      const blob = dataUrlToBlob(picture?.image, picture?.mime);
+      if (blob === null) {
         failed();
         return;
       }
-      const blob = await (await fetch(picture.image)).blob();
-      pictures.set(id, URL.createObjectURL(blob));
-      loaded();
-    }).catch(failed);
+      let objectUrl;
+      try {
+        objectUrl = URL.createObjectURL(blob);
+      } catch {
+        failed();
+        return;
+      }
+      pictures.set(id, objectUrl);
+      for (const notify of waiters) notify();
+    }, failed);
   }
   return void 0;
 }
