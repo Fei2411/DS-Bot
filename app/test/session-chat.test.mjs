@@ -1003,8 +1003,15 @@ test('message jump pages the active DM until it mounts the hit, exhausts history
       })
       await tick()
       let tree
-      for (let i = 0; i < 5; i += 1) {
+      let mountedHit = false
+      for (let i = 0; i < 7; i += 1) {
         tree = inst.render()
+        if (scenario === 'found' && !mountedHit && all(tree, node => node.props?.['data-bt-message-turn'] === 2).length > 0) {
+          mountedHit = true
+          assert.equal(uiState.messageJump, target, 'the target remains active during the final page commit')
+          assert.deepEqual(scrolled, [], 'centering waits until after the new history lays out')
+          await tick()
+        }
         await tick()
       }
       assert.deepEqual(calls, scenario === 'found' ? [10, 8] : [10], scenario)

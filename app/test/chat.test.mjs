@@ -485,6 +485,8 @@ test('a synthetic group message jump pages within the searched part until it fin
         await tick()
         room.rowsOf()
       }
+      await tick()
+      await tick()
       assert.deepEqual(cursors, [undefined, 10])
       assert.deepEqual(scrolled, found ? ['center'] : [])
       assert.equal(ui.messageJump, null)

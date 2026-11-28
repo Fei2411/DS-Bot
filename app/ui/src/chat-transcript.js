@@ -499,11 +499,12 @@ export const Transcript = memo(function Transcript({
     ? Boolean(roomChat.view.cursor && !roomChat.view.loading && !roomChat.view.failed && roomChat.view.sessionId !== null)
     : Boolean(dmChat.hasMore && !dmChat.loading && !dmChat.paging && !dmChat.pageFailed)
   const loadEarlierRef = useRef(null)
-  loadEarlierRef.current = () => {
+  loadEarlierRef.current = (preserveScroll = true) => {
+    const scroller = preserveScroll ? scrollerRef.current : undefined
     if (isRoom) {
-      if (roomChat.view.cursor) void roomChat.load(roomChat.view.cursor, scrollerRef.current)
+      if (roomChat.view.cursor) void roomChat.load(roomChat.view.cursor, scroller)
     } else if (dmChat.hasMore) {
-      void dmChat.loadEarlier(scrollerRef.current)
+      void dmChat.loadEarlier(scroller)
     }
   }
   const jumpViewRef = useRef(viewedSessionId)
@@ -512,15 +513,15 @@ export const Transcript = memo(function Transcript({
     jumpViewRef.current = viewedSessionId
     if (!messageJump) {
       jumpProgress.current = null
-      return
+      return undefined
     }
     const node = scrollerRef.current
-    if (!node) return
+    if (!node) return undefined
     if (viewingSubagent) {
       onSelectSubagentDepth(0)
-      return
+      return undefined
     }
-    if (viewChanged) return
+    if (viewChanged) return undefined
     if (jumpProgress.current?.target !== messageJump) {
       jumpProgress.current = { target: messageJump, tried: new Set(), followedTail: follow.current }
     }
@@ -535,19 +536,28 @@ export const Transcript = memo(function Transcript({
     const failed = isRoom ? roomChat.view.failed : (dmChat.failed || dmChat.pageFailed || dmChat.terminalError)
     const tried = jumpProgress.current.tried
     const reachedTurnStart = !isRoom && dmChat.log.events.some(event => event.type === 'turn/start' && event.data?.turn === messageJump.turn)
-    const row = findMessageRow(node, messageJump, reachedTurnStart || cursor == null || failed || tried.has(cursor))
+    const row = busy ? undefined : findMessageRow(node, messageJump, reachedTurnStart || cursor == null || failed || tried.has(cursor))
     const step = messageJumpStep({ row, waiting: busy, failed, cursor }, tried)
     if (step === 'load') {
       tried.add(cursor)
-      loadEarlierRef.current()
-    } else if (step !== 'wait') {
-      if (step === 'found') highlightMessage(row)
-      else if (jumpProgress.current.followedTail) {
+      loadEarlierRef.current(false)
+    } else if (step === 'found') {
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          keep.current = null
+          highlightMessage(row)
+          actions.finishMessageJump(messageJump)
+        })
+      })
+      return () => cancelAnimationFrame(frame)
+    } else if (step === 'stop') {
+      if (jumpProgress.current.followedTail) {
         follow.current = true
         setFollowing(true)
       }
       actions.finishMessageJump(messageJump)
     }
+    return undefined
   }, [messageJump, isRoom, busy, dmChat.log, dmChat.failed, dmChat.pageFailed, dmChat.terminalError, roomChat.view, viewedSessionId, viewingSubagent, onSelectSubagentDepth, actions, scrollerRef])
 
   // Auto-load the previous page when the user scrolls near the top, mirroring `EarlierParts`.
