@@ -48,6 +48,7 @@ export class BotViews {
   #address
   #onChange
   #onInputShortcut
+  #onProxyLogin
   #downloadPaths = new Map()
   #downloadRoots = new Map()
   #statePath
@@ -72,7 +73,7 @@ export class BotViews {
   #disposed = false
 
   constructor({
-    window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, onInputShortcut = () => false, statePath,
+    window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, onInputShortcut = () => false, onProxyLogin = () => null, statePath,
     maxLiveViews = MAX_LIVE_VIEWS, idleMs = IDLE_EVICT_MS, maxTabsPerBot = MAX_TABS_PER_BOT,
     persistDebounceMs = PERSIST_DEBOUNCE_MS,
   }) {
@@ -83,6 +84,7 @@ export class BotViews {
     this.#devTools = devTools
     this.#onChange = onChange
     this.#onInputShortcut = onInputShortcut
+    this.#onProxyLogin = onProxyLogin
     this.#statePath = statePath
     this.#maxLiveViews = maxLiveViews
     this.#idleMs = idleMs
@@ -221,7 +223,12 @@ export class BotViews {
     contents.on('before-input-event', (event, input) => {
       if (this.#onInputShortcut(input) === true) event.preventDefault()
     })
-    contents.on('login', (event, _details, _auth, callback) => { event.preventDefault(); callback() })
+    contents.on('login', (event, details, authInfo, callback) => {
+      event.preventDefault()
+      const creds = authInfo?.isProxy ? this.#onProxyLogin(details, authInfo) : null
+      if (creds) callback(creds.username, creds.password)
+      else callback()
+    })
     this.#guests.setDownloadHandler(`bot:${botId}`, (event, item, source) => {
       const target = [...this.#views.values()].find(value => value.botId === botId && value.view.webContents === source)
       if (!target) { event.preventDefault(); return }

@@ -24,16 +24,80 @@ export function formatHost(host) {
   return bare.includes(':') ? `[${bare}]` : bare
 }
 
-export function isLoopbackHost(hostname) {
+export function parseIpv6Bytes(address) {
+  const bare = stripBrackets(address)
+  if (!bare || isIP(bare) !== 6) return null
+  const [leftRaw, rightRaw] = bare.split('::')
+  const left = leftRaw ? leftRaw.split(':').filter(Boolean) : []
+  const right = rightRaw !== undefined ? rightRaw.split(':').filter(Boolean) : []
+  const expandPart = (list) => {
+    const out = []
+    for (const part of list) {
+      if (part.includes('.')) {
+        const octets = part.split('.').map(Number)
+        if (octets.length !== 4 || octets.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null
+        out.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3])
+      } else {
+        const word = Number.parseInt(part, 16)
+        if (!Number.isInteger(word) || word < 0 || word > 0xffff) return null
+        out.push(word)
+      }
+    }
+    return out
+  }
+  const head = expandPart(left)
+  const tail = expandPart(right)
+  if (!head || !tail) return null
+  const missing = 8 - head.length - tail.length
+  if (missing < 0 || (rightRaw === undefined && missing !== 0)) return null
+  const words = [...head, ...Array(missing).fill(0), ...tail]
+  const bytes = new Uint8Array(16)
+  for (let i = 0; i < 8; i += 1) {
+    bytes[i * 2] = (words[i] >> 8) & 0xff
+    bytes[i * 2 + 1] = words[i] & 0xff
+  }
+  return bytes
+}
+
+export function canonicalizeHost(hostname) {
   const bare = stripBrackets(hostname)
+  if (!bare) return ''
+  try {
+    const parsed = new URL(`http://${bare.includes(':') ? `[${bare}]` : bare}`)
+    return stripBrackets(parsed.hostname)
+  } catch {
+    return bare
+  }
+}
+
+export function isLoopbackHost(hostname) {
+  const bare = canonicalizeHost(hostname)
   if (!bare) return false
-  if (bare === 'localhost' || bare.endsWith('.localhost') || bare === '::1' || bare === '0.0.0.0' || bare === '::') return true
-  if (bare.startsWith('127.')) return isIP(bare) === 4
-  if (bare.startsWith('::ffff:')) {
-    const mapped = bare.slice('::ffff:'.length)
-    if (mapped === '0.0.0.0' || mapped === '0:0') return true
-    if (mapped.startsWith('127.') && isIP(mapped) === 4) return true
-    if (/^7f[0-9a-f]{2}:[0-9a-f]{1,4}$/iu.test(mapped)) return true
+  if (bare === 'localhost' || bare.endsWith('.localhost') || bare === '0.0.0.0') return true
+  if (isIP(bare) === 4) return bare.startsWith('127.') || bare === '0.0.0.0'
+  const v6 = parseIpv6Bytes(bare)
+  if (!v6) return false
+  // :: (unspecified) and ::1 (loopback)
+  let zeroPrefix = true
+  for (let i = 0; i < 15; i += 1) {
+    if (v6[i] !== 0) { zeroPrefix = false; break }
+  }
+  if (zeroPrefix && (v6[15] === 0 || v6[15] === 1)) return true
+  // IPv4-mapped (::ffff:0:0/96), IPv4-compatible (::/96), and SIIT IPv4-translated (::ffff:0:0:0/96)
+  let first8Zero = true
+  for (let i = 0; i < 8; i += 1) {
+    if (v6[i] !== 0) { first8Zero = false; break }
+  }
+  const isV4Mapped = first8Zero && v6[8] === 0 && v6[9] === 0 && v6[10] === 0xff && v6[11] === 0xff
+  const isV4Compat = first8Zero && v6[8] === 0 && v6[9] === 0 && v6[10] === 0 && v6[11] === 0
+  const isV4Translated = first8Zero && v6[8] === 0xff && v6[9] === 0xff && v6[10] === 0 && v6[11] === 0
+  if (isV4Mapped || isV4Compat || isV4Translated) {
+    const a = v6[12]
+    const b = v6[13]
+    const c = v6[14]
+    const d = v6[15]
+    if (a === 127) return true
+    if (a === 0 && b === 0 && c === 0 && d === 0) return true
   }
   return false
 }
@@ -208,23 +272,19 @@ export function matchesBypass(hostname, port, bypassList, { bypassLoopback = tru
   return false
 }
 
-function parseAuthority(raw) {
+export function parseAuthority(raw) {
   const trimmed = String(raw ?? '').trim()
-  if (!trimmed) return null
-  let host
-  let portStr
-  if (trimmed.startsWith('[')) {
-    const close = trimmed.indexOf(']')
-    if (close === -1 || trimmed[close + 1] !== ':') return null
-    host = trimmed.slice(1, close).toLowerCase()
-    portStr = trimmed.slice(close + 2)
-  } else {
-    const colon = trimmed.lastIndexOf(':')
-    if (colon <= 0) return null
-    host = trimmed.slice(0, colon).toLowerCase()
-    portStr = trimmed.slice(colon + 1)
+  if (!trimmed || WHITESPACE_OR_CONTROL.test(trimmed)) return null
+  let parsed
+  try {
+    parsed = new URL(`http://${trimmed}`)
+  } catch {
+    return null
   }
-  const port = Number(portStr)
+  if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== '/')) return null
+  if (!parsed.port) return null
+  const host = stripBrackets(parsed.hostname)
+  const port = Number(parsed.port)
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
   return { host, port }
 }

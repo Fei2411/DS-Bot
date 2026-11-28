@@ -15,6 +15,8 @@ import {
   formatHost,
   isLoopbackHost,
   matchesBypass,
+  parseAuthority,
+  parseIpv6Bytes,
   parsePacProxyList,
   parseProxyUrl,
   readEnvProxyConfig,
@@ -26,6 +28,7 @@ const MAX_UPSTREAM_HEADER_BYTES = 16 * 1024
 const LOOPBACK_NO_PROXY = 'localhost,127.0.0.1,::1,[::1],0.0.0.0'
 
 const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
   'proxy-authorization',
   'proxy-connection',
   'keep-alive',
@@ -33,6 +36,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   'trailer',
   'upgrade',
 ])
+
+const tlsServername = (host) => {
+  const bare = stripBrackets(host)
+  return bare && isIP(bare) === 0 ? bare : undefined
+}
 
 function safeEqual(a, b) {
   const left = Buffer.from(String(a ?? ''))
@@ -46,24 +54,7 @@ function basicAuthHeader(username, password) {
 }
 
 function parseConnectAuthority(raw) {
-  const text = String(raw ?? '').trim()
-  if (!text) return null
-  let host
-  let portStr
-  if (text.startsWith('[')) {
-    const close = text.indexOf(']')
-    if (close === -1 || text[close + 1] !== ':') return null
-    host = text.slice(1, close).toLowerCase()
-    portStr = text.slice(close + 2)
-  } else {
-    const colon = text.lastIndexOf(':')
-    if (colon <= 0) return null
-    host = text.slice(0, colon).toLowerCase()
-    portStr = text.slice(colon + 1)
-  }
-  const port = Number(portStr)
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
-  return { host, port }
+  return parseAuthority(raw)
 }
 
 function readExact(socket, count, buffered, timeoutMs) {
@@ -158,34 +149,16 @@ function connectSocket(options, timeoutMs, useTls = false) {
 }
 
 function ipv6ToBuffer(address) {
-  const [leftRaw, rightRaw] = address.split('::')
-  const left = leftRaw ? leftRaw.split(':').filter(Boolean) : []
-  const right = rightRaw !== undefined ? rightRaw.split(':').filter(Boolean) : []
-  const expandPart = (list) => {
-    const out = []
-    for (const part of list) {
-      if (part.includes('.')) {
-        const octets = part.split('.').map(Number)
-        out.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3])
-      } else {
-        out.push(parseInt(part, 16))
-      }
-    }
-    return out
-  }
-  const head = expandPart(left)
-  const tail = expandPart(right)
-  const missing = 8 - head.length - tail.length
-  const words = [...head, ...Array(Math.max(0, missing)).fill(0), ...tail]
-  const buf = Buffer.alloc(16)
-  for (let i = 0; i < 8; i += 1) buf.writeUInt16BE(words[i] & 0xffff, i * 2)
-  return buf
+  const bytes = parseIpv6Bytes(address)
+  if (!bytes) throw new Error('Invalid IPv6 address')
+  return Buffer.from(bytes)
 }
 
 async function dialHttpConnect(candidate, targetHost, targetPort, timeoutMs) {
   const useTls = candidate.type === 'https'
+  const servername = tlsServername(candidate.host)
   const socket = await connectSocket(
-    useTls ? { host: candidate.host, port: candidate.port, servername: candidate.host } : { host: candidate.host, port: candidate.port },
+    useTls ? { host: candidate.host, port: candidate.port, ...(servername ? { servername } : {}) } : { host: candidate.host, port: candidate.port },
     timeoutMs,
     useTls,
   )
@@ -226,7 +199,7 @@ async function dialSocks5(candidate, targetHost, targetPort, timeoutMs) {
       socket.write(Buffer.concat([Buffer.from([0x01, userBuf.length]), userBuf, Buffer.from([passBuf.length]), passBuf]))
       const authReply = await readExact(socket, 2, rest, timeoutMs)
       rest = authReply.rest
-      if (authReply.data[1] !== 0x00) throw new Error('SOCKS5 authentication failed')
+      if (authReply.data[0] !== 0x01 || authReply.data[1] !== 0x00) throw new Error('SOCKS5 authentication failed')
     } else if (method !== 0x00) {
       throw new Error(`SOCKS5 proxy selected unsupported auth method ${String(method)}`)
     }
@@ -286,7 +259,7 @@ async function dialSocks4(candidate, targetHost, targetPort, timeoutMs) {
     }
     socket.write(payload)
     const reply = await readExact(socket, 8, Buffer.alloc(0), timeoutMs)
-    if (reply.data[1] !== 0x5a) throw new Error(`SOCKS4 CONNECT failed with code ${String(reply.data[1])}`)
+    if (reply.data[0] !== 0x00 || reply.data[1] !== 0x5a) throw new Error(`SOCKS4 CONNECT failed with code ${String(reply.data[1])}`)
     return { socket, rest: reply.rest }
   } catch (error) {
     socket.destroy()
@@ -324,13 +297,26 @@ async function dialWithFallback(candidates, targetHost, targetPort, timeoutMs) {
 }
 
 function cleanForwardHeaders(headers, hostHeader) {
+  const dynamicHopByHop = new Set()
+  const rawConn = headers?.connection
+  const connValues = Array.isArray(rawConn) ? rawConn : (typeof rawConn === 'string' ? [rawConn] : [])
+  for (const entry of connValues) {
+    for (const token of entry.split(',')) {
+      const name = token.trim().toLowerCase()
+      if (name) dynamicHopByHop.add(name)
+    }
+  }
   const out = {}
   for (const [key, value] of Object.entries(headers ?? {})) {
     if (value === undefined) continue
-    if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) continue
+    const lower = key.toLowerCase()
+    if (HOP_BY_HOP_HEADERS.has(lower) || dynamicHopByHop.has(lower)) continue
     out[key] = value
   }
   if (hostHeader) out.host = hostHeader
+  // Each forwarded plain HTTP request uses a single-use unpooled socket; force close so the
+  // upstream peer closes cleanly instead of holding the socket open until idle timeout.
+  out.connection = 'close'
   return out
 }
 
@@ -390,8 +376,10 @@ export async function createProxyBridge({
     const envProxy = getEnvProxy?.()
     if (envProxy) {
       const chosen = protocol === 'http:' ? envProxy.http : envProxy.https
-      if (chosen && !isSelfProxy(chosen)
-        && !matchesBypass(targetHost, targetPort, envProxy.noProxy, { bypassLoopback: !allowLoopbackTargets })) {
+      if (chosen && !isSelfProxy(chosen)) {
+        if (matchesBypass(targetHost, targetPort, envProxy.noProxy, { bypassLoopback: !allowLoopbackTargets })) {
+          return [{ type: 'direct' }]
+        }
         return [chosen]
       }
     }
@@ -429,37 +417,53 @@ export async function createProxyBridge({
       res.writeHead(403, { connection: 'close' }).end('Loopback target refused')
       return
     }
+    let aborted = false
+    let upstreamReq
+    let upstreamSocket
+    res.on('close', () => {
+      if (!res.writableFinished) {
+        aborted = true
+        upstreamReq?.destroy()
+        upstreamSocket?.destroy()
+      }
+    })
     void (async () => {
       const candidates = await resolveCandidates(target.href, targetHost, targetPort, target.protocol)
+      if (closed || aborted || res.destroyed) return
       const headers = cleanForwardHeaders(req.headers, target.host)
       const transport = target.protocol === 'https:' ? https : http
+      const targetSni = tlsServername(targetHost)
 
-      let upstreamReq
       let lastError
       for (const candidate of candidates) {
+        if (closed || aborted || res.destroyed) return
         try {
           if (candidate.type === 'direct') {
             const socket = await connectSocket({ host: targetHost, port: targetPort }, timeoutMs)
-            trackSocket(socket)
+            if (closed || aborted || res.destroyed) { socket.destroy(); return }
+            upstreamSocket = trackSocket(socket)
             upstreamReq = transport.request({
               host: targetHost,
               port: targetPort,
               method: req.method,
               path: `${target.pathname}${target.search}`,
               headers,
-              createConnection: () => (target.protocol === 'https:' ? tls.connect({ socket, servername: targetHost }) : socket),
+              agent: false,
+              createConnection: () => (target.protocol === 'https:' ? tls.connect({ socket, ...(targetSni ? { servername: targetSni } : {}) }) : socket),
               timeout: timeoutMs,
             })
             break
           }
           if ((candidate.type === 'http' || candidate.type === 'https') && target.protocol === 'http:') {
             const useTls = candidate.type === 'https'
+            const proxySni = tlsServername(candidate.host)
             const socket = await connectSocket(
-              useTls ? { host: candidate.host, port: candidate.port, servername: candidate.host } : { host: candidate.host, port: candidate.port },
+              useTls ? { host: candidate.host, port: candidate.port, ...(proxySni ? { servername: proxySni } : {}) } : { host: candidate.host, port: candidate.port },
               timeoutMs,
               useTls,
             )
-            trackSocket(socket)
+            if (closed || aborted || res.destroyed) { socket.destroy(); return }
+            upstreamSocket = trackSocket(socket)
             const proxyTransport = useTls ? https : http
             const proxyAuth = basicAuthHeader(candidate.username, candidate.password)
             upstreamReq = proxyTransport.request({
@@ -468,20 +472,24 @@ export async function createProxyBridge({
               method: req.method,
               path: target.href,
               headers: proxyAuth ? { ...headers, 'proxy-authorization': proxyAuth } : headers,
+              agent: false,
               createConnection: () => socket,
               timeout: timeoutMs,
             })
             break
           }
-          const { socket } = await dialCandidate(candidate, targetHost, targetPort, timeoutMs)
-          trackSocket(socket)
+          const { socket, rest } = await dialCandidate(candidate, targetHost, targetPort, timeoutMs)
+          if (closed || aborted || res.destroyed) { socket.destroy(); return }
+          if (rest.length > 0) socket.unshift(rest)
+          upstreamSocket = trackSocket(socket)
           upstreamReq = transport.request({
             host: targetHost,
             port: targetPort,
             method: req.method,
             path: `${target.pathname}${target.search}`,
             headers,
-            createConnection: () => (target.protocol === 'https:' ? tls.connect({ socket, servername: targetHost }) : socket),
+            agent: false,
+            createConnection: () => (target.protocol === 'https:' ? tls.connect({ socket, ...(targetSni ? { servername: targetSni } : {}) }) : socket),
             timeout: timeoutMs,
           })
           break
@@ -489,23 +497,27 @@ export async function createProxyBridge({
           lastError = error
         }
       }
+      if (closed || aborted || res.destroyed) { upstreamReq?.destroy(); upstreamSocket?.destroy(); return }
       if (!upstreamReq) throw lastError ?? new Error('No proxy candidate succeeded')
 
       upstreamReq.on('response', (upstreamRes) => {
-        if (res.headersSent || res.destroyed) { upstreamRes.resume(); return }
+        if (res.headersSent || res.destroyed) { upstreamRes.resume(); upstreamReq.destroy(); upstreamSocket?.destroy(); return }
         res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers)
+        res.once('finish', () => { upstreamSocket?.destroy() })
         upstreamRes.pipe(res)
       })
       upstreamReq.on('error', () => {
+        upstreamSocket?.destroy()
         if (!res.headersSent && !res.destroyed) res.writeHead(502, { connection: 'close' }).end('Bad Gateway')
         else if (!res.destroyed) res.destroy()
       })
       upstreamReq.on('timeout', () => {
         upstreamReq.destroy(new Error('Upstream request timed out'))
+        upstreamSocket?.destroy()
       })
-      res.on('close', () => { if (!res.writableFinished) upstreamReq.destroy() })
       req.pipe(upstreamReq)
     })().catch(() => {
+      upstreamSocket?.destroy()
       if (!res.headersSent && !res.destroyed) res.writeHead(502, { connection: 'close' }).end('Bad Gateway')
       else if (!res.destroyed) res.destroy()
     })
@@ -568,8 +580,10 @@ export async function createProxyBridge({
 
   const applyHostEnv = (baseEnv = {}) => {
     const next = { ...baseEnv }
-    delete next.ALL_PROXY
-    delete next.all_proxy
+    // Explicitly shadow ALL_PROXY with empty string rather than deleting so @deepseek-ai/dsh-app-boot's
+    // loadLayeredEnv does not backfill a SOCKS ALL_PROXY from $DSH_HOME/.env.
+    next.ALL_PROXY = ''
+    next.all_proxy = ''
     next.HTTP_PROXY = proxyUrl
     next.HTTPS_PROXY = proxyUrl
     next.http_proxy = proxyUrl

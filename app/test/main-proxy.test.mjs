@@ -38,12 +38,24 @@ test('saved proxy settings apply on startup, inject Host proxy env, and update l
   assert.match(initialSessionProxy?.proxyBypassRules ?? '', /127\.0\.0\.1/)
   assert.match(initialSessionProxy?.proxyBypassRules ?? '', /\.corp\.local/)
 
-  // Host child process received loopback proxy bridge env vars without ALL_PROXY.
+  // Host child process received loopback proxy bridge env vars and shadowed ALL_PROXY empty.
   const hostEnv = hostState.envs.at(-1)
   assert.ok(hostEnv, 'host process launched')
   assert.match(hostEnv.HTTP_PROXY ?? '', /^http:\/\/dsbot:[0-9a-f]+@127\.0\.0\.1:\d+$/u)
   assert.equal(hostEnv.HTTPS_PROXY, hostEnv.HTTP_PROXY)
-  assert.equal('ALL_PROXY' in hostEnv, false)
+  assert.equal(hostEnv.ALL_PROXY, '')
+  assert.equal(hostEnv.all_proxy, '')
+
+  // Authenticated custom proxy answers Electron login events once per 2s window and denies repeats.
+  await state.ipc.get('ds-bot:proxy-set')(winEvent(win), { mode: 'custom', url: 'http://alice:pw@127.0.0.1:7890', bypass: '' })
+  const loginAnswers = []
+  let prevented = 0
+  app.emit('login', { preventDefault: () => { prevented += 1 } }, {}, { url: 'https://example.com' }, { isProxy: true, host: '127.0.0.1', port: 7890 }, (u, p) => loginAnswers.push([u, p]))
+  app.emit('login', { preventDefault: () => { prevented += 1 } }, {}, { url: 'https://example.com' }, { isProxy: true, host: '127.0.0.1', port: 7890 }, (u, p) => loginAnswers.push([u, p]))
+  assert.equal(prevented, 2)
+  assert.deepEqual(loginAnswers, [['alice', 'pw'], [undefined, undefined]])
+  // Restore custom settings without auth for the remaining assertions.
+  await state.ipc.get('ds-bot:proxy-set')(winEvent(win), { mode: 'custom', url: 'http://127.0.0.1:7890', bypass: '.corp.local' })
 
   // IPC get returns saved settings.
   const got = await state.ipc.get('ds-bot:proxy-get')(winEvent(win))

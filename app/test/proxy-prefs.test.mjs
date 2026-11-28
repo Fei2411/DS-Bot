@@ -3,11 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { withLogTail } from '../src/host-process.mjs'
 import { redactor } from '../src/logs.mjs'
 import {
   DEFAULT_PROXY_PREFS,
   isLoopbackHost,
   matchesBypass,
+  parseAuthority,
   parsePacProxyList,
   parseProxyUrl,
   readEnvProxyConfig,
@@ -80,7 +82,17 @@ test('isLoopbackHost and matchesBypass cover loopback, wildcards, suffixes, port
   assert.equal(isLoopbackHost('::1'), true)
   assert.equal(isLoopbackHost('[::1]'), true)
   assert.equal(isLoopbackHost('::ffff:127.0.0.1'), true)
+  assert.equal(isLoopbackHost('127.1'), true)
+  assert.equal(isLoopbackHost('2130706433'), true)
+  assert.equal(isLoopbackHost('0x7f000001'), true)
+  assert.equal(isLoopbackHost('0:0:0:0:0:0:0:1'), true)
+  assert.equal(isLoopbackHost('::0:1'), true)
+  assert.equal(isLoopbackHost('::ffff:0:7f00:1'), true)
+  assert.equal(isLoopbackHost('0:0:0:0:0:0:0:0'), true)
   assert.equal(isLoopbackHost('api.openai.com'), false)
+  assert.deepEqual(parseAuthority('127.1:8080'), { host: '127.0.0.1', port: 8080 })
+  assert.deepEqual(parseAuthority('2130706433:8080'), { host: '127.0.0.1', port: 8080 })
+  assert.deepEqual(parseAuthority('[0:0:0:0:0:0:0:1]:8080'), { host: '::1', port: 8080 })
 
   assert.equal(matchesBypass('127.0.0.1', 3080, ''), true)
   assert.equal(matchesBypass('api.corp.local', 443, '.corp.local, 10.0.0.0/8, *.internal.net:8443'), true)
@@ -150,5 +162,9 @@ test('redactProxyUrl and log redactor hide embedded proxy credentials', () => {
   assert.equal(
     redact('HTTP_PROXY=http://dsbot:secret123@127.0.0.1:7890 socks5://bob:pw@proxy:1080'),
     'HTTP_PROXY=http://<hidden>@127.0.0.1:7890 socks5://<hidden>@proxy:1080',
+  )
+  assert.equal(
+    withLogTail('Host failed', 'HTTP_PROXY=http://dsbot:secret123@127.0.0.1:7890/?token=abc'),
+    'Host failed:\nHTTP_PROXY=http://<hidden>@127.0.0.1:7890/?token=<hidden>',
   )
 })

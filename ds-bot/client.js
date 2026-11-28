@@ -104,8 +104,8 @@ var PHRASES = [
   ["配置文件", "設定檔"],
   ["折叠", "摺疊"]
 ];
-var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
-var HANT = "與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別劃辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備複夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘";
+var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绕绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
+var HANT = "與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別劃辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備複夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繞繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘";
 var CHAR_MAP = /* @__PURE__ */ new Map();
 for (let i = 0; i < HANS.length; i++) CHAR_MAP.set(HANS[i], HANT[i]);
 var DICT_OVERRIDES = {
@@ -63657,7 +63657,7 @@ var SEARCH_ENTRIES = [
   { id: "default-model", label: "Default model", group: "General", page: "general", icon: "general", keywords: "new bots model 默认模型" },
   { id: "enter-send", label: "Enter sends message", group: "General", page: "general", icon: "general", keywords: "input keyboard enter 回车 发送" },
   { id: "locations", label: "Locations", group: "General", page: "general", icon: "general", keywords: "team workspace data location folder path 目录 位置 文件夹 总工作区 数据位置" },
-  { id: "network", label: "Proxy", group: "General", page: "general", icon: "general", keywords: "network proxy http https socks socks5 pac system direct custom clash tun 代理 网络 系统代理 直连 自定义" },
+  { id: "network", label: "Proxy", group: "General", page: "general", icon: "general", requiresDesktopProxy: true, keywords: "network proxy http https socks socks5 pac system direct custom clash tun 代理 网络 系统代理 直连 自定义" },
   { id: "memory", label: "Memory", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回" },
   { id: "background", label: "Background work", group: "General", page: "general", icon: "general", expandAdvanced: true, keywords: "background commands after seconds timeout 后台 命令 超时 秒" },
   { id: "mode", label: "Classic Agent mode", group: "General", page: "general", icon: "general", requiresSurface: true, keywords: "bot mode agent mode surface 经典模式 切换" },
@@ -63757,8 +63757,9 @@ function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () 
       haystack: `${ENGINE_MODELS_SEARCH_ENTRY.label} ${t(ENGINE_MODELS_SEARCH_ENTRY.label)} dsh engine ${t("Engine")} ${ENGINE_MODELS_SEARCH_ENTRY.keywords}`.toLowerCase()
     }] : []
   ];
+  const hasDesktopProxy = Boolean(globalThis.dsBotApp?.proxy);
   const settings = [
-    ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map((entry) => ({
+    ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface) && (!entry.requiresDesktopProxy || hasDesktopProxy)).map((entry) => ({
       ...entry,
       kind: "setting",
       title: t(entry.label),
@@ -64490,7 +64491,7 @@ function NetworkSection() {
     if (!proxyApi) return;
     let active = true;
     void Promise.resolve(proxyApi.get()).then((info) => {
-      if (!active || !info || typeof info !== "object") return;
+      if (!active || epochRef.current !== 0 || !info || typeof info !== "object") return;
       const next = {
         mode: info.mode === "custom" || info.mode === "direct" ? info.mode : "system",
         url: typeof info.url === "string" ? info.url : "",
@@ -64524,6 +64525,7 @@ function NetworkSection() {
       setBypass(clean.bypass);
     }, (err) => {
       if (seq !== epochRef.current) return;
+      if (next.mode !== "custom") setMode(saved?.mode ?? "system");
       const msg = String(err?.message ?? "");
       if (/invalid|required|unsupported|port|host|protocol|character|path/iu.test(msg)) setError(t("Invalid proxy address"));
       else setError(t("Could not save. Try again."));

@@ -276,7 +276,7 @@ function NetworkSection() {
     if (!proxyApi) return
     let active = true
     void Promise.resolve(proxyApi.get()).then((info) => {
-      if (!active || !info || typeof info !== 'object') return
+      if (!active || epochRef.current !== 0 || !info || typeof info !== 'object') return
       const next = {
         mode: info.mode === 'custom' || info.mode === 'direct' ? info.mode : 'system',
         url: typeof info.url === 'string' ? info.url : '',
@@ -309,6 +309,7 @@ function NetworkSection() {
       setBypass(clean.bypass)
     }, (err) => {
       if (seq !== epochRef.current) return
+      if (next.mode !== 'custom') setMode(saved?.mode ?? 'system')
       const msg = String(err?.message ?? '')
       if (/invalid|required|unsupported|port|host|protocol|character|path/iu.test(msg)) setError(t('Invalid proxy address'))
       else setError(t('Could not save. Try again.'))

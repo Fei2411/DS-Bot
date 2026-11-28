@@ -201,14 +201,25 @@ test('proxy bridge enforces auth and blocks loopback targets in production mode'
     wrongAuth.socket.destroy()
 
     const authHeader = `Basic ${Buffer.from(new URL(bridge.proxyUrl).username + ':' + new URL(bridge.proxyUrl).password).toString('base64')}`
-    const loopbackBlocked = await connectThroughBridge(bridge.port, authHeader, '127.0.0.1:8080')
-    assert.match(loopbackBlocked.statusLine, /403/)
-    loopbackBlocked.socket.destroy()
+    for (const target of [
+      '127.0.0.1:8080',
+      '127.1:8080',
+      '2130706433:8080',
+      '0x7f000001:8080',
+      '[0:0:0:0:0:0:0:1]:8080',
+      '[::0:1]:8080',
+      '[::ffff:0:7f00:1]:8080',
+    ]) {
+      const loopbackBlocked = await connectThroughBridge(bridge.port, authHeader, target)
+      assert.match(loopbackBlocked.statusLine, /403/, `expected 403 for ${target}`)
+      loopbackBlocked.socket.destroy()
+    }
 
     const env = bridge.applyHostEnv({ ALL_PROXY: 'socks5://127.0.0.1:1080', PATH: '/usr/bin' })
     assert.equal(env.HTTP_PROXY, bridge.proxyUrl)
     assert.equal(env.HTTPS_PROXY, bridge.proxyUrl)
-    assert.equal('ALL_PROXY' in env, false)
+    assert.equal(env.ALL_PROXY, '')
+    assert.equal(env.all_proxy, '')
     assert.match(env.NO_PROXY, /127\.0\.0\.1/)
   } finally {
     await bridge.close()
@@ -339,5 +350,139 @@ test('proxy bridge routes HTTP, SSE, redirect:manual, SOCKS5 auth, fallback chai
       closeServer(targetServer),
       closeServer(echoServer),
     ])
+  }
+})
+
+test('plain HTTP strips Connection + hop-by-hop headers without leaking sockets, system env NO_PROXY skips OS proxy, and SOCKS4a CONNECT works', async () => {
+  let openUpstreamSockets = 0
+  let lastSeenHeaders = null
+  const targetServer = http.createServer((req, res) => {
+    lastSeenHeaders = req.headers
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ ok: true }))
+  })
+  targetServer.on('connection', (sock) => {
+    openUpstreamSockets += 1
+    sock.once('close', () => { openUpstreamSockets -= 1 })
+  })
+  const targetPort = await listen(targetServer)
+
+  const echoServer = net.createServer((sock) => {
+    sock.once('data', chunk => sock.end(Buffer.concat([Buffer.from('S4A:'), chunk])))
+  })
+  const echoPort = await listen(echoServer)
+
+  // Real SOCKS4a mock proxy.
+  const socks4Seen = []
+  const socks4Sockets = new Set()
+  const socks4Server = net.createServer((client) => {
+    socks4Sockets.add(client)
+    client.once('close', () => socks4Sockets.delete(client))
+    let buf = Buffer.alloc(0)
+    const onData = (chunk) => {
+      buf = Buffer.concat([buf, chunk])
+      if (buf.length < 9) return
+      const userEnd = buf.indexOf(0x00, 8)
+      if (userEnd === -1) return
+      const isSocks4a = buf[4] === 0 && buf[5] === 0 && buf[6] === 0 && buf[7] !== 0
+      let host = `${buf[4]}.${buf[5]}.${buf[6]}.${buf[7]}`
+      let restStart = userEnd + 1
+      if (isSocks4a) {
+        const hostEnd = buf.indexOf(0x00, userEnd + 1)
+        if (hostEnd === -1) return
+        host = buf.subarray(userEnd + 1, hostEnd).toString('utf8')
+        restStart = hostEnd + 1
+      }
+      const port = buf.readUInt16BE(2)
+      const leftover = buf.subarray(restStart)
+      client.off('data', onData)
+      socks4Seen.push({ host, port })
+      const up = net.connect(port, host === 's4a.test' ? '127.0.0.1' : host, () => {
+        client.write(Buffer.from([0x00, 0x5a, 0, 0, 127, 0, 0, 1]))
+        if (leftover.length) up.write(leftover)
+        client.pipe(up)
+        up.pipe(client)
+      })
+      socks4Sockets.add(up)
+      up.once('close', () => socks4Sockets.delete(up))
+      up.on('error', () => client.destroy())
+      client.on('error', () => up.destroy())
+    }
+    client.on('data', onData)
+  })
+  const socks4Port = await listen(socks4Server)
+
+  let osProxyCalls = 0
+  let prefs = { mode: 'system', url: '', bypass: '' }
+  const bridge = await createProxyBridge({
+    getPrefs: () => prefs,
+    resolveSystemProxy: async () => { osProxyCalls += 1; return 'PROXY 127.0.0.1:1' },
+    getEnvProxy: () => ({
+      http: { type: 'http', host: '127.0.0.1', port: 1, username: '', password: '' },
+      https: { type: 'http', host: '127.0.0.1', port: 1, username: '', password: '' },
+      noProxy: '127.0.0.1',
+    }),
+    allowLoopbackTargets: true,
+  })
+
+  try {
+    const appFetch = bridge.createFetch()
+    const bridgeAuth = `Basic ${Buffer.from(new URL(bridge.proxyUrl).username + ':' + new URL(bridge.proxyUrl).password).toString('base64')}`
+
+    // 1a. Raw HTTP request through bridge: strips Connection + headers named in Connection and closes upstream cleanly.
+    const rawStatus = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port: bridge.port,
+        method: 'GET',
+        path: `http://127.0.0.1:${String(targetPort)}/hop-raw`,
+        headers: {
+          host: `127.0.0.1:${String(targetPort)}`,
+          'proxy-authorization': bridgeAuth,
+          connection: 'keep-alive, x-custom-hop',
+          'x-custom-hop': 'secret-hop',
+          'x-keep': 'yes',
+        },
+      }, (resp) => {
+        resp.resume()
+        resp.once('end', () => resolve(resp.statusCode))
+      })
+      req.once('error', reject)
+      req.end()
+    })
+    assert.equal(rawStatus, 200)
+    assert.equal(osProxyCalls, 0, 'env NO_PROXY match must return DIRECT without calling resolveSystemProxy')
+    assert.equal(lastSeenHeaders['x-custom-hop'], undefined, 'hop-by-hop header named in Connection must be stripped')
+    assert.equal(lastSeenHeaders['x-keep'], 'yes')
+    assert.equal(lastSeenHeaders.connection, 'close')
+    await new Promise(resolve => setTimeout(resolve, 40))
+    assert.equal(openUpstreamSockets, 0, 'upstream TCP socket must close cleanly after raw plain HTTP response')
+
+    // 1b. appFetch through bridge also leaves zero leaked upstream sockets.
+    const res = await appFetch(`http://127.0.0.1:${String(targetPort)}/hop-fetch`, { headers: { 'x-keep': 'fetch' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { ok: true })
+    assert.equal(osProxyCalls, 0)
+    assert.equal(lastSeenHeaders['x-keep'], 'fetch')
+    await new Promise(resolve => setTimeout(resolve, 40))
+    assert.equal(openUpstreamSockets, 0, 'upstream TCP socket must close cleanly after appFetch response')
+
+    // 2. Custom SOCKS4a CONNECT tunnel works with remote hostname.
+    prefs = { mode: 'custom', url: `socks4a://127.0.0.1:${String(socks4Port)}`, bypass: '' }
+    const tun = await connectThroughBridge(bridge.port, bridgeAuth, `s4a.test:${String(echoPort)}`)
+    assert.match(tun.statusLine, /200 Connection Established/)
+    tun.socket.write('hello')
+    const echoed = await new Promise((resolve, reject) => {
+      const parts = tun.rest.length ? [tun.rest] : []
+      tun.socket.on('data', d => parts.push(d))
+      tun.socket.once('end', () => resolve(Buffer.concat(parts).toString('utf8')))
+      tun.socket.once('error', reject)
+    })
+    assert.equal(echoed, 'S4A:hello')
+    assert.deepEqual(socks4Seen, [{ host: 's4a.test', port: echoPort }])
+  } finally {
+    await bridge.close()
+    for (const s of socks4Sockets) s.destroy()
+    await Promise.all([closeServer(socks4Server), closeServer(targetServer), closeServer(echoServer)])
   }
 })

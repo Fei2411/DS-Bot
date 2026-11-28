@@ -170,9 +170,9 @@ export class BotBrowserGuests {
         if (event.isMainFrame && !allowedNavigation(event.url, this.origin())) event.preventDefault()
       })
       guest.on('will-attach-webview', (event) => { event.preventDefault() })
-      guest.on('login', (event, _details, authInfo, callback) => {
+      guest.on('login', (event, details, authInfo, callback) => {
         event.preventDefault()
-        const creds = authInfo?.isProxy ? this.onProxyLogin?.(authInfo) : null
+        const creds = authInfo?.isProxy ? this.onProxyLogin?.(details, authInfo) : null
         if (creds) callback(creds.username, creds.password)
         else callback()
       })

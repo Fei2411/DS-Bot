@@ -15,7 +15,7 @@ import { createWebFetchBridge } from './web-fetch.mjs'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -140,13 +140,48 @@ let appFetch
 let proxyPrefs
 let proxyChromiumAuth = null
 const proxyAuthTriedAt = new Map()
+let cachedEnvProxy = { key: null, value: null }
+let updaterLoginBound = false
 const proxyPrefsFile = () => join(app.getPath('userData'), 'proxy-prefs.json')
 const currentProxyPrefs = () => (proxyPrefs ??= readProxyPrefs(proxyPrefsFile()))
 const routedFetch = (...args) => (appFetch ?? globalThis.fetch)(...args)
 
-function matchProxyLogin(authInfo) {
-  if (!authInfo?.isProxy || !proxyChromiumAuth) return null
-  if (stripBrackets(authInfo.host) !== proxyChromiumAuth.host || Number(authInfo.port) !== proxyChromiumAuth.port) return null
+function getCachedEnvProxy() {
+  const envFile = places?.dataDir ? join(places.dataDir, '.env') : undefined
+  let statKey = 'none'
+  if (envFile) {
+    try {
+      const info = statSync(envFile)
+      statKey = `${envFile}:${String(info.mtimeMs)}:${String(info.size)}`
+    } catch {
+      statKey = `${envFile}:missing`
+    }
+  }
+  if (cachedEnvProxy.key === statKey && cachedEnvProxy.value !== null) return cachedEnvProxy.value
+  const value = readEnvProxyConfig(process.env, envFile)
+  cachedEnvProxy = { key: statKey, value }
+  return value
+}
+
+function isActiveCustomProxyAuth(authInfo) {
+  return Boolean(authInfo?.isProxy && proxyChromiumAuth
+    && stripBrackets(authInfo.host) === proxyChromiumAuth.host
+    && Number(authInfo.port) === proxyChromiumAuth.port)
+}
+
+/** Match active custom proxy credentials with a 2 s retry guard so bad credentials cannot loop. */
+function resolveProxyLogin(details, authInfo) {
+  if (!isActiveCustomProxyAuth(authInfo)) return null
+  const key = `${authInfo.host}:${String(authInfo.port)}:${details?.url ?? ''}`
+  const now = Date.now()
+  const prev = proxyAuthTriedAt.get(key)
+  if (prev !== undefined && now - prev < 2_000) return null
+  proxyAuthTriedAt.set(key, now)
+  if (proxyAuthTriedAt.size > 64) {
+    for (const [k, ts] of proxyAuthTriedAt) {
+      if (now - ts >= 2_000) proxyAuthTriedAt.delete(k)
+    }
+  }
   return { username: proxyChromiumAuth.username, password: proxyChromiumAuth.password }
 }
 
@@ -161,8 +196,10 @@ async function applyProxyToAllSessions() {
   const { config, auth } = toChromiumProxyConfig(currentProxyPrefs())
   proxyChromiumAuth = auth
   proxyAuthTriedAt.clear()
+  const updaterSession = session.fromPartition?.('electron-updater', { cache: false })
   await Promise.allSettled([
     Promise.resolve(session.defaultSession?.setProxy?.(config)),
+    Promise.resolve(updaterSession?.setProxy?.(config)),
     browserGuests ? browserGuests.applyProxy(ses => ses?.setProxy?.(config)) : Promise.resolve(),
   ])
 }
@@ -263,20 +300,11 @@ const shell = createShell({
   fallback: { show: options => boxInWindow(options, options.cancelId) },
 })
 app.on('login', (event, _webContents, details, authInfo, callback) => {
-  const creds = matchProxyLogin(authInfo)
-  if (!creds) return
-  const key = `${authInfo.host}:${String(authInfo.port)}:${details?.url ?? ''}`
-  const now = Date.now()
-  const prev = proxyAuthTriedAt.get(key)
-  if (prev !== undefined && now - prev < 2_000) return
-  proxyAuthTriedAt.set(key, now)
-  if (proxyAuthTriedAt.size > 64) {
-    for (const [k, ts] of proxyAuthTriedAt) {
-      if (now - ts >= 2_000) proxyAuthTriedAt.delete(k)
-    }
-  }
+  if (!isActiveCustomProxyAuth(authInfo)) return
   event.preventDefault()
-  callback(creds.username, creds.password)
+  const creds = resolveProxyLogin(details, authInfo)
+  if (creds) callback(creds.username, creds.password)
+  else callback()
 })
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
 app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop(); webFetch?.close(); void chatgpt?.close(); void proxyBridge?.close() })
@@ -463,17 +491,17 @@ async function prepare() {
   startWindow.open(startKind())
   startupStep('startWindow.open', openAt)
   if (!webFetch) {
-    webFetch = createWebFetchBridge({ BrowserWindow, session, configureSession: applySessionProxy })
+    webFetch = createWebFetchBridge({ BrowserWindow, session, configureSession: applySessionProxy, onProxyLogin: resolveProxyLogin })
   }
   const proxyWork = proxyBridge === undefined
     ? (async () => {
         const proxyAt = Date.now()
         proxyPrefs = readProxyPrefs(proxyPrefsFile())
-        await applySessionProxy(session.defaultSession).catch((error) => { console.error('DS Bot: proxy session setup failed:', error) })
+        await applyProxyToAllSessions().catch((error) => { console.error('DS Bot: proxy session setup failed:', error) })
         proxyBridge = await createProxyBridge({
           getPrefs: () => currentProxyPrefs(),
           resolveSystemProxy: url => session.defaultSession.resolveProxy(url),
-          getEnvProxy: () => readEnvProxyConfig(process.env, places?.dataDir ? join(places.dataDir, '.env') : undefined),
+          getEnvProxy: getCachedEnvProxy,
           log: console,
         })
         appFetch = proxyBridge.createFetch()
@@ -536,12 +564,13 @@ async function loadModules() {
     origin: () => origin,
     devTools: !app.isPackaged,
     configureSession: applySessionProxy,
-    onProxyLogin: matchProxyLogin,
+    onProxyLogin: resolveProxyLogin,
   })
   botViews = new BotViews({
     window: () => mainWindow, WebContentsView, guests: browserGuests, origin: () => origin, devTools: !app.isPackaged,
     statePath: join(app.getPath('userData'), 'bot-views.json'),
     onChange: state => mainWindow?.webContents.send(IPC.browserViewChanged, state),
+    onProxyLogin: resolveProxyLogin,
     onInputShortcut: (input) => {
       const id = matchForwardedShortcut(input, activeShortcuts, process.platform)
       if (!id) return false
@@ -806,7 +835,7 @@ const pnpmEntry = () => join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'p
 const runtimeDir = () => app.isPackaged ? process.resourcesPath : join(here, '..', 'build', 'runtime')
 const hostOutput = (stream, chunk) => {
   logs.write('engine', chunk)
-  rawOutput[stream](/token=/iu.test(chunk) ? logs.redact(chunk) : chunk)
+  rawOutput[stream](/token=|(?::\/\/[^/\s"'<>@]+@)/iu.test(chunk) ? logs.redact(chunk) : chunk)
 }
 
 function dshTelemetryEnv(dataDir) {
@@ -1661,6 +1690,13 @@ function startUpdates() {
     })
   }
   if (process.platform === 'win32' || process.platform === 'linux') {
+    if (!updaterLoginBound && typeof electronUpdater?.autoUpdater?.on === 'function') {
+      updaterLoginBound = true
+      electronUpdater.autoUpdater.on('login', (authInfo, callback) => {
+        const creds = resolveProxyLogin(undefined, authInfo)
+        if (creds) callback(creds.username, creds.password)
+      })
+    }
     // The update ends the app: the window closes for good, and the Host stops before the
     // installer replaces its files.
     return watchUpdates({

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { toTraditional } from '../src/client/locales/zh-tw.js'
 
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 
@@ -140,15 +141,16 @@ test('GeneralPage hides Network proxy section outside desktop app and supports S
   globalThis.document = { body: { dataset: {} }, documentElement: { dataset: {} }, addEventListener() {}, removeEventListener() {} }
 
   try {
-    // 1. Search palette finds Proxy under General in both English and Chinese.
+    // 0. Traditional Chinese converts 绕 -> 繞 cleanly.
+    assert.equal(toTraditional('绕过列表'), '繞過列表')
+
+    // 1. Outside desktop app (no dsBotApp.proxy): Network section AND search palette entry are hidden.
+    delete globalThis.dsBotApp
     const harness0 = makeStatefulReact()
     const mod0 = { exports: {} }
     new Function('module', 'exports', 'require', code)(mod0, mod0.exports, () => harness0.React)
-    assert.ok(mod0.exports.searchHits('proxy', { roster: baseRoster }).some(hit => hit.id === 'network' && hit.page === 'general'))
-    assert.ok(mod0.exports.searchHits('代理', { roster: baseRoster }).some(hit => hit.id === 'network' && hit.page === 'general'))
+    assert.equal(mod0.exports.searchHits('proxy', { roster: baseRoster }).some(hit => hit.id === 'network'), false)
 
-    // 2. Outside desktop app (no dsBotApp.proxy): Network section is hidden.
-    delete globalThis.dsBotApp
     const hNoApp = makeStatefulReact()
     const modNoApp = { exports: {} }
     new Function('module', 'exports', 'require', code)(modNoApp, modNoApp.exports, () => hNoApp.React)
@@ -164,8 +166,9 @@ test('GeneralPage hides Network proxy section outside desktop app and supports S
     assert.equal(findAll(treeNoApp, n => n.props?.className?.includes('bt-set-network')).length, 0)
     hNoApp.unmount()
 
-    // 3. Inside desktop app (dsBotApp.proxy): loads saved state, switches modes, validates and saves custom proxy.
+    // 2. Inside desktop app (dsBotApp.proxy): search palette finds Proxy, loads saved state, switches modes, rolls back on error, validates and saves custom proxy.
     let stored = { mode: 'system', url: '', bypass: '' }
+    let failNext = false
     const calls = []
     globalThis.dsBotApp = {
       dataLocation: () => Promise.resolve({ path: '/data', fixed: false }),
@@ -173,12 +176,15 @@ test('GeneralPage hides Network proxy section outside desktop app and supports S
         get: () => Promise.resolve({ ...stored }),
         set: (next) => {
           calls.push(next)
+          if (failNext) { failNext = false; return Promise.reject(new Error('disk full')) }
           if (next.mode === 'custom' && !next.url.includes(':')) return Promise.reject(new Error('Invalid proxy address'))
           stored = { mode: next.mode, url: next.url.includes('://') ? next.url : (next.url ? `http://${next.url}` : ''), bypass: next.bypass }
           return Promise.resolve({ ...stored })
         },
       },
     }
+    assert.ok(mod0.exports.searchHits('proxy', { roster: baseRoster }).some(hit => hit.id === 'network' && hit.page === 'general'))
+    assert.ok(mod0.exports.searchHits('代理', { roster: baseRoster }).some(hit => hit.id === 'network' && hit.page === 'general'))
 
     const hApp = makeStatefulReact()
     const modApp = { exports: {} }
@@ -190,6 +196,14 @@ test('GeneralPage hides Network proxy section outside desktop app and supports S
     await new Promise(r => setTimeout(r, 0))
     let tree = draw()
     assert.equal(findAll(tree, n => n.props?.className?.includes('bt-set-network')).length, 1)
+
+    // Failed non-custom switch rolls back mode to 'system' so user can retry immediately.
+    failNext = true
+    findAll(tree, n => n.type === 'button' && textOf(n) === 'No proxy')[0].props.onClick()
+    await new Promise(r => setTimeout(r, 0))
+    tree = draw()
+    assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'System')[0].props['aria-pressed'], true)
+    assert.equal(findAll(tree, n => n.props?.role === 'alert').length, 1)
 
     // Switch to No proxy -> saves immediately.
     const noProxyBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'No proxy')[0]
@@ -203,7 +217,7 @@ test('GeneralPage hides Network proxy section outside desktop app and supports S
     const customBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Custom')[0]
     customBtn.props.onClick()
     tree = draw()
-    assert.equal(calls.length, 1)
+    assert.equal(calls.length, 2)
     const urlInput = findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Proxy address')[0]
     const bypassInput = findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Bypass')[0]
     assert.ok(urlInput && bypassInput)
