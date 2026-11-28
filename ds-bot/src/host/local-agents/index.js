@@ -73,20 +73,22 @@ export function presetOf(rt, sessionId) {
   return permission === 'review' ? 'workspace-write' : permission
 }
 
-// A Session with no Bot keeps the preset the user picked on it in DSH; a custom
-// preset counts as the sandbox it writes through.
+// A Session with no Bot keeps the preset the user picked on it in DSH, read as
+// the sandbox it writes through. Full access that still asks (Auto review)
+// runs on the workspace sandbox, so the CLI's prompts reach DSH's approval.
 function ownPresetOf(rt, sessionId) {
   const service = rt.ctx?.get?.('permissionPresets')
   const session = rt.ctx?.get?.('agents')?.get?.(sessionId)?.session
   if (service === undefined || session === undefined) return undefined
+  let spec
   try {
-    const current = service.current(session)
-    if (MODES[current] !== undefined) return current
-    const sandbox = service.resolve(current)?.sandbox
-    return MODES[sandbox] !== undefined ? sandbox : undefined
+    spec = service.resolve(service.current(session))
   } catch {
+    // A custom knob mix resolves to no preset: the catalog default applies.
     return undefined
   }
+  if (MODES[spec?.sandbox] === undefined) return undefined
+  return spec.sandbox === 'danger-full-access' && spec.approval !== 'never' ? 'workspace-write' : spec.sandbox
 }
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })

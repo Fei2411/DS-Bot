@@ -189,7 +189,7 @@ test('user image saved in LocalAttachmentStore reaches the local agent through t
 
 // An ordinary DSH Session (no Bot) on a custom local-agent route: install()
 // alone must serve the CLI's permission prompt, as it does for a Bot (#2466).
-async function bootWithoutBot(t, { approval, preset } = {}) {
+async function bootWithoutBot(t, { approval, preset, spec } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   t.after(() => ctx.fiber.dispose())
@@ -197,7 +197,7 @@ async function bootWithoutBot(t, { approval, preset } = {}) {
   if (preset !== undefined) {
     ctx.provide('permissionPresets', {
       current: () => preset,
-      resolve: name => ({ sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' }),
+      resolve: name => spec ?? { sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' },
       catalog: () => ({ options: [], defaultPreset: 'workspace-write' }),
     })
   }
@@ -233,6 +233,32 @@ test('a Session with no Bot on a local route follows its own full-access preset 
   const requests = []
   const { ctx, agent } = await bootWithoutBot(t, {
     preset: 'danger-full-access',
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  assert.equal(requests.length, 0)
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a Session with no Bot on Auto review still asks for the CLI permission prompt (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'auto',
+    spec: { sandbox: 'danger-full-access', approval: 'ask' },
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  assert.equal(requests.length, 1)
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a Session with no Bot follows the sandbox its preset writes through (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'workspace-write',
+    spec: { sandbox: 'danger-full-access', approval: 'never' },
     approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
   })
   send(agent, 'ask-permission')
