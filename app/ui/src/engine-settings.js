@@ -4,7 +4,8 @@
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
-import { Switch } from '../../../ds-bot/src/client/bot-settings.js'
+import { SettingRow as EngineRow, SettingSection as EngineSection, Switch } from '../../../ds-bot/src/client/ui/controls.js'
+import { Dialog } from '../../../ds-bot/src/client/ui/dialog.js'
 import { MAIN_LOOK } from '../../../ds-bot/src/client/characters.js'
 import { hostText, language, t } from '../../../ds-bot/src/client/i18n.js'
 import {
@@ -516,20 +517,6 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
 
   walk(rootTarget, [], new Set(), 0)
   return fields
-}
-
-function EngineSection({ title, action, children }) {
-  return h('section', { className: 'bt-set-section' },
-    action ? h('div', { className: 'bt-la-sec-head' }, h('h3', null, title), action) : (title ? h('h3', null, title) : null),
-    h('div', { className: 'bt-set-card' }, children))
-}
-
-function EngineRow({ label, hint, children }) {
-  return h('div', { className: 'bt-set-row' },
-    h('div', { className: 'bt-set-copy' },
-      h('span', null, label),
-      hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
-    children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
 
 function StatusAlert({ error, notice }) {
@@ -2576,7 +2563,6 @@ function PresetConfigModal({ doc, onClose }) {
   const copyTimer = useRef(0)
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MODAL_CHILD })
   useModalFocusTrap(modalRef, true, { initialFocusRef: closeBtnRef })
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
@@ -2588,19 +2574,26 @@ function PresetConfigModal({ doc, onClose }) {
     }
   }
 
-  const modal = h('div', { ref: modalRef, tabIndex: -1, className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
-    h('div', { className: 'dsb-preset-modal-scrim', onMouseDown: onClose }),
-    h('div', { className: 'dsb-preset-modal' },
-      h('div', { className: 'dsb-preset-modal-head' },
-        h('div', { className: 'dsb-preset-modal-titles' },
-          h('h3', null, doc.title),
-          h('code', { className: 'dsb-preset-id' }, doc.id)),
-        h('div', { className: 'dsb-preset-modal-acts' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => { void copyYaml() } },
-            copied ? h(CheckIcon) : h(CopyIcon),
-            copied ? t('Copied') : t('Copy')),
-          h('button', { ref: closeBtnRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
-      h('pre', { className: 'dsb-preset-code' }, doc.content || t('No configuration content.'))))
+  const modal = h(Dialog, {
+    open: true,
+    dialogRef: modalRef,
+    maskClassName: 'dsb-preset-modal-layer',
+    className: 'dsb-preset-modal',
+    label: `${t('View configuration')} · ${doc.title}`,
+    escapePriority: ESCAPE_PRIORITY.MODAL_CHILD,
+    autoFocus: false,
+    onClose,
+    header: h('div', { className: 'dsb-preset-modal-head' },
+      h('div', { className: 'dsb-preset-modal-titles' },
+        h('h3', null, doc.title),
+        h('code', { className: 'dsb-preset-id' }, doc.id)),
+      h('div', { className: 'dsb-preset-modal-acts' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => { void copyYaml() } },
+          copied ? h(CheckIcon) : h(CopyIcon),
+          copied ? t('Copied') : t('Copy')),
+        h('button', { ref: closeBtnRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
+  },
+  h('pre', { className: 'dsb-preset-code' }, doc.content || t('No configuration content.')))
   const target = typeof document !== 'undefined' && document.body ? document.body : null
   return target ? createPortal(modal, target) : modal
 }

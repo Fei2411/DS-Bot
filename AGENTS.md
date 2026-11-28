@@ -24,6 +24,7 @@ The Bot team:
 3. **Only original material.** Do not copy code, text, icons, logos or graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to the `NOTICE` file. This rule is about DS Bot's own interface. To name a third-party product that DS Bot connects to (for example the agent CLI a Bot runs on), use that product's official logo, and list it in `NOTICE` with its source and owner.
 4. **`client.js` is generated.** Change `ds-bot/src/client/`, then run `npm run build` and commit both files. Never edit `client.js` by hand.
 5. **Do not touch the user's own DSH data.** The desktop app keeps its data in its own `DSH_HOME`; its import only reads `~/.dsh` and never writes there. The test bench keeps its data in `.dsh-test-<name>/`. Never point a test at `~/.dsh`, at the desktop app's data or at a DSH that the user runs.
+6. **Compose UI from canonical carriers in `ds-bot/src/client/ui/`.** Never create parallel card shells, top popups/banners, sliders (`<input type="range">`), switches (`role="switch"`), native `<select>`, or hand-rolled modal dialogs in `ds-bot/src/client/` or `app/ui/src/`. Reuse `DynamicIsland` (`ui/island.js`), `ActionCard`/`SettledCard`/`CardShell`/`CardDock` (`ui/card.js`), `Slider` (`ui/slider.js`), `Dialog` (`ui/dialog.js`), `PopoverMenu` (`ui/popover.js`), and `controls.js`. Enforced by `ds-bot/test/ui-architecture-guard.test.js` and `ds-bot/test/style-debt.test.js`.
 
 ## Commands
 

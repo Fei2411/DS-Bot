@@ -2,11 +2,11 @@
 // Exposes clear controls for DS Bot's optional anonymous telemetry, an inspector for
 // recently sent JSON payloads, and DSH upstream log/feedback controls.
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { Switch } from './bot-settings.js'
+import { Switch } from './ui/controls.js'
+import { Dialog } from './ui/dialog.js'
 import { ShieldIcon } from './icons.js'
 import { t } from './i18n.js'
 import { SPRING_SHAPE } from './motion.js'
-import { useEscape } from './overlay-hooks.js'
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
@@ -131,36 +131,41 @@ export function TelemetryNotice({ actions, leaving = false, onDone }) {
       })
   }
 
-  useEscape(() => { if (!leaving) finish(false, false) })
-
-  return h('div', { className: 'bt-priv-layer', 'data-leaving': leaving || undefined },
-    h('div', { className: 'bt-scrim' }),
-    h('div', { className: 'bt-priv-dialog', role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'bt-priv-title' },
-      h('div', { className: 'bt-priv-head' },
-        h('span', { className: 'bt-priv-icon', 'aria-hidden': true }, h(ShieldIcon)),
-        h('div', { className: 'bt-priv-head-copy' },
-          h('h2', { id: 'bt-priv-title', className: 'bt-priv-title' }, t('Help improve DS Bot')),
-          h('p', { className: 'bt-priv-sub' }, t('Chats, memories, secrets, file paths, Bot names, private Bots, and IP addresses are never sent.')))),
-      h('div', { className: 'bt-set-card bt-priv-card' },
-        h('div', { className: 'bt-set-row bt-priv-row' },
-          h('div', { className: 'bt-set-copy' },
-            h('span', null, t('Anonymous usage statistics')),
-            h('span', { className: 'bt-set-hint' }, t('Daily active count, versions, OS, and built-in feature toggles. Random ID rotates monthly.'))),
-          h('div', { className: 'bt-set-control' },
-            h(Switch, { label: t('Anonymous usage statistics'), on: usage, disabled: busy, onChange: setUsage }))),
-        h('div', { className: 'bt-set-row bt-priv-row' },
-          h('div', { className: 'bt-set-copy' },
-            h('span', null, t('Anonymous error reports')),
-            h('span', { className: 'bt-set-hint' }, t('Error codes and DS Bot source line frames only — no messages, paths, or chats.'))),
-          h('div', { className: 'bt-set-control' },
-            h(Switch, { label: t('Anonymous error reports'), on: errors, disabled: busy, onChange: setErrors })))),
-      h('p', { className: 'bt-priv-foot-note' },
-        t('Change anytime in Settings → About DS Bot → Privacy.'),
-        ' ',
-        h('a', { className: 'bt-priv-link', href: 'https://dsbot.app/privacy', target: '_blank', rel: 'noopener noreferrer' }, t('Privacy policy'))),
-      h('div', { className: 'bt-priv-actions' },
-        h('button', { type: 'button', className: 'bt-soft', disabled: busy, onClick: () => finish(false, false) }, t('Turn all off')),
-        h('button', { type: 'button', className: 'bt-send bt-priv-confirm', disabled: busy, onClick: () => finish(usage, errors) }, t('Continue')))))
+  return h(Dialog, {
+    open: true,
+    leaving,
+    ariaLabelledBy: 'bt-priv-title',
+    closeOnBackdrop: false,
+    onClose: () => { if (!leaving) finish(false, false) },
+    maskClassName: 'bt-priv-layer',
+    scrimClassName: 'bt-scrim',
+    className: 'bt-priv-dialog',
+  },
+  h('div', { className: 'bt-priv-head' },
+    h('span', { className: 'bt-priv-icon', 'aria-hidden': true }, h(ShieldIcon)),
+    h('div', { className: 'bt-priv-head-copy' },
+      h('h2', { id: 'bt-priv-title', className: 'bt-priv-title' }, t('Help improve DS Bot')),
+      h('p', { className: 'bt-priv-sub' }, t('Chats, memories, secrets, file paths, Bot names, private Bots, and IP addresses are never sent.')))),
+  h('div', { className: 'bt-set-card bt-priv-card' },
+    h('div', { className: 'bt-set-row bt-priv-row' },
+      h('div', { className: 'bt-set-copy' },
+        h('span', null, t('Anonymous usage statistics')),
+        h('span', { className: 'bt-set-hint' }, t('Daily active count, versions, OS, and built-in feature toggles. Random ID rotates monthly.'))),
+      h('div', { className: 'bt-set-control' },
+        h(Switch, { label: t('Anonymous usage statistics'), on: usage, disabled: busy, onChange: setUsage }))),
+    h('div', { className: 'bt-set-row bt-priv-row' },
+      h('div', { className: 'bt-set-copy' },
+        h('span', null, t('Anonymous error reports')),
+        h('span', { className: 'bt-set-hint' }, t('Error codes and DS Bot source line frames only — no messages, paths, or chats.'))),
+      h('div', { className: 'bt-set-control' },
+        h(Switch, { label: t('Anonymous error reports'), on: errors, disabled: busy, onChange: setErrors })))),
+  h('p', { className: 'bt-priv-foot-note' },
+    t('Change anytime in Settings → About DS Bot → Privacy.'),
+    ' ',
+    h('a', { className: 'bt-priv-link', href: 'https://dsbot.app/privacy', target: '_blank', rel: 'noopener noreferrer' }, t('Privacy policy'))),
+  h('div', { className: 'bt-priv-actions' },
+    h('button', { type: 'button', className: 'bt-soft', disabled: busy, onClick: () => finish(false, false) }, t('Turn all off')),
+    h('button', { type: 'button', className: 'bt-send bt-priv-confirm', disabled: busy, onClick: () => finish(usage, errors) }, t('Continue'))))
 }
 
 export const PRIVACY_CSS = `

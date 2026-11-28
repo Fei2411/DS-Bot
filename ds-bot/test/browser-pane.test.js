@@ -139,6 +139,7 @@ function createHarness() {
 const allNodes = (node, check) => {
   if (Array.isArray(node)) return node.flatMap((child) => allNodes(child, check))
   if (!node || typeof node !== 'object') return []
+  if (typeof node.type === 'function' && node.type.name === 'Switch') return allNodes(node.type(node.props ?? {}), check)
   return [...(check(node) ? [node] : []), ...allNodes(node.props?.children, check)]
 }
 const textOf = (node) => {

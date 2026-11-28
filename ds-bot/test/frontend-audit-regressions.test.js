@@ -80,7 +80,7 @@ test('zh-tw dictionary translates Revoke as 撤銷, Undo as 復原, and 划 as �
 })
 
 test('every --bt-* CSS variable referenced in client styles is defined or an allowed runtime variable', () => {
-  const files = readdirSync(clientDir).filter(name => name.endsWith('.js'))
+  const files = readdirSync(clientDir, { recursive: true }).filter(name => name.endsWith('.js'))
   const defined = new Set([
     // Runtime-injected CSS variables set via JS inline styles or themes.js/inks.js/skin.js
     '--bt-accent-ink', '--bt-size', '--bt-stack-size', '--bt-lc-w', '--bt-mem-w',
@@ -232,12 +232,13 @@ test('PendingComputerHandoff keeps footer inside section and opens details compu
     reportError: () => {},
   }
   fake.reset()
-  const tree = PendingComputerHandoff({
+  const raw = PendingComputerHandoff({
     sessionId: 'bot-1',
     bot: { id: 'bot-1', name: 'Helper', avatar: { shape: 'blob', color: 'blue' } },
     hold: { id: 'h-1', callId: 'c-1', reason: 'Sign in', by: 'bot' },
     actions,
   })
+  const tree = typeof raw?.type === 'function' ? raw.type(raw.props) : raw
   const section = findAll(tree, n => n.type === 'section')[0]
   assert.ok(section, 'section.bt-q.bt-handoff should render')
   const foots = findAll(section, n => n.props?.className === 'bt-q-foot')

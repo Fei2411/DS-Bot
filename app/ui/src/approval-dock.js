@@ -3,6 +3,7 @@ import { alwaysAllowScopeLabel, cleanApprovalReason, resolveApprovalReason } fro
 import { isImeComposing } from '../../../ds-bot/src/client/enter-key.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { hasEscapeLayer } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ActionCard } from '../../../ds-bot/src/client/ui/card.js'
 
 export { alwaysAllowScopeLabel, cleanApprovalReason, resolveApprovalReason }
 
@@ -157,51 +158,34 @@ function ApprovalCard({ entry, actions, readOnly }) {
     ? (entry.review.status === 'reviewing' ? t('Reviewing this action…') : (entry.review.reason || ''))
     : ''
 
-  return h('div', {
-    ref: cardRef,
+  return h(ActionCard, {
+    mode: 'dock',
+    as: 'div',
+    wrap: false,
+    cardRef,
     className: 'dsb-approval',
     role: 'region',
-    'aria-label': t('Waiting for approval'),
+    ariaLabel: t('Waiting for approval'),
     tabIndex: readOnly ? undefined : 0,
+    dotTone: 'star',
+    title: t('Waiting for approval'),
+    badge: entry.tool ? h('span', { className: 'dsb-approval-tool', title: entry.tool }, entry.tool) : null,
+    error,
     onKeyDown,
     onKeyUpCapture,
     onCompositionStartCapture,
     onCompositionEndCapture,
+    buttons: [
+      { key: 'reject', label: t('Reject'), variant: 'secondary', kbd: !readOnly ? 'Esc' : undefined, disabled: busy || readOnly, onClick: () => { void decide('reject') } },
+      { key: 'allow', label: t('Allow once'), variant: 'primary', kbd: !readOnly ? '↵' : undefined, disabled: busy || readOnly, onClick: () => { void decide('allow') } },
+      canAlways ? { key: 'always', label: t('Always allow'), variant: 'secondary', disabled: busy || readOnly, onClick: () => { void decide('always') } } : null,
+    ],
   },
-  h('div', { className: 'dsb-approval-head' },
-    h('span', { className: 'dsb-approval-dot', 'aria-hidden': true }),
-    h('span', { className: 'dsb-approval-title' }, t('Waiting for approval')),
-    entry.tool ? h('span', { className: 'dsb-approval-tool', title: entry.tool }, entry.tool) : null),
   code ? h('pre', { className: 'dsb-approval-code' }, h('code', null, code)) : null,
   detailText ? h('p', { className: 'dsb-approval-text' }, detailText) : null,
   reason ? h('p', { className: 'dsb-approval-reason' }, reason) : null,
   reviewNote ? h('p', { className: 'dsb-approval-review', role: 'status' }, reviewNote) : null,
-  scopeText ? h('p', { className: 'dsb-approval-scope' }, scopeText) : null,
-  error ? h('p', { className: 'dsb-approval-error', role: 'alert' }, error) : null,
-  h('div', { className: 'dsb-approval-foot' },
-    h('button', {
-      type: 'button',
-      className: 'bt-q-btn',
-      disabled: busy || readOnly,
-      onClick: () => { void decide('reject') },
-    },
-    h('span', null, t('Reject')),
-    !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, 'Esc') : null),
-    h('button', {
-      type: 'button',
-      className: 'bt-q-submit',
-      disabled: busy || readOnly,
-      onClick: () => { void decide('allow') },
-    },
-    h('span', null, t('Allow once')),
-    !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, '↵') : null),
-    canAlways ? h('button', {
-      type: 'button',
-      className: 'bt-q-btn',
-      disabled: busy || readOnly,
-      onClick: () => { void decide('always') },
-    },
-    h('span', null, t('Always allow'))) : null))
+  scopeText ? h('p', { className: 'dsb-approval-scope' }, scopeText) : null)
 }
 
 /**

@@ -9,6 +9,7 @@ import { dshAppearanceCss } from './appearance-dsh.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installLastStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
+import { UI_CSS } from './ui/index.js'
 import { DSH_CONVERSATION_CSS, DSH_SHELL_CSS, dshThemeCss } from './styles-dsh.js'
 import { installDshAdapter } from './adapter-dsh.js'
 import { lookOf } from './mark.js'
@@ -1547,7 +1548,7 @@ export function apply(ctx) {
   // so a surface change withdraws the whole group and the outlets re-render.
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
-    [SHELL_CSS, 'shell'],
+    [SHELL_CSS + UI_CSS, 'shell'],
     [DSH_SHELL_CSS, 'dsh-shell'],
     [SIDEBAR_CSS, 'sidebar'],
     [INBOX_CSS, 'inbox'],

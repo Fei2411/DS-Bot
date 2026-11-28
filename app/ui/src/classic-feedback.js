@@ -2,12 +2,11 @@
 // submit and retract) routed exclusively through DS Bot's `api/bot` (`engine-feedback-*`).
 // Never mounted in Bot chats or groups, which keep their own emoji reaction bar.
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon, ThumbDownIcon, ThumbUpIcon } from '../../../ds-bot/src/client/icons.js'
 import { useLinger } from '../../../ds-bot/src/client/motion.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { Dialog } from '../../../ds-bot/src/client/ui/dialog.js'
 
 const MAX_NOTE_BYTES = 8192
 
@@ -277,8 +276,6 @@ export function ClassicFeedbackDialog({ draft, current, pending = false, error =
     return () => { if (id && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id) }
   }, [draft])
 
-  useEscape(onClose, Boolean(draft) && !pending)
-
   if (!shown) return null
 
   const bytes = utf8Bytes(note)
@@ -296,28 +293,29 @@ export function ClassicFeedbackDialog({ draft, current, pending = false, error =
     })
   }
 
-  const modal = h('div', {
-    className: 'dsb-fb-backdrop',
-    'data-leaving': leaving || undefined,
-    onClick: (event) => { if (event.target === event.currentTarget && !pending) onClose?.() },
-  },
-  h('form', {
+  return h(Dialog, {
+    open: Boolean(draft),
+    leaving,
+    as: 'form',
+    portal: true,
+    autoFocus: false,
+    label: title,
+    maskClassName: 'dsb-fb-backdrop',
     className: 'dsb-fb-dialog',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': title,
+    closeOnBackdrop: !pending,
+    onClose: pending ? null : onClose,
     onSubmit: handleSubmit,
+    header: h('div', { className: 'dsb-fb-head' },
+      h('h2', { className: 'dsb-fb-title' }, title),
+      h('button', {
+        type: 'button',
+        className: 'bt-icon-btn',
+        'aria-label': t('Close'),
+        title: t('Close'),
+        disabled: pending,
+        onClick: onClose,
+      }, h(CloseIcon))),
   },
-  h('div', { className: 'dsb-fb-head' },
-    h('h2', { className: 'dsb-fb-title' }, title),
-    h('button', {
-      type: 'button',
-      className: 'bt-icon-btn',
-      'aria-label': t('Close'),
-      title: t('Close'),
-      disabled: pending,
-      onClick: onClose,
-    }, h(CloseIcon))),
   h('div', { className: 'dsb-fb-cats', role: 'group', 'aria-label': t('Category') },
     FEEDBACK_CATEGORIES.map((cat) => {
       const active = category === cat.id
@@ -359,8 +357,5 @@ export function ClassicFeedbackDialog({ draft, current, pending = false, error =
       type: 'submit',
       className: 'dsb-fb-submit',
       disabled: pending || tooLong,
-    }, pending ? t('Submitting…') : t('Submit')))))
-
-  const target = typeof document !== 'undefined' && document?.body ? document.body : null
-  return target ? createPortal(modal, target) : modal
+    }, pending ? t('Submitting…') : t('Submit'))))
 }

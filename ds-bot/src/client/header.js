@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
 import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
@@ -7,8 +7,10 @@ import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, newDividerIn, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
+import { LearningIslandPod, usePendingLearning } from './learning-card.js'
 import { ApprovalIslandPod, roomApprovals } from './member-status.js'
 import { TaskIslandPod, isActiveTask, taskCountsOf, tasksForChat } from './bot-tasks.js'
+import { IslandNotice, IslandPod } from './ui/island.js'
 import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -21,6 +23,7 @@ const GoArrow = () => h('svg', { width: 14, height: 14, viewBox: '-12 -12 24 24'
 // How long the pill says "Memory updated" after the change reaches this window.
 const MEMORY_NOTICE_MS = 3_200
 const noNews = select => select({})
+const noConn = () => null
 
 // True while the latest memory change of the Bots in this conversation is news.
 function useMemoryNotice(ids, useMemoryNews) {
@@ -36,18 +39,30 @@ function useMemoryNotice(ids, useMemoryNews) {
   return shown
 }
 
-// The notice the pill stretches to show. Its width is measured, so the pill's spring
-// runs between two real widths.
+// The notice the pill stretches to show via the canonical `IslandNotice` carrier.
 function MemoryNotice({ shown }) {
-  const inner = useRef(null)
-  const [width, setWidth] = useState(0)
-  const label = t('Memory updated')
-  useLayoutEffect(() => { if (shown) setWidth(inner.current?.scrollWidth ?? 0) }, [label, shown])
-  return h('span', { className: 'bt-pill-mem', 'aria-hidden': true, style: { '--bt-mem-w': `${width}px` } },
-    h('span', { className: 'bt-pill-mem-in', ref: inner }, h('span', { className: 'bt-pill-mem-ico' }, h(MemoryIcon)), label))
+  return h(IslandNotice, { shown, icon: h(MemoryIcon), label: t('Memory updated') })
 }
 
-export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
+export function ConnectionIslandPod({ status, onReconnect }) {
+  if (!status || status === 'connected') return null
+  const isError = status === 'error'
+  return h(IslandPod, {
+    dotTone: isError ? 'danger' : 'warn',
+    label: isError ? t('Live updates paused: message too large') : t('Reconnecting…'),
+    expandable: false,
+    barAttrs: {
+      role: isError ? 'alert' : 'status',
+      'aria-live': isError ? 'assertive' : 'polite',
+      'data-tone': isError ? 'error' : 'warn',
+    },
+    action: isError && typeof onReconnect === 'function'
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-island-conn-btn', onClick: onReconnect }, t('Reconnect'))
+      : null,
+  })
+}
+
+export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, useConnection, onReconnect, selectView, actions, PendingLearning }) {
   const roster = useRoster(value => value)
   const selectedView = useStore?.(state => state.view)
   const away = useConversationViews?.(views => views.some(view => view.id === selectedView && view.id !== 'chat')) === true
@@ -161,7 +176,29 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     : approvals
   // Background approvals live in the task deck when it is present, avoiding double bars.
   const showApprovals = approvalTargetId !== undefined && !away && standaloneApprovals.length > 0 && (foregroundApprovals.length > 0 || !showTasks)
-  const showIsland = showGoal || showApprovals || showTasks
+  const useReadConn = useConnection ?? noConn
+  const conn = useReadConn(state => state)
+  const connStatus = conn && conn.status !== 'connected' ? conn.status : null
+  const learning = usePendingLearning(sessionId, useRoster)
+  const showLearning = !away && Boolean(PendingLearning) && learning.proposals.length > 0
+  const [learningOpen, setLearningOpen] = useState(false)
+  useEffect(() => { setLearningOpen(false) }, [sessionId, showLearning])
+  const extraPods = [
+    connStatus ? { id: 'connection', node: h(ConnectionIslandPod, { status: connStatus, onReconnect }), open: false } : null,
+    showLearning ? {
+      id: 'learning',
+      node: h(LearningIslandPod, {
+        proposals: learning.proposals,
+        open: learningOpen,
+        onToggle: () => setLearningOpen(v => !v),
+        actions,
+        onFailure: learning.onFailure,
+        onResolved: learning.onResolved,
+      }),
+      open: learningOpen,
+    } : null,
+  ].filter(Boolean)
+  const showIsland = showGoal || showApprovals || showTasks || extraPods.length > 0
   // Once the last approval is answered, reset approvalOpen so future approvals
   // appear as a compact bar rather than popping straight into a 560px panel.
   useEffect(() => {
@@ -170,8 +207,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   useEffect(() => {
     if (taskDeckOpen && !showTasks) actions.closeTaskDeck?.()
   }, [taskDeckOpen, showTasks])
-  const taskHoverReveal = showTasks && !showGoal && !showApprovals
-  const podRows = (showGoal ? 1 : 0) + (showApprovals ? 1 : 0) + (showTasks && !taskHoverReveal ? 1 : 0)
+  const taskHoverReveal = showTasks && !showGoal && !showApprovals && extraPods.length === 0
+  const podRows = (showGoal ? 1 : 0) + (showApprovals ? 1 : 0) + (showTasks && !taskHoverReveal ? 1 : 0) + extraPods.length
   // The island pads the transcript so its pod does not cover the first message.
   useEffect(() => {
     if (podRows > 0) document.body.dataset.btGoal = podRows > 1 ? '2' : ''
@@ -212,8 +249,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     : null
   const headRef = useRef(null)
   return h('div', { ref: headRef, className: 'bt-head' },
-    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
-    !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,
+    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, extraPods, extraOpen: learningOpen, onCloseExtra: () => setLearningOpen(false), roomWork, roster, actions, pill }) : pill,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     room !== undefined && !away
       ? h('button', {

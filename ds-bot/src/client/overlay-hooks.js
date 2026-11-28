@@ -202,14 +202,20 @@ export function useModalFocusTrap(containerRef, active = true, { initialFocusRef
       observer = new MutationObserver(sync)
       observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-leaving', 'aria-modal', 'role'] })
     }
+    const win = doc.defaultView && doc.defaultView !== doc && typeof doc.defaultView.addEventListener === 'function' ? doc.defaultView : null
+    const onWinKeyDown = (event) => {
+      if (event.target === win) onKeyDown(event)
+    }
     doc.addEventListener('focusin', onFocusIn, true)
     doc.addEventListener('keydown', onKeyDown, true)
+    win?.addEventListener('keydown', onWinKeyDown, true)
 
     return () => {
       disposed = true
       observer?.disconnect()
       doc.removeEventListener('focusin', onFocusIn, true)
       doc.removeEventListener('keydown', onKeyDown, true)
+      win?.removeEventListener('keydown', onWinKeyDown, true)
       releaseAll()
       restorePreviousFocus()
     }

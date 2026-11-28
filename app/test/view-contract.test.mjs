@@ -67,6 +67,7 @@ const PLUGIN_HOOK_ALLOWLIST = {
   useSessions: 'Provided by DSH’s own sessions slot injection in plugin mode.',
   useSessionStatus: 'Provided by DSH’s own session-status slot injection in plugin mode.',
   useSessionRetainInfo: 'Provided by DSH’s own session-retain slot injection in plugin mode.',
+  useConnection: 'Desktop-only connection state hook for ConnectionIslandPod in DynamicIsland; plugin mode uses DSH ConnectionIndicator in SettingsShell.',
 }
 
 function walkJsFiles(dir, out = []) {

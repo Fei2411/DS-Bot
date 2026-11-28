@@ -16,6 +16,7 @@ import { Segmented, useLinger } from './motion.js'
 import { registerPopupOwner } from './popup-ownership.js'
 import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { measureSelectPlace } from './select-menu.js'
+import { Slider as UiSlider } from './ui/slider.js'
 import { hostText, t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -94,10 +95,7 @@ function useResting(value, save, delay = 350, scope = undefined) {
 }
 
 export function Slider({ label, value, min, max, step, format = String, save }) {
-  const [shown, pick] = useResting(value, save)
-  return h('div', { className: 'bt-range', style: { '--bt-fill': `${((shown - min) / (max - min)) * 100}%` } },
-    h('input', { type: 'range', min, max, step, value: shown, 'aria-label': label, 'aria-valuetext': format(shown), onChange: event => pick(Number(event.target.value)) }),
-    h('output', null, format(shown)))
+  return h(UiSlider, { label, value, min, max, step, format, delay: 350, onCommit: save })
 }
 
 function ColorField({ label, value, save, hint }) {

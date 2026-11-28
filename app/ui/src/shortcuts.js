@@ -1,8 +1,8 @@
 import { createElement as h, useMemo, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
-import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { Dialog } from '../../../ds-bot/src/client/ui/dialog.js'
 import {
   SHORTCUT_GROUPS,
   bindingsEqual,
@@ -85,11 +85,8 @@ export function ShortcutsDialog({
   onClose,
   store = shortcutsStore,
 }) {
-  const dialogRef = useRef(null)
   const closeBtn = useRef(null)
   const overrides = useShortcutOverrides(store)
-  useEscape(onClose, open, { priority: ESCAPE_PRIORITY.SHORTCUTS })
-  useModalFocusTrap(dialogRef, open, { initialFocusRef: closeBtn })
 
   const mac = isMacPlatform()
   const mod = mac ? '⌘' : 'Ctrl'
@@ -153,14 +150,17 @@ export function ShortcutsDialog({
     return out
   }, [overrides, mac, mod, shift, enterToSend, classic, hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch])
 
-  if (!open) return null
-
-  const dialog = h('div', {
-    className: 'dsb-shortcuts-layer',
-    onClick: (event) => { if (event.target === event.currentTarget) onClose?.() },
-  },
-  h('div', { ref: dialogRef, tabIndex: -1, className: 'dsb-shortcuts', role: 'dialog', 'aria-modal': true, 'aria-label': t('Keyboard shortcuts') },
-    h('div', { className: 'dsb-shortcuts-head' },
+  return h(Dialog, {
+    open,
+    portal: true,
+    focusTrap: true,
+    initialFocusRef: closeBtn,
+    escapePriority: ESCAPE_PRIORITY.SHORTCUTS,
+    label: t('Keyboard shortcuts'),
+    maskClassName: 'dsb-shortcuts-layer',
+    className: 'dsb-shortcuts',
+    onClose,
+    header: h('div', { className: 'dsb-shortcuts-head' },
       h('h2', { className: 'dsb-shortcuts-title' }, t('Keyboard shortcuts')),
       h('div', { className: 'dsb-shortcuts-head-actions' },
         typeof onCustomize === 'function'
@@ -178,13 +178,12 @@ export function ShortcutsDialog({
           title: t('Close'),
           onClick: onClose,
         }, h(CloseIcon)))),
-    h('div', { className: 'dsb-shortcuts-list' },
-      sections.map(section => h('div', { key: section.id, className: 'dsb-shortcuts-group' },
-        h('div', { className: 'dsb-shortcuts-group-title' }, section.title),
-        section.rows.map(row => h('div', { key: row.id, className: 'dsb-shortcuts-row' },
-          h('span', { className: 'dsb-shortcuts-label' }, row.label),
-          h('span', { className: 'dsb-shortcuts-keys' },
-            row.keys.map((cap, index) => h('kbd', { key: index, className: 'dsb-kbd' }, cap))))))))))
-  const target = typeof document !== 'undefined' && document?.body ? document.body : null
-  return target ? createPortal(dialog, target) : dialog
+  },
+  h('div', { className: 'dsb-shortcuts-list' },
+    sections.map(section => h('div', { key: section.id, className: 'dsb-shortcuts-group' },
+      h('div', { className: 'dsb-shortcuts-group-title' }, section.title),
+      section.rows.map(row => h('div', { key: row.id, className: 'dsb-shortcuts-row' },
+        h('span', { className: 'dsb-shortcuts-label' }, row.label),
+        h('span', { className: 'dsb-shortcuts-keys' },
+          row.keys.map((cap, index) => h('kbd', { key: index, className: 'dsb-kbd' }, cap)))))))))
 }

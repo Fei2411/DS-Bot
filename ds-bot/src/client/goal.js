@@ -2,8 +2,8 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { BotAvatar, BotMark, colorOf } from './mark.js'
 import { inkText } from './inks.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
-import { useEscape } from './overlay-hooks.js'
-import { SPRING_SHAPE, SPRING_TAP, spring, useMorph } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, spring } from './motion.js'
+import { DynamicIsland } from './ui/island.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -97,18 +97,6 @@ export function goalEventText(reply) {
     case 'stop': return t('Goal stopped')
     default: return reply?.title ?? ''
   }
-}
-
-// Escape and outside clicks close the open panel; mounted only while it is open
-// so the shared Escape stack sees it as the newest layer.
-function GoalOutside({ island, close }) {
-  useEscape(close)
-  useEffect(() => {
-    const onDown = (event) => { if (island.current && !island.current.contains(event.target)) close() }
-    window.addEventListener('mousedown', onDown, true)
-    return () => window.removeEventListener('mousedown', onDown, true)
-  }, [close])
-  return null
 }
 
 // The pod's closed face: state dot or check, the bar label, one segment per
@@ -270,67 +258,55 @@ function GoalCompose({ room, roster, actions }) {
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: text.trim() === '' || sending, onClick: submit }, t('Start'))))
 }
 
-// The surface that wraps the pill: pod with pending group approvals and/or the
-// goal bar (or draft form) while closed, the active panel while open. For chats
-// with background tasks only (`taskHoverReveal`), the island stays a compact
-// single-row pill with an inline count chip until hovered or clicked open.
-export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, taskPod = null, taskOpen = false, taskCount = 0, taskHoverReveal = false, taskBadge = null, roomWork, roster, actions, pill }) {
-  const island = useRef(null)
-  const leaveTimer = useRef(null)
-  const [hovered, setHovered] = useState(false)
+// Goal pod rendered inside DynamicIsland: either the compose form or the status bar + panel.
+export function GoalIslandPod({ room, goal, view, open, composing, roomWork, roster, actions }) {
+  const working = new Set((roomWork ?? []).map(entry => entry.botId))
+  if (composing) return h(GoalCompose, { room, roster, actions })
+  if (view === null) return null
+  return h(Fragment, null,
+    h(GoalBar, { view, open, room, actions }),
+    open ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)
+}
+
+// Backward-compatible wrapper delegating to the single canonical `DynamicIsland` carrier.
+export function GoalIsland({ room, goal, view, open, composing, approvalPod = null, approvalOpen = false, approvalsCount = 0, taskPod = null, taskOpen = false, taskCount = 0, taskHoverReveal = false, taskBadge = null, extraPods = [], extraOpen = false, onCloseExtra = null, roomWork, roster, actions, pill }) {
   const hasApprovals = approvalPod !== null
   const hasTasks = taskPod !== null
   const apvExpanded = approvalOpen && hasApprovals
   const taskExpanded = taskOpen && hasTasks && !apvExpanded
-  const goalExpanded = open && !apvExpanded && !taskExpanded
-  const expanded = goalExpanded || apvExpanded || taskExpanded
+  const goalExpanded = open && !apvExpanded && !taskExpanded && !extraOpen
   const hasGoalRow = composing || view !== null
-  const compactTasks = taskHoverReveal && hasTasks && !hasGoalRow && !hasApprovals && !expanded && !hovered
-  const morphKey = apvExpanded ? `apv:${approvalsCount}` : taskExpanded ? `task:${taskCount}` : goalExpanded ? 'goal' : composing ? 'compose' : compactTasks ? 'compact' : 'closed'
-  useMorph(island, morphKey, { width: true })
-  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current) }, [])
-  useEffect(() => {
-    if (!taskHoverReveal || !hasTasks) setHovered(false)
-  }, [taskHoverReveal, hasTasks])
-  const onEnter = taskHoverReveal ? () => {
-    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null }
-    setHovered(true)
-  } : undefined
-  const onLeave = taskHoverReveal ? () => {
-    if (leaveTimer.current) clearTimeout(leaveTimer.current)
-    leaveTimer.current = setTimeout(() => { leaveTimer.current = null; setHovered(false) }, 180)
-  } : undefined
-  const working = new Set((roomWork ?? []).map(entry => entry.botId))
-  // While any pod panel or the draft form is up, Escape and outside clicks close it.
+  const pods = [
+    ...extraPods,
+    hasApprovals ? { id: 'approvals', node: approvalPod, open: apvExpanded } : null,
+    hasTasks ? { id: 'tasks', node: taskPod, open: taskExpanded } : null,
+    hasGoalRow ? { id: 'goal', node: h(GoalIslandPod, { room, goal, view, open: goalExpanded, composing, roomWork, roster, actions }), open: goalExpanded || composing } : null,
+  ].filter(Boolean)
+  const extraKey = extraPods.map(p => `${p.id}:${p.open ? '1' : '0'}`).join(',')
+  const morphKey = apvExpanded ? `apv:${approvalsCount}` : taskExpanded ? `task:${taskCount}` : extraOpen ? `extra:${extraKey}` : goalExpanded ? 'goal' : composing ? 'compose' : `closed:${extraKey}`
   const close = () => {
     if (composing) actions.closeGoalCompose?.()
     if (open) actions.closeGoal?.()
     if (approvalOpen) actions.closeApproval?.()
     if (taskOpen) actions.closeTaskDeck?.()
+    onCloseExtra?.()
   }
-  return h('div', {
-    ref: island, className: 'bt-island',
-    'data-goal': view?.status ?? (composing ? 'compose' : undefined),
-    'data-idle': view?.idle || undefined,
-    'data-approval': hasApprovals || undefined,
-    'data-open': expanded || undefined,
-    'data-tasks-open': taskExpanded || undefined,
-    'data-compact': compactTasks || undefined,
-    onMouseEnter: onEnter,
-    onMouseLeave: onLeave,
-  },
-  expanded || composing ? h(GoalOutside, { island, close }) : null,
-  h('div', { className: 'bt-island-top' }, pill, compactTasks ? taskBadge : null),
-  compactTasks ? null : h('div', { className: 'bt-goal-pod' },
-    approvalPod,
-    hasApprovals && hasTasks ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
-    taskPod,
-    (hasApprovals || hasTasks) && hasGoalRow ? h('span', { className: 'bt-island-sep', 'aria-hidden': true }) : null,
-    composing ? h(GoalCompose, { room, roster, actions })
-      : view === null ? null
-        : h(Fragment, null,
-          h(GoalBar, { view, open: goalExpanded, room, actions }),
-          goalExpanded ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)))
+  return h(DynamicIsland, {
+    pill,
+    pods,
+    compactBadge: taskBadge,
+    hoverReveal: taskHoverReveal && hasTasks && !hasGoalRow && !hasApprovals && extraPods.length === 0,
+    expanded: goalExpanded || apvExpanded || taskExpanded || extraOpen,
+    dismissible: composing,
+    morphKey,
+    onClose: close,
+    dataAttrs: {
+      'data-goal': view?.status ?? (composing ? 'compose' : undefined),
+      'data-idle': view?.idle || undefined,
+      'data-approval': hasApprovals || undefined,
+      'data-tasks-open': taskExpanded || undefined,
+    },
+  })
 }
 
 export const GOAL_CSS = `

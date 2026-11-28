@@ -5,14 +5,13 @@ import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOut
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
 export { settingsOwnsKeyboard }
-import { Switch } from './bot-settings.js'
-import { Segmented, useGlide } from './motion.js'
+import { Choice, Segmented, SelectMenu, SettingRow as SetRow, SettingSection as SetSection, Switch } from './ui/controls.js'
+import { useGlide } from './motion.js'
 import { KeyIcon } from './secret-card.js'
 import { FeedbackIcon } from './feedback.js'
 import { SettingsTour, canAutoStartTour, hasSectionTour, markTourSeen } from './settings-tour.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
-import { SelectMenu } from './select-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
 import { requestWindowReload } from './reload-action.js'
@@ -145,24 +144,6 @@ function SecondsField({ label, value, save }) {
     else setText(String(value))
   }
   return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
-}
-
-function SetSection({ title, action = null, className = '', tour = null, children }) {
-  return h('section', { className: `bt-set-section ${className}`.trim(), 'data-tour': tour || undefined },
-    action ? h('div', { className: 'bt-la-sec-head' }, h('h3', null, title), action) : title ? h('h3', null, title) : null,
-    h('div', { className: 'bt-set-card' }, children))
-}
-function SetRow({ label, hint, children, className = '', tour = null }) {
-  return h('div', { className: `bt-set-row ${className}`.trim(), 'data-tour': tour || undefined },
-    h('div', { className: 'bt-set-copy' }, h('span', null, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
-    children ? h('div', { className: 'bt-set-control' }, children) : null)
-}
-
-function Choice({ label, value, options, pick, className = 'bt-look-seg' }) {
-  return h(Segmented, { label, value, className }, options.map(([id, text]) => h('button', {
-    key: id, type: 'button', 'aria-pressed': value === id,
-    onClick: () => { if (value !== id) pick(id) },
-  }, t(text))))
 }
 
 function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {

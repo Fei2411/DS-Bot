@@ -19,81 +19,15 @@ import { ChatBackgroundSection } from './appearance-page.js'
 import { t } from './i18n.js'
 import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { ApprovalSettings } from './approval-settings.js'
+import { InlineText, SettingCard as Card, SettingRow, Switch, SwitchRow } from './ui/controls.js'
+
+export { Card, InlineText, Switch, SwitchRow }
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
-// Settings save on blur or Enter, with no Save button; Escape puts the
-// saved value back. A required field never saves empty. Where the field sits in a page
-// other than Settings, `className` styles it, `autoFocus` puts the caret at the end of
-// the text on mount, and `onDone` runs when the edit ends, saved or not.
-export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, className, autoFocus = false, onSave, onDone }) {
-  const [draft, setDraft] = useState(null)
-  const reverting = useRef(false)
-  const field = useRef(null)
-  useEffect(() => {
-    const node = field.current
-    if (!autoFocus || !node) return
-    node.focus()
-    node.setSelectionRange(node.value.length, node.value.length)
-  }, [])
-  const commit = () => {
-    const next = draft?.trim()
-    if (reverting.current) { reverting.current = false; setDraft(null); onDone?.(); return }
-    if (next === undefined || next === (value ?? '') || (required && next === '')) {
-      setDraft(null)
-      onDone?.()
-      return
-    }
-    const finish = (ok) => {
-      if (ok === false) return
-      setDraft(null)
-      onDone?.()
-    }
-    const outcome = onSave(next)
-    if (outcome && typeof outcome.then === 'function') {
-      void outcome.then(finish, () => {})
-    } else {
-      finish(outcome)
-    }
-  }
-  return h(multiline ? 'textarea' : 'input', {
-    ref: field, className: className ?? (multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input'), value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,
-    onChange: event => setDraft(event.target.value),
-    onBlur: commit,
-    onKeyDown: (event) => {
-      if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
-        event.preventDefault?.()
-        event.stopPropagation?.()
-        event.nativeEvent?.stopPropagation?.()
-        reverting.current = true
-        event.currentTarget.blur()
-      }
-      if (event.key === 'Enter' && !multiline && !event.nativeEvent?.isComposing && event.keyCode !== 229) event.currentTarget.blur()
-    },
-  })
-}
-
 // One labelled card row with its control on the right, or below when `stack`.
 export function Row({ label, hint, stack = false, children }) {
-  return h('label', { className: stack ? 'bt-set-row bt-bs-row bt-bs-stack' : 'bt-set-row bt-bs-row' },
-    h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
-    children)
-}
-
-export function Card({ title, children }) {
-  return h('section', { className: 'bt-set-section' }, title ? h('h3', null, title) : null, h('div', { className: 'bt-set-card' }, children))
-}
-
-export function Switch({ on, label, disabled, onChange }) {
-  return h('button', { type: 'button', role: 'switch', className: 'bt-switch', 'aria-checked': on, 'aria-label': label, disabled, onClick: () => onChange(!on) },
-    h('span', { className: 'bt-switch-knob', 'aria-hidden': true }))
-}
-
-// A row with a switch. Not a label: a click on the copy must not flip it twice.
-export function SwitchRow({ label, hint, on, disabled, onChange }) {
-  return h('div', { className: 'bt-set-row bt-bs-row' },
-    h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
-    h(Switch, { on, label, disabled, onChange }))
+  return h(SettingRow, { label, hint, stack, asLabel: true }, children)
 }
 
 function modelHint(bot, roster) {

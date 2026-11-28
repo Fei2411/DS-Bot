@@ -2,7 +2,7 @@
 // Kept in a leaf module so specialized tool view modules never form circular imports.
 import { createElement as h, useState } from 'react'
 import { writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
-import { CheckIcon, ChevronRightIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
+import { CheckIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 
 export function compact(value, max = 96) {
@@ -92,50 +92,5 @@ export function MiniCopy({ text }) {
   }, copied ? h(CheckIcon) : h(CopyIcon))
 }
 
-export function ToolCardShell({
-  icon,
-  label,
-  summary,
-  summaryTitle,
-  badges,
-  headerAction,
-  phase,
-  isError,
-  duration,
-  expanded,
-  onToggle,
-  hasBody,
-  children,
-}) {
-  const running = phase === 'preparing' || phase === 'start'
-  const headButton = h('button', {
-    type: 'button',
-    className: 'dsb-tool-head',
-    disabled: !hasBody,
-    'aria-expanded': hasBody ? expanded : undefined,
-    onClick: hasBody ? onToggle : undefined,
-  },
-  h('span', { className: 'dsb-tool-dot', 'aria-hidden': true }),
-  icon ? h('span', { className: 'dsb-tool-icon', 'aria-hidden': true }, h(icon)) : null,
-  h('span', { className: 'dsb-tool-name' }, label),
-  summary ? h('span', { className: 'dsb-tool-summary', title: summaryTitle ?? summary }, summary) : null,
-  h('span', { className: 'dsb-tool-meta' },
-    badges,
-    running ? h('span', { className: 'dsb-tool-state' }, t('Running'))
-      : isError && (!badges || badges.length === 0) ? h('span', { className: 'dsb-tool-state' }, t('Error'))
-        : duration ? h('span', { className: 'dsb-tool-time' }, duration) : null,
-    hasBody ? h('span', { className: 'dsb-tool-chev', 'aria-hidden': true }, h(ChevronRightIcon)) : null))
-
-  return h('div', {
-    className: 'dsb-tool',
-    'data-phase': phase,
-    'data-error': isError || undefined,
-    'data-open': expanded || undefined,
-  },
-  headerAction
-    ? h('div', { className: 'dsb-tool-head-row' },
-        headButton,
-        h('div', { className: 'dsb-tool-head-action' }, headerAction))
-    : headButton,
-  expanded && hasBody ? h('div', { className: 'dsb-tool-body' }, children) : null)
-}
+import { CardShell } from '../../../ds-bot/src/client/ui/card.js'
+export { CardShell as ToolCardShell }

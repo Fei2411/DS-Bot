@@ -28,6 +28,7 @@ import { TextSelectionAction, quoteMarkdown } from '../../../ds-bot/src/client/t
 import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { WorkPauseDock } from '../../../ds-bot/src/client/work-pause-card.js'
+import { CardDock } from '../../../ds-bot/src/client/ui/card.js'
 import { ApprovalDock } from './approval-dock.js'
 import { ClassicControls } from './classic-controls.js'
 import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
@@ -2213,32 +2214,33 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     onClick: scrollToBottom,
   }, h(ArrowDownIcon)) : null,
   h('div', { ref: composerRootRef, className: 'dsb-composer-root' },
-    !viewingSubagent ? h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
-    !viewingSubagent ? h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !viewingSubagent ? h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom && !viewingSubagent ? h(WorkPauseDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, actions }) : null,
-    !isRoom && !viewingSubagent ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
-    !isRoom && !viewingSubagent ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom && !viewingSubagent ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom && !viewingSubagent ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
-    !isRoom && !viewingSubagent ? h(ClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
-    !isRoom && !viewingSubagent ? h(ClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
-    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !viewingSubagent ? h(DesktopQueueDock, {
-      sessionId: activeSessionId,
-      running,
-      readOnly,
-      useSessionQueues,
-      pendingQueue,
-      actions,
-      classic: isClassic,
-      onWithdraw: text => withdrawQueuedText({ chatId: activeChatId, chatKey: activeChatKey, sessionId: activeSessionId, text }),
-    }) : null,
+    !viewingSubagent ? h(CardDock, null,
+      h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }),
+      h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
+      h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }),
+      !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+      !isRoom ? h(WorkPauseDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, actions }) : null,
+      !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
+      !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+      !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+      !isRoom ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
+      !isRoom ? h(ClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+      !isRoom ? h(ClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+      !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+      !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+      h(DesktopQueueDock, {
+        sessionId: activeSessionId,
+        running,
+        readOnly,
+        useSessionQueues,
+        pendingQueue,
+        actions,
+        classic: isClassic,
+        onWithdraw: text => withdrawQueuedText({ chatId: activeChatId, chatKey: activeChatKey, sessionId: activeSessionId, text }),
+      })) : null,
     viewingSubagent
       ? h(SubagentReadOnlyBar, { onBack: popSubagent })
       : h(Composer, {

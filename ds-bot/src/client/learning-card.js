@@ -6,23 +6,57 @@ import { t } from './i18n.js'
 import { CheckIcon, MemoryIcon, PencilIcon } from './icons.js'
 import { spring, SPRING_TAP, useLinger } from './motion.js'
 import { useEscape } from './overlay-hooks.js'
+import { ActionCard, SettledCard } from './ui/card.js'
+import { IslandPanel, IslandPod } from './ui/island.js'
 
 // One entry per proposal still waiting for another try, kept across remounts.
 const failedAnswers = new Map()
 
-export function PendingLearning({ sessionId, useRoster, actions }) {
+export function usePendingLearning(sessionId, useRoster) {
   const roster = useRoster(value => value)
   const bot = roster.byId?.[sessionId]
   const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : []
   const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
-  const [open, setOpen] = useState(false)
-  const root = useRef(null)
-  const [shown, leaving] = useLinger(open, 120)
-  useEffect(() => { setOpen(false) }, [sessionId, proposals.length === 0])
   useEffect(() => {
     if (settledIds.length === 0) return
     for (const id of settledIds) failedAnswers.delete(id)
   }, [settledIds.join('|')])
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) })
+    else failedAnswers.delete(proposal.id)
+  }
+  const onResolved = id => { failedAnswers.delete(id) }
+  return { proposals, onFailure, onResolved }
+}
+
+// Learning proposals rendered as a native pod + panel inside DynamicIsland.
+export function LearningIslandPod({ proposals, open, onToggle, actions, onFailure, onResolved }) {
+  if (!proposals || proposals.length === 0) return null
+  return h(IslandPod, {
+    dotTone: 'star',
+    label: t('Awaiting approval'),
+    count: proposals.length,
+    open,
+    onClick: onToggle,
+    barClassName: 'bt-learning-island-bar',
+    panel: h(IslandPanel, { label: t('Awaiting approval'), className: 'bt-learning-island-panel' },
+      proposals.map(proposal => h(ProposalCard, {
+        key: proposal.id,
+        proposal,
+        initialError: failedAnswers.get(proposal.id)?.error,
+        onFailure,
+        onResolved,
+        actions,
+      }))),
+  })
+}
+
+export function PendingLearning({ sessionId, useRoster, actions }) {
+  const { proposals, onFailure, onResolved } = usePendingLearning(sessionId, useRoster)
+  const [open, setOpen] = useState(false)
+  const root = useRef(null)
+  const [shown, leaving] = useLinger(open, 120)
+  useEffect(() => { setOpen(false) }, [sessionId, proposals.length === 0])
   useEffect(() => {
     if (!open) return
     const outside = event => { if (!root.current?.contains(event.target)) setOpen(false) }
@@ -30,11 +64,6 @@ export function PendingLearning({ sessionId, useRoster, actions }) {
     return () => document.removeEventListener('pointerdown', outside)
   }, [open])
   if (proposals.length === 0) return null
-  const onFailure = (proposal, failure) => {
-    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) })
-    else failedAnswers.delete(proposal.id)
-  }
-  const onResolved = id => { failedAnswers.delete(id) }
   return h('div', { className: 'bt-learning-pending', ref: root },
     h('button', { type: 'button', className: 'bt-learning-pending-toggle', 'aria-expanded': open, onClick: () => setOpen(!open) },
       h('span', { className: 'bt-learning-dot', 'aria-hidden': true }),
@@ -94,32 +123,38 @@ export function ProposalCard({ proposal, initialError = '', onFailure, onResolve
   const kind = t(agents ? 'AGENTS.md update' : update ? 'Skill update' : 'New skill')
   if (outcome) {
     const what = agents ? proposal.folder : proposal.name
-    return h('section', { className: 'bt-q bt-q-settled bt-learning-card bt-learning-settled', role: 'group', 'aria-label': `${kind} · ${what}`, 'data-outcome': outcome },
-      h('button', { type: 'button', className: 'bt-learning-fold', 'aria-expanded': open, onClick: () => setOpen(!open) },
-        h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(agents ? PencilIcon : MemoryIcon)),
-        h('span', { className: 'bt-learning-kind' }, kind),
-        h('span', { className: 'bt-learning-sum' }, `${t(outcome === 'approved' ? 'Approved' : 'Declined')} · ${what}`)),
-      open ? change : null)
+    return h(SettledCard, {
+      inline: false,
+      className: 'bt-learning-card bt-learning-settled',
+      ariaLabel: `${kind} · ${what}`,
+      dataAttrs: { 'data-outcome': outcome },
+      title: h('span', { className: 'bt-learning-kind' }, kind),
+      icon: h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(agents ? PencilIcon : MemoryIcon)),
+      badge: h('span', { className: 'bt-learning-sum' }, `${t(outcome === 'approved' ? 'Approved' : 'Declined')} · ${what}`),
+      expandable: true,
+      open,
+      onToggle: () => setOpen(!open),
+      showBody: open,
+    }, change)
   }
   const oldDetail = update && typeof proposal.previous?.description === 'string' && proposal.previous.description !== proposal.description ? proposal.previous.description : undefined
-  return h('section', { className: 'bt-q bt-learning-card', role: 'group', 'aria-labelledby': titleId, 'aria-busy': busy },
-    agents
-      ? h(ProposalHead, { titleId, icon: PencilIcon, title: kind })
-      : h(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
-    change,
-    error ? h('div', { className: 'bt-learning-error', role: 'alert' }, error) : null,
-    h(ProposalFoot, { busy, answer }))
-}
-
-function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDetail }) {
-  return h('div', { className: 'bt-q-head' },
-    h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(icon)),
-    h('div', { className: 'bt-q-text' },
-      h('p', { className: 'bt-q-title', id: titleId }, title),
-      kind ? h('div', { className: 'bt-q-detail' }, kind) : null,
-      oldDetail ? h('p', { className: 'bt-learning-description bt-learning-old' }, h('del', null, oldDetail)) : null,
-      detail ? h('p', { className: 'bt-learning-description' }, detail) : null),
-    h('span', { className: 'bt-q-badge bt-learning-status' }, h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval')))
+  return h(ActionCard, {
+    wrap: false,
+    className: 'bt-learning-card',
+    titleId,
+    busy,
+    icon: h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(agents ? PencilIcon : MemoryIcon)),
+    title: agents ? kind : proposal.name,
+    detail: agents ? null : [
+      kind,
+      oldDetail ? h('p', { key: 'old', className: 'bt-learning-description bt-learning-old' }, h('del', null, oldDetail)) : null,
+      proposal.description ? h('p', { key: 'desc', className: 'bt-learning-description' }, proposal.description) : null,
+    ],
+    badge: h('span', { className: 'bt-q-badge bt-learning-status' }, h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval')),
+    footer: h(ProposalFoot, { busy, answer }),
+  },
+  change,
+  error ? h('div', { className: 'bt-learning-error', role: 'alert' }, error) : null)
 }
 
 function ProposalFoot({ busy, answer }) {

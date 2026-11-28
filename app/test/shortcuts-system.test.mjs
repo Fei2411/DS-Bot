@@ -148,39 +148,56 @@ function loadUi() {
   sandbox.globalThis = sandbox
   runInNewContext(outputFiles[0].text, sandbox)
 
-  function expand(node) {
-    if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') return node
-    if (Array.isArray(node)) return node.map(expand)
-    if (typeof node.type === 'function') {
-      return expand(node.type(node.props ?? {}))
-    }
-    return { ...node, props: { ...(node.props ?? {}), children: expand(node.props?.children ?? []) } }
-  }
-
   function mount(Comp, initialProps) {
     let props = initialProps
-    const state = { s: [] }
-    const runEffects = (queued) => {
-      for (const item of queued) {
-        if (typeof item.prev?.cleanup === 'function') item.prev.cleanup()
-        const cleanup = item.fn()
-        state.s[item.i] = { deps: item.deps, cleanup }
+    const states = new Map()
+    const runNode = (node, path, seen, effects) => {
+      if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') return node
+      if (Array.isArray(node)) return node.map((child, idx) => runNode(child, `${path}.${idx}`, seen, effects))
+      if (typeof node.type === 'function') {
+        const key = `${path}:${node.type.name || 'fn'}`
+        seen.add(key)
+        const st = states.get(key) ?? { s: [] }
+        states.set(key, st)
+        const prev = active
+        active = { i: 0, s: st.s, e: [] }
+        const out = node.type(node.props ?? {})
+        const queued = active.e
+        active = prev
+        const expanded = runNode(out, `${key}:r`, seen, effects)
+        effects.push({ st, queued })
+        return expanded
       }
+      return { ...node, props: { ...(node.props ?? {}), children: runNode(node.props?.children ?? [], `${path}:c`, seen, effects) } }
     }
     return {
       render(nextProps = props) {
         props = nextProps
-        active = { i: 0, s: state.s, e: [] }
-        const raw = Comp(props)
-        const queued = active.e
-        active = null
-        runEffects(queued)
-        return expand(raw)
+        const seen = new Set()
+        const effects = []
+        const tree = runNode(createElement(Comp, props), 'root', seen, effects)
+        for (const [key, st] of [...states.entries()]) {
+          if (!seen.has(key)) {
+            for (const slot of st.s) if (typeof slot?.cleanup === 'function') slot.cleanup()
+            states.delete(key)
+          }
+        }
+        for (const { st, queued } of effects) {
+          for (const item of queued) {
+            if (typeof item.prev?.cleanup === 'function') item.prev.cleanup()
+            const cleanup = item.fn()
+            st.s[item.i] = { deps: item.deps, cleanup }
+          }
+        }
+        return tree
       },
       unmount() {
-        for (const slot of state.s) {
-          if (typeof slot?.cleanup === 'function') slot.cleanup()
+        for (const st of states.values()) {
+          for (const slot of st.s) {
+            if (typeof slot?.cleanup === 'function') slot.cleanup()
+          }
         }
+        states.clear()
       },
     }
   }

@@ -8,6 +8,7 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, CloseIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { keyLetter, useOptionKeys } from '../../../ds-bot/src/client/questions.js'
+import { ActionCard } from '../../../ds-bot/src/client/ui/card.js'
 import { PlanModeIcon } from './classic-controls.js'
 
 const RECOMMENDED_SUFFIX = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/iu
@@ -226,69 +227,99 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
   }
 
   if (minimized) {
-    return h('div', { className: 'bt-q bt-q-raised dsb-cq-mini', 'data-classic-question': '' },
-      h('div', { className: 'dsb-cq-mini-bar' },
-        h('span', { className: 'dsb-cq-mini-title' }, question.header ? `${question.header} · ${question.question}` : question.question),
-        total > 1 ? h('span', { className: 'bt-q-badge' }, `${answeredCount}/${total}`) : null,
-        h('button', {
-          type: 'button',
-          className: 'bt-q-btn dsb-cq-mini-btn',
-          onClick: () => setMinimized(false),
-        }, t('Expand'))))
+    return h(ActionCard, {
+      mode: 'dock',
+      wrap: false,
+      as: 'div',
+      className: 'dsb-cq-mini',
+      dataAttrs: { 'data-classic-question': '' },
+    },
+    h('div', { className: 'dsb-cq-mini-bar' },
+      h('span', { className: 'dsb-cq-mini-title' }, question.header ? `${question.header} · ${question.question}` : question.question),
+      total > 1 ? h('span', { className: 'bt-q-badge' }, `${answeredCount}/${total}`) : null,
+      h('button', {
+        type: 'button',
+        className: 'bt-q-btn dsb-cq-mini-btn',
+        onClick: () => setMinimized(false),
+      }, t('Expand'))))
   }
 
-  return h('form', {
-    className: 'bt-q bt-q-raised dsb-cq',
-    'data-classic-question': '',
-    'aria-labelledby': titleId,
-    'aria-busy': busy || undefined,
+  return h(ActionCard, {
+    mode: 'dock',
+    wrap: false,
+    as: 'form',
+    className: 'dsb-cq',
+    titleId,
+    busy,
+    dataAttrs: { 'data-classic-question': '' },
     onSubmit: (event) => {
       event.preventDefault()
       handleCustomSubmit()
     },
+    header: h('div', { className: 'bt-q-head' },
+      h('div', { className: 'bt-q-text' },
+        total > 1 ? h('div', { className: 'dsb-cq-pager' },
+          h('span', { className: 'dsb-cq-step' }, t('Question {current} of {total}', { current: safeIndex + 1, total })),
+          h('div', { className: 'dsb-cq-nav' },
+            h('button', {
+              type: 'button',
+              className: 'dsb-cq-nav-btn',
+              disabled: safeIndex === 0 || busy,
+              'aria-label': t('Previous question'),
+              title: t('Previous question'),
+              onClick: () => setIndex(Math.max(0, safeIndex - 1)),
+            }, h(ChevronLeftIcon)),
+            h('button', {
+              type: 'button',
+              className: 'dsb-cq-nav-btn',
+              disabled: safeIndex >= total - 1 || busy,
+              'aria-label': t('Next question'),
+              title: t('Next question'),
+              onClick: () => setIndex(Math.min(total - 1, safeIndex + 1)),
+            }, h(ChevronRightIcon)))) : null,
+        h('p', { className: 'bt-q-title', id: titleId }, question.header ? `${question.header} · ` : '', question.question),
+        question.detail ? h('div', { className: 'bt-q-detail' }, question.detail) : null,
+        multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null),
+      h('div', { className: 'dsb-cq-head-acts' },
+        remainingMs !== null ? h('span', { className: 'dsb-cq-timer', 'aria-live': 'off' }, formatCountdown(remainingMs)) : null,
+        h('button', {
+          type: 'button',
+          className: 'bt-q-x',
+          'aria-label': t('Minimize'),
+          title: t('Minimize'),
+          disabled: busy,
+          onClick: () => setMinimized(true),
+        }, h(ChevronDownIcon)),
+        entry.mode !== 'continued' ? h('button', {
+          type: 'button',
+          className: 'bt-q-x',
+          'aria-label': t('Dismiss question'),
+          title: t('Dismiss'),
+          disabled: busy || readOnly,
+          onClick: () => { void dismiss() },
+        }, h(CloseIcon)) : null)),
+    footer: h('div', { className: 'bt-q-foot dsb-cq-foot' },
+      draft.skipped ? h('span', { className: 'bt-q-badge' }, t('Skipped')) : null,
+      h('div', { className: 'dsb-cq-foot-acts' },
+        h('button', {
+          type: 'button',
+          className: 'bt-q-btn',
+          disabled: busy || readOnly,
+          onClick: skipCurrent,
+        }, t('Skip')),
+        total > 1 && safeIndex < total - 1 && !allReady
+          ? h('button', {
+            type: 'button',
+            className: 'bt-q-submit',
+            disabled: !currentReady || busy || readOnly,
+            onClick: () => setIndex(safeIndex + 1),
+          }, t('Next question'))
+          : h('button', {
+            type: 'submit',
+            className: 'bt-q-submit',
+            disabled: (total > 1 ? !allReady : !currentReady) || busy || readOnly,
+          }, total > 1 ? t('Submit ({answered}/{total})', { answered: answeredCount, total }) : t('Submit')))),
   },
-  h('div', { className: 'bt-q-head' },
-    h('div', { className: 'bt-q-text' },
-      total > 1 ? h('div', { className: 'dsb-cq-pager' },
-        h('span', { className: 'dsb-cq-step' }, t('Question {current} of {total}', { current: safeIndex + 1, total })),
-        h('div', { className: 'dsb-cq-nav' },
-          h('button', {
-            type: 'button',
-            className: 'dsb-cq-nav-btn',
-            disabled: safeIndex === 0 || busy,
-            'aria-label': t('Previous question'),
-            title: t('Previous question'),
-            onClick: () => setIndex(Math.max(0, safeIndex - 1)),
-          }, h(ChevronLeftIcon)),
-          h('button', {
-            type: 'button',
-            className: 'dsb-cq-nav-btn',
-            disabled: safeIndex >= total - 1 || busy,
-            'aria-label': t('Next question'),
-            title: t('Next question'),
-            onClick: () => setIndex(Math.min(total - 1, safeIndex + 1)),
-          }, h(ChevronRightIcon)))) : null,
-      h('p', { className: 'bt-q-title', id: titleId }, question.header ? `${question.header} · ` : '', question.question),
-      question.detail ? h('div', { className: 'bt-q-detail' }, question.detail) : null,
-      multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null),
-    h('div', { className: 'dsb-cq-head-acts' },
-      remainingMs !== null ? h('span', { className: 'dsb-cq-timer', 'aria-live': 'off' }, formatCountdown(remainingMs)) : null,
-      h('button', {
-        type: 'button',
-        className: 'bt-q-x',
-        'aria-label': t('Minimize'),
-        title: t('Minimize'),
-        disabled: busy,
-        onClick: () => setMinimized(true),
-      }, h(ChevronDownIcon)),
-      entry.mode !== 'continued' ? h('button', {
-        type: 'button',
-        className: 'bt-q-x',
-        'aria-label': t('Dismiss question'),
-        title: t('Dismiss'),
-        disabled: busy || readOnly,
-        onClick: () => { void dismiss() },
-      }, h(CloseIcon)) : null)),
   h('div', { className: 'bt-q-list', role: 'group' },
     options.map((option, optionIndex) => {
       const parsed = parseRecommendedLabel(option.label)
@@ -347,28 +378,7 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
           handleCustomSubmit()
         },
       })))),
-  error ? h('p', { className: 'dsb-cq-error', role: 'alert' }, error) : null,
-  h('div', { className: 'bt-q-foot dsb-cq-foot' },
-    draft.skipped ? h('span', { className: 'bt-q-badge' }, t('Skipped')) : null,
-    h('div', { className: 'dsb-cq-foot-acts' },
-      h('button', {
-        type: 'button',
-        className: 'bt-q-btn',
-        disabled: busy || readOnly,
-        onClick: skipCurrent,
-      }, t('Skip')),
-      total > 1 && safeIndex < total - 1 && !allReady
-        ? h('button', {
-          type: 'button',
-          className: 'bt-q-submit',
-          disabled: !currentReady || busy || readOnly,
-          onClick: () => setIndex(safeIndex + 1),
-        }, t('Next question'))
-        : h('button', {
-          type: 'submit',
-          className: 'bt-q-submit',
-          disabled: (total > 1 ? !allReady : !currentReady) || busy || readOnly,
-        }, total > 1 ? t('Submit ({answered}/{total})', { answered: answeredCount, total }) : t('Submit')))))
+  error ? h('p', { className: 'dsb-cq-error', role: 'alert' }, error) : null)
 }
 
 export function ClassicQuestionDock({ sessionId, useUserQuestions, useRoster, actions, readOnly = false }) {
@@ -473,41 +483,71 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
     }
   }
 
-  return h('section', {
-    className: 'bt-q bt-q-raised dsb-plan-review',
-    'data-plan-review': '',
-    'aria-labelledby': titleId,
-    'aria-busy': busy || undefined,
+  return h(ActionCard, {
+    mode: 'dock',
+    wrap: false,
+    className: 'dsb-plan-review',
+    titleId,
+    busy,
+    dataAttrs: { 'data-plan-review': '' },
+    header: h('div', { className: 'dsb-plan-review-head' },
+      h('span', { className: 'dsb-plan-review-ico', 'aria-hidden': true }, h(PlanModeIcon)),
+      h('div', { className: 'dsb-plan-review-titles' },
+        h('h3', { id: titleId, className: 'dsb-plan-review-title' }, title),
+        h('span', { className: 'dsb-plan-badge', 'data-tone': 'pending' }, t('Pending review'))),
+      h('div', { className: 'dsb-plan-review-tools' },
+        planMarkdown ? h('button', {
+          type: 'button',
+          className: 'bt-q-x',
+          'aria-label': copied ? t('Copied') : t('Copy plan'),
+          title: copied ? t('Copied') : t('Copy plan'),
+          onClick: () => { void copyPlan() },
+        }, copied ? h(CheckIcon) : h(CopyIcon)) : null,
+        bodyMarkdown ? h('button', {
+          type: 'button',
+          className: 'bt-q-x',
+          'aria-label': expanded ? t('Collapse plan') : t('Show full plan'),
+          title: expanded ? t('Collapse plan') : t('Show full plan'),
+          'aria-expanded': expanded,
+          onClick: () => setExpanded(value => !value),
+        }, expanded ? h(ChevronUpIcon) : h(ChevronDownIcon)) : null,
+        entry.mode !== 'continued' ? h('button', {
+          type: 'button',
+          className: 'bt-q-x',
+          'aria-label': t('Dismiss'),
+          title: t('Dismiss'),
+          disabled: busy || readOnly,
+          onClick: () => { void dismiss() },
+        }, h(CloseIcon)) : null)),
+    footer: h('div', { className: 'bt-q-foot dsb-plan-review-foot' },
+      askingChanges
+        ? h(Fragment, null,
+          h('button', {
+            type: 'button',
+            className: 'bt-q-btn',
+            disabled: busy,
+            onClick: () => { setAskingChanges(false); setError('') },
+          }, t('Cancel')),
+          h('button', {
+            type: 'button',
+            className: 'bt-q-submit',
+            disabled: busy || readOnly,
+            onClick: () => { void requestChanges() },
+          }, t('Send feedback')))
+        : h(Fragment, null,
+          h('button', {
+            type: 'button',
+            className: 'bt-q-btn',
+            disabled: busy || readOnly,
+            onClick: () => setAskingChanges(true),
+          }, t('Ask for changes')),
+          h('button', {
+            type: 'button',
+            className: 'bt-q-submit',
+            disabled: busy || readOnly,
+            onClick: () => { void approve() },
+          }, t('Approve')))),
   },
-  h('div', { className: 'dsb-plan-review-head' },
-    h('span', { className: 'dsb-plan-review-ico', 'aria-hidden': true }, h(PlanModeIcon)),
-    h('div', { className: 'dsb-plan-review-titles' },
-      h('h3', { id: titleId, className: 'dsb-plan-review-title' }, title),
-      h('span', { className: 'dsb-plan-badge', 'data-tone': 'pending' }, t('Pending review'))),
-    h('div', { className: 'dsb-plan-review-tools' },
-      planMarkdown ? h('button', {
-        type: 'button',
-        className: 'bt-q-x',
-        'aria-label': copied ? t('Copied') : t('Copy plan'),
-        title: copied ? t('Copied') : t('Copy plan'),
-        onClick: () => { void copyPlan() },
-      }, copied ? h(CheckIcon) : h(CopyIcon)) : null,
-      bodyMarkdown ? h('button', {
-        type: 'button',
-        className: 'bt-q-x',
-        'aria-label': expanded ? t('Collapse plan') : t('Show full plan'),
-        title: expanded ? t('Collapse plan') : t('Show full plan'),
-        'aria-expanded': expanded,
-        onClick: () => setExpanded(value => !value),
-      }, expanded ? h(ChevronUpIcon) : h(ChevronDownIcon)) : null,
-      entry.mode !== 'continued' ? h('button', {
-        type: 'button',
-        className: 'bt-q-x',
-        'aria-label': t('Dismiss'),
-        title: t('Dismiss'),
-        disabled: busy || readOnly,
-        onClick: () => { void dismiss() },
-      }, h(CloseIcon)) : null)),
   bodyMarkdown ? h('div', {
     className: 'dsb-plan-review-body',
     'data-expanded': expanded ? '' : undefined,
@@ -530,35 +570,7 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
         void requestChanges()
       },
     })) : null,
-  error ? h('p', { className: 'dsb-cq-error', role: 'alert' }, error) : null,
-  h('div', { className: 'bt-q-foot dsb-plan-review-foot' },
-    askingChanges
-      ? h(Fragment, null,
-        h('button', {
-          type: 'button',
-          className: 'bt-q-btn',
-          disabled: busy,
-          onClick: () => { setAskingChanges(false); setError('') },
-        }, t('Cancel')),
-        h('button', {
-          type: 'button',
-          className: 'bt-q-submit',
-          disabled: busy || readOnly,
-          onClick: () => { void requestChanges() },
-        }, t('Send feedback')))
-      : h(Fragment, null,
-        h('button', {
-          type: 'button',
-          className: 'bt-q-btn',
-          disabled: busy || readOnly,
-          onClick: () => setAskingChanges(true),
-        }, t('Ask for changes')),
-        h('button', {
-          type: 'button',
-          className: 'bt-q-submit',
-          disabled: busy || readOnly,
-          onClick: () => { void approve() },
-        }, t('Approve')))))
+  error ? h('p', { className: 'dsb-cq-error', role: 'alert' }, error) : null)
 }
 
 export function ClassicPlanReviewDock({ sessionId, useUserQuestions, useRoster, actions, readOnly = false }) {
