@@ -1336,19 +1336,22 @@ function handleIpc() {
       expectedRoot: '',
     }
   }
-  const assertNotUserData = (candidate) => {
+  const assertNotUserData = (candidate, { isDirectory = true } = {}) => {
     if (typeof candidate !== 'string' || !candidate) return
     const rawUserData = app.getPath('userData')
     if (!rawUserData) return
     let realUserData
     try { realUserData = realpathSync(resolve(rawUserData)) } catch { realUserData = resolve(rawUserData) }
-    if (withinRoot(candidate, realUserData) || withinRoot(realUserData, candidate)) {
+    if (withinRoot(candidate, realUserData)) {
+      throw new Error('Path is inside protected data')
+    }
+    if (isDirectory && withinRoot(realUserData, candidate)) {
       throw new Error('Path is inside protected data')
     }
   }
   // Delegate workspace containment and realpath resolution exclusively to the Host over the
   // private parent-child Node IPC pipe so renderer-reported `places.workspace` is never trusted.
-  const resolveHostWorkspaceTarget = (payload) => new Promise((resolveReq, rejectReq) => {
+  const resolveHostWorkspaceTarget = (payload, { allowAncestorDir = false } = {}) => new Promise((resolveReq, rejectReq) => {
     const activeHost = host
     if (!activeHost) {
       rejectReq(new Error('Host is not ready'))
@@ -1374,8 +1377,10 @@ function handleIpc() {
         return
       }
       try {
-        assertNotUserData(res.target)
-        assertNotUserData(res.dir)
+        // Ancestor-enclosing check applies only to directory targets that will actually be opened/dragged:
+        // when the workspace is `$HOME` (an ancestor of `userData`), files outside `userData` remain allowed.
+        assertNotUserData(res.target, { isDirectory: !allowAncestorDir && res.isDirectory !== false })
+        assertNotUserData(res.dir, { isDirectory: false })
       } catch (err) {
         rejectReq(err)
         return
@@ -1415,7 +1420,7 @@ function handleIpc() {
     let safeDir = null
     if (req.sessionId || req.path) {
       try {
-        const resolved = await resolveHostWorkspaceTarget(req)
+        const resolved = await resolveHostWorkspaceTarget(req, { allowAncestorDir: true })
         safeDir = resolved.dir
       } catch {
         safeDir = null

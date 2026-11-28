@@ -2150,3 +2150,86 @@ test('OpenInAppMenu uses portal clamping and ESCAPE_PRIORITY.MENU, context menu 
     sandbox.window.innerHeight = prevInnerHeight
   }
 })
+
+test('FileTree remembers and displays per-directory Open-in-App defaults independently for subdirectories and root', async () => {
+  const prevBridge = sandbox.window.dsBotApp
+  const listCalls = []
+  const defaultsByPath = new Map([['', 'cursor'], ['sub', 'ghostty']])
+  sandbox.window.dsBotApp = {
+    openInApp: {
+      list: async (req) => {
+        listCalls.push(plain(req))
+        const dirKey = typeof req === 'object' ? (req.path ?? '') : ''
+        return {
+          apps: [
+            { id: 'cursor', name: 'Cursor', category: 'editor' },
+            { id: 'ghostty', name: 'Ghostty', category: 'terminal' },
+            { id: 'zed', name: 'Zed', category: 'editor' },
+          ],
+          defaultId: defaultsByPath.get(dirKey) ?? 'cursor',
+        }
+      },
+      open: async (appId, req) => {
+        const p = req?.path ?? ''
+        const dirKey = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+        defaultsByPath.set(dirKey, appId)
+        return { ok: true, defaultId: appId }
+      },
+    },
+    startDrag: () => {},
+  }
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-list') {
+      if (body?.path === 'sub') {
+        return {
+          root: '/repo', rootName: 'repo', path: 'sub', truncated: false,
+          entries: [{ name: 'child.js', path: 'sub/child.js', kind: 'file', size: 10, ext: '.js' }],
+        }
+      }
+      return {
+        root: '/repo', rootName: 'repo', path: '', truncated: false,
+        entries: [{ name: 'sub', path: 'sub', kind: 'dir', size: 0, ext: '' }],
+      }
+    }
+    if (endpoint === 'workspace-watch') return { watchId: 'w-dir', root: '/repo', recursive: true }
+    return {}
+  }
+
+  const team = createTeam()
+  const inst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+  try {
+    inst.render()
+    await tick()
+    inst.render()
+    await tick()
+    let tree = inst.render()
+    // Root split button displays root's default (Cursor).
+    assert.match(textOf(all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-btn'))[0]), /Cursor/)
+
+    // Expand `sub/` and open context menu on `sub/child.js`.
+    all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'sub')[0].props.onClick()
+    await tick()
+    tree = inst.render()
+    const childRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'sub/child.js')[0]
+    assert.ok(childRow, 'sub/child.js renders after expanding sub')
+    childRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 50, clientY: 60, currentTarget: {} })
+    tree = inst.render()
+    await tick()
+    tree = inst.render()
+
+    assert.ok(listCalls.some(c => c.path === 'sub'), 'opening context menu in sub/ must query bridge.list with path:"sub"')
+    const ghosttyItem = all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'app:ghostty')[0]
+    const cursorItem = all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'app:cursor')[0]
+    assert.equal(ghosttyItem?.props?.['data-default'], '', 'context menu for sub/child.js must mark Ghostty as subdir default')
+    assert.equal(cursorItem?.props?.['data-default'], undefined, 'context menu for sub/child.js must not mark root default Cursor')
+
+    // Choosing Zed on sub/child.js updates sub/'s default without clobbering root header split button (Cursor).
+    all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'app:zed')[0].props.onClick()
+    await tick()
+    tree = inst.render()
+    assert.match(textOf(all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-btn'))[0]), /Cursor/, 'opening sub/child.js in Zed must keep root header split button at Cursor')
+  } finally {
+    inst.unmount()
+    sandbox.window.dsBotApp = prevBridge
+  }
+})

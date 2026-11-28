@@ -372,7 +372,7 @@ function FileTreeContextMenu({ menu, expanded, openApps = [], defaultAppId = nul
           icon: app.category === 'terminal' ? TerminalIcon : OpenExternalIcon,
           label: t('Open in {app}', { app: app.name }),
           checked: app.id === defaultAppId,
-          onClick: run(() => onOpenInApp(app.id, entry.path, activeMenu.root)),
+          onClick: run(() => onOpenInApp(app.id, entry.path, activeMenu.root, entry.kind)),
         })),
       ]
     : []
@@ -412,8 +412,12 @@ function FileTreeContextMenu({ menu, expanded, openApps = [], defaultAppId = nul
       role: 'menuitem',
       className: 'bt-menu-item',
       'data-ft-action': item.key,
+      'data-default': item.checked ? '' : undefined,
       onClick: item.onClick,
-    }, h(item.icon), h('span', null, item.label)))))
+    },
+    h(item.icon),
+    h('span', { className: item.checked !== undefined ? 'dsb-ft-openapp-item-name' : undefined }, item.label),
+    item.checked ? h(CheckIcon) : null))))
 
   const target = typeof document !== 'undefined' && document?.body ? document.body : null
   return target ? createPortal(node, target) : node
@@ -506,6 +510,12 @@ function OpenInAppMenu({ open, anchorRef, apps, defaultAppId, onSelect, onClose 
   return target ? createPortal(node, target) : node
 }
 
+const parentRelDir = (relPath) => {
+  const s = String(relPath ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const idx = s.lastIndexOf('/')
+  return idx > 0 ? s.slice(0, idx) : ''
+}
+
 function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, revealNonce = 0, onOpenFile, active = true }) {
   const [rootInfo, setRootInfo] = useState({ root: '', rootName: '', missing: false, truncated: false })
   const [childrenByPath, setChildrenByPath] = useState({})
@@ -519,7 +529,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
   const [openApps, setOpenApps] = useState([])
-  const [defaultAppId, setDefaultAppId] = useState(null)
+  const [dirDefaults, setDirDefaults] = useState(() => ({}))
   const [appMenuOpen, setAppMenuOpen] = useState(false)
   const appMenuRef = useRef(null)
   const genRef = useRef(0)
@@ -700,22 +710,42 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     setAppMenuOpen(false)
   }, [sessionId])
 
-  // Load installed editors/terminals and per-directory default when the Electron bridge is available.
+  // Load installed editors/terminals and workspace-root default when the Electron bridge is available.
   useEffect(() => {
     const bridge = typeof window !== 'undefined' ? window.dsBotApp?.openInApp : null
     if (!bridge || typeof bridge.list !== 'function' || !rootInfo.root) {
       setOpenApps([])
-      setDefaultAppId(null)
+      setDirDefaults({})
       return undefined
     }
     let alive = true
+    setDirDefaults({})
     void bridge.list({ sessionId: sessionId ?? '', path: '', expectedRoot: rootInfo.root }).then((res) => {
       if (!alive) return
       setOpenApps(Array.isArray(res?.apps) ? res.apps : [])
-      setDefaultAppId(typeof res?.defaultId === 'string' ? res.defaultId : null)
+      const rootDefault = typeof res?.defaultId === 'string' ? res.defaultId : null
+      setDirDefaults(prev => ({ ...prev, '': rootDefault }))
     }).catch(() => {})
     return () => { alive = false }
   }, [sessionId, rootInfo.root])
+
+  // Load the per-directory default app for the right-clicked entry's own folder (via Host canonicalization).
+  const menuDirRel = menu?.entry
+    ? (menu.entry.kind === 'dir' ? (menu.entry.path || '') : parentRelDir(menu.entry.path))
+    : null
+  useEffect(() => {
+    if (menuDirRel === null || menuDirRel === '') return undefined
+    const bridge = typeof window !== 'undefined' ? window.dsBotApp?.openInApp : null
+    const expectedRoot = menu?.root || rootInfo.root
+    if (!bridge || typeof bridge.list !== 'function' || !expectedRoot) return undefined
+    let alive = true
+    void bridge.list({ sessionId: sessionId ?? '', path: menuDirRel, expectedRoot }).then((res) => {
+      if (!alive) return
+      const dirDefault = typeof res?.defaultId === 'string' ? res.defaultId : null
+      setDirDefaults(prev => (prev[menuDirRel] === dirDefault ? prev : { ...prev, [menuDirRel]: dirDefault }))
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [menuDirRel, menu?.root, sessionId, rootInfo.root])
 
   // When returning from a hidden tab (e.g. Preview/Terminal), refresh once cleanly.
   useEffect(() => {
@@ -989,15 +1019,16 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     })
   }, [actions])
 
-  const openInAppTarget = useCallback((appId, relPath = '', capturedRoot = '') => {
+  const openInAppTarget = useCallback((appId, relPath = '', capturedRoot = '', entryKind = 'dir') => {
     const bridge = typeof window !== 'undefined' ? window.dsBotApp?.openInApp : null
     if (!bridge || typeof bridge.open !== 'function') return
     const root = capturedRoot || rootPathRef.current
     if (!root) return
+    const targetDirRel = entryKind === 'dir' ? (relPath || '') : parentRelDir(relPath)
     setAppMenuOpen(false)
     void bridge.open(appId, { sessionId: sessionId ?? '', path: relPath || '', dirPath: '', expectedRoot: root }).then((res) => {
-      if (typeof res?.defaultId === 'string') setDefaultAppId(res.defaultId)
-      else setDefaultAppId(appId)
+      const nextDefault = typeof res?.defaultId === 'string' ? res.defaultId : appId
+      setDirDefaults(prev => (prev[targetDirRel] === nextDefault ? prev : { ...prev, [targetDirRel]: nextDefault }))
     }).catch((failure) => {
       const msg = hostText(failure?.message ?? String(failure))
       if (actions?.reportError) actions.reportError(failure, 'open-in-app')
@@ -1006,7 +1037,11 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   }, [sessionId, actions])
 
   const closeAppMenu = useCallback(() => setAppMenuOpen(false), [])
-  const defaultApp = openApps.find(app => app.id === defaultAppId) ?? openApps[0] ?? null
+  const rootDefaultAppId = dirDefaults[''] ?? null
+  const defaultApp = openApps.find(app => app.id === rootDefaultAppId) ?? openApps[0] ?? null
+  const menuDefaultAppId = menuDirRel !== null && Object.hasOwn(dirDefaults, menuDirRel)
+    ? dirDefaults[menuDirRel]
+    : (defaultApp?.id ?? null)
 
   const rootEntries = childrenByPath[''] ?? []
   const rows = TreeBranch({
@@ -1102,7 +1137,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
       menu,
       expanded,
       openApps,
-      defaultAppId: defaultApp?.id ?? null,
+      defaultAppId: menuDefaultAppId,
       onOpen: openFileTarget,
       onToggleDir: toggleDir,
       onReveal: (path, root) => runOpenAction(path, 'reveal', root),

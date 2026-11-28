@@ -109,6 +109,51 @@ test('open-in-app and start-drag delegate containment to the Host IPC even after
     state.ipc.get('ds-bot:start-drag')(event, { sessionId: 'b1', path: 'ok.txt' })
     await waitFor(() => win.webContents.drags.length === 1, 'start-drag invokes webContents.startDrag with Host canonical path')
     assert.equal(win.webContents.drags[0].file, '/real-ws/ok.txt')
+
+    // 3. When workspace is an ancestor of `userData` (e.g. `$HOME`), files outside `userData` MUST be allowed,
+    //    while files inside `userData` and directory targets enclosing `userData` MUST still be rejected.
+    const ancestorRoot = paths.root // parent of `paths.userData`
+    const siblingFile = join(ancestorRoot, 'home-note.txt')
+    const insideUserData = join(paths.userData, 'locations.json')
+    hostState.onSend = (msg, reply) => {
+      if (msg?.type !== 'ds-bot:workspace-resolve-target') return
+      if (msg.path === 'home-note.txt') {
+        reply({
+          type: 'ds-bot:workspace-resolve-target-response',
+          id: msg.id,
+          result: { root: ancestorRoot, target: siblingFile, dir: ancestorRoot, isDirectory: false },
+        })
+        return
+      }
+      if (msg.path === 'inside-ud') {
+        reply({
+          type: 'ds-bot:workspace-resolve-target-response',
+          id: msg.id,
+          result: { root: ancestorRoot, target: insideUserData, dir: paths.userData, isDirectory: false },
+        })
+        return
+      }
+      if (msg.path === '') {
+        reply({
+          type: 'ds-bot:workspace-resolve-target-response',
+          id: msg.id,
+          result: { root: ancestorRoot, target: ancestorRoot, dir: ancestorRoot, isDirectory: true },
+        })
+      }
+    }
+    win.webContents.drags.length = 0
+    state.ipc.get('ds-bot:start-drag')(event, { sessionId: 'b1', path: 'home-note.txt' })
+    await waitFor(() => win.webContents.drags.length === 1, 'file in ancestor of userData ($HOME) must be allowed for drag/open')
+    assert.equal(win.webContents.drags[0].file, siblingFile)
+
+    await assert.rejects(
+      () => state.ipc.get('ds-bot:open-in-app-open')(event, anyAppId, { sessionId: 'b1', path: 'inside-ud' }),
+      /protected data/i,
+    )
+    await assert.rejects(
+      () => state.ipc.get('ds-bot:open-in-app-open')(event, anyAppId, { sessionId: 'b1', path: '' }),
+      /protected data/i,
+    )
   } finally {
     hostState.onSend = null
   }
