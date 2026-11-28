@@ -2202,3 +2202,93 @@ test('WorkspaceTerminal preserves post-clear output across close/reopen, never j
     menuInst.unmount()
   }
 })
+
+test('WorkspaceTerminal prunes stale tabs cleanly without setState side effects, resets editingId, guards IME rename, closes shell menu on rename, and deduplicates Enter+blur rename RPCs', async () => {
+  const team = createTeam()
+  const renameCalls = []
+  let serverTerms = [
+    { id: 'term-prune-1', cwd: '/repo', title: 'repo', customTitle: false, pty: true, start: 1, end: 0, clearedAt: 0, parts: [], truncated: false, exited: false, exitCode: null },
+    { id: 'term-keep-2', cwd: '/repo', title: 'other', customTitle: false, pty: true, start: 1, end: 0, clearedAt: 0, parts: [], truncated: false, exited: false, exitCode: null },
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'terminal-list') return serverTerms
+    if (endpoint === 'terminal-shells') {
+      return {
+        defaultId: '/bin/zsh',
+        shells: [
+          { id: '/bin/zsh', name: 'zsh', path: '/bin/zsh', isDefault: true },
+          { id: '/bin/bash', name: 'bash', path: '/bin/bash', isDefault: false },
+        ],
+      }
+    }
+    if (endpoint === 'terminal-rename') {
+      renameCalls.push(body)
+      return { id: body.id, title: body.title, customTitle: true }
+    }
+    return true
+  }
+
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    let tree = inst.render()
+    assert.equal(sandbox.__xterms.length, 2)
+
+    // 1. Open shell menu, then double-click tab to start rename -> shell menu closes.
+    const shellBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-term-shell-btn'))[0]
+    shellBtn.props.ref.current.getBoundingClientRect = () => ({ left: 400, right: 424, top: 84, bottom: 112, width: 24, height: 28 })
+    shellBtn.props.onClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 1)
+
+    const firstTabBtn = all(tree, n => n.type === 'button' && n.props?.role === 'tab')[0]
+    firstTabBtn.props.onDoubleClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'startRename must close shell picker menu')
+
+    // 2. IME composition Enter (isComposing: true) and Chromium keyCode 229 must NOT commit or cancel rename.
+    let editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+    assert.ok(editInput)
+    editInput.props.onChange({ target: { value: '开发服务器' } })
+    tree = inst.render()
+    editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+
+    let prevented = false
+    editInput.props.onKeyDown({ key: 'Enter', isComposing: true, keyCode: 13, currentTarget: { value: '开发服务器' }, preventDefault() { prevented = true } })
+    editInput.props.onKeyDown({ key: 'Enter', isComposing: false, keyCode: 229, currentTarget: { value: '开发服务器' }, preventDefault() { prevented = true } })
+    editInput.props.onKeyDown({ key: 'Escape', isComposing: true, keyCode: 27, currentTarget: { value: '开发服务器' }, preventDefault() { prevented = true } })
+    tree = inst.render()
+    assert.equal(prevented, false, 'IME keystrokes must not be intercepted')
+    assert.equal(renameCalls.length, 0, 'IME Enter must not commit terminal-rename')
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit').length, 1, 'rename input stays open during IME composition')
+
+    // 3. Real Enter commits once, and immediate onBlur does NOT fire a duplicate terminal-rename.
+    editInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit')[0]
+    editInput.props.onKeyDown({ key: 'Enter', isComposing: false, keyCode: 13, currentTarget: { value: '开发服务器' }, preventDefault() {} })
+    editInput.props.onBlur({ target: { value: '开发服务器' } })
+    await tick()
+    tree = inst.render()
+    assert.equal(renameCalls.length, 1, 'Enter followed by onBlur must send terminal-rename only once')
+    assert.equal(renameCalls[0].title, '开发服务器')
+
+    // 4. Start rename on tab 1, then host restarts and drops tab 1 -> pruning disposes xterm AND clears editingId.
+    all(tree, n => n.type === 'button' && n.props?.role === 'tab')[0].props.onDoubleClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit').length, 1)
+
+    const prunedXterm = sandbox.__xterms[0]
+    serverTerms = [serverTerms[1]]
+    team.chat.emit('hello', { resumed: false })
+    await tick()
+    await tick()
+    tree = inst.render()
+    assert.equal(prunedXterm.disposed, true, 'pruned stale terminal xterm writer must be disposed synchronously outside setState')
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-tab-edit').length, 0, 'pruning a tab being renamed must clear editingId')
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.role === 'tab').length, 1)
+  } finally {
+    inst.unmount()
+  }
+})

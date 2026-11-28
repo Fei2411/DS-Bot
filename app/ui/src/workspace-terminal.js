@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
+import { isImeComposing } from '../../../ds-bot/src/client/enter-key.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { ChevronDownIcon, CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
@@ -832,7 +833,10 @@ export function WorkspaceTerminal({
   const syncFailedRef = useRef(false)
   const syncPromiseRef = useRef(null)
   const syncRef = useRef(null)
+  const renameDoneRef = useRef(false)
   const { terms, activeId } = state
+  const termsRef = useRef(terms)
+  termsRef.current = terms
 
   useEffect(() => {
     mountedRef.current = true
@@ -972,15 +976,21 @@ export function WorkspaceTerminal({
       })
     }
     const prunedIds = []
-    setState((current) => {
-      const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
+    for (const item of termsRef.current) {
+      if (closedIdsRef.current.has(item.id)) continue
+      const openedEpoch = openedAtEpochRef.current.get(item.id) ?? 0
+      if (!serverIds.has(item.id) && openedEpoch <= syncStartEpoch) {
+        prunedIds.push(item.id)
+      }
+    }
+    const prunedSet = new Set(prunedIds)
+    const buildNextTerms = (currentTerms) => {
+      const liveCurrent = currentTerms.filter(item => !closedIdsRef.current.has(item.id))
       const byId = new Map()
       for (const item of liveCurrent) {
         const openedEpoch = openedAtEpochRef.current.get(item.id) ?? 0
         if (serverIds.has(item.id) || openedEpoch > syncStartEpoch) {
           byId.set(item.id, item)
-        } else {
-          prunedIds.push(item.id)
         }
       }
       const fresh = []
@@ -1002,10 +1012,9 @@ export function WorkspaceTerminal({
         else fresh.push(next)
       }
       const kept = liveCurrent.filter(item => byId.has(item.id)).map(item => byId.get(item.id))
-      const nextTerms = [...kept, ...fresh]
-      const keepActive = current.activeId && !closedIdsRef.current.has(current.activeId) && nextTerms.some(item => item.id === current.activeId)
-      return { terms: nextTerms, activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null) }
-    })
+      return [...kept, ...fresh]
+    }
+    termsRef.current = buildNextTerms(termsRef.current)
     for (const staleId of prunedIds) {
       knownIdsRef.current.delete(staleId)
       pendingOutputRef.current.delete(staleId)
@@ -1016,6 +1025,14 @@ export function WorkspaceTerminal({
       writersRef.current.delete(staleId)
       writer?.dispose?.()
     }
+    if (prunedSet.size > 0) {
+      setEditingId(prev => (prev && prunedSet.has(prev) ? null : prev))
+    }
+    setState((current) => {
+      const nextTerms = buildNextTerms(current.terms)
+      const keepActive = current.activeId && !closedIdsRef.current.has(current.activeId) && nextTerms.some(item => item.id === current.activeId)
+      return { terms: nextTerms, activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null) }
+    })
     return items.length
   }, [noteParts, writeOutput])
 
@@ -1087,22 +1104,26 @@ export function WorkspaceTerminal({
       if (focus && paneVisibleRef.current) {
         setFocusRequest(prev => ({ nonce: prev.nonce + 1, targetId: created.id }))
       }
+      const createdTerm = {
+        id: created.id,
+        cwd: created.cwd,
+        title: created.title,
+        customTitle: created.customTitle === true,
+        ...(created.shell ? { shell: created.shell } : {}),
+        pty: created.pty !== false,
+        exited: pendingExit?.exited === true,
+        exitCode: pendingExit?.exitCode ?? null,
+        initialSnapshot: '',
+      }
+      if (!termsRef.current.some(item => item.id === created.id)) {
+        termsRef.current = [...termsRef.current, createdTerm]
+      }
       setState((current) => {
         if (current.terms.some(item => item.id === created.id)) {
           return { ...current, activeId: created.id }
         }
         return {
-          terms: [...current.terms, {
-            id: created.id,
-            cwd: created.cwd,
-            title: created.title,
-            customTitle: created.customTitle === true,
-            ...(created.shell ? { shell: created.shell } : {}),
-            pty: created.pty !== false,
-            exited: pendingExit?.exited === true,
-            exitCode: pendingExit?.exitCode ?? null,
-            initialSnapshot: '',
-          }],
+          terms: [...current.terms, createdTerm],
           activeId: created.id,
         }
       })
@@ -1219,6 +1240,7 @@ export function WorkspaceTerminal({
     const writer = writersRef.current.get(id)
     writersRef.current.delete(id)
     writer?.dispose?.()
+    termsRef.current = termsRef.current.filter(item => item.id !== id)
     setEditingId(prev => (prev === id ? null : prev))
     setState((current) => {
       const idx = current.terms.findIndex(item => item.id === id)
@@ -1241,11 +1263,15 @@ export function WorkspaceTerminal({
 
   const startRename = useCallback((term) => {
     if (readOnly || !term) return
+    setShellMenuOpen(false)
+    renameDoneRef.current = false
     setEditingId(term.id)
     setEditingTitle(term.title ?? '')
   }, [readOnly])
 
   const commitRename = useCallback(async (id, rawTitle) => {
+    if (renameDoneRef.current) return
+    renameDoneRef.current = true
     setEditingId(prev => (prev === id ? null : prev))
     if (readOnly) return
     const nextTitle = String(rawTitle ?? '').trim().slice(0, 64)
@@ -1308,11 +1334,13 @@ export function WorkspaceTerminal({
                 onChange: (event) => setEditingTitle(event.target.value),
                 onBlur: (event) => { void commitRename(term.id, event.target.value) },
                 onKeyDown: (event) => {
+                  if (isImeComposing(event)) return
                   if (event.key === 'Enter') {
                     event.preventDefault()
                     void commitRename(term.id, event.currentTarget.value)
                   } else if (event.key === 'Escape') {
                     event.preventDefault()
+                    renameDoneRef.current = true
                     setEditingId(null)
                   }
                 },

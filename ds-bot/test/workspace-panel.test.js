@@ -1348,4 +1348,23 @@ test('terminal-clear, terminal-rename, terminal-shells, and shell selection vali
   assert.equal(listedRenamed[0].customTitle, true)
 
   await rt.terminalDispose()
+
+  // 4. detectAvailableShells rejects directory paths (stat().isFile() === false) and honors uppercase COMSPEC on Windows.
+  const dirShells = await detectAvailableShells({
+    platform: 'darwin',
+    env: { SHELL: '/tmp/not-a-shell-dir' },
+    readFileFn: async () => '/tmp/not-a-shell-dir\n/bin/zsh\n',
+    accessFn: async (p) => { if (p !== '/tmp/not-a-shell-dir' && p !== '/bin/zsh') throw new Error('ENOENT') },
+    statFn: async (p) => ({ isFile: () => p !== '/tmp/not-a-shell-dir' }),
+  })
+  assert.equal(dirShells.shells.some(s => s.path === '/tmp/not-a-shell-dir'), false, 'directory SHELL candidate must be rejected')
+  assert.deepEqual(dirShells.shells.map(s => s.path), ['/bin/zsh'])
+
+  const winUpper = await detectAvailableShells({
+    platform: 'win32',
+    env: { SystemRoot: 'C:\\Windows', COMSPEC: 'C:\\Windows\\System32\\cmd.exe' },
+    accessFn: async (p) => { if (p.toLowerCase() !== 'c:\\windows\\system32\\cmd.exe') throw new Error('ENOENT') },
+    statFn: async () => ({ isFile: () => true }),
+  })
+  assert.equal(winUpper.defaultId, 'cmd', 'uppercase COMSPEC must be recognized on Windows')
 })

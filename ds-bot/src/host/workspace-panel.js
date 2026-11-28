@@ -118,7 +118,7 @@ const TERMINAL_TITLE_MAX_CHARS = 64
 
 function defaultShell(platform = process.platform, env = process.env) {
   if (platform === 'win32') {
-    const comspec = env.ComSpec?.trim()
+    const comspec = (env.ComSpec || env.COMSPEC || '').trim()
     return [comspec || 'powershell.exe']
   }
   const sh = env.SHELL?.trim()
@@ -145,8 +145,12 @@ export async function detectAvailableShells({
   platform = process.platform,
   env = process.env,
   accessFn = access,
+  statFn = null,
   readFileFn = readFile,
 } = {}) {
+  const effectiveStatFn = typeof statFn === 'function'
+    ? statFn
+    : (accessFn === access ? stat : async () => ({ isFile: () => true }))
   const defArgv = defaultShell(platform, env)
   const defPath = defArgv[0]
 
@@ -155,7 +159,7 @@ export async function detectAvailableShells({
     const pf = env.ProgramFiles?.trim() || 'C:\\Program Files'
     const pf86 = env['ProgramFiles(x86)']?.trim() || 'C:\\Program Files (x86)'
     const localApp = env.LOCALAPPDATA?.trim() || ''
-    const comspec = env.ComSpec?.trim() || `${sysRoot}\\System32\\cmd.exe`
+    const comspec = (env.ComSpec || env.COMSPEC || '').trim() || `${sysRoot}\\System32\\cmd.exe`
     const candidates = [
       { id: 'pwsh', name: 'PowerShell 7', paths: [`${pf}\\PowerShell\\7\\pwsh.exe`, `${pf86}\\PowerShell\\7\\pwsh.exe`], argv: p => [p] },
       { id: 'powershell', name: 'Windows PowerShell', paths: [`${sysRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`], argv: p => [p] },
@@ -182,6 +186,8 @@ export async function detectAvailableShells({
         if (seenPaths.has(key)) continue
         try {
           await accessFn(candidate, fsConstants.F_OK)
+          const info = await effectiveStatFn(candidate)
+          if (!info?.isFile?.()) continue
           seenPaths.add(key)
           shells.push({
             id: group.id,
@@ -234,6 +240,8 @@ export async function detectAvailableShells({
   const checks = await Promise.all(candidatePaths.map(async (p) => {
     try {
       await accessFn(p, fsConstants.X_OK)
+      const info = await effectiveStatFn(p)
+      if (!info?.isFile?.()) return null
       return p
     } catch {
       return null
