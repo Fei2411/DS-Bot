@@ -5,4 +5,4 @@ contact_links:
     about: Setup and usage questions — ask in Discussions, not Issues. If the desktop app does not install or start, use Install problem.
   - name: Feature requests & ideas
     url: https://github.com/Fei-Craft/DS-Bot/discussions/new?category=ideas
-    about: Suggest features and discuss anything that is not a bug — in Discussions.
+    about: Suggest features and discuss anything that is not a bug — in Discussions. Accepted ideas that ship may earn git Co-author credit.
