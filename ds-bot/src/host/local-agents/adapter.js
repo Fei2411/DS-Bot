@@ -760,6 +760,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           }
         } else {
           if (session.promptFileUnsupported === true) live.promptFileRetry = true
+          if (session.partialMessagesUnsupported === true) live.partialMessagesRetry = true
           live.handed = live.handedBefore
           if (Object.hasOwn(live, 'promptHashBefore')) live.promptHash = live.promptHashBefore
         }
@@ -1168,6 +1169,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.rollbackUnread(live, sessionId)
       if (live.closeFailure === undefined && live.promptFileRetry === true) {
         live.promptFileRetry = false
+        yield* this.stream(options)
+        return
+      }
+      if (live.closeFailure === undefined && live.partialMessagesRetry === true) {
+        live.partialMessagesRetry = false
         yield* this.stream(options)
         return
       }

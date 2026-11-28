@@ -29,7 +29,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView, secretEnvForSession } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], claudeOpts = {}, cwdFor, attachments, fs, rt, freshMemoryView, secretEnvForSession } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -43,7 +43,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', review = false,
     spawnEngine: (kind, route, spec) => {
       const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path, cancelAckTimeoutMs })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
-          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
+          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path, ...claudeOpts })
       spawned.push(engine)
       return engine
     },
@@ -2990,4 +2990,194 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   const maintCodexCalls = readFileSync(maintCodexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
   assert.equal(maintCodexCalls.filter(call => call.method === 'thread/resume').length, 1, 'Codex maintenance must attempt thread/resume')
   assert.equal(maintCodexCalls.filter(call => call.method === 'thread/start').length, 0, 'failed Codex maintenance resume must not spawn an orphan thread/start')
+})
+
+test('claude: completes turn and retires wedged child when stream-json omits result (#2382)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-no-result-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const fixture = join(dir, 'fake-claude-no-result.mjs')
+  writeFileSync(fixture, `
+const resumeAt = process.argv.indexOf('--resume')
+const resumed = resumeAt === -1 ? 'none' : process.argv[resumeAt + 1]
+const sessionId = resumed === 'none' ? 'claude-2382-' + process.pid : resumed
+const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
+let turn = 0
+let buf = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  let nl
+  while ((nl = buf.indexOf('\\n')) !== -1) {
+    const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+    if (!line) continue
+    let msg
+    try { msg = JSON.parse(line) } catch { continue }
+    if (msg.type !== 'user') continue
+    turn += 1
+    if (turn === 1) send({ type: 'system', subtype: 'init', session_id: sessionId, model: 'claude-sonnet' })
+    const text = (msg.message?.content ?? []).map(b => b.text ?? '').join('\\n')
+    const id = 'msg_' + process.pid + '_' + turn
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start', message: { id, usage: { input_tokens: 12, output_tokens: 1 } } } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'reply:' + text + ':resume=' + resumed } } })
+    send({ type: 'assistant', parent_tool_use_id: null, message: { id, content: [{ type: 'text', text: 'reply:' + text + ':resume=' + resumed }], stop_reason: null, usage: { input_tokens: 12, output_tokens: 1 } } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 0 } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 7 } } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } })
+    if (text.includes('hang-no-result')) {
+      // Simulate Claude Code hanging after message_stop with no closing result event.
+      continue
+    }
+    send({ type: 'result', subtype: 'success', session_id: sessionId, result: 'ok', usage: { input_tokens: 12, output_tokens: 7 } })
+  }
+})
+`)
+  const records = {}
+  const adapter = makeAdapter({ records, claude: fixture, claudeOpts: { resultGraceMs: 60, resultFallbackMs: 120 } })
+  t.after(() => adapter.dispose())
+
+  // Turn 1: normal round-trip with result.
+  const t1 = await collect(adapter.stream(options('s1', [user('m1', 'first')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(t1.finish?.kind, 'stop')
+  assert.match(t1.text, /reply:[\s\S]*first:resume=none/)
+  const firstSession = adapter.engines.get('local-claude-code').sessions.get('s1')
+  const savedId = records.s1.cliSessionId
+  assert.match(savedId, /^claude-2382-/)
+
+  // Turn 2: stream-json omits result and process stays alive; must finish cleanly and retire wedged child.
+  const t2 = await collect(adapter.stream(options('s1', [user('m1', 'first'), user('m2', 'hang-no-result')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(t2.finish?.kind, 'stop')
+  assert.match(t2.text, /reply:[\s\S]*hang-no-result:resume=none/)
+  assert.equal(t2.usage?.inputTokens, 12)
+  assert.equal(t2.usage?.outputTokens, 7)
+  assert.equal(firstSession.dead, true, 'wedged Claude child must be retired after synthetic completion')
+
+  // Turn 3: next message opens a fresh child resuming the saved session id.
+  const t3 = await collect(adapter.stream(options('s1', [user('m1', 'first'), user('m2', 'hang-no-result'), user('m3', 'after-hang')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(t3.finish?.kind, 'stop')
+  assert.match(t3.text, new RegExp(`reply:[\\s\\S]*after-hang:resume=${savedId}`))
+})
+
+test('claude: completes turn without result on clean exit 0 or non-partial assistant fallback (#2382)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-fallback-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const fixture = join(dir, 'fake-claude-fallback.mjs')
+  writeFileSync(fixture, `
+const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
+let buf = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  let nl
+  while ((nl = buf.indexOf('\\n')) !== -1) {
+    const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+    if (!line) continue
+    let msg
+    try { msg = JSON.parse(line) } catch { continue }
+    if (msg.type !== 'user') continue
+    const text = (msg.message?.content ?? []).map(b => b.text ?? '').join('\\n')
+    send({ type: 'system', subtype: 'init', session_id: 'claude-fb-' + process.pid })
+    send({ type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'ans:' + text }], stop_reason: null, usage: { input_tokens: 5, output_tokens: 3 } } })
+    if (text.includes('exit-zero')) process.exit(0)
+  }
+})
+`)
+  const adapter = makeAdapter({ claude: fixture, claudeOpts: { resultGraceMs: 50, resultFallbackMs: 80 } })
+  t.after(() => adapter.dispose())
+
+  // Clean exit 0 after assistant text without result completes as stop, not LOCAL_AGENT_EXIT.
+  const outExit = await collect(adapter.stream(options('s-exit', [user('m1', 'exit-zero')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(outExit.finish?.kind, 'stop')
+  assert.match(outExit.text, /ans:[\s\S]*exit-zero/)
+
+  // Silent hang without stream_event completes after resultFallbackMs.
+  const outQuiet = await collect(adapter.stream(options('s-quiet', [user('m1', 'quiet-hang')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(outQuiet.finish?.kind, 'stop')
+  assert.match(outQuiet.text, /ans:[\s\S]*quiet-hang/)
+})
+
+test('claude: slow tool_use streaming and tool execution do not trigger no-result fallback early (#2382)', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-tool-wait-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const fixture = join(dir, 'fake-claude-slow-tool.mjs')
+  writeFileSync(fixture, `
+const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
+let buf = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  let nl
+  while ((nl = buf.indexOf('\\n')) !== -1) {
+    const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+    if (!line) continue
+    let msg
+    try { msg = JSON.parse(line) } catch { continue }
+    if (msg.type !== 'user') continue
+    send({ type: 'system', subtype: 'init', session_id: 'claude-tool-' + process.pid })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 10, output_tokens: 1 } } } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
+    send({ type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'Checking...' }], stop_reason: null } })
+    send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 0 } })
+    // Pause longer than resultGraceMs (60ms) while tool_use block streams, then pause again while tool executes.
+    setTimeout(() => {
+      send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'Glob' } } })
+      send({ type: 'assistant', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Glob', input: { pattern: '*.js' } }], stop_reason: null } })
+      send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 8 } } })
+      send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } })
+      setTimeout(() => {
+        send({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] } })
+        send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start', message: { id: 'm2', usage: { input_tokens: 20, output_tokens: 1 } } } })
+        send({ type: 'assistant', parent_tool_use_id: null, message: { id: 'm2', content: [{ type: 'text', text: 'All done.' }], stop_reason: null } })
+        send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } } })
+        send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } })
+        send({ type: 'result', subtype: 'success', session_id: 'claude-tool-' + process.pid, result: 'All done.', usage: { input_tokens: 20, output_tokens: 5 } })
+      }, 150)
+    }, 150)
+  }
+})
+`)
+  const adapter = makeAdapter({ claude: fixture, claudeOpts: { resultGraceMs: 60, resultFallbackMs: 80 } })
+  t.after(() => adapter.dispose())
+
+  const out = await collect(adapter.stream(options('s-tool', [user('m1', 'check files')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(out.finish?.kind, 'stop')
+  assert.match(out.text, /Checking\.\.\./)
+  assert.match(out.text, /All done\./)
+  assert.equal(adapter.engines.get('local-claude-code').sessions.get('s-tool').dead, false)
+})
+
+test('claude: retries without --include-partial-messages when an older CLI rejects it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-no-partial-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const fixture = join(dir, 'fake-claude-old.mjs')
+  writeFileSync(fixture, `
+if (process.argv.includes('--include-partial-messages')) {
+  process.stderr.write("error: unknown option '--include-partial-messages'\\n")
+  process.exit(1)
+}
+const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
+let buf = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buf += chunk
+  let nl
+  while ((nl = buf.indexOf('\\n')) !== -1) {
+    const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+    if (!line) continue
+    let msg
+    try { msg = JSON.parse(line) } catch { continue }
+    if (msg.type !== 'user') continue
+    send({ type: 'system', subtype: 'init', session_id: 'claude-old-1' })
+    send({ type: 'assistant', message: { content: [{ type: 'text', text: 'old-cli-ok' }] } })
+    send({ type: 'result', subtype: 'success', session_id: 'claude-old-1', result: 'old-cli-ok', usage: { input_tokens: 3, output_tokens: 2 } })
+  }
+})
+`)
+  const adapter = makeAdapter({ claude: fixture })
+  t.after(() => adapter.dispose())
+
+  const out = await collect(adapter.stream(options('s-old', [user('m1', 'hi')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(out.finish?.kind, 'stop')
+  assert.equal(out.text, 'old-cli-ok')
+  assert.equal(adapter.engines.get('local-claude-code').noPartialMessages, true)
 })
