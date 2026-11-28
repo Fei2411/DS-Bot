@@ -304,6 +304,36 @@ test('acp: a tool call running past the idle timeout keeps the turn alive', asyn
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } }))
   const outcome = await pending
   assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'stop')
+  t.mock.timers.reset()
+})
+
+test('acp: Stop during a long tool call restores the idle timeout', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const control = new AbortController()
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal }))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate: 'tool_call', toolCallId: 'sleep', kind: 'execute', title: 'sleep 3600', status: 'in_progress' } },
+  }))
+  await delay(0)
+  t.mock.timers.tick(11 * 60_000)
+  await delay(0)
+  assert.equal(adapter.live.has('s1'), true)
+  control.abort()
+  assert.equal((await pending).finish?.kind, 'aborted')
+  let minutes = 0
+  for (; adapter.live.has('s1') && minutes < 60; minutes++) {
+    t.mock.timers.tick(60_000)
+    await delay(10)
+  }
+  assert.ok(minutes <= 12, `closed ${minutes} minutes after Stop`)
+  t.mock.timers.reset()
 })
 
 test('acp: a tool call silent past the tool timeout still fails as stalled', async (t) => {

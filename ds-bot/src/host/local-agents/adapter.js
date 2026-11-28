@@ -612,6 +612,8 @@ export class LocalAgentAdapter extends LlmAdapter {
   stopTurn(live, reason) {
     live.state = 'idle'
     live.stopped = true
+    // A stopped turn may hold the longer running-tool deadline; idle again starts the idle one.
+    live.scheduleIdle?.()
     live.queue.length = 0
     const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
