@@ -48,12 +48,12 @@ const SLOT_CHOICES = [
 // (safe across POSIX shells, PowerShell, and Windows Command Prompt).
 const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false
   if (plugin.sourceId === 'installed' && !plugin.installed) return true
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? '').startsWith('dsh:') ? String(plugin.id).slice(4) : '')).trim()
   if (!pkg) return false
-  return isBlockedEngineBundle(pkg, { desktop: Boolean(globalThis.dsBotApp) })
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) })
 }
 
 function safeExternalUrl(raw) {
@@ -660,7 +660,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     h(ChevronRightIcon))
 }
 
-export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null }) {
+export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -803,8 +803,8 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   }
 
   const plugins = useMemo(
-    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p)),
-    [view],
+    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow],
   )
   const bots = roster?.bots ?? []
   const browserSlot = view?.slots?.browser

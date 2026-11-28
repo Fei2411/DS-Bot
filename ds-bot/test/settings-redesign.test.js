@@ -1287,9 +1287,16 @@ test('searchHits indexes Engine settings subpages when DSH plugins/models sectio
 
   const advModelsHits = searchHits('advanced settings', { roster, extra, dsh: dshAgent })
   assert.ok(advModelsHits.some(h => h.page === 'models' && h.target === 'advanced'), 'Advanced models indexed when dsh models section exists')
+
+  // Respects pageAvailable('plugins') === false symmetrically with models.
+  assert.equal(
+    searchHits('engine plugins', { roster, extra, dsh: dshBot, pageAvailable: p => p !== 'plugins' }).some(h => h.page === 'plugins'),
+    false,
+    'engine plugin hits respect pageAvailable("plugins")',
+  )
 })
 
-test('PrivacyPage displays Saved confirmation when session log upload succeeds and propagates errors via run', async () => {
+test('PrivacyPage displays Saved confirmation when session log upload succeeds and clears stale Saved on subsequent failure', async () => {
   const code = await loadBundle("export { PrivacyPage } from './src/client/privacy-page.js'")
   const harness = makeStatefulReact()
   const mod = { exports: {} }
@@ -1325,6 +1332,8 @@ test('PrivacyPage displays Saved confirmation when session log upload succeeds a
   failNext = true
   findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Upload Session Log to DeepSeek API')[0].props.onClick()
   await new Promise(r => setTimeout(r, 0))
+  tree = draw()
   assert.deepEqual(errors, ['write failed'])
+  assert.equal(findAll(tree, n => n.props?.role === 'status' && textOf(n).includes('Saved')).length, 0, 'clears stale Saved status when next save fails')
   harness.unmount()
 })

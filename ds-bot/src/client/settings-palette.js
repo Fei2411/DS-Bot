@@ -104,7 +104,7 @@ export function searchHits(query, { roster, extra = [], dsh = null, pageAvailabl
   const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow)
   const surfaceMode = dsh?.surfaceMode ?? 'bot'
   const engineEntries = [
-    ...(hasDshPlugins
+    ...(hasDshPlugins && pageAvailable('plugins')
       ? ENGINE_PLUGIN_SEARCH_ENTRIES
         .filter(entry => (entry.target === 'dsh' || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode))
         .map(entry => ({

@@ -33,9 +33,18 @@ export function PrivacyPage({ actions, run, Section, Row }) {
   const load = () => (typeof actions.telemetryStatus === 'function' ? actions.telemetryStatus() : Promise.resolve(null)).then((next) => { setState(next); return next })
   useEffect(() => { void run(load()) }, [])
 
-  const save = patch => run((typeof actions.telemetryUpdate === 'function' ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Saved')) }))
-  const resetId = () => run((typeof actions.telemetryResetId === 'function' ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Anonymous ID rotated.')) }))
-  const clearLog = () => run((typeof actions.telemetryClearLog === 'function' ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Cleared sent telemetry history.')) }))
+  const save = (patch) => {
+    flashNote('')
+    return run((typeof actions.telemetryUpdate === 'function' ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Saved')) }))
+  }
+  const resetId = () => {
+    flashNote('')
+    return run((typeof actions.telemetryResetId === 'function' ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Anonymous ID rotated.')) }))
+  }
+  const clearLog = () => {
+    flashNote('')
+    return run((typeof actions.telemetryClearLog === 'function' ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => { setState(next); flashNote(t('Cleared sent telemetry history.')) }))
+  }
 
   const disabled = state?.envDisabled === true
   const recent = state?.recentSent ?? []

@@ -746,7 +746,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         }) : null,
         shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
         shown === 'appearance' ? h(AppearancePage, { roster, actions, run, Section: SetSection, Row: SetRow, Choice, Switch, ownWindow: dsh?.ownWindow ?? (dsh === undefined), dshRows: lookRows(dsh) }) : null,
-        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
+        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, ownWindow, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
         enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget, jump }, { only: 'plugins' })) : null,
         advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
         section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget }, { only: section.id })) : null,

@@ -2,7 +2,7 @@
 // Keeps the desktop window talking solely to `api/bot`, never calling DSH services directly.
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import { openOsPath } from './workspace-panel.js'
 
 const MAX_OPS = 64
@@ -276,17 +276,17 @@ export function install(rt) {
         }
       }
       case 'settings-open-file': {
+        writeCheck()
         const settings = settingsService()
         if (settings === undefined) throw refused('Engine settings are not available on this host')
+        if (!settings.writable) throw refused('Engine settings are read-only in this profile')
         const rawPath = typeof settings.prepareDocument === 'function'
           ? await settings.prepareDocument()
           : settings.documentPath
         const target = typeof rawPath === 'string' ? rawPath.trim() : ''
         if (target === '') throw notFound('No configuration file is available for this profile')
+        if (!isAbsolute(target)) throw refused('Configuration file path must be absolute')
         if (!existsSync(target)) {
-          if (rt.readOnly() !== undefined || !settings.writable) {
-            throw notFound('Configuration file has not been created yet')
-          }
           await mkdir(dirname(target), { recursive: true })
           try {
             await writeFile(target, '[]\n', { flag: 'wx' })

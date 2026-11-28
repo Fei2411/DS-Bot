@@ -1448,10 +1448,81 @@ test('extractSchemaFields preserves array/dict/tuple/union/any fields as config-
   editBtns[0].props.onClick()
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(calls.some(([ep]) => ep === 'engine-settings-open-file'), true, 'clicking Edit in config file calls engine-settings-open-file')
+
+  // Read-only window disables the Edit in config file button.
+  const roHarness = createHarness(mod.PluginsSettingsPage, { readOnly: true, subTarget: 'custom-plugin' })
+  roHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const roTree = roHarness.render({ readOnly: true, subTarget: 'custom-plugin' })
+  const roEditBtns = findAll(roTree, n => n.type === 'button' && textOf(n) === 'Edit in config file')
+  assert.equal(roEditBtns.length, 5)
+  assert.equal(roEditBtns.every(btn => btn.props.disabled === true), true, 'read-only window disables Edit in config file')
 })
 
-test('Desktop PluginsSettingsPage hides DSH UI-only bundles while keeping host-backed engine bundles', async () => {
-  const uiOnlyBundles = [
+test('extractSchemaFields emits config-file fallback for root non-object schemas and conditional intersect+union branches, and config-file-only groups hide Save/Discard bar', async () => {
+  const rootDictSchema = { type: 'dict', inner: { type: 'string' }, meta: {} }
+  const rootEmptyObjSchema = { type: 'object', dict: {}, meta: {} }
+  const conditionalIntersectSchema = {
+    type: 'intersect',
+    list: [
+      { type: 'object', dict: { mode: { type: 'union', list: [{ type: 'const', value: 'http' }, { type: 'const', value: 'stdio' }] } } },
+      {
+        type: 'union',
+        list: [
+          { type: 'object', dict: { mode: { type: 'const', value: 'http' }, url: { type: 'string' } } },
+          { type: 'object', dict: { mode: { type: 'const', value: 'stdio' }, command: { type: 'string' } } },
+        ],
+      },
+    ],
+  }
+
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: false,
+        documentPath: '/tmp/profile/cordis.patch.yml',
+        namespaces: [{
+          ns: 'mcp-manager',
+          autoGenerate: true,
+          revision: 1,
+          value: { servers: {} },
+          base: {},
+          user: {},
+          secrets: [],
+          schema: { type: 'object', dict: { servers: { type: 'dict', inner: { type: 'any' } } } },
+        }],
+      }
+    }
+    return {}
+  })
+
+  // Empty root object stays empty (plugin has no settings).
+  assert.deepEqual(Array.from(mod.extractSchemaFields(rootEmptyObjSchema, {}, [], 'empty-plugin')), [])
+
+  // Root-level non-object schema emits a single config-file fallback entry.
+  const dictFields = mod.extractSchemaFields(rootDictSchema, { a: '1' }, [], 'env-map')
+  assert.deepEqual(Array.from(dictFields, f => [f.key, f.kind, f.schemaType]), [['__root__', 'config-file', 'dict']])
+
+  // Root intersect with a conditional union branch preserves inline fields AND emits a config-file fallback for the union branch.
+  const condFields = mod.extractSchemaFields(conditionalIntersectSchema, { mode: 'http' }, [], 'transport')
+  assert.deepEqual(Array.from(condFields, f => [f.key, f.kind]), [['mode', 'select'], ['__root__', 'config-file']])
+
+  // Group containing ONLY config-file fields hides the Save/Discard bar, and read-only profile disables Edit in config file.
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'mcp-manager' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const tree = harness.render({ readOnly: false, subTarget: 'mcp-manager' })
+  const editBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Edit in config file')[0]
+  assert.ok(editBtn, 'config-file-only group renders Edit in config file')
+  assert.equal(editBtn.props.disabled, true, 'read-only profile (writable: false) disables Edit in config file')
+  assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').length, 0, 'config-file-only group hides Save button')
+  assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Discard').length, 0, 'config-file-only group hides Discard button')
+})
+
+test('Desktop PluginsSettingsPage hides disabled desktop-unsupported bundles while surfacing already-enabled ones under Installed plugins so users can disable them', async () => {
+  const desktopUnsupported = [
     '@deepseek-ai/dsh-experimental-inspector-profile',
     '@deepseek-ai/dsh-experimental-cot-translation-bundle',
     '@deepseek-ai/dsh-experimental-plugin-market-bundle',
@@ -1460,10 +1531,63 @@ test('Desktop PluginsSettingsPage hides DSH UI-only bundles while keeping host-b
     '@deepseek-ai/dsh-personalized-recommendations',
     '@deepseek-ai/dsh-deepseek-chat-import',
   ]
-  const { mod } = loadMod()
-  for (const name of uiOnlyBundles) {
-    assert.equal(mod.isExcludedBundle(name), true, `${name} must be hidden on desktop`)
+  const toggled = []
+  let liveshareEnabled = true
+  const { mod } = loadMod(async (endpoint, payload) => {
+    if (endpoint === 'engine-settings-list') return { available: true, writable: true, namespaces: [] }
+    if (endpoint === 'engine-plugins-toggle-bundle') {
+      toggled.push(payload)
+      if (payload.name === '@deepseek-ai/dsh-experimental-liveshare') liveshareEnabled = payload.enabled
+      return { changed: true, application: 'applied' }
+    }
+    if (endpoint === 'engine-plugins-list') {
+      return {
+        available: true,
+        bundles: [
+          {
+            name: '@deepseek-ai/dsh-experimental-liveshare',
+            official: true,
+            availability: 'builtin',
+            installed: true,
+            enabled: liveshareEnabled,
+            removable: false,
+            meta: { title: 'Live share', description: 'Share live session' },
+            rows: [],
+          },
+          {
+            name: '@deepseek-ai/dsh-experimental-inspector-profile',
+            official: true,
+            availability: 'builtin',
+            installed: true,
+            enabled: false,
+            removable: false,
+            meta: { title: 'Inspector', description: 'Web inspector' },
+            rows: [],
+          },
+          {
+            name: '@deepseek-ai/dsh-base',
+            official: true,
+            availability: 'builtin',
+            installed: true,
+            enabled: true,
+            removable: false,
+            rows: [],
+          },
+        ],
+        plugins: [],
+      }
+    }
+    return {}
+  })
+
+  for (const name of desktopUnsupported) {
+    assert.equal(mod.isExcludedBundle(name), true, `${name} must be hidden when disabled`)
+    assert.equal(mod.isExcludedBundle({ name, enabled: false }), true, `${name} must be hidden when enabled=false`)
+    assert.equal(mod.isExcludedBundle({ name, enabled: true }), false, `${name} must remain visible when already enabled`)
   }
+  // Internal / banned bundles stay hidden even when enabled.
+  assert.equal(mod.isExcludedBundle({ name: '@deepseek-ai/dsh-base', enabled: true }), true)
+  assert.equal(mod.isExcludedBundle({ name: '@deepseek-ai/dsh-subagent-codex', enabled: true }), true)
   for (const keep of [
     '@deepseek-ai/dsh-experimental-voice-input-bundle',
     '@deepseek-ai/dsh-experimental-auto-review',
@@ -1474,4 +1598,24 @@ test('Desktop PluginsSettingsPage hides DSH UI-only bundles while keeping host-b
   ]) {
     assert.equal(mod.isExcludedBundle(keep), false, `${keep} must stay available on desktop`)
   }
+
+  // Already-enabled liveshare renders under Installed plugins with a working Switch; disabled inspector stays hidden;
+  // once liveshare is toggled off, it disappears from Installed and optional lists.
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render()
+  const liveshareRow = findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-liveshare')[0]
+  assert.ok(liveshareRow, 'already-enabled desktop-unsupported bundle stays visible under Installed plugins')
+  assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-inspector-profile').length, 0, 'disabled desktop-unsupported bundle stays hidden')
+  assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-base').length, 0, 'internal dsh-base stays hidden even when enabled')
+
+  const liveshareSwitch = findAll(liveshareRow, n => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.ok(liveshareSwitch)
+  assert.equal(liveshareSwitch.props['aria-checked'], true)
+  liveshareSwitch.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render()
+  assert.deepEqual(Array.from(toggled, item => [item.name, item.enabled]), [['@deepseek-ai/dsh-experimental-liveshare', false]])
+  assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-liveshare').length, 0, 'once disabled, desktop-unsupported bundle disappears')
 })

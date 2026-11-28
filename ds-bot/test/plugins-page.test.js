@@ -21,7 +21,7 @@ async function loadBundle(contents) {
 
 const bundleCode = await loadBundle("export { PluginsPage } from './src/client/plugins-page.js'")
 
-function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions: extraActions = {}, initialFilter = null } = {}) {
+function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions: extraActions = {}, initialFilter = null, ownWindow } = {}) {
   const states = new Map()
   const effects = new Map()
   const memos = new Map()
@@ -132,7 +132,7 @@ function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions
   const Section = ({ title, children }) => React.createElement('section', null, React.createElement('h3', null, title), ...(children ?? []))
   const Row = ({ label, hint, children }) => React.createElement('div', null, React.createElement('span', null, label), hint ? React.createElement('span', null, hint) : null, ...(children ?? []))
 
-  const draw = () => render(React.createElement(PluginsPage, { roster, actions, Section, Row, initialFilter }))
+  const draw = () => render(React.createElement(PluginsPage, { roster, actions, Section, Row, initialFilter, ...(ownWindow === undefined ? {} : { ownWindow }) }))
   return { draw, calls, copied }
 }
 
@@ -715,7 +715,7 @@ test('PluginsPage labels external browser plugins as External window and shows B
   assert.equal(findAll(upgradedTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length, 0)
 })
 
-test('PluginsPage shares the unified engine blocklist and hides DSH UI-only bundles only on desktop', async () => {
+test('PluginsPage shares the unified engine blocklist, uses ownWindow prop, and keeps already-enabled desktop-unsupported bundles visible to disable', async () => {
   const mixedView = {
     ...SAMPLE_VIEW,
     plugins: [
@@ -736,6 +736,11 @@ test('PluginsPage shares the unified engine blocklist and hides DSH UI-only bund
         status: 'inactive', packageName: '@deepseek-ai/dsh-experimental-inspector-profile',
       },
       {
+        id: 'dsh:@deepseek-ai/dsh-experimental-liveshare', name: 'Live share', description: 'Pre-enabled liveshare bundle',
+        category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+        status: 'ready', packageName: '@deepseek-ai/dsh-experimental-liveshare',
+      },
+      {
         id: 'dsh:@deepseek-ai/dsh-experimental-auto-review', name: 'Auto review', description: 'Host review',
         category: 'tools', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
         status: 'ready', packageName: '@deepseek-ai/dsh-experimental-auto-review',
@@ -743,30 +748,25 @@ test('PluginsPage shares the unified engine blocklist and hides DSH UI-only bund
     ],
   }
 
-  // Plugin mode (no globalThis.dsBotApp): internal base/web-app hidden, DSH UI-only inspector stays visible.
-  const prevApp = globalThis.dsBotApp
-  delete globalThis.dsBotApp
-  try {
-    const pluginRun = mountPluginsPage({ view: mixedView })
-    pluginRun.draw()
-    await flush()
-    const pluginText = textOf(pluginRun.draw())
-    assert.doesNotMatch(pluginText, /DSH Base/, 'unified blocklist hides @deepseek-ai/dsh-base')
-    assert.doesNotMatch(pluginText, /DSH Web App/, 'unified blocklist hides @deepseek-ai/dsh-web-app')
-    assert.match(pluginText, /Developer tools/, 'plugin mode keeps DSH UI-only bundles visible')
-    assert.match(pluginText, /Auto review/, 'engine bundle stays visible')
+  // Plugin mode (ownWindow: false): internal base/web-app hidden, DSH desktop-unsupported bundles stay visible.
+  const pluginRun = mountPluginsPage({ view: mixedView, ownWindow: false })
+  pluginRun.draw()
+  await flush()
+  const pluginText = textOf(pluginRun.draw())
+  assert.doesNotMatch(pluginText, /DSH Base/, 'unified blocklist hides @deepseek-ai/dsh-base')
+  assert.doesNotMatch(pluginText, /DSH Web App/, 'unified blocklist hides @deepseek-ai/dsh-web-app')
+  assert.match(pluginText, /Developer tools/, 'plugin mode keeps disabled desktop-unsupported bundles visible')
+  assert.match(pluginText, /Live share/, 'plugin mode keeps enabled bundles visible')
+  assert.match(pluginText, /Auto review/, 'engine bundle stays visible')
 
-    // Standalone desktop mode (globalThis.dsBotApp present): DSH UI-only inspector is hidden.
-    globalThis.dsBotApp = {}
-    const desktopRun = mountPluginsPage({ view: mixedView })
-    desktopRun.draw()
-    await flush()
-    const desktopText = textOf(desktopRun.draw())
-    assert.doesNotMatch(desktopText, /DSH Base/)
-    assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides DSH UI-only bundles')
-    assert.match(desktopText, /Auto review/, 'desktop keeps host-backed engine bundles')
-  } finally {
-    if (prevApp === undefined) delete globalThis.dsBotApp
-    else globalThis.dsBotApp = prevApp
-  }
+  // Standalone desktop mode (ownWindow: true): disabled desktop-unsupported bundle is hidden,
+  // while an already-enabled one stays visible so the user can turn it off or remove it.
+  const desktopRun = mountPluginsPage({ view: mixedView, ownWindow: true })
+  desktopRun.draw()
+  await flush()
+  const desktopText = textOf(desktopRun.draw())
+  assert.doesNotMatch(desktopText, /DSH Base/, 'internal DSH base stays hidden even when enabled')
+  assert.doesNotMatch(desktopText, /Developer tools/, 'desktop hides disabled desktop-unsupported bundles')
+  assert.match(desktopText, /Live share/, 'desktop keeps already-enabled desktop-unsupported bundles visible so users can disable them')
+  assert.match(desktopText, /Auto review/, 'desktop keeps host-backed engine bundles')
 })

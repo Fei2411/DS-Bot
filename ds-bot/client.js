@@ -58256,14 +58256,14 @@ var DESKTOP_UNSUPPORTED_UI_BUNDLES = /* @__PURE__ */ new Set([
   "@deepseek-ai/dsh-personalized-recommendations",
   "@deepseek-ai/dsh-deepseek-chat-import"
 ]);
-function isBlockedEngineBundle(name, { desktop = false } = {}) {
+function isBlockedEngineBundle(name, { desktop = false, enabled = false } = {}) {
   if (typeof name !== "string") return false;
   const clean = name.trim();
   if (clean === "") return false;
   if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || /subagent/i.test(clean)) {
     return true;
   }
-  return desktop && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean);
+  return desktop && !enabled && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean);
 }
 
 // src/client/plugins-page.js
@@ -58291,12 +58291,12 @@ var SLOT_CHOICES = [
   ["browser", "Browser slot"]
 ];
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false;
   if (plugin.sourceId === "installed" && !plugin.installed) return true;
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? "").startsWith("dsh:") ? String(plugin.id).slice(4) : "")).trim();
   if (!pkg) return false;
-  return isBlockedEngineBundle(pkg, { desktop: Boolean(globalThis.dsBotApp) });
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) });
 }
 function safeExternalUrl(raw) {
   if (typeof raw !== "string") return null;
@@ -58998,7 +58998,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     (0, import_react63.createElement)(ChevronRightIcon)
   );
 }
-function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null }) {
+function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = (0, import_react63.useState)(null);
   const [loading, setLoading] = (0, import_react63.useState)(true);
   const [error, setError] = (0, import_react63.useState)("");
@@ -59149,8 +59149,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     });
   };
   const plugins = (0, import_react63.useMemo)(
-    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p)),
-    [view]
+    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow]
   );
   const bots = roster?.bots ?? [];
   const browserSlot = view?.slots?.browser;
@@ -59749,18 +59749,27 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   (0, import_react65.useEffect)(() => {
     void run2(load());
   }, []);
-  const save = (patch) => run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
-    setState(next);
-    flashNote(t("Saved"));
-  }));
-  const resetId = () => run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    flashNote(t("Anonymous ID rotated."));
-  }));
-  const clearLog = () => run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    flashNote(t("Cleared sent telemetry history."));
-  }));
+  const save = (patch) => {
+    flashNote("");
+    return run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Saved"));
+    }));
+  };
+  const resetId = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Anonymous ID rotated."));
+    }));
+  };
+  const clearLog = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Cleared sent telemetry history."));
+    }));
+  };
   const disabled = state?.envDisabled === true;
   const recent = state?.recentSent ?? [];
   const logText = recent.length === 0 ? t("No telemetry data has been sent yet.") : JSON.stringify(recent, null, 2);
@@ -63152,7 +63161,7 @@ function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () 
   const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow);
   const surfaceMode = dsh?.surfaceMode ?? "bot";
   const engineEntries = [
-    ...hasDshPlugins ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => (entry.target === "dsh" || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode)).map((entry) => ({
+    ...hasDshPlugins && pageAvailable("plugins") ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => (entry.target === "dsh" || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode)).map((entry) => ({
       ...entry,
       kind: "setting",
       title: t(entry.label),
@@ -64414,7 +64423,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         }) : null,
         shown === "general" ? (0, import_react76.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react76.createElement)(AppearancePage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Choice: Choice2, Switch, ownWindow: dsh?.ownWindow ?? dsh === void 0, dshRows: lookRows(dsh) }) : null,
-        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
+        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, ownWindow, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
         enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget, jump }, { only: "plugins" })) : null,
         advanced ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
         section ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: section.id })) : null,

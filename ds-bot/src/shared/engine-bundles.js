@@ -22,9 +22,12 @@ export const BANNED_ENGINE_BUNDLES = new Set([
   '@deepseek-ai/dsh-experimental-ralph-bundle',
 ])
 
-// DSH official bundles whose user-facing surfaces depend on DSH Web UI slots/panels that
-// DS Bot's own desktop frontend intentionally does not render (no DSH UI plugin compat layer).
-// Hidden only on the standalone desktop app; left untouched in the DSH plugin version.
+// DSH official bundles whose primary user-facing workflows depend on DSH Web UI surfaces
+// (panels, drawers, action cards, upload dialogs) that DS Bot's standalone desktop frontend
+// does not render. Several also register host-side services, routes, or tools, so on Desktop
+// they are excluded from optional/discover lists when disabled, while any already-enabled
+// bundle stays visible under Installed plugins so users can see and disable or remove it.
+// Left untouched in the DSH plugin version.
 export const DESKTOP_UNSUPPORTED_UI_BUNDLES = new Set([
   '@deepseek-ai/dsh-experimental-inspector-profile',
   '@deepseek-ai/dsh-experimental-cot-translation-bundle',
@@ -37,14 +40,16 @@ export const DESKTOP_UNSUPPORTED_UI_BUNDLES = new Set([
 
 /**
  * Returns whether a DSH bundle package name should be hidden from the plugin list.
- * Pass `{ desktop: true }` in the standalone desktop app to also hide DSH Web UI-only bundles.
+ * Pass `{ desktop: true, enabled }` in the standalone desktop app: disabled desktop-unsupported
+ * bundles are hidden from discovery/optional lists, while already-enabled ones stay visible
+ * so users can disable or remove them. Internal and banned bundles stay hidden unconditionally.
  */
-export function isBlockedEngineBundle(name, { desktop = false } = {}) {
+export function isBlockedEngineBundle(name, { desktop = false, enabled = false } = {}) {
   if (typeof name !== 'string') return false
   const clean = name.trim()
   if (clean === '') return false
   if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || /subagent/i.test(clean)) {
     return true
   }
-  return desktop && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean)
+  return desktop && !enabled && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean)
 }

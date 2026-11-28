@@ -1,6 +1,6 @@
 // Lazy-loaded Engine settings pages for the desktop app's own interface:
 // Account, Plugins (with in-page built-in plugin settings), Agent presets,
-// Archived sessions, and Session log upload.
+// and Archived sessions.
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
@@ -73,8 +73,10 @@ const BANNED_NAMESPACES = new Set([
 ])
 
 // DSH official optional bundles with host/engine functionality usable on DS Bot Desktop.
-// DSH Web UI-only bundles (inspector, cot-translation, plugin-market, liveshare, forge,
-// personalized-recommendations, chat-import) are excluded via `isBlockedEngineBundle({ desktop: true })`.
+// Desktop-unsupported DSH Web bundles (inspector, cot-translation, plugin-market, liveshare,
+// forge, personalized-recommendations, chat-import) are excluded from discovery when disabled
+// via `isBlockedEngineBundle({ desktop: true, enabled })`, while already-enabled ones stay
+// visible under Installed plugins so users can disable or remove them.
 const EXTENSION_BUNDLES = [
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
@@ -146,7 +148,8 @@ export function isBannedNamespace(ns, surfaceMode = 'bot') {
 export function isExcludedBundle(bundle) {
   const name = typeof bundle === 'string' ? bundle : bundle?.name
   if (typeof name !== 'string' || name.trim() === '') return true
-  return isBlockedEngineBundle(name, { desktop: true })
+  const enabled = typeof bundle === 'object' && bundle !== null ? Boolean(bundle.enabled) : false
+  return isBlockedEngineBundle(name, { desktop: true, enabled })
 }
 
 const CORE_DS_BOT_IDS = new Set(['ds-bot', '@deepseek-ai/ds-bot'])
@@ -338,6 +341,22 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
     return values.length > 0 ? values : null
   }
 
+  let hasRootConfigFallback = false
+  const pushRootConfigFallback = (node) => {
+    if (hasRootConfigFallback) return
+    hasRootConfigFallback = true
+    fields.push({
+      path: [],
+      key: '__root__',
+      kind: 'config-file',
+      schemaType: node.type || 'any',
+      label: ns ? namespaceTitle(ns) : t('Settings'),
+      description: typeof node.meta?.description === 'string' ? node.meta.description : '',
+      defaultValue: node.meta?.default,
+      value,
+    })
+  }
+
   const walk = (target, path, seen, depth) => {
     const resolved = resolveRef(refs, target, seen)
     if (!resolved) return
@@ -345,6 +364,14 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
     if (isHiddenNode(node)) return
 
     if (depth <= 4) {
+      if (path.length === 0) {
+        const unwrapped = unwrapNullableUnion(node, nextSeen)
+        if (unwrapped) {
+          const mergedMeta = { ...node.meta, ...unwrapped.node.meta }
+          walk({ ...unwrapped.node, meta: mergedMeta }, path, unwrapped.seen, depth)
+          return
+        }
+      }
       if (node.type === 'intersect' && Array.isArray(node.list)) {
         for (const item of node.list) walk(item, path, nextSeen, depth)
         return
@@ -356,7 +383,11 @@ export function extractSchemaFields(schema, value, secrets = [], ns = '') {
         return
       }
     }
-    if (path.length === 0) return
+    if (path.length === 0) {
+      if (node.type === 'object' || node.type === 'const') return
+      pushRootConfigFallback(node)
+      return
+    }
 
     if (depth <= 4) {
       const unwrapped = unwrapNullableUnion(node, nextSeen)
@@ -938,7 +969,7 @@ function StagedSchemaGroupForm({
               h('button', {
                 type: 'button',
                 className: 'bt-soft bt-soft-sm',
-                disabled: !canOpenConfigFile || openingConfigFile || saving,
+                disabled: disabled || !canOpenConfigFile || openingConfigFile || saving,
                 title: configFilePath || undefined,
                 onClick: () => { onOpenConfigFile?.() },
               }, t('Edit in config file'))))

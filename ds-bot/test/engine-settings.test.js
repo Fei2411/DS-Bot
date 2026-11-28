@@ -599,31 +599,54 @@ test('engine-settings-list exposes documentPath and engine-settings-open-file op
   assert.equal(existsSync(patchFile), true)
   assert.equal(readFileSync(patchFile, 'utf8'), '[]\n')
 
-  // Read-only window can open an existing file, but refuses creating a missing one.
+  // Read-only window refuses opening config file for editing even when the file already exists.
   const roOpened = []
   const { rt: roRt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { settings } })
   roRt.openConfigFile = async (target) => { roOpened.push(target) }
   const roExisting = await roRt.channelCall('engine-settings-open-file', {})
-  assert.equal(roExisting.ok, true)
-  assert.deepEqual(roOpened, [patchFile])
+  assert.equal(roExisting.ok, false)
+  assert.equal(roExisting.error.code, 'bot/read-only')
+  await assert.rejects(() => roRt.engineEndpoint('settings-open-file', {}), { code: 'bot/read-only' })
+  assert.deepEqual(roOpened, [])
 
-  const missingPath = join(dir, 'missing', 'cordis.patch.yml')
-  const roMissing = makeHarness({
-    readOnly: 'Another dsh holds this team',
-    services: { settings: { writable: false, documentPath: missingPath, describe: () => [] } },
+  // Read-only profile (settings.writable === false) also refuses opening an existing config file.
+  const roProfileOpened = []
+  const roProfile = makeHarness({
+    services: { settings: { writable: false, documentPath: patchFile, describe: () => [] } },
   })
-  const roMissingRes = await roMissing.rt.channelCall('engine-settings-open-file', {})
-  assert.equal(roMissingRes.ok, false)
-  assert.equal(roMissingRes.error.code, 'bot/not-found')
-  assert.equal(existsSync(missingPath), false)
+  roProfile.rt.openConfigFile = async (target) => { roProfileOpened.push(target) }
+  const roProfileRes = await roProfile.rt.channelCall('engine-settings-open-file', {})
+  assert.equal(roProfileRes.ok, false)
+  assert.equal(roProfileRes.error.code, 'bot/refused')
+  assert.deepEqual(roProfileOpened, [])
+
+  // Relative or flag-like config paths are rejected before invoking any OS opener.
+  const badPathOpened = []
+  const badPath = makeHarness({
+    services: { settings: { writable: true, documentPath: '-a/evil.yml', describe: () => [] } },
+  })
+  badPath.rt.openConfigFile = async (target) => { badPathOpened.push(target) }
+  const badPathRes = await badPath.rt.channelCall('engine-settings-open-file', {})
+  assert.equal(badPathRes.ok, false)
+  assert.equal(badPathRes.error.code, 'bot/refused')
+  assert.deepEqual(badPathOpened, [])
 
   // Phone and remote links refuse opening host config files.
   assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-settings-open-file').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-settings-open-file').code, 'bot/refused')
 
-  // macOS config editing uses `open -t` so YAML opens in a text editor rather than a viewer.
+  // Platform-specific edit commands: macOS uses `open -t`, Windows uses `explorer.exe` with an encoded file URI,
+  // and relative/flag-like paths are rejected across platforms.
   const { buildOpenOsCommand } = await import('../src/host/workspace-panel.js')
   const macEdit = buildOpenOsCommand(patchFile, 'edit', false, 'darwin')
   assert.equal(macEdit.command, 'open')
   assert.deepEqual(macEdit.args, ['-t', patchFile])
+
+  const winEdit = buildOpenOsCommand('C:\\Users\\a,b=1\\中文\\cordis.patch.yml', 'edit', false, 'win32')
+  assert.equal(winEdit.command, 'explorer.exe')
+  assert.equal(winEdit.allowExit1, true)
+  assert.deepEqual(winEdit.args, ['file:///C:/Users/a%2Cb%3D1/中文/cordis.patch.yml'])
+
+  assert.throws(() => buildOpenOsCommand('-a', 'edit', false, 'darwin'), { code: 'bot/invalid' })
+  assert.throws(() => buildOpenOsCommand('relative\\cordis.patch.yml', 'edit', false, 'win32'), { code: 'bot/invalid' })
 })
