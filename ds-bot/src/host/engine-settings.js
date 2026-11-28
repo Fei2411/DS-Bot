@@ -298,16 +298,21 @@ export function install(rt) {
     return map
   }
 
+  function safeService(name) {
+    if (typeof ctx.get === 'function') return ctx.get(name)
+    return ctx[name]
+  }
+
   function settingsService() {
-    return ctx.get?.('settings') ?? ctx.settings
+    return safeService('settings')
   }
 
   function accountService() {
-    return ctx.get?.('deepseekAccount') ?? ctx.deepseekAccount
+    return safeService('deepseekAccount')
   }
 
   function pluginManagerService() {
-    return ctx.get?.('pluginManager') ?? ctx.pluginManager
+    return safeService('pluginManager')
   }
 
   function pluginInventoryService() {
@@ -333,19 +338,19 @@ export function install(rt) {
   }
 
   function agentPresetsService() {
-    return ctx.get?.('agentPresets') ?? ctx.agentPresets
+    return safeService('agentPresets')
   }
 
   function webService() {
-    return ctx.get?.('web') ?? ctx.web
+    return safeService('web')
   }
 
   function llmService() {
-    return ctx.get?.('llm') ?? ctx.llm
+    return safeService('llm')
   }
 
   function credentialsService() {
-    return ctx.get?.('credentials') ?? ctx.credentials
+    return safeService('credentials')
   }
 
   function validateCredentialRef(raw) {
@@ -371,7 +376,7 @@ export function install(rt) {
   }
 
   function profileContextService() {
-    return ctx.get?.('profileContext') ?? ctx.profileContext ?? null
+    return safeService('profileContext') ?? null
   }
 
   function resolveUiPluginsPath() {
