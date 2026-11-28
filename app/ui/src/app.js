@@ -192,8 +192,14 @@ export function App() {
   drawerOpenRef.current = drawerOpen
   const mobileMenuRef = useRef(null)
   const restoreMobileMenuFocusRef = useRef(false)
+  const openDrawer = useCallback(() => {
+    drawerOpenRef.current = true
+    restoreMobileMenuFocusRef.current = false
+    setDrawerOpen(true)
+  }, [])
   const closeDrawer = useCallback(({ restoreFocus = false } = {}) => {
     if (!drawerOpenRef.current) { restoreMobileMenuFocusRef.current = false; return }
+    drawerOpenRef.current = false
     restoreMobileMenuFocusRef.current = restoreFocus
     setDrawerOpen(false)
   }, [])
@@ -222,28 +228,33 @@ export function App() {
     toggleSidebar: undefined,
     setSidebarPref: (pref) => {
       if (isNarrow) {
-        if (pref === 'open') { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) }
+        if (pref === 'open') openDrawer()
         else closeDrawer({ restoreFocus: true })
       } else actions.setSidebarPref(pref)
     },
     setSidebarWidth: (width) => actions.setSidebarWidth(width),
     setLeftDrawer: (next) => {
       if (isNarrow) {
-        if (next) { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) }
+        if (next) openDrawer()
         else closeDrawer({ restoreFocus: true })
       } else actions.setLeftDrawer(Boolean(next))
     },
     toggleLeftHidden: () => {
       if (isNarrow) {
         if (drawerOpenRef.current) closeDrawer({ restoreFocus: true })
-        else { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) }
+        else openDrawer()
       } else actions.toggleLeftHidden()
     },
+    openSession: (...args) => { closeDrawer(); return actions.openSession?.(...args) },
+    openAgent: (...args) => { closeDrawer(); return actions.openAgent?.(...args) },
+    openAgentSession: (...args) => { closeDrawer(); return actions.openAgentSession?.(...args) },
+    newAgentSession: (...args) => { closeDrawer(); return actions.newAgentSession?.(...args) },
+    openInbox: (...args) => { closeDrawer(); return actions.openInbox?.(...args) },
     openSettings: (...args) => { closeDrawer(); return actions.openSettings(...args) },
     selectPanel: (...args) => { closeDrawer(); return actions.selectPanel(...args) },
     openNewChat: (...args) => { closeDrawer(); return actions.openNewChat(...args) },
     openPalette: (...args) => { closeDrawer(); return actions.openPalette(...args) },
-  }), [actions, isNarrow, closeDrawer])
+  }), [actions, isNarrow, openDrawer, closeDrawer])
   const classicSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: () => {
@@ -661,7 +672,7 @@ export function App() {
     isNarrow && !drawerOpen ? h('button', {
       ref: mobileMenuRef,
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': false,
-      onClick: () => { restoreMobileMenuFocusRef.current = false; setDrawerOpen(true) },
+      onClick: openDrawer,
     }, h(SidebarIcon)) : null,
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },

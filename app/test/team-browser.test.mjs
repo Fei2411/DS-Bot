@@ -984,6 +984,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   let surfaceMode = 'bot'
   let shownId = 'chat-1'
   let settingsOpens = 0
+  let inboxOpens = 0
   const team = {
     start: () => () => {},
     sessionHook: () => selector => selector({}),
@@ -1012,6 +1013,9 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
       setSidebarWidth() {},
       setLeftDrawer() {},
       toggleLeftHidden() {},
+      openSession(id) { shownId = id },
+      openAgent() {},
+      openInbox() { inboxOpens += 1 },
       openSettings() { settingsOpens += 1 },
       selectPanel() {},
       openNewChat() {},
@@ -1138,13 +1142,37 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
   assert.equal(focusCalls, 3)
 
-  // 7. Re-open and switch chat (`shown` changes): closes drawer without stealing focus.
+  // 7. Re-open and pick a Bot row (mirrors TeamSidebar.navigate: openSession + setLeftDrawer(false)
+  // in the same event): closes drawer and switches chat without stealing focus to .dsb-mobile-menu.
   findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
   tree = render()
-  shownId = 'chat-2'
+  const rowSidebar = findAll(tree, n => n.type?.name === 'TeamSidebar')[0]
+  rowSidebar.props.actions.openSession('chat-2')
+  rowSidebar.props.actions.setLeftDrawer(false)
   tree = render()
+  assert.equal(shownId, 'chat-2')
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
   assert.equal(focusCalls, 3)
+
+  // 7b. Re-open and pick Inbox (mirrors TeamSidebar.rowActions.openInbox: openInbox + setLeftDrawer(false)):
+  // closes drawer without stealing focus to .dsb-mobile-menu.
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  const inboxSidebar = findAll(tree, n => n.type?.name === 'TeamSidebar')[0]
+  inboxSidebar.props.actions.openInbox()
+  inboxSidebar.props.actions.setLeftDrawer(false)
+  tree = render()
+  assert.equal(inboxOpens, 1)
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 3)
+
+  // 7c. Re-open and dismiss via outside press (`setLeftDrawer(false)` directly): restores focus.
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu')[0].props.onClick()
+  tree = render()
+  findAll(tree, n => n.type?.name === 'TeamSidebar')[0].props.actions.setLeftDrawer(false)
+  tree = render()
+  assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
+  assert.equal(focusCalls, 4)
 
   // 8. Classic mode narrow drawer: collapse restores focus to .dsb-mobile-menu.
   surfaceMode = 'agent'
@@ -1155,7 +1183,7 @@ test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores foc
   findAll(tree, n => n.type?.name === 'ClassicSidebar')[0].props.actions.toggleSidebar()
   tree = render()
   assert.equal(findAll(tree, n => n.type === 'button' && n.props?.className === 'dsb-mobile-menu').length, 1)
-  assert.equal(focusCalls, 4)
+  assert.equal(focusCalls, 5)
 
   // 9. Wide viewport: .dsb-mobile-menu is never mounted.
   win.innerWidth = 1280
