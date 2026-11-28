@@ -106,7 +106,7 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
       h('button', { type: 'submit', className: 'bt-send bt-soft-sm' }, draft.originalName ? t('Save changes') : t('Add capability'))))
 }
 
-function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
+function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming, disabled = false }) {
   const detail = item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
     : item.kind === 'mcp' ? item.transport === 'stdio' ? t('Local command') : t('HTTP server')
       : t('Skill')
@@ -123,12 +123,13 @@ function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
         h('span', { className: 'bt-connector-status' }, secondary)),
       h('span', { className: 'bt-connector-actions' },
         item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
-          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onApprove }, t('Allow')) : null,
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onEdit }, t('Edit')),
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDelete }, confirming ? t('Click again to delete.') : t('Delete')))))
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: onApprove }, t('Allow')) : null,
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: onEdit }, t('Edit')),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: onDelete }, confirming ? t('Click again to delete.') : t('Delete')))))
 }
 
 export function CapabilitiesPage({ roster, actions, run }) {
+  const readOnly = Boolean(roster?.readOnly)
   const items = [...(roster.capabilities ?? [])].sort((a, b) => a.name.localeCompare(b.name))
   const [draft, setDraft] = useState(null)
   const [confirming, setConfirming] = useState('')
@@ -137,17 +138,21 @@ export function CapabilitiesPage({ roster, actions, run }) {
     const timer = setTimeout(() => setConfirming(''), 4000)
     return () => clearTimeout(timer)
   }, [confirming])
-  const startNew = () => setDraft(blank())
-  const edit = item => setDraft({
-    ...blank(),
-    ...item,
-    originalName: item.name,
-    argsText: (item.args ?? []).join('\n'),
-    envText: JSON.stringify(item.env ?? {}, null, 2),
-    headersText: JSON.stringify(item.headers ?? {}, null, 2),
-    items: [...(item.items ?? [])],
-  })
+  const startNew = () => { if (!readOnly) setDraft(blank()) }
+  const edit = item => {
+    if (readOnly) return
+    setDraft({
+      ...blank(),
+      ...item,
+      originalName: item.name,
+      argsText: (item.args ?? []).join('\n'),
+      envText: JSON.stringify(item.env ?? {}, null, 2),
+      headersText: JSON.stringify(item.headers ?? {}, null, 2),
+      items: [...(item.items ?? [])],
+    })
+  }
   const remove = item => {
+    if (readOnly) return
     if (confirming !== item.name) { setConfirming(item.name); return }
     setConfirming('')
     void run(actions.deleteCapability(item.name))
@@ -155,25 +160,27 @@ export function CapabilitiesPage({ roster, actions, run }) {
   return h('section', { className: 'bt-set-section' },
     h('div', { className: 'bt-la-sec-head' },
       h('h3', null, t('Shared capabilities')),
-      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'cap-add', onClick: startNew }, h(PlusIcon), t('Add capability'))),
-    draft ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
+      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'cap-add', disabled: readOnly, onClick: startNew }, h(PlusIcon), t('Add capability'))),
+    draft && !readOnly ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     h('div', { className: 'bt-set-card bt-connectors-card' },
       items.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No capabilities saved')))
         : items.map(item => h(CapabilityRow, {
           key: item.name,
           item,
+          disabled: readOnly,
           confirming: confirming === item.name,
           onEdit: () => edit(item),
           onDelete: () => remove(item),
-          onApprove: () => void run(actions.approveCapability(item.name)),
+          onApprove: () => { if (!readOnly) void run(actions.approveCapability(item.name)) },
         }))))
 }
 
-export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
+export function BotCapabilitiesCard({ bot, roster, actions, run, Card, disabled = false }) {
   const pending = useRef(new Map())
   const [, redraw] = useState(0)
   const refresh = () => redraw(value => value + 1)
   const choose = (name, mode, value) => {
+    if (disabled) return
     let entry = pending.current.get(name)
     if ((entry?.desired ?? mode) === value) return
     if (entry) {
@@ -222,7 +229,7 @@ export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
           needsApproval ? h('span', { className: 'bt-set-hint bt-capability-hint' }, t('Needs approval'), ' · ', t('Allow it in Shared capabilities.')) : null,
           hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
         h(Segmented, { label: item.name, value: mode }, [['always', 'Always on'], ['catalog', 'In catalog'], ['off', 'Off']].map(([value, label]) => h('button', {
-          key: value, type: 'button', 'aria-pressed': mode === value,
+          key: value, type: 'button', 'aria-pressed': mode === value, disabled,
           onClick: () => choose(item.name, saved, value),
         }, t(label)))))
     }))
