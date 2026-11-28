@@ -16,7 +16,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { findHost, releaseHost, rowVisible, freshInputAt } from './src/client/activity-row.js'",
+      "export { findHost, releaseHost, rowVisible, freshInputAt, backgroundActivity } from './src/client/activity-row.js'",
       "export { clientErrors } from './src/client/diagnostics.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
@@ -44,7 +44,7 @@ runInNewContext(outputFiles[0].text, {
   cancelAnimationFrame: id => clearTimeout(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { findHost, releaseHost, rowVisible, freshInputAt, clientErrors } = module.exports
+const { findHost, releaseHost, rowVisible, freshInputAt, backgroundActivity, clientErrors } = module.exports
 
 // The shell renders its running status inside the flow, before the pending steering
 // rows, so hosting the row there puts it above an interjection's echo until the echo
@@ -371,6 +371,173 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
     tree = render(React.createElement(ActivityIndicator, props), attachRef)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-busy'], undefined)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing-bg').props.disabled, false)
+  } finally {
+    unmount()
+  }
+})
+
+test('backgroundActivity summarizes DM background tasks and ignores group or settled tasks', () => {
+  assert.equal(backgroundActivity(undefined), null)
+  assert.equal(backgroundActivity({ id: 'b1', tasks: [] }), null)
+  assert.equal(backgroundActivity({
+    id: 'b1',
+    tasks: [
+      { id: 't-done', title: 'Done', status: 'completed', startedAt: 100 },
+      { id: 't-group', title: 'Group task', status: 'running', roomId: 'r1', startedAt: 200 },
+    ],
+  }), null)
+
+  const running = backgroundActivity({
+    id: 'b1',
+    tasks: [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 5000 }],
+  })
+  assert.equal(running.state, 'background')
+  assert.equal(running.label, 'In background · Review open PRs')
+  assert.equal(running.startedAt, 5000)
+  assert.equal(running.needsApproval, false)
+
+  const untitled = backgroundActivity({
+    id: 'b1',
+    tasks: [{ id: 't2', title: '   ', status: 'running', startedAt: 6000 }],
+  })
+  assert.equal(untitled.label, 'Working in background')
+
+  const waitingWork = backgroundActivity({
+    id: 'b1',
+    tasks: [{ id: 't3', title: 'Wait for Chief', status: 'waiting_work', startedAt: 7000 }],
+  })
+  assert.equal(waitingWork.state, 'waiting')
+  assert.equal(waitingWork.label, 'Waiting for teammate · Wait for Chief')
+
+  // Live answerable DM task approval flips the state to alert immediately, while
+  // group approvals and non-answerable approvals are ignored.
+  const liveApproval = backgroundActivity(
+    { id: 'b1', tasks: [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 5000 }] },
+    [
+      { botId: 'b1', roomId: 'r1', taskId: 'tg', answerable: true },
+      { botId: 'b1', taskId: 't1', answerable: false },
+      { botId: 'b1', taskId: 't1', answerable: true },
+    ],
+  )
+  assert.equal(liveApproval.state, 'alert')
+  assert.equal(liveApproval.needsApproval, true)
+  assert.equal(liveApproval.label, 'Waiting for approval · Review open PRs')
+
+  const multi = backgroundActivity({
+    id: 'b1',
+    tasks: [
+      { id: 't1', title: 'Task A', status: 'running', startedAt: 9000 },
+      { id: 't2', title: 'Task B', status: 'waiting_approval', startedAt: 4000 },
+    ],
+  })
+  assert.equal(multi.state, 'alert')
+  assert.equal(multi.startedAt, 4000)
+  assert.equal(multi.count, 2)
+  assert.equal(multi.label, '2 background tasks · 1 needs approval')
+})
+
+test('ActivityIndicator shows animated Bot row for idle DM with active background tasks and hands off cleanly', async () => {
+  const { outputFiles: compFiles } = await build({
+    stdin: { contents: "export { ActivityIndicator } from './src/client/activity-row.js'", resolveDir: PLUGIN },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const { React: baseReact, render: baseRender, unmount } = makeStatefulReact()
+  const deferredEffects = []
+  const React = {
+    ...baseReact,
+    useEffect: (fn, deps) => baseReact.useEffect(() => {
+      let cleanup
+      deferredEffects.push(() => { cleanup = fn() })
+      return () => { if (typeof cleanup === 'function') cleanup() }
+    }, deps),
+  }
+  const render = (el) => {
+    const tree = baseRender(el)
+    while (deferredEffects.length > 0) deferredEffects.shift()()
+    return tree
+  }
+  const compDom = new JSDOM('<!doctype html><body><div data-bt-flow id="flow"></div></body>')
+  const compMod = { exports: {} }
+  runInNewContext(compFiles[0].text, {
+    module: compMod, exports: compMod.exports,
+    document: compDom.window.document,
+    window: { matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {} },
+    Element: compDom.window.Element,
+    MutationObserver: compDom.window.MutationObserver,
+    requestAnimationFrame: fn => setTimeout(fn, 0),
+    cancelAnimationFrame: id => clearTimeout(id),
+    setTimeout, clearTimeout,
+    require: name => (name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : {}),
+  })
+  const { ActivityIndicator } = compMod.exports
+  const findNode = (node, pred) => {
+    if (!node || typeof node !== 'object') return null
+    if (pred(node)) return node
+    for (const child of node.children ?? []) {
+      const hit = findNode(child, pred)
+      if (hit) return hit
+    }
+    return null
+  }
+  const toggled = []
+  let fgRunning = false
+  let away = false
+  let tasks = [{ id: 't1', title: 'Review open PRs', status: 'running', startedAt: 1000 }]
+  let approvals = []
+  const makeProps = () => ({
+    sessionId: 's1',
+    away,
+    useRoster: sel => sel({ byId: { s1: { id: 'b1', name: 'Reviewr', tasks } }, roomsById: {} }),
+    useSessionStatus: sel => sel(new Map([['s1', { running: fgRunning }]])),
+    useSession: sel => sel({ pendingSubmissions: [] }),
+    useLive: sel => sel({}),
+    useWork: sel => sel({ canBackground: { s1: { botId: 'b1', turn: 2 } }, turns: { s1: 2000 }, approvals }),
+    actions: {
+      clearLive() {},
+      reportError() {},
+      moveToBackground() {},
+      toggleTaskDeck: id => toggled.push(id),
+    },
+  })
+  try {
+    let tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const row = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.ok(row, 'background activity row renders when foreground is idle')
+    assert.equal(row.props['data-bg-task'], '')
+    assert.equal(findNode(row, n => n.props?.className === 'bt-typing-bg'), null, 'Move to background button is hidden for background task rows')
+    const mark = findNode(row, n => n.props?.className === 'bt-mark')
+    assert.equal(mark?.props?.['data-state'], 'background')
+    const btn = findNode(row, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-typing-task'))
+    assert.ok(btn, 'background status text is a clickable button to open the task deck')
+    assert.equal(findNode(btn, n => n.props?.className === 'bt-typing-dot'), null)
+    btn.props.onClick()
+    assert.deepEqual(toggled, ['b1'])
+
+    // Switching to waiting_approval flips BotMark to alert and shows the approval dot.
+    tasks = [{ id: 't1', title: 'Review open PRs', status: 'waiting_approval', startedAt: 1000 }]
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const apvRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.equal(findNode(apvRow, n => n.props?.className === 'bt-mark')?.props?.['data-state'], 'alert')
+    assert.ok(findNode(apvRow, n => n.props?.className === 'bt-typing-dot'))
+
+    // Foreground turn takes priority over background row while user asks a question.
+    fgRunning = true
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    const fgRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.equal(fgRow.props['data-bg-task'], undefined)
+    assert.equal(findNode(fgRow, n => n.props?.className === 'bt-mark')?.props?.['data-state'], 'thinking')
+    assert.ok(findNode(fgRow, n => n.props?.className === 'bt-typing-bg'))
+
+    // Away from chat view hides the background row cleanly.
+    fgRunning = false
+    away = true
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    tree = render(React.createElement(ActivityIndicator, makeProps()))
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing'), null)
   } finally {
     unmount()
   }

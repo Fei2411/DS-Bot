@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BotMark, RoomAvatar } from './mark.js'
+import { isActiveTask, tasksForChat } from './bot-tasks.js'
 import { Elapsed, Shimmer, PHRASES } from './cells.js'
 import { MoveIcon } from './icons.js'
 import { noteClientError } from './diagnostics.js'
@@ -20,6 +21,45 @@ export { reducedMotion }
 // tool starts: streaming alone hides it, but running work must not.
 export const rowVisible = ({ running, streaming, tools, relaying, bot, room }) =>
   running && (!streaming || tools.length > 0) && !relaying && (bot !== undefined || room !== undefined)
+
+// Active DM background tasks for this Bot (group background tasks already show in
+// MemberDock). Returns null when the Bot has no active DM background tasks.
+export function backgroundActivity(bot, approvals = []) {
+  if (!bot) return null
+  const active = tasksForChat({ bot }).filter(isActiveTask)
+  if (active.length === 0) return null
+  const taskApprovals = (approvals ?? []).filter(entry =>
+    entry.roomId === undefined && entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false)
+  const waitingCount = Math.max(
+    active.filter(item => item.status === 'waiting_approval').length,
+    taskApprovals.length,
+  )
+  const needsApproval = waitingCount > 0
+  const allWaitingWork = !needsApproval && active.every(item => item.status === 'waiting_work')
+  const primary = active[0]
+  const title = typeof primary?.title === 'string' ? primary.title.trim() : ''
+  const state = needsApproval ? 'alert' : allWaitingWork ? 'waiting' : 'background'
+  const label = active.length === 1
+    ? needsApproval
+      ? (title ? t('Waiting for approval · {title}', { title }) : t('Waiting for approval'))
+      : allWaitingWork
+        ? (title ? t('Waiting for teammate · {title}', { title }) : t('Waiting for teammate'))
+        : (title ? t('In background · {title}', { title }) : t('Working in background'))
+    : needsApproval
+      ? t('{count} background tasks · {waiting} needs approval', { count: active.length, waiting: waitingCount })
+      : t('{count} background tasks running', { count: active.length })
+  const starts = active.map(item => item.startedAt ?? item.updatedAt).filter(at => typeof at === 'number' && at > 0)
+  const startedAt = starts.length > 0 ? Math.min(...starts) : 0
+  return {
+    key: `bg:${state}:${label}`,
+    label,
+    state,
+    startedAt,
+    count: active.length,
+    needsApproval,
+    primaryId: primary?.id ?? null,
+  }
+}
 
 // A queued message waits for the next turn, so only a transcript or steering
 // send counts as fresh input; a steer the host saw counts from when it landed.
@@ -152,7 +192,7 @@ function useRowEntrances(replacing) {
   }, [])
 }
 
-export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
+export function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster(value => value)
   const running = useSessionStatus(map => map.get(sessionId)?.running === true)
   const turnAt = useWork?.(work => work.turns?.[sessionId])
@@ -186,12 +226,18 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
       : room !== undefined ? work.rooms?.[room.id]?.find(item => item.self === true) : undefined
     return entry?.switching === true && entry.folder === true && entry.roomId === undefined ? entry.since : 0
   }) ?? 0
+  const bgApprovalsKey = useWork?.(work => (bot !== undefined
+    ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === undefined && entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false))
+    : '')) ?? ''
+  const bgApprovals = useMemo(() => (bgApprovalsKey ? JSON.parse(bgApprovalsKey) : []), [bgApprovalsKey])
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])
   const streaming = entries.some(entry => entry.text)
   const tools = entries.filter(entry => !entry.text).sort((a, b) => a.at - b.at)
   // Group chats show who is typing on their own while members speak.
   const relaying = tools.some(entry => entry.relay)
-  const visible = moveAt !== 0 || rowVisible({ running, streaming, tools, relaying, bot, room })
+  const fgVisible = rowVisible({ running, streaming, tools, relaying, bot, room })
+  const bgTask = !away && bot !== undefined && !running && moveAt === 0 ? backgroundActivity(bot, bgApprovals) : null
+  const visible = moveAt !== 0 || fgVisible || bgTask !== null
   const tool = tools.at(-1)
   const inputRef = useRef(0)
   // A steer keeps the run going, so nothing else resets the row: fresh input is
@@ -200,10 +246,12 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   inputRef.current = inputAt
   const want = !visible ? null
     : moveAt !== 0 ? { key: 'move', label: t('Switching working folder'), state: 'thinking' }
-      : inputAt > (tool?.at ?? 0)
-        ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
-        : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
-          : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
+      : fgVisible
+        ? inputAt > (tool?.at ?? 0)
+          ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
+          : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
+            : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
+        : { key: bgTask.key, label: bgTask.label, state: bgTask.state }
   const [shown, setShown] = useState(null)
   const wantKey = want?.key ?? null
   const markState = useRef('thinking')
@@ -247,9 +295,9 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])
   // Only rows that take the activity row's place grow out of it.
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
-  const host = useRunningHost(running || moveAt !== 0)
+  const host = useRunningHost(running || moveAt !== 0 || bgTask !== null)
   if (!host || phase === null || !shown) return null
-  const showBgAction = bot !== undefined && moveAt === 0 && bgInfo !== undefined && typeof actions?.moveToBackground === 'function'
+  const showBgAction = bot !== undefined && running && moveAt === 0 && bgInfo !== undefined && typeof actions?.moveToBackground === 'function'
   const moveToBg = () => {
     if (movingBg || !bgInfo) return
     setMovingBg(true)
@@ -266,19 +314,41 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     if (typeof target?.closest === 'function' && target.closest('button,.bt-typing-mark')) return
     setBgOpen(open => !open)
   }
+  const canOpenTasks = bgTask !== null && (typeof actions?.toggleTaskDeck === 'function' || typeof actions?.openTaskDeck === 'function')
+  const openTasks = () => {
+    if (!bot) return
+    if (typeof actions?.toggleTaskDeck === 'function') actions.toggleTaskDeck(bot.id)
+    else actions?.openTaskDeck?.(bot.id, bgTask?.primaryId ?? null)
+  }
+  const elapsedAt = moveAt !== 0 ? moveAt
+    : bgTask !== null ? bgTask.startedAt
+      : Math.max(turnAt ?? runAt.current, inputAt)
+  const textContent = [
+    bgTask?.needsApproval ? h('span', { key: 'dot', className: 'bt-typing-dot', 'aria-hidden': true }) : null,
+    h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
+    elapsedAt > 0 ? h(Elapsed, { key: 'time', at: elapsedAt, className: 'bt-typing-time' }) : null,
+  ]
   return createPortal(h('div', {
     ref: rowRef,
     className: 'bt-typing',
     'data-exiting': phase === 'out' ? '' : undefined,
+    'data-bg-task': bgTask !== null ? '' : undefined,
     'data-bg-open': showBgAction && bgOpen ? '' : undefined,
     'data-bg-busy': showBgAction && movingBg ? '' : undefined,
     onClick: tapRow,
   },
     h('span', { className: 'bt-typing-mark', 'aria-hidden': true },
       bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 })),
-    h('span', { className: 'bt-typing-text', 'aria-hidden': true },
-      h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
-      h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' })),
+    canOpenTasks
+      ? h('button', {
+          type: 'button',
+          className: 'bt-typing-text bt-typing-task',
+          'data-approval': bgTask.needsApproval || undefined,
+          'aria-label': `${shown.text} · ${t('View background tasks')}`,
+          title: t('View background tasks'),
+          onClick: openTasks,
+        }, ...textContent)
+      : h('span', { className: 'bt-typing-text', 'aria-hidden': true }, ...textContent),
     showBgAction
       ? h('span', { className: 'bt-typing-bg-wrap' },
         h('span', { className: 'bt-typing-bg-in' },
