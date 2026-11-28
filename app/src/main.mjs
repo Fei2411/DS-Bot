@@ -5,7 +5,7 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { createChatGPTSignIn } from './chatgpt-signin.mjs'
 import { createChatGPTRelay } from './chatgpt-relay.mjs'
 import { createChatGPTBridge } from './chatgpt-bridge.mjs'
@@ -13,8 +13,8 @@ import { createWebFetchBridge } from './web-fetch.mjs'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { badgeCount, createNotifications } from './notifications.mjs'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -39,6 +39,7 @@ import { pickPreferredLanguageTag } from './locale-match.mjs'
 import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
+import { detectInstalledApps, openInExternalApp, OpenInAppStore, withinRoot } from './open-in-app.mjs'
 
 installSocketTosGuard()
 
@@ -68,6 +69,8 @@ const IPC = {
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
   syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
+  openInAppList: 'ds-bot:open-in-app-list', openInAppOpen: 'ds-bot:open-in-app-open',
+  startDrag: 'ds-bot:start-drag', copyImage: 'ds-bot:copy-image', saveImage: 'ds-bot:save-image',
   systemLanguage: 'ds-bot:system-language',
 }
 // A cookie export larger than this is not a cookie export.
@@ -1313,6 +1316,174 @@ function handleIpc() {
     if (fixed || !fromWindow(event) || typeof path !== 'string' || !isAbsolute(path)) return
     places = { ...places, workspace: path }
     saveLocations(places)
+  })
+  // "Open in app", FileTree drag-out, and preview image copy / save-as.
+  const openInAppStore = new OpenInAppStore(join(app.getPath('userData'), 'open-in-app-defaults.json'))
+  let nextWorkspaceResolveId = 0
+  const normalizeWorkspaceTargetRequest = (target, dirPath) => {
+    if (target !== null && typeof target === 'object') {
+      return {
+        sessionId: typeof target.sessionId === 'string' ? target.sessionId : '',
+        path: typeof target.path === 'string' ? target.path : '',
+        dirPath: typeof target.dirPath === 'string' ? target.dirPath : (typeof dirPath === 'string' ? dirPath : ''),
+        expectedRoot: typeof target.expectedRoot === 'string' ? target.expectedRoot : '',
+      }
+    }
+    return {
+      sessionId: '',
+      path: typeof target === 'string' ? target : '',
+      dirPath: typeof dirPath === 'string' ? dirPath : '',
+      expectedRoot: '',
+    }
+  }
+  const assertNotUserData = (candidate, { isDirectory = true } = {}) => {
+    if (typeof candidate !== 'string' || !candidate) return
+    const rawUserData = app.getPath('userData')
+    if (!rawUserData) return
+    let realUserData
+    try { realUserData = realpathSync(resolve(rawUserData)) } catch { realUserData = resolve(rawUserData) }
+    if (withinRoot(candidate, realUserData)) {
+      throw new Error('Path is inside protected data')
+    }
+    if (isDirectory && withinRoot(realUserData, candidate)) {
+      throw new Error('Path is inside protected data')
+    }
+  }
+  // Delegate workspace containment and realpath resolution exclusively to the Host over the
+  // private parent-child Node IPC pipe so renderer-reported `places.workspace` is never trusted.
+  const resolveHostWorkspaceTarget = (payload, { allowAncestorDir = false } = {}) => new Promise((resolveReq, rejectReq) => {
+    const activeHost = host
+    if (!activeHost) {
+      rejectReq(new Error('Host is not ready'))
+      return
+    }
+    const id = `ws-resolve-${Date.now()}-${++nextWorkspaceResolveId}`
+    let settled = false
+    const cleanup = () => {
+      clearTimeout(timer)
+      off?.()
+    }
+    const off = activeHost.onMessage((message) => {
+      if (settled || message?.type !== 'ds-bot:workspace-resolve-target-response' || message.id !== id) return
+      settled = true
+      cleanup()
+      if (message.error) {
+        rejectReq(Object.assign(new Error(String(message.error.message || 'Path is outside the active workspace')), { code: message.error.code }))
+        return
+      }
+      const res = message.result
+      if (!res || typeof res.target !== 'string' || !isAbsolute(res.target) || typeof res.dir !== 'string' || !isAbsolute(res.dir)) {
+        rejectReq(new Error('Path is outside the active workspace'))
+        return
+      }
+      try {
+        // Ancestor-enclosing check applies only to directory targets that will actually be opened/dragged:
+        // when the workspace is `$HOME` (an ancestor of `userData`), files outside `userData` remain allowed.
+        assertNotUserData(res.target, { isDirectory: !allowAncestorDir && res.isDirectory !== false })
+        assertNotUserData(res.dir, { isDirectory: false })
+      } catch (err) {
+        rejectReq(err)
+        return
+      }
+      resolveReq(res)
+    })
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      rejectReq(new Error('Timed out resolving workspace target'))
+    }, 5_000)
+    timer.unref?.()
+    try {
+      activeHost.send({ type: 'ds-bot:workspace-resolve-target', id, ...payload })
+    } catch (err) {
+      if (!settled) {
+        settled = true
+        cleanup()
+        rejectReq(err)
+      }
+    }
+  })
+  const MAX_IMAGE_IPC_BYTES = 16 * 1024 * 1024
+  const decodeImageBase64 = (raw) => {
+    if (typeof raw !== 'string' || raw === '') return null
+    const maxLen = Math.ceil(MAX_IMAGE_IPC_BYTES / 3) * 4 + 4
+    if (raw.length > maxLen) return null
+    const buf = Buffer.from(raw, 'base64')
+    if (buf.length === 0 || buf.length > MAX_IMAGE_IPC_BYTES) return null
+    return buf
+  }
+  ipcMain.handle(IPC.openInAppList, async (event, target) => {
+    assertWindow(event)
+    const detected = detectInstalledApps()
+    const req = normalizeWorkspaceTargetRequest(target)
+    let safeDir = null
+    if (req.sessionId || req.path) {
+      try {
+        const resolved = await resolveHostWorkspaceTarget(req, { allowAncestorDir: true })
+        safeDir = resolved.dir
+      } catch {
+        safeDir = null
+      }
+    }
+    const defaultId = safeDir ? openInAppStore.getDefault(safeDir) : null
+    const validDefault = detected.some(entry => entry.id === defaultId) ? defaultId : (detected[0]?.id ?? null)
+    return {
+      apps: detected.map(({ id, name, category }) => ({ id, name, category })),
+      defaultId: validDefault,
+    }
+  })
+  ipcMain.handle(IPC.openInAppOpen, async (event, appId, target, dirPath) => {
+    assertWindow(event)
+    const req = normalizeWorkspaceTargetRequest(target, dirPath)
+    if (typeof appId !== 'string' || !appId || (!req.path && !req.sessionId)) {
+      throw new Error('Invalid app or target path')
+    }
+    const resolved = await resolveHostWorkspaceTarget(req)
+    const detected = detectInstalledApps()
+    const chosen = detected.find(entry => entry.id === appId)
+    if (!chosen) throw new Error(`App is not installed: ${appId}`)
+    await openInExternalApp(chosen, resolved.target, { isDirectory: resolved.isDirectory })
+    if (resolved.dir) openInAppStore.setDefault(resolved.dir, chosen.id)
+    return { ok: true, defaultId: chosen.id }
+  })
+  ipcMain.on(IPC.startDrag, (event, target) => {
+    if (!fromWindow(event)) return
+    const req = normalizeWorkspaceTargetRequest(target)
+    if (!req.path && !req.sessionId) return
+    void resolveHostWorkspaceTarget(req).then((resolved) => {
+      if (event.sender.isDestroyed()) return
+      const icon = nativeImage.createFromPath(iconFile).resize({ width: 24, height: 24 })
+      event.sender.startDrag({ file: resolved.target, icon })
+    }).catch(() => {})
+  })
+  ipcMain.handle(IPC.copyImage, async (event, base64) => {
+    assertWindow(event)
+    const buf = decodeImageBase64(base64)
+    if (!buf) return { ok: false, error: 'invalid-image' }
+    const img = nativeImage.createFromBuffer(buf)
+    if (img.isEmpty()) return { ok: false, error: 'unsupported-image' }
+    if (typeof clipboard.write === 'function' && typeof ClipboardItem === 'function') {
+      const png = img.toPNG()
+      const blob = new Blob([png], { type: 'image/png' })
+      await clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      return { ok: true }
+    }
+    if (typeof clipboard.writeImage === 'function') {
+      clipboard.writeImage(img)
+      return { ok: true }
+    }
+    return { ok: false, error: 'unsupported-clipboard' }
+  })
+  ipcMain.handle(IPC.saveImage, async (event, base64, name) => {
+    assertWindow(event)
+    const buf = decodeImageBase64(base64)
+    if (!buf) return { ok: false, error: 'invalid-image' }
+    const safeName = basename(String(name || 'image.png')).replace(/[\x00-\x1f\x7f]/g, '').trim() || 'image.png'
+    const picked = await askPicker(mainWindow, { mode: 'save', title: tx('dialog.saveAs'), start: knownFolder('downloads'), name: safeName })
+    if (picked === undefined) return { ok: false, canceled: true }
+    await writeFile(picked, buf)
+    return { ok: true, path: picked }
   })
   if (process.platform === 'win32') {
     // Windows ignores the alpha of the caption buttons' color, so they take the opaque color

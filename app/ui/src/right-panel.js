@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
-import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon, FolderIcon, SearchIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, DiffIcon, FileIcon, FolderIcon, SearchIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { ChangesReview } from './changes-review.js'
@@ -112,6 +112,8 @@ function TreeBranch({
   highlightedDir,
   menuPath,
   filter,
+  sessionId = '',
+  rootPath = '',
   onToggleDir,
   onSelectFile,
   onContextMenu,
@@ -119,6 +121,12 @@ function TreeBranch({
   if (depth >= MAX_TREE_DEPTH) return []
   const needle = filter.trim().toLowerCase()
   const rows = []
+  const canDragOut = Boolean(rootPath && typeof window !== 'undefined' && typeof window.dsBotApp?.startDrag === 'function')
+  const startDragPath = (event, relPath) => {
+    if (!canDragOut) return
+    event.preventDefault()
+    window.dsBotApp.startDrag({ sessionId: sessionId ?? '', path: relPath, expectedRoot: rootPath })
+  }
   const openKeyboardMenu = (event, entry) => {
     if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
       event.preventDefault()
@@ -149,6 +157,8 @@ function TreeBranch({
           highlightedDir,
           menuPath,
           filter,
+          sessionId,
+          rootPath,
           onToggleDir,
           onSelectFile,
           onContextMenu,
@@ -166,6 +176,8 @@ function TreeBranch({
         'aria-expanded': isOpen,
         'data-path': path,
         'data-menu-open': menuPath === path ? '' : undefined,
+        draggable: canDragOut || undefined,
+        onDragStart: canDragOut ? (event => startDragPath(event, path)) : undefined,
         onClick: () => { if (!isCyclic) onToggleDir(path) },
         onContextMenu: (event) => {
           event.preventDefault()
@@ -198,6 +210,8 @@ function TreeBranch({
         'aria-current': selectedPath === entry.path ? 'true' : undefined,
         'data-path': entry.path,
         'data-menu-open': menuPath === entry.path ? '' : undefined,
+        draggable: canDragOut || undefined,
+        onDragStart: canDragOut ? (event => startDragPath(event, entry.path)) : undefined,
         onClick: () => onSelectFile(entry.path),
         onContextMenu: (event) => {
           event.preventDefault()
@@ -287,7 +301,7 @@ export function normalizeRevealPath(raw, rootPath) {
   return collapsed === null ? { status: 'outside', raw: p } : { status: 'ok', path: collapsed }
 }
 
-function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, onOpenDefault, onCopyPath, onCopyRelativePath, onClose }) {
+function FileTreeContextMenu({ menu, expanded, openApps = [], defaultAppId = null, onOpen, onToggleDir, onReveal, onOpenDefault, onOpenInApp, onCopyPath, onCopyRelativePath, onClose }) {
   const open = Boolean(menu)
   const [shown, leaving] = useLinger(open, 120)
   const lastMenuRef = useRef(menu)
@@ -350,10 +364,24 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
   const isOpen = isDir && expanded.has(entry.path)
   const run = fn => () => { onClose(); fn() }
 
+  const appItems = openApps.length > 0 && typeof onOpenInApp === 'function'
+    ? [
+        { sep: true },
+        ...openApps.map(app => ({
+          key: `app:${app.id}`,
+          icon: app.category === 'terminal' ? TerminalIcon : OpenExternalIcon,
+          label: t('Open in {app}', { app: app.name }),
+          checked: app.id === defaultAppId,
+          onClick: run(() => onOpenInApp(app.id, entry.path, activeMenu.root, entry.kind)),
+        })),
+      ]
+    : []
+
   const items = isDir
     ? [
         { key: 'toggle', icon: ChevronRightIcon, label: isOpen ? t('Collapse') : t('Expand'), onClick: run(() => onToggleDir(entry.path)) },
         { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path, activeMenu.root)) },
+        ...appItems,
         { sep: true },
         { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path, activeMenu.root)) },
         { key: 'copy-rel', icon: CopyIcon, label: t('Copy relative path'), onClick: run(() => onCopyRelativePath(entry.path)) },
@@ -362,6 +390,7 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
         { key: 'open', icon: FileIcon, label: t('Open'), onClick: run(() => onOpen(entry.path)) },
         { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path, activeMenu.root)) },
         { key: 'open-app', icon: OpenExternalIcon, label: t('Open in default app'), onClick: run(() => onOpenDefault(entry.path, activeMenu.root)) },
+        ...appItems,
         { sep: true },
         { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path, activeMenu.root)) },
         { key: 'copy-rel', icon: CopyIcon, label: t('Copy relative path'), onClick: run(() => onCopyRelativePath(entry.path)) },
@@ -383,11 +412,108 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
       role: 'menuitem',
       className: 'bt-menu-item',
       'data-ft-action': item.key,
+      'data-default': item.checked ? '' : undefined,
       onClick: item.onClick,
-    }, h(item.icon), h('span', null, item.label)))))
+    },
+    h(item.icon),
+    h('span', { className: item.checked !== undefined ? 'dsb-ft-openapp-item-name' : undefined }, item.label),
+    item.checked ? h(CheckIcon) : null))))
 
   const target = typeof document !== 'undefined' && document?.body ? document.body : null
   return target ? createPortal(node, target) : node
+}
+
+function OpenInAppMenu({ open, anchorRef, apps, defaultAppId, onSelect, onClose }) {
+  const [shown, leaving] = useLinger(open, 120)
+  const menuRef = useRef(null)
+  const [place, setPlace] = useState({ left: 16, top: 16, maxHeight: 320 })
+  const tick = useViewport(shown)
+
+  useEscape(onClose, open, { priority: ESCAPE_PRIORITY.MENU })
+
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return undefined
+    const down = (event) => {
+      if (menuRef.current?.contains?.(event.target)) return
+      if (anchorRef?.current?.contains?.(event.target)) return
+      onClose()
+    }
+    const key = (event) => {
+      if (event.key === 'Tab') { onClose(); return }
+      if (stepMenuFocus(menuRef.current, event)) event.preventDefault()
+    }
+    document.addEventListener?.('pointerdown', down, true)
+    document.addEventListener?.('keydown', key)
+    return () => {
+      document.removeEventListener?.('pointerdown', down, true)
+      document.removeEventListener?.('keydown', key)
+    }
+  }, [open, anchorRef, onClose])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const raf = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame(() => { menuRef.current?.querySelector?.('[role="menuitem"]')?.focus?.() })
+      : null
+    return () => {
+      if (raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
+      anchorRef?.current?.focus?.()
+    }
+  }, [open, anchorRef])
+
+  useLayoutEffect(() => {
+    if (!shown) return
+    const trigger = anchorRef?.current?.getBoundingClientRect?.()
+    const box = menuRef.current?.getBoundingClientRect?.()
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 800
+    const vh = viewBottom()
+    const width = box?.width || 196
+    const rawHeight = box?.height || Math.min(320, Math.max(44, apps.length * 34 + 12))
+    const margin = 8
+    const anchorRight = trigger?.right ?? (vw - margin)
+    const anchorBottom = trigger?.bottom ?? 48
+    const anchorTop = trigger?.top ?? 20
+    const spaceBelow = Math.max(0, vh - anchorBottom - 4 - margin)
+    const spaceAbove = Math.max(0, anchorTop - 4 - margin)
+    const openUp = rawHeight > spaceBelow && spaceAbove > spaceBelow
+    const maxHeight = Math.max(80, Math.min(360, openUp ? spaceAbove : spaceBelow))
+    const renderedHeight = Math.min(rawHeight, maxHeight)
+    const top = openUp
+      ? Math.max(margin, anchorTop - 4 - renderedHeight)
+      : Math.max(margin, Math.min(anchorBottom + 4, vh - renderedHeight - margin))
+    const left = Math.max(margin, Math.min(anchorRight - width, vw - width - margin))
+    setPlace({ left, top, maxHeight })
+  }, [shown, anchorRef, apps.length, tick])
+
+  if (!shown || apps.length === 0) return null
+
+  const node = h('div', {
+    ref: menuRef,
+    className: 'bt-menu dsb-ft-openapp-menu',
+    role: 'menu',
+    'aria-label': t('Open in app'),
+    'data-leaving': leaving ? '' : undefined,
+    style: place,
+  },
+  apps.map(app => h('button', {
+    key: app.id,
+    type: 'button',
+    role: 'menuitem',
+    className: 'bt-menu-item',
+    'data-app-id': app.id,
+    onClick: () => onSelect(app.id),
+  },
+  h('span', { className: 'dsb-ft-openapp-item-name' }, app.name),
+  app.id === defaultAppId ? h(CheckIcon) : null)))
+
+  const target = typeof document !== 'undefined' && document?.body ? document.body : null
+  return target ? createPortal(node, target) : node
+}
+
+const parentRelDir = (relPath) => {
+  const s = String(relPath ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const idx = s.lastIndexOf('/')
+  return idx > 0 ? s.slice(0, idx) : ''
 }
 
 function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, revealNonce = 0, onOpenFile, active = true }) {
@@ -402,6 +528,10 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   const [revealNotice, setRevealNotice] = useState('')
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
+  const [openApps, setOpenApps] = useState([])
+  const [dirDefaults, setDirDefaults] = useState(() => ({}))
+  const [appMenuOpen, setAppMenuOpen] = useState(false)
+  const appMenuRef = useRef(null)
   const genRef = useRef(0)
   const listRef = useRef(null)
   const handledRevealNonceRef = useRef(0)
@@ -577,7 +707,45 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   useEffect(() => {
     setRevealNotice('')
     pendingHiddenRevealRef.current = null
+    setAppMenuOpen(false)
   }, [sessionId])
+
+  // Load installed editors/terminals and workspace-root default when the Electron bridge is available.
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.dsBotApp?.openInApp : null
+    if (!bridge || typeof bridge.list !== 'function' || !rootInfo.root) {
+      setOpenApps([])
+      setDirDefaults({})
+      return undefined
+    }
+    let alive = true
+    setDirDefaults({})
+    void bridge.list({ sessionId: sessionId ?? '', path: '', expectedRoot: rootInfo.root }).then((res) => {
+      if (!alive) return
+      setOpenApps(Array.isArray(res?.apps) ? res.apps : [])
+      const rootDefault = typeof res?.defaultId === 'string' ? res.defaultId : null
+      setDirDefaults(prev => ({ ...prev, '': rootDefault }))
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [sessionId, rootInfo.root])
+
+  // Load the per-directory default app for the right-clicked entry's own folder (via Host canonicalization).
+  const menuDirRel = menu?.entry
+    ? (menu.entry.kind === 'dir' ? (menu.entry.path || '') : parentRelDir(menu.entry.path))
+    : null
+  useEffect(() => {
+    if (menuDirRel === null || menuDirRel === '') return undefined
+    const bridge = typeof window !== 'undefined' ? window.dsBotApp?.openInApp : null
+    const expectedRoot = menu?.root || rootInfo.root
+    if (!bridge || typeof bridge.list !== 'function' || !expectedRoot) return undefined
+    let alive = true
+    void bridge.list({ sessionId: sessionId ?? '', path: menuDirRel, expectedRoot }).then((res) => {
+      if (!alive) return
+      const dirDefault = typeof res?.defaultId === 'string' ? res.defaultId : null
+      setDirDefaults(prev => (prev[menuDirRel] === dirDefault ? prev : { ...prev, [menuDirRel]: dirDefault }))
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [menuDirRel, menu?.root, sessionId, rootInfo.root])
 
   // When returning from a hidden tab (e.g. Preview/Terminal), refresh once cleanly.
   useEffect(() => {
@@ -585,6 +753,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     prevActiveRef.current = active
     if (!active) {
       setMenu(null)
+      setAppMenuOpen(false)
       return
     }
     if (!wasActive) {
@@ -850,6 +1019,30 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     })
   }, [actions])
 
+  const openInAppTarget = useCallback((appId, relPath = '', capturedRoot = '', entryKind = 'dir') => {
+    const bridge = typeof window !== 'undefined' ? window.dsBotApp?.openInApp : null
+    if (!bridge || typeof bridge.open !== 'function') return
+    const root = capturedRoot || rootPathRef.current
+    if (!root) return
+    const targetDirRel = entryKind === 'dir' ? (relPath || '') : parentRelDir(relPath)
+    setAppMenuOpen(false)
+    void bridge.open(appId, { sessionId: sessionId ?? '', path: relPath || '', dirPath: '', expectedRoot: root }).then((res) => {
+      const nextDefault = typeof res?.defaultId === 'string' ? res.defaultId : appId
+      setDirDefaults(prev => (prev[targetDirRel] === nextDefault ? prev : { ...prev, [targetDirRel]: nextDefault }))
+    }).catch((failure) => {
+      const msg = hostText(failure?.message ?? String(failure))
+      if (actions?.reportError) actions.reportError(failure, 'open-in-app')
+      else setError(msg)
+    })
+  }, [sessionId, actions])
+
+  const closeAppMenu = useCallback(() => setAppMenuOpen(false), [])
+  const rootDefaultAppId = dirDefaults[''] ?? null
+  const defaultApp = openApps.find(app => app.id === rootDefaultAppId) ?? openApps[0] ?? null
+  const menuDefaultAppId = menuDirRel !== null && Object.hasOwn(dirDefaults, menuDirRel)
+    ? dirDefaults[menuDirRel]
+    : (defaultApp?.id ?? null)
+
   const rootEntries = childrenByPath[''] ?? []
   const rows = TreeBranch({
     entries: rootEntries,
@@ -863,6 +1056,8 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     highlightedDir,
     menuPath: menu?.entry?.path ?? null,
     filter,
+    sessionId,
+    rootPath: rootInfo.root,
     onToggleDir: toggleDir,
     onSelectFile: openFileTarget,
     onContextMenu: (entry, x, y, trigger) => setMenu({ entry, x, y, trigger, root: rootPathRef.current }),
@@ -872,6 +1067,31 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     h('div', { className: 'dsb-ft-bar' },
       h('span', { className: 'dsb-ft-root', title: rootInfo.root }, rootInfo.rootName || t('Workspace')),
       h('div', { className: 'dsb-ft-actions' },
+        defaultApp ? h('div', { className: 'dsb-ft-openapp' },
+          h('button', {
+            type: 'button',
+            className: 'bt-soft bt-soft-sm dsb-ft-openapp-btn',
+            title: t('Open in {app}', { app: defaultApp.name }),
+            onClick: () => openInAppTarget(defaultApp.id, '', rootInfo.root),
+          }, h(OpenExternalIcon), h('span', { className: 'dsb-ft-openapp-label' }, defaultApp.name)),
+          openApps.length > 1 ? h('button', {
+            ref: appMenuRef,
+            type: 'button',
+            className: 'bt-icon-btn dsb-ft-openapp-caret',
+            'aria-label': t('Open in app'),
+            'aria-haspopup': 'menu',
+            'aria-expanded': appMenuOpen,
+            title: t('Open in app'),
+            onClick: () => setAppMenuOpen(v => !v),
+          }, h(ChevronDownIcon)) : null,
+          h(OpenInAppMenu, {
+            open: appMenuOpen && openApps.length > 1,
+            anchorRef: appMenuRef,
+            apps: openApps,
+            defaultAppId: defaultApp.id,
+            onSelect: appId => openInAppTarget(appId, '', rootInfo.root),
+            onClose: closeAppMenu,
+          })) : null,
         h('button', {
           type: 'button',
           className: 'bt-soft bt-soft-sm',
@@ -916,10 +1136,13 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     h(FileTreeContextMenu, {
       menu,
       expanded,
+      openApps,
+      defaultAppId: menuDefaultAppId,
       onOpen: openFileTarget,
       onToggleDir: toggleDir,
       onReveal: (path, root) => runOpenAction(path, 'reveal', root),
       onOpenDefault: (path, root) => runOpenAction(path, 'open', root),
+      onOpenInApp: openInAppTarget,
       onCopyPath: (path, root) => copyPath(path, false, root),
       onCopyRelativePath: path => copyPath(path, true),
       onClose: () => setMenu(null),

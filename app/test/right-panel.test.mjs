@@ -1846,3 +1846,390 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     uiProbe5.unmount()
   }
 })
+
+test('FileTree Open-in-App & drag-out, ImagePreview copy/save, Excel hints, and categorized Office error messages work cleanly', async () => {
+  const dragged = []
+  const openedApps = []
+  const copiedImgs = []
+  const savedImgs = []
+  const prevBridge = sandbox.window.dsBotApp
+  sandbox.window.dsBotApp = {
+    openInApp: {
+      list: async () => ({
+        apps: [
+          { id: 'cursor', name: 'Cursor', category: 'editor' },
+          { id: 'ghostty', name: 'Ghostty', category: 'terminal' },
+        ],
+        defaultId: 'cursor',
+      }),
+      open: async (appId, targetPath, dirPath) => {
+        openedApps.push({ appId, targetPath, dirPath })
+        return { ok: true, defaultId: appId }
+      },
+    },
+    startDrag: (filePath) => { dragged.push(filePath) },
+    copyImage: async (b64, mime) => { copiedImgs.push({ b64, mime }); return { ok: true } },
+    saveImage: async (b64, name) => { savedImgs.push({ b64, name }); return { ok: true, path: `/tmp/${name}` } },
+  }
+
+  try {
+    // 1. FileTree Open-in-App split button remembers chosen app and drag-out calls startDrag.
+    sandbox.__testCall = async (endpoint) => {
+      if (endpoint === 'workspace-list') {
+        return {
+          root: '/repo', rootName: 'repo', path: '', truncated: false,
+          entries: [{ name: 'notes.md', path: 'notes.md', kind: 'file', size: 12, ext: '.md' }],
+        }
+      }
+      if (endpoint === 'workspace-watch') return { watchId: 'w1', root: '/repo', recursive: true }
+      return {}
+    }
+    const team = createTeam()
+    const treeInst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+    try {
+      treeInst.render()
+      await tick()
+      treeInst.render()
+      await tick()
+      let tree = treeInst.render()
+      // Primary Open-in-App button opens workspace root in remembered default (Cursor).
+      const openBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-btn'))[0]
+      assert.ok(openBtn, 'Open in app button renders when dsBotApp.openInApp bridge exists')
+      openBtn.props.onClick()
+      await tick()
+      assert.deepEqual(plain(openedApps[0]), { appId: 'cursor', targetPath: { sessionId: 'b1', path: '', dirPath: '', expectedRoot: '/repo' } })
+
+      // Dropdown switches default to Ghostty and launches it.
+      const caretBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-caret'))[0]
+      caretBtn.props.onClick()
+      tree = treeInst.render()
+      const ghosttyItem = all(tree, n => n.type === 'button' && n.props?.['data-app-id'] === 'ghostty')[0]
+      assert.ok(ghosttyItem)
+      ghosttyItem.props.onClick()
+      await tick()
+      assert.deepEqual(plain(openedApps[1]), { appId: 'ghostty', targetPath: { sessionId: 'b1', path: '', dirPath: '', expectedRoot: '/repo' } })
+
+      // Dragging file row triggers native Electron webContents.startDrag with structured session/path target.
+      const fileRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'notes.md')[0]
+      assert.equal(fileRow.props.draggable, true)
+      let dragPrevented = false
+      fileRow.props.onDragStart({ preventDefault() { dragPrevented = true } })
+      assert.equal(dragPrevented, true)
+      assert.deepEqual(plain(dragged), [{ sessionId: 'b1', path: 'notes.md', expectedRoot: '/repo' }])
+    } finally {
+      treeInst.unmount()
+    }
+
+    // 2. ImagePreview Copy image and Save as buttons call dsBotApp bridge.
+    const imgInst = mount(FilePreview, {
+      file: { kind: 'image', name: 'chart.png', path: 'assets/chart.png', size: 16, mime: 'image/png', base64: 'iVBORw0KGgo=' },
+    })
+    try {
+      const tree = imgInst.render()
+      const copyBtn = all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n)))[0]
+      const saveBtn = all(tree, n => n.type === 'button' && /Save as/.test(textOf(n)))[0]
+      assert.ok(copyBtn && saveBtn)
+      copyBtn.props.onClick()
+      saveBtn.props.onClick()
+      await tick()
+      assert.equal(copiedImgs.length, 1)
+      assert.equal(copiedImgs[0].b64, 'iVBORw0KGgo=')
+      assert.equal(savedImgs.length, 1)
+      assert.equal(savedImgs[0].name, 'chart.png')
+    } finally {
+      imgInst.unmount()
+    }
+
+    // 3. SpreadsheetPreview displays formula and unsupported-element hints.
+    const xlsxInst = mount(FilePreview, {
+      file: {
+        kind: 'spreadsheet',
+        ext: '.xlsx',
+        name: 'budget.xlsx',
+        path: 'budget.xlsx',
+        size: 1024,
+        totalSheets: 1,
+        truncatedSheets: false,
+        truncatedText: false,
+        hints: { hasFormulas: true, formulaCount: 2, unsupported: ['charts', 'conditionalFormatting'] },
+        sheets: [{
+          name: 'Q1',
+          state: 'visible',
+          rows: [[{ v: '20', f: '=SUM(A1:A2)', num: true }]],
+          rowCount: 1,
+          colCount: 1,
+          totalRows: 1,
+          totalCols: 1,
+          truncatedRows: false,
+          truncatedCols: false,
+          truncatedText: false,
+          truncatedBySize: false,
+          merges: [],
+          formulaCount: 2,
+          unsupported: ['conditionalFormatting'],
+        }],
+      },
+    })
+    try {
+      const text = textOf(xlsxInst.render())
+      assert.match(text, /Formulas show cached values only/)
+      assert.match(text, /Charts/)
+      assert.match(text, /Conditional formatting/)
+    } finally {
+      xlsxInst.unmount()
+    }
+
+    // 4. Categorized Office conversion failure copy (timeout, busy, encrypted, missing-font).
+    const cases = [
+      ['timeout', /timed out/i],
+      ['busy', /busy with another document/i],
+      ['encrypted', /password-protected or encrypted/i],
+      ['missing-font', /missing system fonts/i],
+    ]
+    for (const [reason, pattern] of cases) {
+      const offInst = mount(FilePreview, {
+        file: { kind: 'office-unavailable', ext: '.docx', name: 'doc.docx', path: 'doc.docx', size: 100, reason },
+      })
+      try {
+        assert.match(textOf(offInst.render()), pattern)
+      } finally {
+        offInst.unmount()
+      }
+    }
+  } finally {
+    sandbox.window.dsBotApp = prevBridge
+  }
+})
+
+test('OpenInAppMenu uses portal clamping and ESCAPE_PRIORITY.MENU, context menu has no 6-app cap, and ImagePreview supports Web Clipboard fallback + SVG/error feedback', async () => {
+  const prevBridge = sandbox.window.dsBotApp
+  const prevClipboard = sandbox.navigator.clipboard
+  const prevClipboardItem = sandbox.ClipboardItem
+  const prevInnerHeight = sandbox.window.innerHeight
+  const apps8 = Array.from({ length: 8 }, (_, i) => ({
+    id: `app-${i + 1}`,
+    name: `Editor ${i + 1}`,
+    category: i < 6 ? 'editor' : 'terminal',
+  }))
+  sandbox.window.dsBotApp = {
+    openInApp: {
+      list: async () => ({ apps: apps8, defaultId: 'app-1' }),
+      open: async (appId) => ({ ok: true, defaultId: appId }),
+    },
+    startDrag: () => {},
+    copyImage: async () => ({ ok: false, error: 'unsupported-image' }),
+    saveImage: async () => ({ ok: true }),
+  }
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'workspace-list') {
+      return {
+        root: '/repo', rootName: 'repo', path: '', truncated: false,
+        entries: [{ name: 'a.txt', path: 'a.txt', kind: 'file', size: 4, ext: '.txt' }],
+      }
+    }
+    if (endpoint === 'workspace-watch') return { watchId: 'w-oia', root: '/repo', recursive: true }
+    return {}
+  }
+
+  try {
+    sandbox.window.innerHeight = 220
+    const team = createTeam()
+    const treeInst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+    try {
+      treeInst.render()
+      await tick()
+      treeInst.render()
+      await tick()
+      let tree = treeInst.render()
+
+      // 1. OpenInAppMenu renders via portal, clamps inside short viewport, and Escape closes ONLY the menu (stopImmediatePropagation / higher priority).
+      const caretBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-caret'))[0]
+      assert.ok(caretBtn)
+      caretBtn.props.ref.current.getBoundingClientRect = () => ({ left: 1180, right: 1204, top: 70, bottom: 98, width: 24, height: 28 })
+      caretBtn.props.onClick()
+      tree = treeInst.render()
+      tree = treeInst.render()
+      const menuNode = all(tree, n => n.props?.role === 'menu' && String(n.props?.className ?? '').includes('dsb-ft-openapp-menu'))[0]
+      assert.ok(menuNode, 'OpenInAppMenu renders')
+      const { top, left, maxHeight } = menuNode.props.style
+      assert.ok(Number.isFinite(top) && Number.isFinite(left) && Number.isFinite(maxHeight))
+      assert.ok(top + maxHeight <= sandbox.window.innerHeight - 8 + 1, 'OpenInAppMenu clamps maxHeight within short viewport')
+      assert.equal(all(menuNode, n => n.props?.role === 'menuitem').length, 8, 'OpenInAppMenu renders all 8 apps')
+
+      // Simulate Escape key with a raw document capture listener (like composer.js:322) AND a lower-priority panel Escape listener.
+      // Because OpenInAppMenu uses { priority: ESCAPE_PRIORITY.MENU } (>= CAPTURE_ESCAPE_MIN_PRIORITY),
+      // document capture alone must close ONLY the menu and set defaultPrevented before subsequent capture/bubble listeners run.
+      let rawCaptureFired = false
+      const rawCaptureListener = (event) => {
+        if (event.defaultPrevented || event.key !== 'Escape') return
+        rawCaptureFired = true
+      }
+      sandbox.document.addEventListener('keydown', rawCaptureListener, true)
+      let panelEscapeFired = false
+      const panelBubbleListener = (event) => {
+        if (event.defaultPrevented || event.key !== 'Escape') return
+        panelEscapeFired = true
+      }
+      sandbox.window.addEventListener('keydown', panelBubbleListener)
+      try {
+        const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+        for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
+        assert.equal(escEvt.defaultPrevented, true, 'OpenInAppMenu Escape must handle during document capture via { priority: ESCAPE_PRIORITY.MENU }')
+        assert.equal(rawCaptureFired, false, 'subsequent document capture Escape listener must see defaultPrevented === true')
+        for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
+        assert.equal(panelEscapeFired, false, 'panel Escape listener must not close right panel while menu is open')
+      } finally {
+        sandbox.document.removeEventListener('keydown', rawCaptureListener, true)
+        sandbox.window.removeEventListener('keydown', panelBubbleListener)
+      }
+      tree = treeInst.render()
+      assert.equal(all(tree, n => n.props?.role === 'menu' && String(n.props?.className ?? '').includes('dsb-ft-openapp-menu') && n.props?.['data-leaving'] === undefined).length, 0)
+
+      // 2. FileTreeContextMenu lists all 8 apps with no arbitrary 6-item cap.
+      const fileRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'a.txt')[0]
+      fileRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 50, clientY: 60, currentTarget: {} })
+      tree = treeInst.render()
+      const ctxAppItems = all(tree, n => n.type === 'button' && String(n.props?.['data-ft-action'] ?? '').startsWith('app:'))
+      assert.equal(ctxAppItems.length, 8, 'context menu must not cap openApps at 6 items')
+    } finally {
+      treeInst.unmount()
+    }
+
+    // 3. ImagePreview shows visible Copy failed feedback when bridge returns ok:false, and omits Copy image on SVG previews.
+    const errImg = mount(FilePreview, {
+      file: { kind: 'image', name: 'bad.png', path: 'bad.png', size: 12, mime: 'image/png', base64: 'iVBORw0KGgo=' },
+    })
+    try {
+      let tree = errImg.render()
+      const copyBtn = all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n)))[0]
+      copyBtn.props.onClick()
+      await tick()
+      tree = errImg.render()
+      assert.match(textOf(tree), /Copy failed/, 'failed copyImage must show visible feedback')
+    } finally {
+      errImg.unmount()
+    }
+
+    const svgImg = mount(FilePreview, {
+      file: { kind: 'svg', name: 'icon.svg', path: 'icon.svg', size: 24, mime: 'image/svg+xml', text: '<svg/>', base64: 'PHN2Zy8+' },
+    })
+    try {
+      const tree = svgImg.render()
+      assert.equal(all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n))).length, 0, 'SVG preview must hide unsupported Copy image button')
+      assert.equal(all(tree, n => n.type === 'button' && /Save as/.test(textOf(n))).length, 1, 'SVG preview keeps Save as…')
+    } finally {
+      svgImg.unmount()
+    }
+
+    // 4. Non-Electron Web Clipboard fallback uses decodeBase64Bytes cleanly without ReferenceError.
+    sandbox.window.dsBotApp = undefined
+    const writtenItems = []
+    sandbox.ClipboardItem = class FakeClipboardItem {
+      constructor(map) { this.map = map }
+    }
+    sandbox.navigator.clipboard = {
+      write: async (items) => { writtenItems.push(...items) },
+    }
+    const webImg = mount(FilePreview, {
+      file: { kind: 'image', name: 'web.png', path: 'web.png', size: 8, mime: 'image/png', base64: 'iVBORw0KGgo=' },
+    })
+    try {
+      let tree = webImg.render()
+      all(tree, n => n.type === 'button' && /Copy image/.test(textOf(n)))[0].props.onClick()
+      await tick()
+      tree = webImg.render()
+      assert.equal(writtenItems.length, 1, 'Web Clipboard fallback writes ClipboardItem')
+      assert.match(textOf(tree), /Copied/, 'Web Clipboard fallback transitions button to Copied')
+    } finally {
+      webImg.unmount()
+    }
+  } finally {
+    sandbox.window.dsBotApp = prevBridge
+    sandbox.navigator.clipboard = prevClipboard
+    sandbox.ClipboardItem = prevClipboardItem
+    sandbox.window.innerHeight = prevInnerHeight
+  }
+})
+
+test('FileTree remembers and displays per-directory Open-in-App defaults independently for subdirectories and root', async () => {
+  const prevBridge = sandbox.window.dsBotApp
+  const listCalls = []
+  const defaultsByPath = new Map([['', 'cursor'], ['sub', 'ghostty']])
+  sandbox.window.dsBotApp = {
+    openInApp: {
+      list: async (req) => {
+        listCalls.push(plain(req))
+        const dirKey = typeof req === 'object' ? (req.path ?? '') : ''
+        return {
+          apps: [
+            { id: 'cursor', name: 'Cursor', category: 'editor' },
+            { id: 'ghostty', name: 'Ghostty', category: 'terminal' },
+            { id: 'zed', name: 'Zed', category: 'editor' },
+          ],
+          defaultId: defaultsByPath.get(dirKey) ?? 'cursor',
+        }
+      },
+      open: async (appId, req) => {
+        const p = req?.path ?? ''
+        const dirKey = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+        defaultsByPath.set(dirKey, appId)
+        return { ok: true, defaultId: appId }
+      },
+    },
+    startDrag: () => {},
+  }
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-list') {
+      if (body?.path === 'sub') {
+        return {
+          root: '/repo', rootName: 'repo', path: 'sub', truncated: false,
+          entries: [{ name: 'child.js', path: 'sub/child.js', kind: 'file', size: 10, ext: '.js' }],
+        }
+      }
+      return {
+        root: '/repo', rootName: 'repo', path: '', truncated: false,
+        entries: [{ name: 'sub', path: 'sub', kind: 'dir', size: 0, ext: '' }],
+      }
+    }
+    if (endpoint === 'workspace-watch') return { watchId: 'w-dir', root: '/repo', recursive: true }
+    return {}
+  }
+
+  const team = createTeam()
+  const inst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team })
+  try {
+    inst.render()
+    await tick()
+    inst.render()
+    await tick()
+    let tree = inst.render()
+    // Root split button displays root's default (Cursor).
+    assert.match(textOf(all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-btn'))[0]), /Cursor/)
+
+    // Expand `sub/` and open context menu on `sub/child.js`.
+    all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'sub')[0].props.onClick()
+    await tick()
+    tree = inst.render()
+    const childRow = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'sub/child.js')[0]
+    assert.ok(childRow, 'sub/child.js renders after expanding sub')
+    childRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 50, clientY: 60, currentTarget: {} })
+    tree = inst.render()
+    await tick()
+    tree = inst.render()
+
+    assert.ok(listCalls.some(c => c.path === 'sub'), 'opening context menu in sub/ must query bridge.list with path:"sub"')
+    const ghosttyItem = all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'app:ghostty')[0]
+    const cursorItem = all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'app:cursor')[0]
+    assert.equal(ghosttyItem?.props?.['data-default'], '', 'context menu for sub/child.js must mark Ghostty as subdir default')
+    assert.equal(cursorItem?.props?.['data-default'], undefined, 'context menu for sub/child.js must not mark root default Cursor')
+
+    // Choosing Zed on sub/child.js updates sub/'s default without clobbering root header split button (Cursor).
+    all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'app:zed')[0].props.onClick()
+    await tick()
+    tree = inst.render()
+    assert.match(textOf(all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-openapp-btn'))[0]), /Cursor/, 'opening sub/child.js in Zed must keep root header split button at Cursor')
+  } finally {
+    inst.unmount()
+    sandbox.window.dsBotApp = prevBridge
+  }
+})

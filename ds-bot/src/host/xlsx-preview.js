@@ -642,6 +642,8 @@ async function parseWorksheetStream(buf, entry, budget, textBudget, {
   let sawTruncatedCols = false
   let sawTruncatedText = false
   let exactRowCount = true
+  let formulaCount = 0
+  const sheetUnsupported = new Set()
 
   let inSheetData = false
   let currentRowIdx = -1
@@ -676,6 +678,8 @@ async function parseWorksheetStream(buf, entry, budget, textBudget, {
     inIs = false
     inT = false
     rPhDepth = 0
+
+    if (hasF) formulaCount += 1
 
     if (!cellInBounds) {
       if (!outOfBoundsContent) return
@@ -835,6 +839,12 @@ async function parseWorksheetStream(buf, entry, budget, textBudget, {
         if (seenMerges.has(key)) return
         seenMerges.add(key)
         merges.push({ r1, c1, r2, c2 })
+      } else if (tag === 'conditionalFormatting') {
+        sheetUnsupported.add('conditionalFormatting')
+      } else if (tag === 'drawing' || tag === 'legacyDrawing') {
+        sheetUnsupported.add('drawings')
+      } else if (tag === 'sparklineGroups') {
+        sheetUnsupported.add('sparklines')
       }
     },
     onText(text) {
@@ -933,6 +943,8 @@ async function parseWorksheetStream(buf, entry, budget, textBudget, {
     truncatedText: sawTruncatedText,
     truncatedBySize: streamMeta.truncatedBySize,
     merges: clippedMerges,
+    formulaCount,
+    unsupported: [...sheetUnsupported],
   }
 }
 
@@ -971,6 +983,15 @@ export async function parseXlsxBuffer(buf, options = {}) {
   const totalSheets = sheetDefs.length
   let truncatedSheets = totalSheets > maxSheets
   let truncatedText = false
+  let totalFormulaCount = 0
+  const unsupported = new Set()
+  for (const name of entries.keys()) {
+    if (name.startsWith('xl/charts/')) unsupported.add('charts')
+    else if (name.startsWith('xl/pivotTables/')) unsupported.add('pivotTables')
+    else if (name === 'xl/vbaProject.bin') unsupported.add('macros')
+    else if (name.startsWith('xl/comments') || name.startsWith('xl/threadedComments/')) unsupported.add('comments')
+    else if (name.startsWith('xl/drawings/')) unsupported.add('drawings')
+  }
   const sheets = []
 
   for (let i = 0; i < Math.min(sheetDefs.length, maxSheets); i += 1) {
@@ -994,6 +1015,8 @@ export async function parseXlsxBuffer(buf, options = {}) {
       maxEntryBytes,
     })
     if (parsed.truncatedText) truncatedText = true
+    totalFormulaCount += parsed.formulaCount ?? 0
+    for (const item of parsed.unsupported ?? []) unsupported.add(item)
     sheets.push({
       name: def.name,
       state: def.state,
@@ -1006,5 +1029,10 @@ export async function parseXlsxBuffer(buf, options = {}) {
     totalSheets,
     truncatedSheets,
     truncatedText,
+    hints: {
+      hasFormulas: totalFormulaCount > 0,
+      formulaCount: totalFormulaCount,
+      unsupported: [...unsupported],
+    },
   }
 }

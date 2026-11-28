@@ -155,18 +155,32 @@ function clampDim(value, fallback, min, max) {
 
 let activeOfficeConversions = 0
 
+/**
+ * Classifies LibreOffice / Office-to-PDF conversion failures into actionable categories.
+ * @returns {'busy' | 'timeout' | 'encrypted' | 'missing-font' | 'unavailable'}
+ */
+export function classifyOfficeError(error) {
+  const code = String(error?.code ?? '').toLowerCase()
+  const msg = String(error?.message ?? error ?? '').toLowerCase()
+  if (code === 'office/busy' || /\bbusy\b|too many concurrent|queue full/.test(msg)) return 'busy'
+  if (code === 'etimedout' || code === 'timeout' || code === 'office/timeout' || /timed?\s*out|deadline exceeded/.test(msg)) return 'timeout'
+  if (code === 'office/encrypted' || /password|encrypt|drm|decrypt/.test(msg)) return 'encrypted'
+  if (code === 'office/missing-font' || /missing font|fontconfig|no font|font.*not found|typeface/.test(msg)) return 'missing-font'
+  return 'unavailable'
+}
+
 async function convertOfficeToPdf(inputRealPath, ext, signal) {
   if (signal?.aborted) throw Object.assign(new Error('Conversion cancelled'), { code: 'bot/aborted' })
   if (activeOfficeConversions >= MAX_OFFICE_CONVERSIONS) {
-    return { status: 'unavailable', error: 'Office preview is busy' }
+    return { status: 'unavailable', reason: 'busy', error: 'Office preview is busy' }
   }
   let kit
   try {
     kit = await import('@deepseek-ai/libreoffice-kit')
   } catch {
-    return { status: 'unavailable' }
+    return { status: 'unavailable', reason: 'unavailable' }
   }
-  if (typeof kit?.createConverter !== 'function') return { status: 'unavailable' }
+  if (typeof kit?.createConverter !== 'function') return { status: 'unavailable', reason: 'unavailable' }
   activeOfficeConversions += 1
   let workDir = null
   let converter = null
@@ -1081,7 +1095,8 @@ export function install(rt) {
           }
         }
         try {
-          const converted = await convertOfficeToPdf(target, ext, signal)
+          const convertFn = typeof rt.convertOfficeToPdf === 'function' ? rt.convertOfficeToPdf : convertOfficeToPdf
+          const converted = await convertFn(target, ext, signal)
           if (converted.status === 'ok') {
             return {
               kind: 'pdf',
@@ -1096,10 +1111,12 @@ export function install(rt) {
           if (converted.status === 'too-large') {
             return { kind: 'too-large', convertedFrom: ext, name: fileName, path: relPath, size: converted.size, maxBytes: converted.maxBytes }
           }
-          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, ...(converted.error ? { error: converted.error } : {}) }
+          const reason = converted.reason ?? classifyOfficeError(converted.error)
+          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, reason, ...(converted.error ? { error: converted.error } : {}) }
         } catch (error) {
           if (error?.code === 'bot/aborted') throw error
-          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, error: error?.message ?? String(error) }
+          const reason = classifyOfficeError(error)
+          return { kind: 'office-unavailable', ext, name: fileName, path: relPath, size: info.size, reason, error: error?.message ?? String(error) }
         }
       }
 
@@ -1135,6 +1152,55 @@ export function install(rt) {
 
     throw notFound(`Unknown endpoint workspace-${name}`)
   }
+
+  // Main-process-only canonical path resolver for desktop "Open in app" and native drag-out.
+  // Reuses `resolveWorkspaceRoot` (`sessionFolder` / `working_directory` moves / task & group dirs)
+  // + `resolveSafeTarget` + `isProtectedData` so the Host remains the single source of truth.
+  // Never registered on `/api/bot` (`channel.js`), phone links, remote relays, or HTTP API tokens.
+  async function resolveWorkspaceTarget(body = {}) {
+    if (disposed) throw refused('Host is shutting down')
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+    const realRoot = await resolveWorkspaceRoot(sessionId)
+    if (typeof body.expectedRoot === 'string' && body.expectedRoot !== '') {
+      const expected = await rt.real(body.expectedRoot)
+      const sameRoot = process.platform === 'win32'
+        ? expected.toLowerCase() === realRoot.toLowerCase()
+        : expected === realRoot
+      if (!sameRoot) {
+        throw Object.assign(new Error('Workspace folder changed'), { code: 'bot/stale' })
+      }
+    }
+    const rawPath = typeof body.path === 'string' ? body.path : ''
+    const target = await resolveSafeTarget(realRoot, rawPath)
+    const info = await stat(target)
+    const isDirectory = info.isDirectory()
+    if (!isDirectory && !info.isFile()) throw invalid('Path is neither a file nor a folder')
+    let dir
+    if (typeof body.dirPath === 'string' && body.dirPath !== '') {
+      const dirTarget = await resolveSafeTarget(realRoot, body.dirPath)
+      const dirInfo = await stat(dirTarget)
+      if (!dirInfo.isDirectory()) throw invalid('Directory path is not a folder')
+      dir = dirTarget
+    } else {
+      dir = isDirectory ? target : dirname(target)
+    }
+    return { root: realRoot, target, dir, isDirectory }
+  }
+
+  // Private Electron main <-> Host parent-child Node IPC channel (`DS_BOT_APP=1`).
+  // Unreachable from renderer pages, `/api/bot`, phone links, remote relays, or API tokens.
+  const hostIpc = rt.hostIpc ?? (process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? process : null)
+  const onHostIpc = (message) => {
+    if (message?.type !== 'ds-bot:workspace-resolve-target' || typeof message.id !== 'string' || message.id === '') return
+    const reply = (payload) => {
+      try { hostIpc?.send?.({ type: 'ds-bot:workspace-resolve-target-response', id: message.id, ...payload }) } catch { /* IPC closed */ }
+    }
+    void resolveWorkspaceTarget(message).then(
+      result => reply({ result }),
+      error => reply({ error: { message: error?.message ?? String(error), code: error?.code ?? 'bot/refused' } }),
+    )
+  }
+  hostIpc?.on?.('message', onHostIpc)
 
   async function changesDetail(body = {}, signal) {
     const service = ctx.get?.('workspaceChanges')
@@ -1477,6 +1543,7 @@ export function install(rt) {
 
   async function terminalDispose() {
     disposed = true
+    hostIpc?.off?.('message', onHostIpc)
     offLocalClients?.()
     await closeAllWatches()
     const pending = [...inFlightSpawns]
@@ -1495,6 +1562,7 @@ export function install(rt) {
   }
 
   rt.workspaceEndpoint = workspaceEndpoint
+  rt.resolveWorkspaceTarget = resolveWorkspaceTarget
   rt.terminalEndpoint = terminalEndpoint
   rt.terminalDispose = terminalDispose
 }

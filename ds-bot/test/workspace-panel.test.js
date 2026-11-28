@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
@@ -10,7 +11,7 @@ import { test } from 'node:test'
 import { deflateRawSync } from 'node:zlib'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
-import { buildOpenOsCommand, install as installWorkspacePanel, openOsPath } from '../src/host/workspace-panel.js'
+import { buildOpenOsCommand, classifyOfficeError, install as installWorkspacePanel, openOsPath } from '../src/host/workspace-panel.js'
 import { parseXlsxBuffer } from '../src/host/xlsx-preview.js'
 
 function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners, extraRt } = {}) {
@@ -1096,7 +1097,7 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
     'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="JP" sheetId="1" r:id="rId1"/></sheets></workbook>`,
     'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="./worksheets/sheet1.xml"/></Relationships>`,
     'xl/sharedStrings.xml': `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>Tokyo</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si></sst>`,
-    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>
       <row r="1"><c r="A1" t="s"><v>0</v></c></row>
       <row r="2" ht="20"/>
       <row r="3"><c r="A3" t="inlineStr"><is><t>After self-closing row</t><rPh sb="0" eb="1"><t>PHONETIC</t></rPh></is></c><c r="Z1000" s="1"/></row>
@@ -1139,7 +1140,7 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
     'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Big" sheetId="1" r:id="rId1"/></sheets></workbook>`,
     'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
     'xl/sharedStrings.xml': `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>${bigStr}</t></si></sst>`,
-    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${bombCells.join('')}</sheetData></worksheet>`,
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>${bombCells.join('')}</sheetData></worksheet>`,
   })
   const repeatParsed = await parseXlsxBuffer(repeatXlsx)
   assert.equal(repeatParsed.truncatedText, true, 'repeated shared strings must hit workbook text cap')
@@ -1214,4 +1215,166 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
   assert.equal(altParsed.sheets[0].rows[0][0].v, 'Alt Prefix OK')
   assert.equal(altParsed.sheets[1].name, 'Strict')
   assert.equal(altParsed.sheets[1].rows[0][0].v, 'Strict NS OK')
+})
+
+test('parseXlsxBuffer reports formula and unsupported-feature hints and classifyOfficeError categorizes Office conversion failures', async (t) => {
+  // 1. Workbook with formulas, conditionalFormatting, charts, pivotTables, and macros.
+  const richZip = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Summary" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/charts/chart1.xml': '<chartSpace/>',
+    'xl/pivotTables/pivotTable1.xml': '<pivotTableDefinition/>',
+    'xl/vbaProject.bin': 'macro-bytes',
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+      <sheetData>
+        <row r="1">
+          <c r="A1"><v>10</v></c>
+          <c r="B1"><f>A1*2</f><v>20</v></c>
+        </row>
+      </sheetData>
+      <conditionalFormatting sqref="A1:B1"><cfRule type="cellIs" priority="1"/></conditionalFormatting>
+      <drawing r:id="rId2"/>
+    </worksheet>`,
+  })
+  const parsed = await parseXlsxBuffer(richZip)
+  assert.equal(parsed.sheets[0].formulaCount, 1)
+  assert.equal(parsed.hints.hasFormulas, true)
+  assert.equal(parsed.hints.formulaCount, 1)
+  assert.ok(parsed.hints.unsupported.includes('charts'))
+  assert.ok(parsed.hints.unsupported.includes('conditionalFormatting'))
+  assert.ok(parsed.hints.unsupported.includes('pivotTables'))
+  assert.ok(parsed.hints.unsupported.includes('macros'))
+  assert.ok(parsed.hints.unsupported.includes('drawings'))
+
+  // 2. Office conversion failure classification.
+  assert.equal(classifyOfficeError(new Error('LibreOffice render timed out after 45000ms')), 'timeout')
+  assert.equal(classifyOfficeError(Object.assign(new Error('too slow'), { code: 'ETIMEDOUT' })), 'timeout')
+  assert.equal(classifyOfficeError(new Error('Office preview is busy')), 'busy')
+  assert.equal(classifyOfficeError(new Error('Document is password protected / encrypted')), 'encrypted')
+  assert.equal(classifyOfficeError(new Error('DRM decryption failed')), 'encrypted')
+  assert.equal(classifyOfficeError(new Error('Document is write-protected')), 'unavailable', 'bare protected must not misclassify as encrypted')
+  assert.equal(classifyOfficeError(new Error('LibreOffice macro protection warning')), 'unavailable', 'macro protection must not misclassify as encrypted')
+  assert.equal(classifyOfficeError(new Error('Unexpected cipher suite mismatch')), 'unavailable', 'bare cipher must not misclassify as encrypted')
+  assert.equal(classifyOfficeError(new Error('Fontconfig error: missing font Noto Sans')), 'missing-font')
+  assert.equal(classifyOfficeError(new Error('Unexpected exit code 1')), 'unavailable')
+
+  // 3. workspace-read surfaces categorized `reason` on office-unavailable responses.
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-office-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-office-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+  writeFileSync(join(workDir, 'locked.docx'), 'fake-docx')
+  const { rt } = createRuntime(workDir, {
+    dshHome,
+    extraRt: {
+      convertOfficeToPdf: async () => { throw new Error('Document is encrypted and requires a password') },
+    },
+  })
+  const res = await rt.workspaceEndpoint('read', { sessionId: 'b1', path: 'locked.docx' })
+  assert.equal(res.kind, 'office-unavailable')
+  assert.equal(res.reason, 'encrypted')
+
+  // 4. Out-of-bounds formulas (beyond maxRows/maxCols) still report hints.hasFormulas and formulaCount.
+  const oobZip = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Big" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1"><c r="A1"><v>1</v></c></row>
+        <row r="15"><c r="A15"><f>SUM(A1:A14)</f><v>100</v></c></row>
+      </sheetData>
+    </worksheet>`,
+  })
+  const oobParsed = await parseXlsxBuffer(oobZip, { maxRows: 5, maxCols: 5 })
+  assert.equal(oobParsed.hints.hasFormulas, true, 'formula outside maxRows must still set hints.hasFormulas')
+  assert.equal(oobParsed.hints.formulaCount, 1, 'formula outside maxRows must still be counted')
+})
+
+test('host-only ds-bot:workspace-resolve-target IPC honors moved session folders, rejects escapes/protected data, and is never exposed on workspaceEndpoint', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'dsb-wp-resolve-'))
+  const workDir = join(base, 'workspace')
+  const movedDir = join(base, 'moved-session-dir')
+  const outsideDir = join(base, 'outside')
+  const dshHome = join(base, 'dsh-home')
+  mkdirSync(join(workDir, 'sub'), { recursive: true })
+  mkdirSync(movedDir, { recursive: true })
+  mkdirSync(outsideDir, { recursive: true })
+  mkdirSync(join(dshHome, 'bot'), { recursive: true })
+  t.after(() => rmSync(base, { recursive: true, force: true }))
+
+  writeFileSync(join(workDir, 'sub', 'note.md'), '# hello')
+  writeFileSync(join(movedDir, 'moved.txt'), 'moved')
+  writeFileSync(join(outsideDir, 'secret.txt'), 'secret')
+  writeFileSync(join(dshHome, 'bot', 'state.json'), '{}')
+  let hasSymlink = false
+  try {
+    symlinkSync(join(outsideDir, 'secret.txt'), join(workDir, 'escape-link'))
+    symlinkSync(join(dshHome, 'bot', 'state.json'), join(workDir, 'data-link'))
+    hasSymlink = true
+  } catch { /* Windows without symlink privilege */ }
+
+  const ipc = new EventEmitter()
+  const replies = []
+  ipc.send = (msg) => { replies.push(msg) }
+
+  const movedSession = { id: 'sess-moved', header: { cwd: movedDir } }
+  const { rt } = createRuntime(workDir, {
+    dshHome,
+    extraRt: {
+      hostIpc: ipc,
+      sessionFolder: session => (session?.id === 'sess-moved' ? movedDir : workDir),
+    },
+  })
+  rt.ctx.sessions = new Map([['sess-moved', movedSession]])
+
+  const ask = async (payload) => {
+    const id = `req-${replies.length + 1}`
+    const before = replies.length
+    ipc.emit('message', { type: 'ds-bot:workspace-resolve-target', id, ...payload })
+    for (let i = 0; i < 40 && replies.length === before; i += 1) {
+      await new Promise(r => setTimeout(r, 5))
+    }
+    return replies.find(m => m?.type === 'ds-bot:workspace-resolve-target-response' && m.id === id)
+  }
+
+  // 1. Valid workspace file resolves to canonical realpath and containing directory.
+  const okFile = await ask({ sessionId: 'b1', path: 'sub/note.md' })
+  assert.ok(okFile?.result, 'valid workspace file resolves')
+  assert.equal(okFile.result.isDirectory, false)
+  assert.ok(okFile.result.target.endsWith(join('sub', 'note.md')))
+  assert.ok(okFile.result.dir.endsWith('sub'))
+
+  // 2. Session whose working_directory moved resolves files in the moved folder.
+  const okMoved = await ask({ sessionId: 'sess-moved', path: 'moved.txt' })
+  assert.ok(okMoved?.result, 'moved session folder file resolves via host sessionFolder')
+  assert.ok(okMoved.result.target.endsWith('moved.txt'))
+  assert.equal(okMoved.result.isDirectory, false)
+
+  // 3. Outside path, outside dirPath, protected data dir, and symlink escapes are rejected.
+  const badOutside = await ask({ sessionId: 'b1', path: join(outsideDir, 'secret.txt') })
+  assert.match(badOutside?.error?.message ?? '', /outside the active workspace/i)
+
+  const badDir = await ask({ sessionId: 'b1', path: 'sub/note.md', dirPath: outsideDir })
+  assert.match(badDir?.error?.message ?? '', /outside the active workspace/i)
+
+  const badData = await ask({ sessionId: 'b1', path: join(dshHome, 'bot', 'state.json') })
+  assert.match(badData?.error?.message ?? '', /outside the active workspace/i)
+
+  if (hasSymlink) {
+    const badEsc = await ask({ sessionId: 'b1', path: 'escape-link' })
+    assert.match(badEsc?.error?.message ?? '', /outside the active workspace/i)
+    const badDataLink = await ask({ sessionId: 'b1', path: 'data-link' })
+    assert.match(badDataLink?.error?.message ?? '', /outside the active workspace/i)
+  }
+
+  // 4. Endpoint is strictly main-process IPC only: never exposed on workspaceEndpoint (/api/bot / phone / remote / API).
+  await assert.rejects(
+    () => rt.workspaceEndpoint('resolve-target', { sessionId: 'b1', path: 'sub/note.md' }),
+    /Unknown endpoint workspace-resolve-target/i,
+  )
+
+  await rt.terminalDispose()
+  assert.equal(ipc.listenerCount('message'), 0, 'host IPC listener cleans up on dispose')
 })
