@@ -1572,13 +1572,21 @@ export function install(rt) {
           if (prepareContext !== undefined) {
             try {
               await rt.save({ required: true })
-              if (stillPending(entry)) await prepareContext()
+              unsavedHandoffTasks.delete(prepareContext.taskId)
+              if (stillPending(entry)) await prepareContext.prepare()
             } catch {
               deferredAny = true
               continue
             }
             postSaveContextByInput.delete(entry)
-            if (!stillPending(entry)) continue
+            if (!stillPending(entry)) {
+              const bot = entry.botId === undefined ? undefined : rt.botOf(entry.botId)
+              if (bot !== undefined && !handoffing.has(bot.id) && !pendingHandoff(bot.id)
+                && hasUnarchivedSettledHandoff(bot)) {
+                void retireTasks([bot])
+              }
+              continue
+            }
           }
           if (entry.discarded === true) {
             await clearPendingTransfers([{ key, token }])
@@ -3275,7 +3283,7 @@ export function install(rt) {
           const { key, token } = transferRefOf(item)
           const entry = pendingTransferOf(key)
           if (entry !== undefined && entry.token === token) {
-            postSaveContextByInput.set(entry, prepareReplayContext)
+            postSaveContextByInput.set(entry, { taskId: task.id, prepare: prepareReplayContext })
             deferredInputs.add(entry)
           }
           releaseTransferLock(key, token)

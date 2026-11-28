@@ -2052,3 +2052,51 @@ test('rejected foreground handoff save under a held lock never archives the Sess
   await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
   assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
 })
+
+test('automatic foreground handoff recovered by journal replay clears unsaved guard and archives old Session once settled (#2374)', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const bot = env.rt.botOf('a')
+  const firstSid = env.rt.chatOf(bot.id)
+  const firstAgent = env.agentMap.get(firstSid)
+  firstAgent.status = 'running'
+  await env.emit(firstSid, 'turn/start', { turn: 1 })
+
+  const origSave = env.rt.save
+  let failSave = true
+  env.rt.save = async (opts) => {
+    if (failSave && bot.sessionId !== firstSid) {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    }
+    return origSave(opts)
+  }
+
+  // Automatic handoff (no operationId) with one held input rejects on save and defers input to replay journal.
+  await assert.rejects(
+    () => env.rt.handoffForeground(bot, firstSid, [{
+      msg: { id: 'held-auto-2374', content: [{ type: 'text', text: 'follow-up after rejected auto handoff' }], source: { kind: 'user', rpcId: 'rpc-auto-2374' } },
+      target: 'next-turn',
+    }]),
+    /EACCES/,
+  )
+  const onDiskBefore = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+  assert.equal(onDiskBefore.bots.a.sessionId, firstSid, 'state.json still lists dm-a before replay saves')
+  assert.equal(env.archivedSessions.length, 0)
+
+  // Allow writes and let scheduled journal replay save the new foreground and deliver the held input.
+  failSave = false
+  await waitFor(() => {
+    const disk = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
+    return disk.bots.a.sessionId !== firstSid && (env.rt.state.pendingHandoffInputs?.length ?? 0) === 0
+  }, 3000)
+
+  // Stop and settle the old background task -> dm-a must now archive cleanly.
+  const task1 = bot.tasks.find(item => item.sessionId === firstSid)
+  assert.ok(task1 !== undefined)
+  assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: task1.id })).ok, true)
+  await env.emit(firstSid, 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: firstAgent.cancelled[0] } })
+  firstAgent.status = 'idle'
+  env.ctx.emit('agent/status', { agent: firstAgent, status: 'idle' })
+  await waitFor(() => env.archivedSessions.some(item => item.sid === firstSid))
+  assert.deepEqual(env.archivedSessions.map(item => item.sid), [firstSid])
+})
