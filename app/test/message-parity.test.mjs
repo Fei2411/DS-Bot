@@ -675,14 +675,16 @@ test('Classic session renders reply feedback (submit, dialog, retract) and never
 test('escaped currency in a reply does not close an inline math span', async () => {
   await ensureKatex()
   const view = mountDom(React.createElement(MarkdownText, {
-    text: String.raw`currency $5 and $10, escaped \$20` + '\n\n' + String.raw`Escaped \$20, then $10-3$.`,
+    text: String.raw`currency $5 and $10, escaped \$20
+
+Prices are $5 and \$ 20. Difference: $20-5$.`,
   }))
   try {
     await flush()
     assert.equal(view.host.querySelector('p')?.textContent, 'currency $5 and $10, escaped $20')
-    assert.match(view.host.textContent, /Escaped \$20, then /)
+    assert.match(view.host.textContent, /Prices are \$5 and \$ 20\. Difference: /)
     const math = Array.from(view.host.querySelectorAll('.dsb-math-inline'))
-    assert.deepEqual(math.map(el => el.getAttribute('data-tex')), ['10-3'])
+    assert.deepEqual(math.map(el => el.getAttribute('data-tex')), ['20-5'])
   } finally {
     view.unmount()
   }

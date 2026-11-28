@@ -419,7 +419,10 @@ function findNextSingleDollar(text, start) {
 function isCurrencyOpeningDollar(text, open, close) {
   if (close === -1) return false
   if (open > 0 && /[A-Za-z0-9]/.test(text[open - 1])) return false
-  const inner = text.slice(open + 1, close)
+  // Keep literal backslash pairs but exclude the closing dollar's Markdown escape from the price heuristic.
+  let escapeStart = close
+  while (text[escapeStart - 1] === '\\') escapeStart -= 1
+  const inner = text.slice(open + 1, close - (close - escapeStart) % 2)
   if (inner === '') return false
   const numMatch = CURRENCY_NUM_RE.exec(inner)
   if (!numMatch) return false
