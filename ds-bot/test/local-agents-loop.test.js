@@ -305,5 +305,7 @@ test('a Session with no Bot does not start its turn when the CLI refuses the rea
   await waitForIdle(ctx, agent)
   const end = agent.session.snapshotEvents().find(event => event.type === 'turn/end')
   assert.equal(end?.data.reason.error?.code, 'LOCAL_AGENT_MODE')
-  assert.doesNotMatch(existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : '', /session\/prompt/)
+  const calls = existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : ''
+  assert.doesNotMatch(calls, /session\/prompt/)
+  assert.match(calls, /session\/close/)
 })

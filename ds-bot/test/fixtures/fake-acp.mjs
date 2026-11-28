@@ -511,6 +511,7 @@ process.stdin.on('data', (chunk) => {
           .then(() => { if (exitAfterTurn) setTimeout(() => process.exit(0), 50) })
         break
       case 'session/close':
+        record('session/close', params)
         sessions.delete(params.sessionId)
         reply(id, {})
         break
