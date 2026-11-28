@@ -16,7 +16,7 @@ import { SecretToolCell } from './secret-card.js'
 import { ConnectorToolCell, MailToolCell } from './connectors.js'
 import { HandoffCall } from './handoff-card.js'
 import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.js'
-import { mdLabels, t } from './i18n.js'
+import { localeKey, mdLabels, t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
@@ -833,17 +833,18 @@ export function EarlierParts({ sessionId, roster, actions, openFile, renderUserT
 const NOOP_UI = () => undefined
 
 function stableChatRowBaseKey(row) {
-  if (row.id !== undefined && row.id !== null) return `${row.kind}:id:${row.id}`
+  const seg = row.sessionId !== undefined && row.sessionId !== null ? `${row.sessionId}:` : ''
+  if (row.id !== undefined && row.id !== null) return `${seg}${row.kind}:id:${row.id}`
   switch (row.kind) {
-    case 'post': return `post:${row.seq ?? row.time ?? ''}:${row.botId ?? ''}`
-    case 'view': return `view:${row.callId ?? row.time ?? ''}`
-    case 'btw': return `btw:${row.card?.id ?? row.time ?? ''}`
-    case 'divider': return `divider:${row.time ?? ''}`
-    case 'bot': return `bot:${row.time ?? ''}`
-    case 'relay': return `relay:${row.reply?.botId ?? ''}:${row.reply?.kind ?? ''}:${row.time ?? row.reply?.time ?? ''}`
-    case 'event': return `event:${row.role ?? ''}:${row.botId ?? row.roomId ?? ''}:${row.time ?? ''}`
-    case 'user': return `user:${row.seq ?? row.time ?? ''}`
-    default: return `${row.kind ?? 'row'}:${row.seq ?? row.time ?? ''}`
+    case 'post': return `${seg}post:${row.seq ?? row.time ?? ''}:${row.botId ?? ''}`
+    case 'view': return `${seg}view:${row.callId ?? row.time ?? ''}`
+    case 'btw': return `${seg}btw:${row.card?.id ?? row.time ?? ''}`
+    case 'divider': return `${seg}divider:${row.time ?? ''}`
+    case 'bot': return `${seg}bot:${row.time ?? ''}`
+    case 'relay': return `${seg}relay:${row.reply?.botId ?? ''}:${row.reply?.kind ?? ''}:${row.time ?? row.reply?.time ?? ''}`
+    case 'event': return `${seg}event:${row.role ?? ''}:${row.botId ?? row.roomId ?? ''}:${row.time ?? ''}`
+    case 'user': return `${seg}user:${row.seq ?? row.time ?? ''}`
+    default: return `${seg}${row.kind ?? 'row'}:${row.seq ?? row.time ?? ''}`
   }
 }
 
@@ -921,10 +922,10 @@ const stableEventOpen = (row, selfId, otherId, actions) => {
 // `useUi` gives a block its reactions and its Reply tool.
 // Each row component is individually memoized with stable keys and stable props so
 // appending a new group message (or prepending an earlier page) skips unchanged rows.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale }) {
   switch (row.kind) {
-    case 'divider': return h(MemoPartLine, { key, time: row.time })
-    case 'user': return h(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText })
+    case 'divider': return h(MemoPartLine, { key, time: row.time, locale })
+    case 'user': return h(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText, locale })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -933,7 +934,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions })
     case 'bot': {
-      const bubbles = h(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true })
+      const bubbles = h(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale })
       const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[selfId] : undefined
       return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
     }
@@ -944,7 +945,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       return h(MemoGroupMessage, {
         key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
-        whole: stableWhole(row, actions),
+        whole: stableWhole(row, actions), locale,
       })
     }
     case 'relay': {
@@ -952,10 +953,10 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       // live chat draws for it.
       const reply = row.reply
       const speaker = roster.byId[reply.botId] ?? stableFallbackBot(row, reply.botId, reply.name ?? t('a Bot'), reply.color ?? 'gray')
-      return h(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions })
+      return h(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions, locale })
     }
     case 'event': {
-      if (row.role === 'report') return h(MemoGroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
+      if (row.role === 'report') return h(MemoGroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions, locale })
       const other = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t('a Bot'), 'gray')
       const prefix = {
         stopped: t('Stopped by'),
@@ -965,7 +966,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         answer: t('Answer from'),
         reply: t('Reply from'),
       }[row.role] ?? t('Message from')
-      return h(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true })
+      return h(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true, locale })
     }
     default: return null
   }
@@ -974,6 +975,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
 export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id
   const visit = useUi(state => state?.visits?.[sessionId])
+  const locale = localeKey()
   // Preserve merged `bot` row object identity across appends/prepends so memoized rows stay hit.
   const botRunCacheRef = useRef(new Map())
   const rows = useMemo(() => {
@@ -989,15 +991,15 @@ export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, c
       } else if (item.kind === 'bot') {
         const texts = [item.text]
         let end = item.time
-        while (i + 1 < items.length && items[i + 1].kind === 'bot') {
+        while (i + 1 < items.length && items[i + 1].kind === 'bot' && (items[i + 1].sessionId ?? null) === (item.sessionId ?? null)) {
           i += 1
           texts.push(items[i].text)
           end = items[i].time
         }
-        const runKey = `${item.id ?? ''}:${item.time ?? ''}:${end ?? ''}:${texts.length}`
+        const runKey = `${item.sessionId ?? ''}:${item.id ?? ''}:${item.time ?? ''}:${end ?? ''}:${texts.length}`
         const cached = prevCache.get(runKey)
         const same = cached && cached.texts.length === texts.length && cached.texts.every((value, idx) => value === texts[idx])
-        const merged = same ? cached : { ...(item.id !== undefined ? { id: item.id } : {}), kind: 'bot', texts, time: item.time, end }
+        const merged = same ? cached : { ...(item.sessionId !== undefined ? { sessionId: item.sessionId } : {}), ...(item.id !== undefined ? { id: item.id } : {}), kind: 'bot', texts, time: item.time, end }
         nextCache.set(runKey, merged)
         out.push(merged)
       } else {
@@ -1024,7 +1026,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, c
     const count = seenKeys.get(baseKey) ?? 0
     seenKeys.set(baseKey, count + 1)
     const key = count === 0 ? baseKey : `${baseKey}#${count}`
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined

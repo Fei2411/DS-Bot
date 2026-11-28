@@ -22146,6 +22146,11 @@ function language() {
   const active = service?.getLocale?.().active;
   return typeof active === "string" ? active : "en";
 }
+function localeKey() {
+  const active = language();
+  const rev = service?.getSnapshot?.()?.revision ?? 0;
+  return `${active}:${rev}:${loadedPacks.size}`;
+}
 var dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? "en-US";
 var labels = null;
 function mdLabels() {
@@ -46638,26 +46643,27 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
 }
 var NOOP_UI = () => void 0;
 function stableChatRowBaseKey(row) {
-  if (row.id !== void 0 && row.id !== null) return `${row.kind}:id:${row.id}`;
+  const seg = row.sessionId !== void 0 && row.sessionId !== null ? `${row.sessionId}:` : "";
+  if (row.id !== void 0 && row.id !== null) return `${seg}${row.kind}:id:${row.id}`;
   switch (row.kind) {
     case "post":
-      return `post:${row.seq ?? row.time ?? ""}:${row.botId ?? ""}`;
+      return `${seg}post:${row.seq ?? row.time ?? ""}:${row.botId ?? ""}`;
     case "view":
-      return `view:${row.callId ?? row.time ?? ""}`;
+      return `${seg}view:${row.callId ?? row.time ?? ""}`;
     case "btw":
-      return `btw:${row.card?.id ?? row.time ?? ""}`;
+      return `${seg}btw:${row.card?.id ?? row.time ?? ""}`;
     case "divider":
-      return `divider:${row.time ?? ""}`;
+      return `${seg}divider:${row.time ?? ""}`;
     case "bot":
-      return `bot:${row.time ?? ""}`;
+      return `${seg}bot:${row.time ?? ""}`;
     case "relay":
-      return `relay:${row.reply?.botId ?? ""}:${row.reply?.kind ?? ""}:${row.time ?? row.reply?.time ?? ""}`;
+      return `${seg}relay:${row.reply?.botId ?? ""}:${row.reply?.kind ?? ""}:${row.time ?? row.reply?.time ?? ""}`;
     case "event":
-      return `event:${row.role ?? ""}:${row.botId ?? row.roomId ?? ""}:${row.time ?? ""}`;
+      return `${seg}event:${row.role ?? ""}:${row.botId ?? row.roomId ?? ""}:${row.time ?? ""}`;
     case "user":
-      return `user:${row.seq ?? row.time ?? ""}`;
+      return `${seg}user:${row.seq ?? row.time ?? ""}`;
     default:
-      return `${row.kind ?? "row"}:${row.seq ?? row.time ?? ""}`;
+      return `${seg}${row.kind ?? "row"}:${row.seq ?? row.time ?? ""}`;
   }
 }
 var MemoEarlierUser = memo(EarlierUser, void 0, "EarlierUser");
@@ -46724,12 +46730,12 @@ var stableEventOpen = (row, selfId, otherId, actions) => {
   }
   return cached.value;
 };
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale }) {
   switch (row.kind) {
     case "divider":
-      return (0, import_react39.createElement)(MemoPartLine, { key, time: row.time });
+      return (0, import_react39.createElement)(MemoPartLine, { key, time: row.time, locale });
     case "user":
-      return (0, import_react39.createElement)(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText });
+      return (0, import_react39.createElement)(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText, locale });
     case "answer":
       return (0, import_react39.createElement)(AnsweredReply, { key, node: { data: row } });
     // A question or view card closed without an answer on it.
@@ -46739,7 +46745,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
     case "view":
       return (0, import_react39.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true });
+      const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true, locale });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
       return speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
     }
@@ -46764,16 +46770,17 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         claims: row.claims,
         changes: row.changes,
         useUi,
-        whole: stableWhole(row, actions)
+        whole: stableWhole(row, actions),
+        locale
       });
     }
     case "relay": {
       const reply = row.reply;
       const speaker = roster.byId[reply.botId] ?? stableFallbackBot(row, reply.botId, reply.name ?? t("a Bot"), reply.color ?? "gray");
-      return (0, import_react39.createElement)(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions });
+      return (0, import_react39.createElement)(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions, locale });
     }
     case "event": {
-      if (row.role === "report") return (0, import_react39.createElement)(MemoGroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
+      if (row.role === "report") return (0, import_react39.createElement)(MemoGroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions, locale });
       const other = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t("a Bot"), "gray");
       const prefix = {
         stopped: t("Stopped by"),
@@ -46783,7 +46790,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         answer: t("Answer from"),
         reply: t("Reply from")
       }[row.role] ?? t("Message from");
-      return (0, import_react39.createElement)(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true });
+      return (0, import_react39.createElement)(MemoEventLine, { key, prefix, bots: stableEventBots(row, other), onOpen: stableEventOpen(row, selfId, other.id, actions), whole: true, locale });
     }
     default:
       return null;
@@ -46792,6 +46799,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
 function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id;
   const visit = useUi((state) => state?.visits?.[sessionId]);
+  const locale = localeKey();
   const botRunCacheRef = (0, import_react39.useRef)(/* @__PURE__ */ new Map());
   const rows2 = (0, import_react39.useMemo)(() => {
     const prevCache = botRunCacheRef.current;
@@ -46805,15 +46813,15 @@ function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: c
       } else if (item.kind === "bot") {
         const texts2 = [item.text];
         let end = item.time;
-        while (i + 1 < items.length && items[i + 1].kind === "bot") {
+        while (i + 1 < items.length && items[i + 1].kind === "bot" && (items[i + 1].sessionId ?? null) === (item.sessionId ?? null)) {
           i += 1;
           texts2.push(items[i].text);
           end = items[i].time;
         }
-        const runKey = `${item.id ?? ""}:${item.time ?? ""}:${end ?? ""}:${texts2.length}`;
+        const runKey = `${item.sessionId ?? ""}:${item.id ?? ""}:${item.time ?? ""}:${end ?? ""}:${texts2.length}`;
         const cached = prevCache.get(runKey);
         const same = cached && cached.texts.length === texts2.length && cached.texts.every((value, idx) => value === texts2[idx]);
-        const merged = same ? cached : { ...item.id !== void 0 ? { id: item.id } : {}, kind: "bot", texts: texts2, time: item.time, end };
+        const merged = same ? cached : { ...item.sessionId !== void 0 ? { sessionId: item.sessionId } : {}, ...item.id !== void 0 ? { id: item.id } : {}, kind: "bot", texts: texts2, time: item.time, end };
         nextCache.set(runKey, merged);
         out.push(merged);
       } else {
@@ -46839,7 +46847,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: c
     const count = seenKeys.get(baseKey) ?? 0;
     seenKeys.set(baseKey, count + 1);
     const key = count === 0 ? baseKey : `${baseKey}#${count}`;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText });
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText, locale });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];

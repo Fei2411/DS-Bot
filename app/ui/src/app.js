@@ -414,7 +414,10 @@ export function App() {
       refresh,
       getSnapshot: () => snap,
       subscribe: (listener) => {
-        if (listeners.size === 0 && typeof window !== 'undefined') window.addEventListener('resize', onResize)
+        if (listeners.size === 0) {
+          syncSnap()
+          if (typeof window !== 'undefined') window.addEventListener('resize', onResize)
+        }
         listeners.add(listener)
         return () => {
           listeners.delete(listener)

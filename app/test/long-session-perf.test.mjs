@@ -34,8 +34,9 @@ const entryCode = `
   export { computeImageCacheBudgetBytes, createImageCache, buildImageUrl } from './ui/src/image-cache.js'
   export { ImageLightbox } from './ui/src/image-lightbox.js'
   export { useNarrowViewport } from './ui/src/app.js'
-  export { mergeIncrementalItems, mergeLatestPage } from './ui/src/chat.js'
+  export { mergeIncrementalItems, mergeLatestPage, adaptRoomItems } from './ui/src/chat.js'
   export { ChatRows } from '../ds-bot/src/client/cells.js'
+  export { installLocale } from '../ds-bot/src/client/i18n.js'
   export { WorkspaceTerminal } from './ui/src/workspace-terminal.js'
 `
 
@@ -79,7 +80,9 @@ const {
   useNarrowViewport,
   mergeIncrementalItems,
   mergeLatestPage,
+  adaptRoomItems,
   ChatRows,
+  installLocale,
   WorkspaceTerminal,
 } = await import(pathToFileURL(bundlePath).href)
 
@@ -206,6 +209,26 @@ test('Step 6: ImageLightbox revokes full-size blob URLs on close, unmount, and l
       await Promise.resolve()
     })
     assert.deepEqual(revoked, ['blob:full-1', 'blob:full-late'])
+
+    // If loadFull returns the thumbnail's own `src` blob URL, closing must NOT revoke the thumbnail.
+    revoked.length = 0
+    const sameView = mount(h(ImageLightbox, {
+      open: true,
+      src: 'blob:shared-thumb',
+      loadFull: () => Promise.resolve('blob:shared-thumb'),
+      alt: 'shot',
+      onClose() {},
+    }))
+    await act(async () => { await Promise.resolve() })
+    sameView.update(h(ImageLightbox, {
+      open: false,
+      src: 'blob:shared-thumb',
+      loadFull: () => Promise.resolve('blob:shared-thumb'),
+      alt: 'shot',
+      onClose() {},
+    }))
+    sameView.unmount()
+    assert.deepEqual(revoked, [], 'lightbox must never revoke the thumbnail src URL when loadFull returns it')
   } finally {
     URL.revokeObjectURL = origRevoke
   }
@@ -215,8 +238,8 @@ test('Step 7: ChatRows memoizes existing rows across incremental appends and pre
   const roster = {
     bots: [{ id: 'b1', name: 'Chief', color: 'blue' }],
     byId: { b1: { id: 'b1', name: 'Chief', color: 'blue' } },
-    rooms: [{ id: 'r1', name: 'Launch' }],
-    roomsById: { r1: { id: 'r1', name: 'Launch' } },
+    rooms: [{ id: 'r1', name: 'Launch', members: ['b1'] }],
+    roomsById: { r1: { id: 'r1', name: 'Launch', members: ['b1'] } },
     prefs: {},
   }
   const actions = { openSession() {}, openFile() {}, noteTurnTime() {} }
@@ -293,8 +316,87 @@ test('Step 7: ChatRows memoizes existing rows across incremental appends and pre
     const refreshed = mergeLatestPage(afterAppend, { part: 0, beforeSeq: 1 }, [{ ...u2 }, { ...p2 }], null)
     assert.equal(refreshed.items[2], u2, 'mergeLatestPage reuses unchanged u2 reference')
     assert.equal(refreshed.items[3], p2, 'mergeLatestPage reuses unchanged p2 reference')
+
+    // Multi-part collision regression: part 0 and part 1 both use id '1' and '2'.
+    // adaptRoomItems must preserve sessionId on bot -> post and event -> relay, and
+    // mergeIncrementalItems must NOT overwrite part 0's id '2' when part 1 appends id '2'.
+    const part0Adapted = adaptRoomItems([
+      { id: '1', sessionId: 'r1', kind: 'user', text: 'p0-1', time: 100 },
+      { id: '2', sessionId: 'r1', kind: 'bot', botId: 'b1', name: 'Chief', text: 'p0-2', time: 110 },
+      { id: '3', sessionId: 'r1', kind: 'event', event: 'done', botId: 'b1', name: 'Chief', time: 120 },
+    ])
+    assert.deepEqual(part0Adapted.map(i => i.sessionId), ['r1', 'r1', 'r1'], 'adaptRoomItems preserves sessionId on all kinds')
+    const part1First = adaptRoomItems([
+      { id: '1', sessionId: 'r1-p2', kind: 'user', text: 'p1-1', time: 200 },
+    ])
+    // Rolling over to a freshly created empty part (`items: []`, `cursor: { part: 0 }`)
+    // must keep part 0 history on screen instead of wiping it before part 1 gets its first message.
+    const afterEmptyRollover = mergeLatestPage(part0Adapted, null, [], { part: 0 })
+    assert.deepEqual(afterEmptyRollover.items, part0Adapted, 'empty new part rollover preserves part 0 history')
+    const afterRollover = mergeLatestPage(afterEmptyRollover.items, afterEmptyRollover.cursor, part1First, { part: 0 })
+    assert.deepEqual(afterRollover.items.map(i => `${i.sessionId}:${i.id}`), ['r1:1', 'r1:2', 'r1:3', 'r1-p2:1'])
+    const part1Second = adaptRoomItems([
+      { id: '2', sessionId: 'r1-p2', kind: 'bot', botId: 'b1', name: 'Chief', text: 'p1-2', time: 210 },
+    ])
+    const afterPart1Inc = mergeIncrementalItems(afterRollover.items, part1Second)
+    assert.deepEqual(
+      afterPart1Inc.map(i => `${i.sessionId}:${i.id}:${i.text ?? i.reply?.kind}`),
+      ['r1:1:p0-1', 'r1:2:p0-2', 'r1:3:done', 'r1-p2:1:p1-1', 'r1-p2:2:p1-2'],
+      'incremental message in part 1 must append without overwriting part 0 item sharing bare id',
+    )
+
+    // Cyclic object safety in valuesEqual / mergeIncrementalItems: must not overflow stack.
+    const cyclicA = { id: 'cyc', sessionId: 'r1', kind: 'user', text: 'loop', time: 300 }
+    cyclicA.self = cyclicA
+    const cyclicB = { id: 'cyc', sessionId: 'r1', kind: 'user', text: 'loop', time: 300 }
+    cyclicB.self = cyclicB
+    const cyclicMerged = mergeIncrementalItems([cyclicA], [cyclicB])
+    assert.equal(cyclicMerged[0], cyclicA, 'cyclic structurally equal items compare cleanly without stack overflow')
   } finally {
     view.unmount()
+  }
+})
+
+test('Step 7: ChatRows memoized rows re-render with updated copy when active locale changes', () => {
+  let active = 'en'
+  let revision = 0
+  const dicts = new Map()
+  const zhDict = { 'No background work detected': '未检测到后台任务', 'Replies from': '回复来自' }
+  const fakeLocale = {
+    dicts,
+    getLocale: () => ({ active, locales: [] }),
+    getSnapshot: () => ({ active, revision }),
+    register: () => () => {},
+    bind: () => (key) => (active === 'zh' && key in zhDict ? zhDict[key] : key),
+    subscribe: () => () => {},
+  }
+  const dispose = installLocale(fakeLocale)
+  const roster = {
+    bots: [{ id: 'b1', name: 'Chief', color: 'blue' }],
+    byId: { b1: { id: 'b1', name: 'Chief', color: 'blue' } },
+    rooms: [{ id: 'r1', name: 'Launch', members: ['b1'] }],
+    roomsById: { r1: { id: 'r1', name: 'Launch', members: ['b1'] } },
+    prefs: {},
+  }
+  const actions = { openSession() {}, openFile() {}, noteTurnTime() {} }
+  const items = [
+    { id: 'p1', sessionId: 'r1', kind: 'post', seq: 'p1', botId: 'b1', name: 'Chief', text: 'working', claims: { inProgress: true }, time: 1000 },
+    { id: 'e1', sessionId: 'r1', kind: 'event', role: 'report', roomId: 'r1', time: 1010 },
+  ]
+  const view = mount(h(ChatRows, { items, sessionId: 'r1', roster, actions }))
+  try {
+    assert.match(view.host.textContent, /No background work detected/)
+    assert.match(view.host.textContent, /Replies from/)
+
+    // Switch locale and re-render with the EXACT same items/roster/actions references.
+    active = 'zh'
+    revision += 1
+    view.update(h(ChatRows, { items, sessionId: 'r1', roster, actions }))
+    assert.match(view.host.textContent, /未检测到后台任务/, 'MemoGroupMessage must refresh copy on locale switch')
+    assert.match(view.host.textContent, /回复来自/, 'MemoGroupEvent must refresh copy on locale switch')
+  } finally {
+    view.unmount()
+    dispose()
   }
 })
 

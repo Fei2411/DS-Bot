@@ -144,7 +144,7 @@ const sandbox = {
   document: { querySelector: () => null, body: { toggleAttribute() {}, removeAttribute() {} }, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
   navigator: { language: 'en' },
   setTimeout: () => 0, clearTimeout() {},
-  requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
+  requestAnimationFrame: fn => setImmediate(() => fn(0)), cancelAnimationFrame: id => clearImmediate(id), performance: { now: () => 0 },
   fetch: (...args) => sse.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)
@@ -1315,27 +1315,58 @@ test('W4 part 3: group chat sends incremental `after` on room feed events and au
   }
 })
 
-test('W4 part 3: group chat part rollover merges new part onto displayed history instead of wiping the screen', async () => {
+test('W4 part 3: group chat part rollover merges new part onto displayed history and queues top auto-load during live refresh', async () => {
   const listeners = new Set()
+  const observers = []
+  const calls = []
   let phase = 0
+  let releaseRefresh = null
+  const origIO = sandbox.IntersectionObserver
+  sandbox.IntersectionObserver = class FakeIO {
+    constructor(cb, options) {
+      this.cb = cb
+      this.options = options
+      observers.push(this)
+    }
+    observe() {}
+    disconnect() {}
+  }
   const origCall = sandbox.__testCall
-  sandbox.__testCall = async (endpoint) => {
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
     if (endpoint !== 'room-chat') return {}
+    if (body.cursor) {
+      return {
+        roomId: 'r1',
+        items: [{ id: '1', sessionId: 'r1', kind: 'user', text: 'part 0 earlier', time: 500 }],
+        cursor: null,
+      }
+    }
     phase += 1
     if (phase === 1) {
       return {
         roomId: 'r1',
         tip: { boot: 'b1', sessionId: 'r1', part: 0, seq: 10, roomSeq: 1, openCounts: {} },
-        items: [{ id: '10', kind: 'user', text: 'part 0 message', time: 1000 }],
-        cursor: null,
+        items: [{ id: '10', sessionId: 'r1', kind: 'user', text: 'part 0 message', time: 1000 }],
+        cursor: { part: 0, beforeSeq: 10 },
       }
     }
-    // Host rolled over to part 1 (`r1-part-2`) and fell back from incremental `after` to full page.
+    if (phase === 2) {
+      // Host rolled over to part 1 (`r1-part-2`) and fell back from incremental `after` to full page.
+      return {
+        roomId: 'r1',
+        tip: { boot: 'b1', sessionId: 'r1-part-2', part: 1, seq: 1, roomSeq: 2, openCounts: {} },
+        items: [{ id: '1', sessionId: 'r1-part-2', kind: 'user', text: 'part 1 message', time: 2000 }],
+        cursor: { part: 0 },
+      }
+    }
+    // Phase 3: in-flight incremental refresh in part 1 whose item shares bare id '10' with part 0!
+    await new Promise((resolve) => { releaseRefresh = resolve })
     return {
       roomId: 'r1',
-      tip: { boot: 'b1', sessionId: 'r1-part-2', part: 1, seq: 1, roomSeq: 2, openCounts: {} },
-      items: [{ id: '1', kind: 'user', text: 'part 1 message', time: 2000 }],
-      cursor: { part: 0 },
+      incremental: true,
+      tip: { boot: 'b1', sessionId: 'r1-part-2', part: 1, seq: 10, roomSeq: 3, openCounts: {} },
+      items: [{ id: '10', sessionId: 'r1-part-2', kind: 'user', text: 'part 1 message ten', time: 2100 }],
     }
   }
   const roomRoster = {
@@ -1353,21 +1384,47 @@ test('W4 part 3: group chat part rollover merges new part onto displayed history
     chat: { on: (fn) => { listeners.add(fn); return () => listeners.delete(fn) } },
   }
   const plain = value => JSON.parse(JSON.stringify(value))
-  const inst = mount({ sessionId: 'r1', team: roomTeam })
+  const props = { sessionId: 'r1', team: roomTeam }
+  const inst = mount(props)
   try {
+    inst.render()
     await tick()
     inst.render()
-    for (const fn of listeners) fn('room', { roomId: 'r1' })
+    // Simulate `App` updating `sessionId` to the rolled-over part while `room.id` stays `'r1'`.
+    roomRoster.roomsById['r1-part-2'] = roomRoster.roomsById.r1
+    inst.render({ sessionId: 'r1-part-2', team: roomTeam })
     await tick()
-    const tree = inst.render()
+    const tree = inst.render({ sessionId: 'r1-part-2', team: roomTeam })
     const chatRowsNode = all(tree, n => n.type === 'chat-rows')[0]
     assert.deepEqual(
       plain(chatRowsNode.props.items.map(i => i.text)),
       ['part 0 message', 'part 1 message'],
       'part rollover full refresh must append new part onto existing displayed history without wiping part 0',
     )
+
+    // Scroll up so top auto-load observer attaches, then trigger an in-flight silent incremental refresh
+    // AND intersect `.bt-earlier-top` while that refresh is busy -> earlier load must be queued, not dropped!
+    const scrollEl = all(tree, n => n.props?.className === 'dsb-scroll')[0]
+    scrollEl.props.ref.current = { scrollHeight: 2000, scrollTop: 50, clientHeight: 500 }
+    scrollEl.props.onScroll()
+    inst.render()
+    assert.ok(observers.length >= 1, 'top observer attached after scrolling up')
+
+    for (const fn of listeners) fn('room', { roomId: 'r1' })
+    observers.at(-1).cb([{ isIntersecting: true }])
+    releaseRefresh?.()
+    await tick()
+    await tick()
+    const treeAfter = inst.render()
+    const rowsAfter = all(treeAfter, n => n.type === 'chat-rows')[0]
+    assert.deepEqual(
+      plain(rowsAfter.props.items.map(i => i.text)),
+      ['part 0 earlier', 'part 0 message', 'part 1 message', 'part 1 message ten'],
+      'part 1 incremental message with colliding bare id appends without overwriting part 0, and queued top auto-load runs after busy refresh',
+    )
   } finally {
     inst.unmount()
     sandbox.__testCall = origCall
+    sandbox.IntersectionObserver = origIO
   }
 })

@@ -51,6 +51,8 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
 
   const loadFullRef = useRef(loadFull)
   loadFullRef.current = loadFull
+  const srcRef = useRef(src)
+  srcRef.current = src
 
   useEffect(() => {
     if (!open || typeof loadFullRef.current !== 'function') return undefined
@@ -59,13 +61,13 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
       .then((next) => {
         if (typeof next !== 'string' || next === '') return
         if (!alive) {
-          revokeBlobUrl(next)
+          if (next !== srcRef.current) revokeBlobUrl(next)
           return
         }
         if (ownedFullUrlRef.current !== null && ownedFullUrlRef.current !== next) {
           revokeBlobUrl(ownedFullUrlRef.current)
         }
-        ownedFullUrlRef.current = next.startsWith('blob:') ? next : null
+        ownedFullUrlRef.current = next.startsWith('blob:') && next !== srcRef.current ? next : null
         setFullSrc(next)
       })
       .catch(() => {})

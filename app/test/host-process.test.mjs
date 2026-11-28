@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -56,4 +56,67 @@ test('withLogTail redacts launch tokens and skips an empty tail', () => {
     host.withLogTail('The DSH Host stopped (exit 1)', 'launch http://127.0.0.1:43117/?token=abc123 other'),
     'The DSH Host stopped (exit 1):\nlaunch http://127.0.0.1:43117/?token=<hidden> other')
   assert.equal(host.withLogTail('The DSH Host stopped (exit 0)', '   \n'), 'The DSH Host stopped (exit 0)')
+})
+
+test('hostStoppedMessage includes the termination signal when the Host is killed', () => {
+  assert.equal(host.hostStoppedMessage(1, null), 'The DSH Host stopped (exit 1)')
+  assert.equal(host.hostStoppedMessage(null, null), 'The DSH Host stopped (exit null)')
+  assert.equal(host.hostStoppedMessage(null, 'SIGKILL'), 'The DSH Host stopped (exit null, signal SIGKILL)')
+  assert.equal(host.hostStoppedMessage(null, 'SIGTERM'), 'The DSH Host stopped (exit null, signal SIGTERM)')
+})
+
+test('HostProcess reports a non-zero exit with stderr tail when a running Host exits', async (t) => {
+  const work = mkdtempSync(join(tmpdir(), 'ds-bot-host-exit-'))
+  t.after(() => { rmSync(work, { recursive: true, force: true }) })
+  const entry = join(work, 'exit-after-ready-host.mjs')
+  writeFileSync(entry, [
+    'process.send({ type: "ready", url: "http://127.0.0.1:0", injections: [] })',
+    'setTimeout(() => { process.stderr.write("fatal: engine crashed\\n"); process.exit(1) }, 20)',
+  ].join('\n'))
+  let failed
+  const onFail = new Promise((resolve) => { failed = resolve })
+  const child = new host.HostProcess({
+    entry,
+    cwd: work,
+    env: { ...process.env, DS_BOT_RUNTIME_DIR: work },
+    pnpm: '',
+    onFailure: error => failed(error),
+    output: () => {},
+  }, process.platform === 'linux' ? 'darwin' : process.platform)
+  try {
+    await child.start()
+    const error = await onFail
+    assert.equal(error.message, 'The DSH Host stopped (exit 1):\nfatal: engine crashed')
+  } finally {
+    await child.stop({ now: true })
+  }
+})
+
+test('HostProcess reports the termination signal when a running Host is killed', { skip: process.platform === 'win32' }, async (t) => {
+  const work = mkdtempSync(join(tmpdir(), 'ds-bot-host-signal-'))
+  t.after(() => { rmSync(work, { recursive: true, force: true }) })
+  const entry = join(work, 'stay-alive-host.mjs')
+  writeFileSync(entry, [
+    'process.send({ type: "ready", url: "http://127.0.0.1:0", injections: [{ pid: process.pid }] })',
+    'setInterval(() => {}, 60_000)',
+  ].join('\n'))
+  let failed
+  const onFail = new Promise((resolve) => { failed = resolve })
+  const child = new host.HostProcess({
+    entry,
+    cwd: work,
+    env: { ...process.env, DS_BOT_RUNTIME_DIR: work },
+    pnpm: '',
+    onFailure: error => failed(error),
+    output: () => {},
+  }, 'darwin')
+  try {
+    const { injections } = await child.start()
+    const [{ pid }] = injections
+    process.kill(pid, 'SIGKILL')
+    const error = await onFail
+    assert.equal(error.message, 'The DSH Host stopped (exit null, signal SIGKILL)')
+  } finally {
+    await child.stop({ now: true })
+  }
 })

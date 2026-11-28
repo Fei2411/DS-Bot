@@ -2,11 +2,13 @@
 // Supports `$...$`, `$$...$$`, `\(...\)`, `\[...\]`, and fenced ```math blocks while
 // avoiding currency false positives (`$5 and $10`). KaTeX and its stylesheet load only
 // when a message actually contains math.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, memo, useEffect, useMemo, useState } from 'react'
 
 let katexApi = null
 let katexLoadPromise = null
 let styleLoader = null
+const KATEX_CACHE_MAX = 512
+const katexHtmlCache = new Map()
 
 export function registerMathStyleLoader(fn) {
   styleLoader = typeof fn === 'function' ? fn : null
@@ -39,14 +41,27 @@ export function ensureKatex() {
 
 export function renderKatexSync(tex, display = false) {
   if (katexApi === null || typeof tex !== 'string') return null
+  const key = `${display ? '1' : '0'}:${tex}`
+  if (katexHtmlCache.has(key)) {
+    const cached = katexHtmlCache.get(key)
+    katexHtmlCache.delete(key)
+    katexHtmlCache.set(key, cached)
+    return cached
+  }
   try {
-    return katexApi.renderToString(tex, {
+    const html = katexApi.renderToString(tex, {
       displayMode: display,
       throwOnError: false,
       strict: 'ignore',
       trust: false,
       maxExpand: 1000,
     })
+    katexHtmlCache.set(key, html)
+    if (katexHtmlCache.size > KATEX_CACHE_MAX) {
+      const oldest = katexHtmlCache.keys().next().value
+      if (oldest !== undefined) katexHtmlCache.delete(oldest)
+    }
+    return html
   } catch {
     return null
   }
@@ -64,14 +79,31 @@ function measureIndent(text, lineStart) {
   return { col, index: i }
 }
 
+// Returns the exclusive end index of the current paragraph (before the first
+// blank line `\r?\n[ \t]*\r?\n` at or after `from`), or `text.length` if none.
+// CommonMark inline constructs (code spans, inline math) cannot cross blank lines.
+function findParagraphEnd(text, from) {
+  let i = from
+  while (i < text.length) {
+    const nl = text.indexOf('\n', i)
+    if (nl === -1) return text.length
+    let j = nl + 1
+    while (j < text.length && (text[j] === ' ' || text[j] === '\t' || text[j] === '\r')) j += 1
+    if (j < text.length && text[j] === '\n') return nl
+    i = j
+  }
+  return text.length
+}
+
 function readInlineCodeSpan(text, start) {
   let ticks = 0
   while (start + ticks < text.length && text[start + ticks] === '`') ticks += 1
+  const limit = findParagraphEnd(text, start + ticks)
   const needle = '`'.repeat(ticks)
   let close = text.indexOf(needle, start + ticks)
-  while (close !== -1) {
+  while (close !== -1 && close + ticks <= limit) {
     const beforeOk = close === 0 || text[close - 1] !== '`'
-    const afterOk = close + ticks >= text.length || text[close + ticks] !== '`'
+    const afterOk = close + ticks >= limit || text[close + ticks] !== '`'
     if (beforeOk && afterOk) return close + ticks
     close = text.indexOf(needle, close + 1)
   }
@@ -94,15 +126,64 @@ function stripBlockquotePrefix(text, lineStartIdx, lineEnd) {
   return { depth, contentStart: pos }
 }
 
+function trailingNewlines(out) {
+  let count = 0
+  for (let idx = out.length - 1; idx >= 0; idx -= 1) {
+    const piece = out[idx]
+    for (let j = piece.length - 1; j >= 0; j -= 1) {
+      if (piece[j] === '\n') {
+        count += 1
+        if (count >= 2) return 2
+      } else {
+        return count
+      }
+    }
+  }
+  return count
+}
+
+function hasPrecedingContent(out) {
+  for (let idx = out.length - 1; idx >= 0; idx -= 1) {
+    const piece = out[idx]
+    for (let j = piece.length - 1; j >= 0; j -= 1) {
+      const ch = piece.charCodeAt(j)
+      if (ch !== 32 && ch !== 9 && ch !== 10 && ch !== 13) return true
+    }
+  }
+  return false
+}
+
+function hasNonWhitespaceFrom(text, start) {
+  for (let idx = start; idx < text.length; idx += 1) {
+    const ch = text.charCodeAt(idx)
+    if (ch !== 32 && ch !== 9 && ch !== 10 && ch !== 13) return true
+  }
+  return false
+}
+
+function leadingNewlines(text, start) {
+  let count = 0
+  for (let idx = start; idx < text.length; idx += 1) {
+    if (text[idx] === '\n') {
+      count += 1
+      if (count >= 2) return 2
+    } else {
+      break
+    }
+  }
+  return count
+}
+
 /**
  * Walks CommonMark source while preserving fenced code blocks (` ``` ` / `~~~`),
  * CommonMark indented code blocks (4+ spaces / tab after blank line, including inside
  * blockquotes), and inline backtick spans completely untouched, calling
- * `onProseChar(text, i, out)` for non-code characters.
+ * `onProseChar(text, i, out, quoteDepth)` for non-code characters.
  */
 function walkMarkdownProse(text, onProseChar) {
   const out = []
   let i = 0
+  let segStart = 0
   let lineStart = true
   let prevLineBlank = true
   let prevQuoteDepth = 0
@@ -110,6 +191,11 @@ function walkMarkdownProse(text, onProseChar) {
   let fenceChar = ''
   let fenceLen = 0
   let fenceQuoteDepth = 0
+
+  const flushSeg = (end) => {
+    if (end > segStart) out.push(text.slice(segStart, end))
+    segStart = end
+  }
 
   while (i < text.length) {
     if (lineStart) {
@@ -138,7 +224,6 @@ function walkMarkdownProse(text, onProseChar) {
             }
           }
         }
-        out.push(text.slice(i, lineEnd))
         i = lineEnd
         lineStart = true
         prevLineBlank = isBlank
@@ -152,7 +237,6 @@ function walkMarkdownProse(text, onProseChar) {
       }
 
       if (isBlank) {
-        out.push(text.slice(i, lineEnd))
         i = lineEnd
         lineStart = true
         prevLineBlank = true
@@ -166,7 +250,6 @@ function walkMarkdownProse(text, onProseChar) {
         inIndentedCode = true
         prevLineBlank = false
         prevQuoteDepth = quoteDepth
-        out.push(text.slice(i, lineEnd))
         i = lineEnd
         lineStart = true
         continue
@@ -187,7 +270,6 @@ function walkMarkdownProse(text, onProseChar) {
             fenceChar = ch
             fenceLen = count
             fenceQuoteDepth = quoteDepth
-            out.push(text.slice(i, lineEnd))
             i = lineEnd
             lineStart = true
             continue
@@ -196,7 +278,6 @@ function walkMarkdownProse(text, onProseChar) {
       }
 
       if (contentStart > i) {
-        out.push(text.slice(i, contentStart))
         i = contentStart
         lineStart = false
         continue
@@ -205,7 +286,6 @@ function walkMarkdownProse(text, onProseChar) {
 
     const ch = text[i]
     if (ch === '\n') {
-      out.push('\n')
       i += 1
       lineStart = true
       continue
@@ -214,60 +294,92 @@ function walkMarkdownProse(text, onProseChar) {
 
     // Skip inline code spans with exact matching backtick count.
     if (ch === '`') {
-      const end = readInlineCodeSpan(text, i)
-      out.push(text.slice(i, end))
-      i = end
+      i = readInlineCodeSpan(text, i)
       continue
     }
 
-    const next = onProseChar(text, i, out)
+    const beforeLen = out.length
+    const next = onProseChar(text, i, out, prevQuoteDepth, flushSeg)
     if (next > i) {
+      if (out.length === beforeLen) {
+        // Callback accepted characters without emitting a replacement: keep contiguous slice.
+      } else {
+        segStart = next
+      }
       if (text[next - 1] === '\n') lineStart = true
       i = next
       continue
     }
 
-    out.push(ch)
     i += 1
   }
+  if (segStart === 0 && out.length === 0) return text
+  if (segStart < text.length) out.push(text.slice(segStart))
   return out.join('')
 }
 
 /**
  * Converts LaTeX `\(...\)` and `\[...\]` math delimiters into `$...$` / `$$...$$`
  * outside fenced code blocks (` ``` ` / `~~~`), CommonMark indented code blocks,
- * and inline code spans.
+ * and inline code spans. Outside blockquotes, `\[...\]` is separated by blank lines
+ * into an independent display block so incremental block splitting stays intact.
  */
 export function normalizeMathDelimiters(text) {
   if (typeof text !== 'string' || (!text.includes('\\(') && !text.includes('\\['))) return text
-  return walkMarkdownProse(text, (src, i, out) => {
+  return walkMarkdownProse(text, (src, i, out, quoteDepth, flushSeg) => {
     const ch = src[i]
+    if (ch !== '\\') return i
     // Escaped backslash (`\\`) stays literal so `\\(` is not treated as math.
-    if (ch === '\\' && src[i + 1] === '\\') {
-      out.push('\\\\')
-      return i + 2
-    }
+    if (src[i + 1] === '\\') return i + 2
     // Display math: `\[ ... \]`
-    if (ch === '\\' && src[i + 1] === '[') {
+    if (src[i + 1] === '[') {
       const close = findLatexClose(src, i + 2, ']')
       if (close !== -1) {
         const inner = src.slice(i + 2, close).trim()
         if (inner !== '') {
-          const prev = out.at(-1)
-          const needBefore = prev !== undefined && !prev.endsWith('\n')
-          const nextCh = src[close + 2]
-          const needAfter = nextCh !== undefined && nextCh !== '\n'
-          out.push(`${needBefore ? '\n' : ''}$$\n${inner}\n$$${needAfter ? '\n' : ''}`)
-          return close + 2
+          flushSeg(i)
+          let before = ''
+          let after = ''
+          let nextIdx = close + 2
+          if (quoteDepth === 0) {
+            // Trim horizontal spaces immediately before `\[` and after `\]` so the
+            // emitted display block sits between clean blank lines without leaving a
+            // leading space on the following paragraph (which would look indented to
+            // `splitMarkdownBlocks`).
+            while (out.length > 0) {
+              const last = out[out.length - 1]
+              const trimmed = last.replace(/[ \t]+$/, '')
+              if (trimmed === last) break
+              if (trimmed === '') out.pop()
+              else { out[out.length - 1] = trimmed; break }
+            }
+            if (hasPrecedingContent(out)) {
+              const haveBefore = trailingNewlines(out)
+              if (haveBefore < 2) before = '\n'.repeat(2 - haveBefore)
+            }
+            while (nextIdx < src.length && (src[nextIdx] === ' ' || src[nextIdx] === '\t')) nextIdx += 1
+            if (nextIdx < src.length) {
+              const haveAfter = leadingNewlines(src, nextIdx)
+              if (haveAfter < 2 && hasNonWhitespaceFrom(src, nextIdx)) after = '\n'.repeat(2 - haveAfter)
+            }
+          } else {
+            const prev = out.at(-1)
+            if (prev !== undefined && !prev.endsWith('\n')) before = '\n'
+            const nextCh = src[nextIdx]
+            if (nextCh !== undefined && nextCh !== '\n') after = '\n'
+          }
+          out.push(`${before}$$\n${inner}\n$$${after}`)
+          return nextIdx
         }
       }
     }
     // Inline math: `\(...\)` (single-line only to avoid swallowing prose)
-    if (ch === '\\' && src[i + 1] === '(') {
+    if (src[i + 1] === '(') {
       const close = findLatexClose(src, i + 2, ')', true)
       if (close !== -1) {
         const inner = src.slice(i + 2, close).trim()
         if (inner !== '') {
+          flushSeg(i)
           out.push(`$${inner}$`)
           return close + 2
         }
@@ -326,6 +438,43 @@ function isCurrencyOpeningDollar(text, open, close) {
   return false
 }
 
+// Matches a standalone flow display-math opener (`^ {0,3}\${2,}[ \t]*\r?\n`) at `start`
+// and returns the index right after its matching closing line (`^ {0,3}\${dollars,}[ \t]*$`),
+// allowing blank lines inside flow `$$...$$` blocks (matching CommonMark / remark-math).
+// Returns -1 if `start` is not a standalone flow opener or has no closing fence.
+function findFlowMathFenceClose(src, start) {
+  const lineStart = src.lastIndexOf('\n', start - 1) + 1
+  if (start - lineStart > 3) return -1
+  for (let k = lineStart; k < start; k += 1) {
+    if (src[k] !== ' ') return -1
+  }
+  let dollars = 0
+  while (start + dollars < src.length && src[start + dollars] === '$') dollars += 1
+  if (dollars < 2) return -1
+  let pos = start + dollars
+  while (pos < src.length && (src[pos] === ' ' || src[pos] === '\t' || src[pos] === '\r')) pos += 1
+  if (pos >= src.length || src[pos] !== '\n') return -1
+  pos += 1
+  while (pos < src.length) {
+    const nl = src.indexOf('\n', pos)
+    const lineEnd = nl === -1 ? src.length : nl
+    let spaces = 0
+    while (pos + spaces < lineEnd && src[pos + spaces] === ' ') spaces += 1
+    if (spaces <= 3) {
+      let c = 0
+      while (pos + spaces + c < lineEnd && src[pos + spaces + c] === '$') c += 1
+      if (c >= dollars) {
+        let tail = pos + spaces + c
+        while (tail < lineEnd && (src[tail] === ' ' || src[tail] === '\t' || src[tail] === '\r')) tail += 1
+        if (tail === lineEnd) return pos + spaces + c
+      }
+    }
+    if (nl === -1) break
+    pos = nl + 1
+  }
+  return -1
+}
+
 /**
  * Disambiguates currency dollar signs (e.g. `$5 and $10`, `$100-$200`, `价格$5和$10`,
  * `The item costs $5 and the answer is $x^2$.`) BEFORE `remark-math` pairs inline `$...$`,
@@ -334,38 +483,35 @@ function isCurrencyOpeningDollar(text, open, close) {
  */
 export function escapeCurrencyDollars(text) {
   if (typeof text !== 'string' || !text.includes('$')) return text
-  return walkMarkdownProse(text, (src, i, out) => {
+  return walkMarkdownProse(text, (src, i, out, quoteDepth, flushSeg) => {
     const ch = src[i]
-    if (ch === '\\' && i + 1 < src.length) {
-      out.push(src.slice(i, i + 2))
-      return i + 2
-    }
+    if (ch === '\\' && i + 1 < src.length) return i + 2
     if (ch !== '$') return i
     // Preserve display math `$$...$$` intact.
     if (src[i + 1] === '$') {
+      if (quoteDepth === 0) {
+        const flowClose = findFlowMathFenceClose(src, i)
+        if (flowClose !== -1) return flowClose
+      }
+      // Inline (non-flow) `$$` cannot cross blank lines; bound the scan to the current paragraph
+      // so an unclosed `$$` in one paragraph never hides currency in a later paragraph.
+      const limit = findParagraphEnd(src, i + 2)
       let j = i + 2
-      while (j < src.length) {
+      while (j + 1 < limit) {
         if (src[j] === '\\') { j += 2; continue }
-        if (src[j] === '$' && src[j + 1] === '$') {
-          out.push(src.slice(i, j + 2))
-          return j + 2
-        }
+        if (src[j] === '$' && src[j + 1] === '$') return j + 2
         j += 1
       }
-      out.push('$$')
       return i + 2
     }
     const close = findNextSingleDollar(src, i + 1)
     if (isCurrencyOpeningDollar(src, i, close)) {
+      flushSeg(i)
       out.push('\\$')
       return i + 1
     }
-    // Real inline math span `$...$`: copy verbatim through closing `$` so we don't inspect its body.
-    if (close !== -1) {
-      out.push(src.slice(i, close + 1))
-      return close + 1
-    }
-    out.push('$')
+    // Real inline math span `$...$`: skip verbatim through closing `$` so we don't inspect its body.
+    if (close !== -1) return close + 1
     return i + 1
   })
 }
@@ -403,9 +549,10 @@ export function remarkGuardCurrencyMath() {
 /**
  * Renders inline or display math with lazy-loaded KaTeX (falls back gracefully to TeX text until loaded).
  */
-export function MathExpression({ tex, display = false }) {
+export const MathExpression = memo(function MathExpression({ tex, display = false }) {
   const [, setReady] = useState(() => isKatexLoaded())
-  const html = renderKatexSync(tex, display)
+  const loaded = isKatexLoaded()
+  const html = useMemo(() => (loaded ? renderKatexSync(tex, display) : null), [tex, display, loaded])
 
   useEffect(() => {
     if (katexApi !== null) return undefined
@@ -436,4 +583,4 @@ export function MathExpression({ tex, display = false }) {
   return display
     ? h('pre', { className: 'dsb-math-block dsb-math-fallback', 'data-math-display': '', 'data-tex': tex }, h('code', null, tex))
     : h('code', { className: 'dsb-math-inline dsb-math-fallback', 'data-math-inline': '', 'data-tex': tex }, tex)
-}
+})

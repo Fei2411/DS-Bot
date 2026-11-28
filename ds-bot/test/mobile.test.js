@@ -1561,39 +1561,55 @@ test('room-chat serves incremental deltas via `after` without re-reading the who
     return origPage(...args)
   }
 
-  // Initial load returns items + tip.
+  // Initial load returns items + tip (without dead `tailCallId`) and stamps `sessionId` on every item.
   const first = (await call('room-chat', { roomId: room.id })).value
   assert.equal(first.items.length, 2)
   assert.ok(first.tip, 'initial room-chat returns tip metadata')
+  assert.equal('tailCallId' in first.tip, false, 'tip omits unreachable tailCallId field')
+  assert.ok(first.items.every(i => i.sessionId === room.id), 'every room-chat item carries its part sessionId')
   assert.equal(pageCalls, 1)
 
-  // Live round appends a second reply without advancing session.seq -> zero sessionController.page calls!
+  // Quiescent poll (same session.seq, same room.seq, unchanged openCounts) skips sessionController.page completely.
+  const quiescent = (await call('room-chat', { roomId: room.id, after: first.tip })).value
+  assert.equal(quiescent.incremental, true)
+  assert.deepEqual(quiescent.items, [])
+  assert.equal(pageCalls, 1, 'quiescent poll skips sessionController.page completely')
+
+  // Live round appends a second reply and bumps room.seq -> fail-closed fallback to full page.
   rt.roomProgress.get('call-1').replies.push({ botId: chief, name: 'Chief', text: 'second live reply', time: 120 })
   rt.state.rooms[room.id].seq = (rt.state.rooms[room.id].seq ?? 0) + 1
-  const liveDelta = (await call('room-chat', { roomId: room.id, after: first.tip })).value
-  assert.equal(liveDelta.incremental, true)
-  assert.equal(pageCalls, 1, 'live round append skips sessionController.page completely')
-  assert.deepEqual(liveDelta.items.map(i => [i.id, i.text]), [['call-1:1', 'second live reply']])
+  const liveAfterAppend = (await call('room-chat', { roomId: room.id, after: quiescent.tip })).value
+  assert.equal(liveAfterAppend.incremental, undefined, 'live round append falls back to full page instead of relying on unreachable tailCallId')
+  assert.ok(liveAfterAppend.items.some(i => i.id === 'call-1:1' && i.text === 'second live reply'))
 
   // While call-1 is still active, a new session event falls back to full page so live splice order stays exact.
   history[room.id].push({
     seq: 3, time: 130, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'interleaved' }] },
   })
   ctx.sessions.get = () => ({ seq: 4 })
-  const interleaved = (await call('room-chat', { roomId: room.id, after: liveDelta.tip })).value
+  const interleaved = (await call('room-chat', { roomId: room.id, after: liveAfterAppend.tip })).value
   assert.equal(interleaved.incremental, undefined, 'new session event while an earlier live round is open falls back to full page')
 
   // Once the live round finishes (no open rounds), a new committed user message takes the delta-page incremental path.
   rt.roomProgress.delete('call-1')
   const settled = (await call('room-chat', { roomId: room.id, after: interleaved.tip })).value
   assert.equal(settled.incremental, undefined, 'vanished/finished live round falls back to full page')
+
+  // Invariant check: any visible row written through `say()` bumps `room.seq` even if `agent.session.seq`
+  // is unchanged (e.g. zero-wake post / notice / rt.logRoom). `room-chat` MUST fail closed to a full page
+  // rather than returning `{ incremental: true, items: [] }`.
+  rt.state.rooms[room.id].seq = (rt.state.rooms[room.id].seq ?? 0) + 1
+  const afterRoomSeqBump = (await call('room-chat', { roomId: room.id, after: settled.tip })).value
+  assert.equal(afterRoomSeqBump.incremental, undefined, 'room.seq bump from say() invalidates zero-I/O incremental path')
+  assert.equal(afterRoomSeqBump.tip.roomSeq, rt.state.rooms[room.id].seq)
+
   history[room.id].push({
     seq: 4, time: 140, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'follow-up' }] },
   })
   ctx.sessions.get = () => ({ seq: 5 })
-  const seqDelta = (await call('room-chat', { roomId: room.id, after: settled.tip })).value
+  const seqDelta = (await call('room-chat', { roomId: room.id, after: afterRoomSeqBump.tip })).value
   assert.equal(seqDelta.incremental, true)
-  assert.deepEqual(seqDelta.items.map(i => [i.id, i.text]), [['4', 'follow-up']])
+  assert.deepEqual(seqDelta.items.map(i => [i.sessionId, i.id, i.text]), [[room.id, '4', 'follow-up']])
 
   // Part rollover -> `after.part` no longer matches current part -> falls back to full page (`incremental` absent).
   const nextPart = 'room-part-2'
@@ -1601,13 +1617,15 @@ test('room-chat serves incremental deltas via `after` without re-reading the who
   rt.state.rooms[room.id].sessionId = nextPart
   history[nextPart] = [
     { seq: 1, time: 200, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'fresh part' }] } },
+    { seq: 2, time: 205, type: 'tool/result', data: { callId: 'c-ev', name: 'group_relay', result: { replies: [{ kind: 'done', botId: chief, name: 'Chief', text: '', time: 205 }] } } },
   ]
-  ctx.sessions.get = () => ({ seq: 2 })
+  ctx.sessions.get = () => ({ seq: 3 })
   const rollover = (await call('room-chat', { roomId: room.id, after: seqDelta.tip })).value
   assert.equal(rollover.incremental, undefined)
   assert.equal(rollover.sessionId, undefined, 'full room-chat keeps part sessionId inside tip so clients merge across part rollovers')
   assert.equal(rollover.tip?.sessionId, nextPart)
-  assert.deepEqual(rollover.items.map(i => i.text), ['fresh part'])
+  assert.ok(rollover.items.every(i => i.sessionId === nextPart), 'rollover stamps part sessionId on all items including event rows')
+  assert.deepEqual(rollover.items.filter(i => i.kind === 'user').map(i => i.text), ['fresh part'])
 })
 
 test('room-chat differential: incremental deltas match full pages across concurrent rounds, cancellations, unresolved agent, restart, rollover, and truncation', async (t) => {
@@ -1615,28 +1633,31 @@ test('room-chat differential: incremental deltas match full pages across concurr
   t.after(stop)
   const { chief, other, room } = await team(call)
 
-  // Client-side incremental merge helper matching app/ui/src/chat.js semantics.
+  // Client-side incremental merge helper matching app/ui/src/chat-transcript.js composite-key semantics.
+  const itemKey = (item) => (item?.id !== undefined && item?.id !== null ? `${item.sessionId ?? ''}:${item.id}` : null)
   const applyDelta = (current, delta) => {
     const out = current.slice()
     const byId = new Map()
     for (let i = 0; i < out.length; i += 1) {
-      if (out[i]?.id !== undefined && out[i]?.id !== null) byId.set(out[i].id, i)
+      const k = itemKey(out[i])
+      if (k !== null) byId.set(k, i)
     }
     for (const item of delta) {
-      const idx = item?.id !== undefined && item?.id !== null ? byId.get(item.id) : undefined
+      const k = itemKey(item)
+      const idx = k !== null ? byId.get(k) : undefined
       if (idx !== undefined) out[idx] = item
       else {
-        if (item?.id !== undefined && item?.id !== null) byId.set(item.id, out.length)
+        if (k !== null) byId.set(k, out.length)
         out.push(item)
       }
     }
     return out
   }
 
-  // Reference full-refresh merge matching `mergeLatestPage` in app/ui/src/chat.js.
+  // Reference full-refresh merge matching `mergeLatestPage` in app/ui/src/chat-transcript.js.
   const sameItem = (a, b) => (a.id !== undefined && b.id !== undefined
-    ? a.id === b.id && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
-    : a.kind === b.kind && a.time === b.time && a.text === b.text)
+    ? a.id === b.id && (a.sessionId ?? null) === (b.sessionId ?? null) && a.kind === b.kind && (a.time ?? null) === (b.time ?? null)
+    : a.kind === b.kind && (a.sessionId ?? null) === (b.sessionId ?? null) && a.time === b.time && a.text === b.text)
   const applyFull = (current, nextItems, nextCursor) => {
     if (current.length === 0) return nextItems
     if (nextItems.length === 0) return []
