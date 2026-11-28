@@ -147,6 +147,8 @@ export function createTeam() {
   const closingRepliesBySession = new Map()
   const draftFileStore = new Map()
   let draftFileSeq = 0
+  const lastFeedReplySeq = new Map()
+  const lastGroupNoticeSeq = new Map()
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -264,9 +266,12 @@ export function createTeam() {
     for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
     for (const id of [...turnFactsBySession.keys()]) if (!keep(id)) turnFactsBySession.delete(id)
     for (const id of [...closingRepliesBySession.keys()]) if (!keep(id)) closingRepliesBySession.delete(id)
+    for (const id of [...seenFeedItems.keys()]) if (!keep(id)) seenFeedItems.delete(id)
     for (const [fileId, entry] of [...draftFileStore.entries()]) {
       if (entry?.sessionId && !keep(entry.sessionId)) draftFileStore.delete(fileId)
     }
+    for (const id of [...lastFeedReplySeq.keys()]) if (!keep(id)) lastFeedReplySeq.delete(id)
+    for (const id of [...lastGroupNoticeSeq.keys()]) if (!keep(id)) lastGroupNoticeSeq.delete(id)
     for (const id of [...streamingReply]) {
       if (!keep(id)) {
         streamingReply.delete(id)
@@ -427,13 +432,18 @@ export function createTeam() {
 
   const panelFolded = (view) => {
     const state = ui.getSnapshot()
-    if (state.details === null) return false
-    const vp = typeof window === 'undefined' ? 1280 : window.innerWidth
-    const l = layout.getSnapshot()
+    const rawViewport = typeof window === 'undefined' ? 1280 : window.innerWidth
+    const isNarrow = rawViewport <= 768
+    const lay = layout.getSnapshot()
+    const effectiveSideW = isNarrow
+      ? Math.min(lay.width, Math.max(264, Math.round(rawViewport * 0.84)))
+      : Math.min(lay.width, Math.max(264, rawViewport - 420))
+    const viewport = isNarrow ? Math.min(rawViewport, 680) : rawViewport
+    const pref = isNarrow ? (state.leftDrawer ? 'open' : 'hidden') : lay.pref
     return frameLayout({
-      viewport: vp,
-      sidebarWidth: l.width,
-      pref: l.pref,
+      viewport,
+      sidebarWidth: effectiveSideW,
+      pref,
       drawer: state.leftDrawer === true,
       panel: { view: view ?? state.view, yielded: state.panelYield === true },
     }).panel === 'folded'
@@ -446,7 +456,6 @@ export function createTeam() {
     refreshModels: () => pull().catch(() => {}),
   })
   const appUpdates = globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.updates ?? null : null
-
   const questionDrafts = createQuestionDrafts()
   const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
@@ -1372,6 +1381,10 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    noteReplyArrival: (sessionId, delta) => {
+      if (!sessionId || !Number.isFinite(delta) || delta <= 0) return
+      editRow(sessionId, row => ({ ...row, replyCount: (row.replyCount ?? 0) + delta }))
+    },
     reconnectFeed: () => { restartFeed() },
   }
 
@@ -1534,6 +1547,8 @@ export function createTeam() {
     if (event === 'hello' && data?.resumed !== true) {
       for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
       streamingReply.clear()
+      // Notice seq restarts from 1 on a fresh host boot; session log seq is durable.
+      lastGroupNoticeSeq.clear()
     }
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
@@ -1546,6 +1561,16 @@ export function createTeam() {
         && !(Number.isInteger(item.turn) && item.turn >= 0)
         && item.seq <= maxCoveredSeqOf(sessionId),
       )
+      let countReply = false
+      if (item.kind === 'bot') {
+        const hasFiniteSeq = Number.isFinite(item.seq)
+        const prevSeq = hasFiniteSeq ? (lastFeedReplySeq.get(sessionId) ?? -1) : -1
+        const seqReplay = hasFiniteSeq && item.seq <= prevSeq
+        if (hasFiniteSeq && !seqReplay) lastFeedReplySeq.set(sessionId, item.seq)
+        // Active DM Sessions count tail arrivals via SessionTranscript's monotonic seq watermark
+        // so "Load earlier", gap fills, and replays never inflate replyCount or double-count.
+        countReply = !seqReplay && !isReplay && !coveredByFacts && shown.getSnapshot() !== sessionId
+      }
       if (!isReplay && !coveredByFacts) {
         if (item.kind === 'bot') {
           if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
@@ -1556,7 +1581,8 @@ export function createTeam() {
         let effectiveTurn = null
         editRow(sessionId, (row) => {
           const updatedAt = Math.max(row.updatedAt ?? 0, item.time ?? 0)
-          if (!text) return { ...row, updatedAt }
+          const replyPatch = countReply ? { replyCount: (row.replyCount ?? 0) + 1 } : {}
+          if (!text) return { ...row, updatedAt, ...replyPatch }
           const resolvedTurn = Number.isInteger(item.turn) && item.turn >= 0 ? item.turn : openTurnOf(sessionId)
           const next = appendTurnOutline(row, {
             kind: item.kind,
@@ -1568,6 +1594,7 @@ export function createTeam() {
           return {
             ...row,
             updatedAt,
+            ...replyPatch,
             projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
           }
         })
@@ -1582,13 +1609,18 @@ export function createTeam() {
     if (event === 'notice' && data?.kind === 'group' && data.roomId) {
       const room = roster.getSnapshot().roomsById?.[data.roomId]
       const roomSession = room ? currentPart(room) : data.roomId
-      if (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot())) setStatus(roomSession, { completionUnread: true })
-      if (data.text) {
+      const hasSeq = Number.isFinite(data.seq)
+      const prevSeq = hasSeq ? (lastGroupNoticeSeq.get(roomSession) ?? -1) : -1
+      const isReplay = hasSeq && data.seq <= prevSeq
+      if (hasSeq && !isReplay) lastGroupNoticeSeq.set(roomSession, data.seq)
+      if (!isReplay && (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot()))) setStatus(roomSession, { completionUnread: true })
+      if (data.text && !isReplay) {
         editRow(roomSession, (row) => {
-          const next = appendTurnOutline(row, { kind: 'bot', text: data.text, turn: data.turn })
+          const next = appendTurnOutline(row, { kind: 'bot', text: data.text, turn: data.turn, seq: Number.isInteger(data.seq) ? data.seq : null })
           return {
             ...row,
             updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+            replyCount: (row.replyCount ?? 0) + 1,
             projectionValues: { ...(row.projectionValues ?? {}), turnOutline: next.outline },
           }
         })

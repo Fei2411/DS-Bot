@@ -133,6 +133,7 @@ const ZH = {
   Search: '搜索',
   'New chat': '新对话',
   'Back to chat': '返回对话',
+  'Back to bottom': '回到底部',
   'New…': '新建',
   'New section': '新建分组',
   'Rename section': '重命名分组',

@@ -13,9 +13,9 @@ const stubs = {
     export const Bubbles = ({ texts }) => ({ type: 'bubbles', props: { texts, children: texts } })
     export const ThinkingRow = ({ text }) => ({ type: 'thinking', props: { text, children: [text] } })
     export const EarlierParts = () => null
-    export const NewDivider = () => ({ type: 'div', props: { className: 'bt-new-sep', role: 'separator', children: [] } })
-    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && time > visit.seen && time <= visit.entered
     export const PartLine = () => null
+    export const NewDivider = () => ({ type: 'new-divider', props: { className: 'bt-new-sep', children: [] } })
+    export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && Number.isFinite(time) && time > visit.seen && time <= visit.entered
     export const ChatRows = (props) => ({ type: 'chat-rows', props: { ...props, children: [] } })
     export const Shimmer = () => null
     export const Elapsed = () => null
@@ -652,7 +652,7 @@ test('Composer persists drafts across switches, folds long pastes into PasteCard
   const first = mount(Chat, { sessionId: 'b1', team })
   try {
     let tree = first.render()
-    const ta = all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] !== undefined)[0]
+    const ta = all(tree, n => n.type === 'textarea' && n.props?.['data-bt-composer-input'] !== undefined)[0]
     ta.props.onChange({ target: { value: 'draft text', selectionStart: 10 } })
     const longText = 'x'.repeat(PASTE_LIMIT + 50)
     let prevented = false

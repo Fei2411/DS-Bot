@@ -65,7 +65,7 @@ export const SPRING_TRAIL = springEasing(289, 29.2)
 // Critically damped layout glide (ω≈31.6, ζ=1) for sidebar row reordering.
 export const SPRING_GLIDE = springEasing(1000, 63)
 // Critically damped pane slide (ω=28, ζ=1, zero overshoot) for bounded edge surfaces
-// like the left sidebar and conversation margins.
+// like the left sidebar and conversation margins (#2412).
 export const SPRING_SLIDE = springEasing(784, 56)
 // A highlight that follows the keyboard and pointer down a list keeps up on stiffer
 // edges (ω=30 and ω=20).

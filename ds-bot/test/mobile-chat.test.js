@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const plugin = dirname(dirname(fileURLToPath(import.meta.url)))
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { CONVERSATION_CSS, SHELL_CSS } from './src/client/styles.js'",
+    contents: "export { CONVERSATION_CSS, SHELL_CSS } from './src/client/styles.js'\nexport { DSH_CONVERSATION_CSS } from './src/client/styles-dsh.js'",
     resolveDir: plugin,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -17,7 +17,7 @@ const { outputFiles } = await build({
 })
 const loaded = { exports: {} }
 new Function('module', 'exports', 'require', outputFiles[0].text)(loaded, loaded.exports, () => ({}))
-const { CONVERSATION_CSS, SHELL_CSS } = loaded.exports
+const { CONVERSATION_CSS, DSH_CONVERSATION_CSS, SHELL_CSS } = loaded.exports
 
 // The phone rules live in one width breakpoint, so both a Bot chat and a group's
 // chat flow get them, and the desktop shares stay as they are.
@@ -38,8 +38,9 @@ const phone = (() => {
 
 test('the phone breakpoint gives the chat flow the width of the screen', () => {
   assert.match(phone, /\.bt-msg,\.bt-astack\[data-lead\]>\.bt-msg\{max-width:100%\}/)
-  assert.match(phone, /\.bt-bubble,\[data-chat-flow\] \[class\*="_bubble"\]\{max-width:100%;overflow-wrap:anywhere;word-break:break-word\}/)
-  assert.match(CONVERSATION_CSS, /\[data-chat-flow\] :is\(pre,table\)\{max-width:100%;overflow-x:auto\}/)
+  assert.match(phone, /\.bt-bubble\{max-width:100%;overflow-wrap:anywhere;word-break:break-word\}/)
+  assert.match(DSH_CONVERSATION_CSS, /\[data-chat-flow\] \[class\*="_bubble"\]\{max-width:100%;overflow-wrap:anywhere;word-break:break-word\}/)
+  assert.match(CONVERSATION_CSS, /\[data-bt-flow\] :is\(pre,table\)\{max-width:100%;overflow-x:auto\}/)
 })
 
 test('the phone breakpoint makes a card full width and its options tappable', () => {

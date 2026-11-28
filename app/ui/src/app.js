@@ -341,7 +341,7 @@ export function App() {
       const focus = () => {
         if (typeof document === 'undefined') return
         if (document.querySelector('[aria-modal="true"]')) return
-        document.querySelector('[data-composer-input]')?.focus?.()
+        document.querySelector('[data-bt-composer-input]')?.focus?.()
       }
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus)
       else focus()
@@ -689,8 +689,8 @@ export function App() {
       wide: effectivePref === 'open',
       hideTitleToggle: isNarrow,
     }),
-  // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
-  h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
+  // The unified right panel makes room by giving `[data-bt-center]` a right margin.
+  h('main', { className: 'dsb-main', 'data-bt-center': '', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
     h(ConnectionBanner, { useConnection: hooks.useConnection, onReconnect: actions.reconnectFeed }),
     isNarrow ? h('button', {

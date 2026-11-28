@@ -576,6 +576,42 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   intervalCb()
   await tick()
   assert.equal(stringifyCalls, 0, 'unchanged liveKey skips all per-field JSON.stringify checks in pull()')
+  // 8. Feed resume replay must not double-count replyCount for background DMs, foreground DMs, or group notices.
+  rosterValue = {
+    ...rosterValue,
+    revision: 6,
+    bots: [
+      { id: 'b1', sessionId: 'b1', name: 'Alpha', parts: ['b1'] },
+      { id: 'b2', sessionId: 'b2', name: 'Beta', parts: ['b2'] },
+    ],
+    rooms: [{ id: 'r1', sessionId: 'r1', name: 'Ops', members: ['b1', 'b2'] }],
+  }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  team.actions.openSession('b1')
+  const b1Before = team.snapshots.sessions().byId.b1?.replyCount ?? 0
+  const b2Before = team.snapshots.sessions().byId.b2?.replyCount ?? 0
+  const r1Before = team.snapshots.sessions().byId.r1?.replyCount ?? 0
+  // Initial live arrivals on foreground b1 (delegated to SessionTranscript), background b2, and room r1.
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', seq: 10, text: 'fg', time: 500 } })
+  sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', seq: 20, text: 'bg', time: 501 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', seq: 7, text: 'room 1', time: 502 })
+  assert.equal(team.snapshots.sessions().byId.b1?.replyCount ?? 0, b1Before, 'foreground DM replyCount is delegated to SessionTranscript watermark')
+  assert.equal(team.snapshots.sessions().byId.b2?.replyCount ?? 0, b2Before + 1, 'background DM increments replyCount once')
+  assert.equal(team.snapshots.sessions().byId.r1?.replyCount ?? 0, r1Before + 1, 'group notice increments replyCount once')
+  // Resumed hello + replayed seqs must NOT increment replyCount again.
+  sandbox.__feedCb('hello', { revision: 6, feedSeq: 20, resumed: true })
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', seq: 10, text: 'fg', time: 500 } })
+  sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', seq: 20, text: 'bg', time: 501 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', seq: 7, text: 'room 1', time: 502 })
+  assert.equal(team.snapshots.sessions().byId.b1?.replyCount ?? 0, b1Before, 'replayed foreground DM does not increment replyCount')
+  assert.equal(team.snapshots.sessions().byId.b2?.replyCount ?? 0, b2Before + 1, 'replayed background DM seq does not increment replyCount')
+  assert.equal(team.snapshots.sessions().byId.r1?.replyCount ?? 0, r1Before + 1, 'replayed group notice seq does not increment replyCount')
+  // Newer live seqs after resume still increment replyCount cleanly.
+  sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', seq: 21, text: 'bg 2', time: 503 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', seq: 8, text: 'room 2', time: 504 })
+  assert.equal(team.snapshots.sessions().byId.b2?.replyCount ?? 0, b2Before + 2, 'newer background DM seq increments replyCount')
+  assert.equal(team.snapshots.sessions().byId.r1?.replyCount ?? 0, r1Before + 2, 'newer group notice seq increments replyCount')
   void liveUpdates
   void unsubLive
   stop()

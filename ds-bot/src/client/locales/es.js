@@ -256,6 +256,7 @@ export const ES = {
   Search: 'Buscar',
   'New chat': 'Nuevo chat',
   'Back to chat': 'Volver al chat',
+  'Back to bottom': 'Ir al final',
   'New…': 'Nuevo…',
   'New section': 'Nueva sección',
   'Rename section': 'Renombrar sección',

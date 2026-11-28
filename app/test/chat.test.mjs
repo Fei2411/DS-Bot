@@ -13,7 +13,7 @@ const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
 const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
-  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const NewDivider = () => ({ type: "div", props: { className: "bt-new-sep", role: "separator", children: [] } })\nexport const unseenSince = (visit, time) => typeof visit?.seen === "number" && time > visit.seen && time <= visit.entered\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const NewDivider = () => ({ type: "new-divider", props: { className: "bt-new-sep", children: [] } })\nexport const unseenSince = (visit, time) => typeof visit?.seen === "number" && Number.isFinite(time) && time > visit.seen && time <= visit.entered\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
@@ -201,7 +201,7 @@ const all = (node, check) => {
   if (!node || typeof node !== 'object') return []
   return [...(check(node) ? [node] : []), ...all(node.props.children, check)]
 }
-const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-composer-input'] !== undefined)[0]
+const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-bt-composer-input'] !== undefined)[0]
 const sendButton = node => all(node, child => child.type === 'button' && child.props?.className === 'dsb-send')[0]
 const answerField = node => all(node, child => child.props?.className === 'bt-q-input')[0]
 const enter = (extra = {}) => ({
@@ -1014,7 +1014,7 @@ test('composer stays editable when bot.waiting has a model, focuses on card clic
     // slider, or a React portal child rendered outside currentTarget does not.
     let focused = 0
     ta.props.ref.current = { focus() { focused += 1 }, style: {}, scrollHeight: 30 }
-    const card = all(tree, n => n.props?.['data-composer-card'] !== undefined)[0]
+    const card = all(tree, n => n.props?.['data-bt-composer'] !== undefined)[0]
     assert.ok(card)
     let prevented = 0
     const insideTarget = { closest: () => null }

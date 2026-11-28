@@ -256,6 +256,7 @@ export const DE = {
   Search: 'Suchen',
   'New chat': 'Neuer Chat',
   'Back to chat': 'Zurück zum Chat',
+  'Back to bottom': 'Nach unten scrollen',
   'New…': 'Neu…',
   'New section': 'Neuer Abschnitt',
   'Rename section': 'Abschnitt umbenennen',
