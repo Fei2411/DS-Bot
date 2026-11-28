@@ -17,7 +17,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { DSH_SHELL_CSS } from './src/client/styles-dsh.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
+    contents: "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'\nexport { DSH_SHELL_CSS } from './src/client/styles-dsh.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -60,7 +60,7 @@ const sandbox = {
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, DSH_SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
+const { SHELL_CSS, botOwnCss, DSH_SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -289,22 +289,27 @@ function rulesOf(css) {
     at = end
   }
 }
-const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|bt-side-collapse|bt-title-toggle/
+const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|data-shell-leading|data-sidebar-opener|bt-side-collapse|bt-title-toggle/
 const rules = [...rulesOf(SHELL_CSS), ...rulesOf(DSH_SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].filter(rule => SHELL_PARTS.test(rule.selector))
 const hiding = rules.filter(rule => /display:none/.test(rule.body))
 const showing = rules.filter(rule => /display:inline-flex/.test(rule.body))
 
-// The shell sidebar's own markup (dsh-client-ui-sidebar SidebarRoot), reduced to what the
-// team view reshapes: the switch is in the logo row, except in a macOS desktop window,
-// where it sits in the strip by the window buttons. `mac` is DSH Desktop with the system
-// title bar; `mac-frameless` is the packaged app, whose window has no system title bar and
-// so carries the title-bar attribute as well.
-function shell({ platform, collapsed }) {
+// The shell sidebar's own markup (dsh-client-ui-layout AppFrame + dsh-client-ui-sidebar
+// SidebarRoot / HeaderLeadingControls), reduced to what the team view reshapes: the switch
+// is in the logo row, in the top strip of a macOS desktop window, or in the frame's
+// `shell.leading` seat on narrow drawers (<768px) and collapsed macOS frames. `mac` is DSH
+// Desktop with the system title bar; `mac-frameless` is the packaged app, whose window has
+// no system title bar and so carries the title-bar attribute as well.
+function shell({ platform, collapsed, drawer = false }) {
   const darwin = platform === 'mac' || platform === 'mac-frameless'
   const titlebar = platform === 'windows' || platform === 'mac-frameless'
+  const leadingMounted = drawer || (darwin && collapsed)
   const toggle = '<button class="x_iconButton x_toggle" aria-label="Toggle sidebar"></button>'
+  const leading = leadingMounted
+    ? `<div class="x_leadingSeat" data-shell-leading="true"><div class="x_controls"><button data-sidebar-opener="true" class="x_iconButton" aria-label="Open sidebar"></button>${darwin ? '<button class="x_iconButton x_leadingNew" aria-label="New session"></button>' : ''}</div></div>`
+    : ''
   const html = `<!doctype html><html${titlebar ? ' data-windows-titlebar' : ''}${darwin ? ' data-platform="darwin"' : ''}><body>
-    <div${collapsed ? ' data-sidebar-collapsed="true"' : ''}>
+    <div${collapsed ? ' data-sidebar-collapsed="true"' : ''}${drawer ? ' data-sidebar-drawer="true"' : ''}>
       <div class="x_root${collapsed ? ' x_collapsed' : ''}">
         ${darwin ? `<div class="x_topStrip">${toggle}</div>` : ''}
         <div class="x_logoRow">${collapsed ? '' : '<button class="x_brand x_wide"></button>'}${darwin ? '' : toggle}</div>
@@ -313,6 +318,7 @@ function shell({ platform, collapsed }) {
         <div class="team">${collapsed ? '' : '<div class="bt-side-top"><button class="bt-round bt-side-collapse"></button></div>'}</div>
         <div class="x_footArea"><span class="bt-foot-account"></span></div>
       </div>
+      ${leading}
     </div></body></html>`
   const { document } = new JSDOM(html).window
   const hidden = (node) => {
@@ -321,7 +327,7 @@ function shell({ platform, collapsed }) {
     }
     return false
   }
-  const switches = [...document.querySelectorAll('.x_toggle, .bt-side-collapse, .bt-title-toggle')].filter(node => !hidden(node))
+  const switches = [...document.querySelectorAll('.x_toggle, [data-sidebar-opener], .bt-side-collapse, .bt-title-toggle')].filter(node => !hidden(node))
   return { document, hidden, switches }
 }
 
@@ -394,6 +400,32 @@ test('what the team view replaces in the shell sidebar stays out of sight', () =
       if (brand) assert.equal(hidden(brand), true)
     }
   }
+})
+
+test('DSH shell.leading sidebar opener and desktop new-session button stay hidden in narrow drawers and collapsed macOS frames', () => {
+  for (const [label, opts] of [
+    ['web narrow drawer (collapsed)', { platform: 'web', collapsed: true, drawer: true }],
+    ['web narrow drawer (open)', { platform: 'web', collapsed: false, drawer: true }],
+    ['mac collapsed', { platform: 'mac', collapsed: true }],
+    ['mac-frameless collapsed', { platform: 'mac-frameless', collapsed: true }],
+  ]) {
+    const { document, hidden } = shell(opts)
+    const seat = document.querySelector('[data-shell-leading]')
+    const opener = document.querySelector('[data-sidebar-opener]')
+    assert.ok(seat !== null, `${label}: leading seat mounted`)
+    assert.ok(opener !== null, `${label}: sidebar opener mounted`)
+    assert.equal(hidden(seat), true, `${label}: leading seat hidden`)
+    assert.equal(hidden(opener), true, `${label}: sidebar opener hidden`)
+    const leadingNew = document.querySelector('.x_leadingNew')
+    if (leadingNew) assert.equal(hidden(leadingNew), true, `${label}: desktop leading new-session hidden`)
+  }
+  // Standalone [data-sidebar-opener] without a [data-shell-leading] wrapper stays hidden too.
+  const standalone = new JSDOM('<!doctype html><html><body><button data-sidebar-opener="true"></button></body></html>').window.document
+  const standaloneBtn = standalone.querySelector('[data-sidebar-opener]')
+  assert.equal(hiding.some(rule => standaloneBtn.matches(rule.selector)), true)
+  // Desktop SHELL_CSS stays free of DSH-private selectors, and botOwnCss(DSH_SHELL_CSS) drops them so Classic mode Settings never hides DSH's own controls.
+  assert.doesNotMatch(SHELL_CSS, /data-shell-leading|data-sidebar-opener/)
+  assert.doesNotMatch(botOwnCss(DSH_SHELL_CSS), /data-shell-leading|data-sidebar-opener/)
 })
 
 function collapsedGridRules() {
