@@ -1149,6 +1149,75 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   assert.equal(Buffer.from(readOnlyImg.value.bytes, 'base64').equals(updatedBytes), true)
 })
 
+test('markdown-image opens images from the chat and group author’s configured extra folders (#2405)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-md-extras-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const [botDir, roomDir, otherDir, groupWorkDir] = ['bot', 'room', 'other', 'workspace'].map(name => join(root, name))
+  for (const dir of [botDir, roomDir, otherDir, groupWorkDir]) mkdirSync(dir)
+  const [botImage, roomImage, otherImage] = [botDir, roomDir, otherDir].map(dir => join(dir, 'plot.png'))
+  const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  for (const path of [botImage, roomImage, otherImage]) writeFileSync(path, bytes)
+  rt.state.bots[chief].extraDirs = [botDir]
+  rt.state.bots[writer.id].extraDirs = [otherDir]
+  rt.state.rooms[room.id].extraDirs = [roomDir]
+  const chatId = rt.chatOf(chief)
+  const groupId = rt.sessionOfRoom(rt.state.rooms[room.id])
+
+  const read = (sessionId, path, botId) => call('markdown-image', { sessionId, path, botId })
+  const results = await Promise.all([
+    read(chatId, botImage),
+    read(groupId, roomImage),
+    read(groupId, botImage, chief),
+  ])
+  assert.deepEqual(results.map(result => result.value?.bytes ?? result.error?.message), Array(3).fill(bytes.toString('base64')))
+  assert.equal((await read(chatId, otherImage, writer.id)).error?.code, 'bot/forbidden')
+  assert.equal((await read(groupId, otherImage, chief)).error?.code, 'bot/forbidden')
+  rt.state.rooms[room.id].workDir = groupWorkDir
+  assert.equal((await read(groupId, botImage, chief)).error?.code, 'bot/forbidden')
+  assert.equal((await read(groupId, roomImage, chief)).value?.bytes, bytes.toString('base64'))
+})
+
+test('markdown-image expands home links but limits default artifacts to the Antigravity author (#2405)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-md-home-'))
+  const homeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME'
+  const previousHome = process.env[homeKey]
+  process.env[homeKey] = home
+  t.after(() => {
+    if (previousHome === undefined) delete process.env[homeKey]
+    else process.env[homeKey] = previousHome
+    rmSync(home, { recursive: true, force: true })
+  })
+  const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  const cli = '.gemini/antigravity-cli/brain/turn/plot.png'
+  const desktop = '.gemini/antigravity/brain/turn/plot.png'
+  for (const path of [cli, desktop]) {
+    mkdirSync(join(home, path, '..'), { recursive: true })
+    writeFileSync(join(home, path), bytes)
+  }
+  writeFileSync(join(home, 'unrelated.png'), bytes)
+  symlinkSync(join(home, 'unrelated.png'), join(home, cli, '..', 'escape.png'))
+  rt.state.bots[chief].model = 'local-antigravity/default'
+  const chatId = rt.chatOf(chief)
+  const groupId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  const read = (sessionId, path, botId) => call('markdown-image', { sessionId, path, botId })
+  const results = await Promise.all([
+    read(chatId, `~/${cli}`),
+    read(chatId, `~\\${desktop}`),
+    read(groupId, join(home, cli), chief),
+  ])
+  assert.deepEqual(results.map(result => result.value?.bytes ?? result.error?.message), Array(3).fill(bytes.toString('base64')))
+  assert.equal((await read(groupId, join(home, cli), writer.id)).error?.code, 'bot/forbidden')
+  assert.equal((await read(rt.chatOf(writer.id), join(home, cli), chief)).error?.code, 'bot/forbidden')
+  assert.equal((await read(chatId, '~/unrelated.png')).error?.code, 'bot/forbidden')
+  assert.equal((await read(chatId, '~/.gemini/antigravity-cli/brain/turn/escape.png')).error?.code, 'bot/forbidden')
+})
+
 test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {
   const { call, history, stop } = start()
   t.after(stop)

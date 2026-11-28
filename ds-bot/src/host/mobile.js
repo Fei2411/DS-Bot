@@ -6,10 +6,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
-import { within } from './folders.js'
+import { expandHome, within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { addressOf } from './session-follow.js'
 import { presentedFileName, presentedFiles, relayRange, stripRelayPrefix } from '../shared/group-replies.js'
@@ -802,6 +803,7 @@ export function install(rt) {
         throw Object.assign(new Error('Invalid image URL'), { code: 'bot/invalid' })
       }
     }
+    cleanPath = expandHome(cleanPath)
     const groupOwner = rt.groupOwners?.get(sessionId)
     const pastOwner = rt.pastOwners.get(sessionId)
     const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
@@ -844,14 +846,24 @@ export function install(rt) {
       }
     }
     if (!allowed && isAbsolute(cleanPath)) {
+      const roomId = room?.id
       const extraDirs = [
         rt.teamFolder?.(),
         rt.defaultTeamFolder?.(),
-        rt.workDirOf?.({ botId, roomId: room?.id }),
-        ...(authorId !== undefined ? [rt.workDirOf?.({ botId: authorId, roomId: room?.id }), rt.workDirOf?.({ botId: authorId })] : []),
+        rt.workDirOf?.({ botId, roomId }),
+        ...rt.extraDirsOf({ botId, roomId }),
+        ...(authorId !== undefined ? [
+          rt.workDirOf?.({ botId: authorId, roomId }),
+          rt.workDirOf?.({ botId: authorId }),
+          ...rt.extraDirsOf({ botId: authorId, roomId }),
+        ] : []),
       ].filter(Boolean)
-      for (const dir of extraDirs) {
+      for (const dir of new Set(extraDirs)) {
         if (within(realPath, await rt.real(dir))) { allowed = true; break }
+      }
+      if (!allowed && rt.engineOfBot(rt.botOf(authorId ?? botId)) === 'local-antigravity') {
+        const userHome = await rt.real(homedir())
+        allowed = ['antigravity-cli', 'antigravity'].some(dir => within(realPath, resolve(userHome, '.gemini', dir, 'brain')))
       }
       if (!allowed) {
         const partIds = new Set([
