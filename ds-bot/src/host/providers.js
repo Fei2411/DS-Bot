@@ -109,6 +109,7 @@ function numberMeta(node, inheritedValue) {
     ...(typeof meta.min === 'number' ? { min: meta.min } : {}),
     ...(typeof meta.max === 'number' ? { max: meta.max } : {}),
     ...(typeof meta.step === 'number' ? { step: meta.step } : {}),
+    ...(meta.step === 1 ? { integer: true } : {}),
   }
 }
 
@@ -1090,6 +1091,9 @@ export function install(rt) {
     const custom = body?.custom === true
     const map = sections(settings)
     const piSection = map.get(PI_AI)
+    if (body.revision !== undefined && body.revision !== null && piSection !== undefined && body.revision !== piSection.revision) {
+      throw stale('The provider settings changed elsewhere; reload and try again')
+    }
     const protocols = protocolsOf(piSection)
     const entry = entryOf(provider)
     if (entry !== undefined && (entry.settingsNs !== PI_AI || profileOf(entry, map) !== undefined)) {
