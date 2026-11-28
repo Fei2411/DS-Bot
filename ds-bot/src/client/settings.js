@@ -15,6 +15,7 @@ import { ModelMenu } from './model-menu.js'
 import { SelectMenu } from './select-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
+import { flushDrafts } from './draft-keep.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 import { isShortcutRecording } from './shortcuts-model.js'
@@ -396,6 +397,7 @@ const OWN_HEAD_PARTS = new Set(['groups', 'schedules', 'capabilities', 'feedback
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
   const [palette, setPalette] = useState(false)
+  const [paletteFailures, setPaletteFailures] = useState(0)
   const [advancedToken, setAdvancedToken] = useState(0)
   const [tour, setTour] = useState(() => (!leaving && (!page || page === 'overview' || page === 'general' || page === 'guide') && !id && canAutoStartTour() ? { mode: 'full', nonce: 1 } : null))
   const dialogRef = useRef(null)
@@ -668,7 +670,18 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [usageOpened, setUsageOpened] = useState(shown === 'usage')
   if (shown === 'usage' && !usageOpened) setUsageOpened(true)
   // Over a domain's parts the error stays at the top of the view, whichever part failed.
-  const errorLine = error ? h('div', { className: parts ? 'bt-error bt-set-error-pin' : 'bt-error', role: 'alert', style: parts ? undefined : { padding: 0 } }, error) : null
+  const errorLine = error
+    ? h('div', { className: parts ? 'bt-error bt-set-error-pin' : 'bt-error', role: 'alert', style: parts ? undefined : { padding: 0 } },
+      h('span', null, error),
+      paletteFailures >= 2
+        ? h('button', {
+          type: 'button',
+          className: 'bt-soft bt-soft-sm',
+          style: { marginLeft: 8 },
+          onClick: () => { try { flushDrafts() } catch { /* ignore */ } globalThis.location?.reload?.() },
+        }, t('Reload window'))
+        : null)
+    : null
 
   const groupStatus = (groupId) => {
     if (groupId === 'models' && (needsModel || keyMissing)) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Needs your attention') })
@@ -850,6 +863,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         onError: () => {
           SettingsPalette.reset?.()
           setPalette(false)
+          setPaletteFailures(count => count + 1)
           setError(t('This page could not be shown.'))
         },
       }, h(SettingsPalette, {

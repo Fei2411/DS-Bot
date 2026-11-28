@@ -16,7 +16,7 @@ function ensureStyle(tag, css) {
 }
 
 function lazyPage(load, exportName, { chunkPattern, styles = [], boundary = true } = {}) {
-  const loader = createChunkLoader(load, chunkPattern)
+  const loader = chunkPattern ? createChunkLoader(load, chunkPattern) : load
   const Lazy = createRetryableLazy(async (attempt) => {
     const mod = await loader(attempt)
     for (const [tag, cssKey] of styles) ensureStyle(tag, mod[cssKey])
@@ -30,12 +30,32 @@ function lazyPage(load, exportName, { chunkPattern, styles = [], boundary = true
     return h(SlotErrorBoundary, {
       slotName: `settings:${exportName}`,
       resetKey: exportName,
+      onError: () => { Lazy.reset() },
       onRetry: () => { Lazy.reset() },
     }, content)
   }
   LazySettingsPage.reset = () => { Lazy.reset() }
   return LazySettingsPage
 }
+
+// Independent per-chunk loaders for multi-chunk pages so retrying after a failure in
+// either chunk busts only the failed specifier and always runs cross-page CSS install.
+const loadConnectorsChunk = createChunkLoader(
+  () => import('../../../ds-bot/src/client/connectors-page.js'),
+  /\/connectors-page(?:-[^/?#]+)?\.js(?:$|[?#])/i,
+)
+const loadImChunk = createChunkLoader(
+  () => import('../../../ds-bot/src/client/im-page.js'),
+  /\/im-page(?:-[^/?#]+)?\.js(?:$|[?#])/i,
+)
+const loadProvidersChunk = createChunkLoader(
+  () => import('../../../ds-bot/src/client/providers-page.js'),
+  /\/providers-page(?:-[^/?#]+)?\.js(?:$|[?#])/i,
+)
+const loadOverviewChunk = createChunkLoader(
+  () => import('../../../ds-bot/src/client/settings-overview.js'),
+  /\/settings-overview(?:-[^/?#]+)?\.js(?:$|[?#])/i,
+)
 
 export const AboutPage = lazyPage(
   () => import('../../../ds-bot/src/client/about.js'),
@@ -78,9 +98,9 @@ export const ComputerPage = lazyPage(
   { chunkPattern: /\/computer(?:-[^/?#]+)?\.js(?:$|[?#])/i },
 )
 export const ConnectorsPage = lazyPage(
-  () => import('../../../ds-bot/src/client/connectors-page.js'),
+  attempt => loadConnectorsChunk(attempt),
   'ConnectorsPage',
-  { chunkPattern: /\/connectors-page(?:-[^/?#]+)?\.js(?:$|[?#])/i, styles: [['connectors-page', 'CONNECTORS_PAGE_CSS']] },
+  { styles: [['connectors-page', 'CONNECTORS_PAGE_CSS']] },
 )
 export const CreateBot = lazyPage(
   () => import('../../../ds-bot/src/client/create-bot.js'),
@@ -102,17 +122,18 @@ export const NewGroupForm = lazyPage(
   'NewGroupForm',
   { chunkPattern: /\/group-settings(?:-[^/?#]+)?\.js(?:$|[?#])/i },
 )
-// ImPage shares `.bt-apps`/`.bt-app-grid` rules from CONNECTORS_PAGE_CSS; install both
-// explicitly so IM styling never depends on ConnectorsPage resolving first.
-export const ImPage = lazyPage(async () => {
+// ImPage shares `.bt-apps`/`.bt-app-grid` rules from CONNECTORS_PAGE_CSS; load both
+// chunks through independent cache-busting loaders and install both stylesheets outside
+// any single-URL bypass so retries always preserve styling and return the ImPage module.
+export const ImPage = lazyPage(async (attempt) => {
   const [im, connectors] = await Promise.all([
-    import('../../../ds-bot/src/client/im-page.js'),
-    import('../../../ds-bot/src/client/connectors-page.js'),
+    loadImChunk(attempt),
+    loadConnectorsChunk(attempt),
   ])
   ensureStyle('connectors-page', connectors.CONNECTORS_PAGE_CSS)
   ensureStyle('im', im.IM_CSS)
   return im
-}, 'ImPage', { chunkPattern: /\/im-page(?:-[^/?#]+)?\.js(?:$|[?#])/i })
+}, 'ImPage')
 export const KeptPrivateSection = lazyPage(
   () => import('../../../ds-bot/src/client/kept-private.js'),
   'KeptPrivateSection',
@@ -139,9 +160,9 @@ export const PrivacyPage = lazyPage(
   { chunkPattern: /\/privacy-page(?:-[^/?#]+)?\.js(?:$|[?#])/i },
 )
 export const ProvidersPage = lazyPage(
-  () => import('../../../ds-bot/src/client/providers-page.js'),
+  attempt => loadProvidersChunk(attempt),
   'ProvidersPage',
-  { chunkPattern: /\/providers-page(?:-[^/?#]+)?\.js(?:$|[?#])/i, styles: [['providers', 'PROVIDERS_CSS']] },
+  { styles: [['providers', 'PROVIDERS_CSS']] },
 )
 export const SchedulesPage = lazyPage(
   () => import('../../../ds-bot/src/client/schedules.js'),
@@ -159,14 +180,14 @@ export const DeepSeekServicesPage = lazyPage(
   'DeepSeekServicesPage',
   { chunkPattern: /\/services-settings(?:-[^/?#]+)?\.js(?:$|[?#])/i },
 )
-export const OverviewPage = lazyPage(async () => {
+export const OverviewPage = lazyPage(async (attempt) => {
   const [overview, providers] = await Promise.all([
-    import('../../../ds-bot/src/client/settings-overview.js'),
-    import('../../../ds-bot/src/client/providers-page.js'),
+    loadOverviewChunk(attempt),
+    loadProvidersChunk(attempt),
   ])
   ensureStyle('providers', providers.PROVIDERS_CSS)
   return overview
-}, 'OverviewPage', { chunkPattern: /\/settings-overview(?:-[^/?#]+)?\.js(?:$|[?#])/i })
+}, 'OverviewPage')
 // SettingsPalette is isolated by PaletteBoundary in settings.js so a load failure only
 // dismisses the search overlay and surfaces an error while keeping Settings open.
 export const SettingsPalette = lazyPage(

@@ -590,6 +590,7 @@ export const JA = {
   "Pick another model": "別のモデルを選択",
   "Top up ↗": "チャージする ↗",
   "Retry": "再試行",
+  "Reload window": "ウィンドウを再読み込み",
   "Retrying…": "再試行中…",
   "Continuing…": "再開中…",
   "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",

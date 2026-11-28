@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { DICTIONARY, LANGUAGES, dateLocale, ensureLocale, hostText, installLocale, isLocaleLoaded, language, loadAllLocales, t } from '../src/client/i18n.js'
+import * as i18nMod from '../src/client/i18n.js'
 import { DSH_JA, HOST_ERRORS_JA } from '../src/client/locales/ja.js'
 import { DSH_KO, HOST_ERRORS_KO } from '../src/client/locales/ko.js'
 import { DSH_ES, HOST_ERRORS_ES } from '../src/client/locales/es.js'
@@ -79,6 +80,77 @@ test('i18n starts English-only and loads non-English locales dynamically on dema
   await loadAllLocales()
   for (const loc of ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']) {
     assert.equal(isLocaleLoaded(loc), true)
+    assert.ok(Object.hasOwn(DICTIONARY[loc] ?? {}, 'Reload window'), `${loc} must include Reload window translation`)
+  }
+})
+
+test('ensureLocale retries transient failures with incrementing ?retry=N busting and recovers on switch or window focus (B3)', async () => {
+  assert.equal(typeof i18nMod.setLocaleTestHooks, 'function', 'i18n should expose test hook for locale chunk retry verification')
+  const calls = []
+  let failUntil = 2 // First 2 attempts fail (0 and 1), 3rd (attempt 2, ?retry=2) succeeds during auto-retry.
+  const fakeWindowListeners = new Map()
+  const prevWindow = globalThis.window
+  globalThis.window = {
+    addEventListener(type, fn) {
+      if (!fakeWindowListeners.has(type)) fakeWindowListeners.set(type, new Set())
+      fakeWindowListeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) { fakeWindowListeners.get(type)?.delete(fn) },
+  }
+  const origErr = console.error
+  console.error = () => {}
+  i18nMod.setLocaleTestHooks({
+    resetLangs: ['de', 'fr'],
+    retryDelayMs: 5,
+    importChunk: async (chunkKey, _defaultImport, attempt, bustedUrl) => {
+      calls.push({ chunkKey, attempt, bustedUrl })
+      if (calls.length <= failUntil) {
+        throw new Error(`Failed to fetch dynamically imported module: http://127.0.0.1:4123/assets/${chunkKey}-abc.js`)
+      }
+      if (chunkKey === 'de') {
+        const mod = await import('../src/client/locales/de.js')
+        return mod
+      }
+      const mod = await import('../src/client/locales/fr.js')
+      return mod
+    },
+  })
+  try {
+    // 1. Auto-retry recovers on ?retry=2 within the same ensureLocale call.
+    await ensureLocale('de')
+    assert.equal(isLocaleLoaded('de'), true)
+    assert.deepEqual(calls.map(c => [c.chunkKey, c.attempt, c.bustedUrl]), [
+      ['de', 0, null],
+      ['de', 1, 'http://127.0.0.1:4123/assets/de-abc.js?retry=1'],
+      ['de', 2, 'http://127.0.0.1:4123/assets/de-abc.js?retry=2'],
+    ])
+
+    // 2. When all auto-retries exhaust, onError is called, and window focus retries with ?retry=3 and recovers.
+    calls.length = 0
+    failUntil = 3 // Attempts 0, 1, 2 fail -> error reported; attempt 3 on focus succeeds.
+    const errors = []
+    const mock = fakeLocale('fr')
+    const off = installLocale(mock, { onError: (lang, err) => errors.push([lang, err]) })
+    try {
+      await new Promise(r => setTimeout(r, 60))
+      assert.equal(isLocaleLoaded('fr'), false)
+      assert.equal(errors.length, 1, 'final exhausted failure must report diagnostic error')
+      assert.equal(errors[0][0], 'fr')
+      assert.equal(calls.length, 3)
+
+      // Trigger window focus -> retries with ?retry=3 and recovers.
+      for (const fn of fakeWindowListeners.get('focus') ?? []) fn()
+      await new Promise(r => setTimeout(r, 40))
+      assert.equal(isLocaleLoaded('fr'), true, 'window focus must retry unloaded active locale with ?retry=3')
+      assert.equal(calls.at(-1).attempt, 3)
+      assert.equal(calls.at(-1).bustedUrl, 'http://127.0.0.1:4123/assets/fr-abc.js?retry=3')
+    } finally {
+      off()
+    }
+  } finally {
+    i18nMod.setLocaleTestHooks(null)
+    console.error = origErr
+    globalThis.window = prevWindow
   }
 })
 

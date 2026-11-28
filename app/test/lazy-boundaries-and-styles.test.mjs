@@ -49,10 +49,196 @@ test('eager chat and shell styles cover ConnectorDock, MailForm, Privacy/Feedbac
 
 test('lazy Settings page wrappers install all cross-page CSS dependencies and avoid duplicate SERVICES_CSS', () => {
   const lazySrc = readFileSync(new URL('../ui/src/settings-pages-lazy.js', import.meta.url), 'utf8')
-  assert.match(lazySrc, /ImPage[\s\S]*connectors-page\.js[\s\S]*CONNECTORS_PAGE_CSS/, 'ImPage must explicitly install CONNECTORS_PAGE_CSS alongside IM_CSS')
+  assert.match(lazySrc, /ImPage[\s\S]*CONNECTORS_PAGE_CSS/, 'ImPage must explicitly install CONNECTORS_PAGE_CSS alongside IM_CSS')
   assert.doesNotMatch(lazySrc, /SERVICES_CSS/, 'DeepSeekServicesPage already injects SERVICES_CSS inline; lazy wrapper must not duplicate it')
   assert.match(lazySrc, /APPEARANCE_PAGE_CSS/, 'AppearancePage lazy wrapper must install APPEARANCE_PAGE_CSS on demand')
   assert.match(lazySrc, /SHORTCUTS_PAGE_CSS/, 'ShortcutsPage lazy wrapper must install SHORTCUTS_PAGE_CSS on demand')
+  // B1: multi-chunk pages (ImPage, OverviewPage) must use independent per-chunk loaders
+  // so retrying one failed chunk never bypasses sibling chunk loads or ensureStyle().
+  assert.match(lazySrc, /loadImChunk/, 'ImPage should use an independent chunk loader for im-page')
+  assert.match(lazySrc, /loadConnectorsChunk/, 'ImPage should use an independent chunk loader for connectors-page')
+  assert.match(lazySrc, /loadOverviewChunk/, 'OverviewPage should use an independent chunk loader for settings-overview')
+  assert.match(lazySrc, /loadProvidersChunk/, 'OverviewPage should use an independent chunk loader for providers-page')
+  // Non-blocking: SHORTCUTS_PAGE_CSS must not duplicate .bt-kbd* rules already in eager SHELL_CSS.
+  const shortcutsSrc = readFileSync(new URL('../../ds-bot/src/client/shortcuts-page.js', import.meta.url), 'utf8')
+  const shortcutsCss = shortcutsSrc.slice(shortcutsSrc.indexOf('export const SHORTCUTS_PAGE_CSS'))
+  assert.doesNotMatch(shortcutsCss, /\.bt-kbd\{|\.bt-kbd-group\{|\.bt-palette-kbd\{/, 'SHORTCUTS_PAGE_CSS must not duplicate .bt-kbd* rules from SHELL_CSS')
+})
+
+test('createChunkLoader passes bustedUrl to parameterized custom loaders instead of bypassing them (B1)', async () => {
+  const { createChunkLoader } = await import('../ui/src/retryable-lazy.js')
+  const calls = []
+  const loader = createChunkLoader((ctx) => {
+    calls.push({ attempt: ctx.attempt, bustedUrl: ctx.bustedUrl, hasImportBusted: typeof ctx.importBusted === 'function' })
+    if (ctx.attempt === 0) {
+      return Promise.reject(new Error('Failed to fetch dynamically imported module: http://127.0.0.1:4123/assets/im-page-abc.js'))
+    }
+    return Promise.resolve({ ImPage: () => null, styled: true })
+  }, /\/im-page(?:-[^/?#]+)?\.js(?:$|[?#])/i)
+
+  await assert.rejects(() => loader(0), /im-page-abc\.js/)
+  const recovered = await loader(1)
+  assert.equal(recovered.styled, true, 'custom loader body and side effects must still execute on retry')
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].attempt, 0)
+  assert.equal(calls[0].bustedUrl, null)
+  assert.equal(calls[1].attempt, 1)
+  assert.equal(calls[1].bustedUrl, 'http://127.0.0.1:4123/assets/im-page-abc.js?retry=1')
+  assert.equal(calls[1].hasImportBusted, true)
+})
+
+test('SlotErrorBoundary retries once with busting, then switches to Reload window and self-heals on resetKey change (B2)', async () => {
+  const { createRetryableLazy, reloadWindowSafely } = await import('../ui/src/retryable-lazy.js')
+  const { SlotErrorBoundary } = await import('../ui/src/slots.js')
+  const { keepDraft } = await import('../../ds-bot/src/client/draft-keep.js')
+  const { STORAGE } = await import('../../ds-bot/src/client/storage.js')
+  const React = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { installMiniDom } = await import('./mini-dom.mjs')
+  installMiniDom()
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  const origErr = console.error
+  console.error = () => {}
+  try {
+    // 1. Sub-chunk failure persists across bust retry -> switches to Reload window.
+    let attempts = 0
+    let reloadClicks = 0
+    const PoisonedLazy = createRetryableLazy((attempt) => {
+      attempts += 1
+      return Promise.reject(new Error(`poisoned static sub-chunk vendor-xterm (attempt ${attempt})`))
+    }, mod => mod.Target)
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await React.act(async () => {
+      root.render(React.createElement(SlotErrorBoundary, {
+        slotName: 'workspace:terminal',
+        resetKey: 'terminal:s1',
+        onError: () => { PoisonedLazy.reset() },
+        onRetry: () => { PoisonedLazy.reset() },
+        onReload: () => { reloadClicks += 1 },
+      }, React.createElement(React.Suspense, { fallback: React.createElement('div', null, 'Loading…') },
+        React.createElement(PoisonedLazy))))
+    })
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)) })
+
+    assert.equal(attempts, 1)
+    let btn = container.querySelector('.dsb-slot-error')?.querySelector('button')
+    assert.equal(btn?.textContent, 'Retry', 'first failure should offer Retry')
+
+    // Click Retry -> attempt 1 still fails (simulating poisoned static sub-chunk).
+    await React.act(async () => {
+      clickEl(btn)
+      await new Promise(r => setTimeout(r, 20))
+    })
+    assert.equal(attempts, 2)
+    btn = container.querySelector('.dsb-slot-error')?.querySelector('button')
+    assert.equal(btn?.textContent, 'Reload window', 'persistent failure after bust retry must switch to Reload window')
+
+    await React.act(async () => { clickEl(btn) })
+    assert.equal(reloadClicks, 1, 'clicking Reload window must invoke reload')
+
+    // 2. Switching resetKey (e.g. switching sessions) without clicking Retry self-heals because onError reset Lazy.
+    let selfHealAttempts = 0
+    let failFirst = true
+    const SelfHealLazy = createRetryableLazy((attempt) => {
+      selfHealAttempts += 1
+      if (failFirst) return Promise.reject(new Error(`transient #${attempt}`))
+      return Promise.resolve({ Target: () => React.createElement('div', { className: 'healed-view' }, `Healed #${attempt}`) })
+    }, mod => mod.Target)
+
+    await React.act(async () => {
+      root.render(React.createElement(SlotErrorBoundary, {
+        key: 'self-heal',
+        slotName: 'workspace:terminal',
+        resetKey: 'terminal:sh-1',
+        onError: () => { SelfHealLazy.reset() },
+        onRetry: () => { SelfHealLazy.reset() },
+      }, React.createElement(React.Suspense, { fallback: React.createElement('div', null, 'Loading…') },
+        React.createElement(SelfHealLazy))))
+    })
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    assert.equal(selfHealAttempts, 1)
+    assert.ok(container.querySelector('.dsb-slot-error'))
+
+    // Chunk recovers and user switches to session s2 without clicking Retry.
+    failFirst = false
+    await React.act(async () => {
+      root.render(React.createElement(SlotErrorBoundary, {
+        key: 'self-heal',
+        slotName: 'workspace:terminal',
+        resetKey: 'terminal:sh-2',
+        onError: () => { SelfHealLazy.reset() },
+        onRetry: () => { SelfHealLazy.reset() },
+      }, React.createElement(React.Suspense, { fallback: React.createElement('div', null, 'Loading…') },
+        React.createElement(SelfHealLazy))))
+    })
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    assert.equal(selfHealAttempts, 2)
+    assert.equal(container.querySelector('.healed-view')?.textContent, 'Healed #1')
+
+    // 3. reloadWindowSafely flushes any debounced composer draft into localStorage before calling location.reload().
+    const origLocation = globalThis.location
+    const origStorage = globalThis.localStorage
+    const store = new Map()
+    globalThis.localStorage = {
+      getItem: k => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)) },
+      removeItem: k => { store.delete(k) },
+    }
+    let reloaded = 0
+    globalThis.location = { reload() { reloaded += 1 } }
+    try {
+      keepDraft({ chatId: 'bot-1', part: 'p1', text: 'unsent draft text', files: [] }, globalThis.localStorage, { deferMs: 5000 })
+      reloadWindowSafely()
+      assert.equal(reloaded, 1)
+      const stored = JSON.parse(globalThis.localStorage.getItem(STORAGE.drafts) ?? '{}')
+      assert.equal(stored['bot-1']?.text, 'unsent draft text', 'debounced draft must be flushed before reload')
+    } finally {
+      globalThis.location = origLocation
+      globalThis.localStorage = origStorage
+    }
+
+    await React.act(async () => { root.unmount() })
+    container.remove()
+  } finally {
+    console.error = origErr
+  }
+})
+
+test('createLocale holds previous display language until switched dictionary registers (no English flash) and includes revision in notifications', async () => {
+  const { createLocale } = await import('../ui/src/locale.js')
+  const store = new Map()
+  const storage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k),
+  }
+  const locale = createLocale('zh-CN', { storage })
+  locale.register('ds-bot', 'zh', { Settings: '设置' })
+  const translate = locale.bind('ds-bot')
+  assert.equal(translate('Settings'), '设置')
+
+  const events = []
+  locale.subscribe(ev => events.push(ev))
+
+  // Switch to Japanese before ja dictionary arrives: active updates, but rendered copy stays Chinese (no English flash).
+  locale.setLocale('ja')
+  assert.equal(locale.getLocale().active, 'ja')
+  assert.equal(translate('Settings'), '设置', 'must hold previous language while new dictionary is still loading')
+  assert.equal(typeof events.at(-1)?.revision, 'number', 'subscriber event should include revision')
+
+  // Once Japanese dictionary registers, copy switches directly from Chinese to Japanese.
+  locale.register('ds-bot', 'ja', { Settings: '設定' })
+  assert.equal(translate('Settings'), '設定')
+  assert.ok(events.at(-1).revision > events[0].revision)
+
+  // Switching to English takes effect immediately (English needs no dictionary).
+  locale.setLocale('en')
+  assert.equal(translate('Settings'), 'Settings')
 })
 
 test('createRetryableLazy + SlotErrorBoundary recovers from dynamic import failure on Retry in real React DOM', async () => {

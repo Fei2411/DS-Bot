@@ -81,11 +81,16 @@ paintMode(undefined)
 
 const root = createRoot(document.getElementById('root'))
 const initialLang = appLocale.getLocale().active
-void ensureLocale(initialLang)
-  .catch((err) => {
-    console.error(`ds-bot: failed to load initial locale "${initialLang}"`, err)
-    noteClientError('i18n-load', err)
-  })
-  .finally(() => {
-    root.render(h(App))
-  })
+const INITIAL_LOCALE_WAIT_MS = 800
+let initialTimer = null
+const initialLoad = ensureLocale(initialLang).catch((err) => {
+  console.error(`ds-bot: failed to load initial locale "${initialLang}"`, err)
+  noteClientError('i18n-load', err)
+})
+void Promise.race([
+  initialLoad,
+  new Promise((resolve) => { initialTimer = setTimeout(resolve, INITIAL_LOCALE_WAIT_MS) }),
+]).finally(() => {
+  if (initialTimer !== null) clearTimeout(initialTimer)
+  root.render(h(App))
+})

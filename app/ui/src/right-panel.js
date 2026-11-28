@@ -1044,6 +1044,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
         h(SlotErrorBoundary, {
           slotName: 'workspace:terminal',
           resetKey: `terminal:${sessionId ?? ''}`,
+          onError: () => { WorkspaceTerminal.reset?.() },
           onRetry: () => { WorkspaceTerminal.reset?.() },
         },
         h(Suspense, { fallback: h('div', { className: 'dsb-rp-empty', role: 'status' }, t('Loading…')) },

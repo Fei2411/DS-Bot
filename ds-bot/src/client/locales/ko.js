@@ -597,6 +597,7 @@ export const KO = {
   'Pick another model': '다른 모델 선택',
   'Top up ↗': '충전하기 ↗',
   Retry: '재시도',
+  'Reload window': '창 새로고침',
   'Retrying…': '재시도 중…',
   'Continuing…': '계속하는 중…',
   '{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.': '{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.',

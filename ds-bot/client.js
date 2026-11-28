@@ -518,6 +518,7 @@ var init_zh = __esm({
       "Pick another model": "换个模型",
       "Top up ↗": "去充值 ↗",
       Retry: "重试",
+      "Reload window": "重新加载窗口",
       "Retrying…": "正在重试…",
       "Continuing…": "正在继续…",
       "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} 的工具调用连续失败或重复循环，已自动暂停。回复指导或点击「继续」。",
@@ -3817,6 +3818,7 @@ var init_ja = __esm({
       "Pick another model": "別のモデルを選択",
       "Top up ↗": "チャージする ↗",
       "Retry": "再試行",
+      "Reload window": "ウィンドウを再読み込み",
       "Retrying…": "再試行中…",
       "Continuing…": "再開中…",
       "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} のツール呼び出しが連続して失敗または反復したため自動一時停止しました。指示を入力するか「続行」をクリックしてください。",
@@ -7476,6 +7478,7 @@ var init_ko = __esm({
       "Pick another model": "다른 모델 선택",
       "Top up ↗": "충전하기 ↗",
       Retry: "재시도",
+      "Reload window": "창 새로고침",
       "Retrying…": "재시도 중…",
       "Continuing…": "계속하는 중…",
       "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name}의 도구 호출이 연속 실패하거나 반복되어 자동 일시 중지되었습니다. 안내를 입력하거나 계속을 클릭하세요.",
@@ -11174,6 +11177,7 @@ var init_es = __esm({
       "Pick another model": "Elegir otro modelo",
       "Top up ↗": "Recargar ↗",
       Retry: "Reintentar",
+      "Reload window": "Recargar ventana",
       "Retrying…": "Reintentando…",
       "Continuing…": "Continuando…",
       "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.",
@@ -14866,6 +14870,7 @@ var init_fr = __esm({
       "Pick another model": "Choisir un autre modèle",
       "Top up ↗": "Recharger ↗",
       "Retry": "Réessayer",
+      "Reload window": "Recharger la fenêtre",
       "Retrying…": "Nouvelle tentative…",
       "Continuing…": "Reprise…",
       "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",
@@ -18525,6 +18530,7 @@ var init_de = __esm({
       "Pick another model": "Anderes Modell wählen",
       "Top up ↗": "Aufladen ↗",
       Retry: "Erneut versuchen",
+      "Reload window": "Fenster neu laden",
       "Retrying…": "Wird erneut versucht…",
       "Continuing…": "Wird fortgesetzt…",
       "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} wurde pausiert, weil Tool-Aufrufe wiederholt fehlschlugen oder sich wiederholten. Antworte mit Hinweisen oder klicke auf Fortfahren.",
@@ -21649,15 +21655,62 @@ var DATE_LOCALES = {
   de: "de-DE",
   en: "en-US"
 };
+var DEFAULT_LOCALE_RETRIES = 2;
+var DEFAULT_LOCALE_RETRY_DELAY_MS = 150;
+var lastFailedChunkUrls = /* @__PURE__ */ new Map();
+var localeAttempts = /* @__PURE__ */ new Map();
+var localeTestHooks = null;
+function bustLocaleUrl(url, attempt) {
+  if (typeof url !== "string" || !url) return url;
+  try {
+    const parsed = new URL(url, globalThis.location?.href ?? "http://localhost/");
+    parsed.searchParams.set("retry", String(attempt));
+    return parsed.href;
+  } catch {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}retry=${attempt}`;
+  }
+}
+function findLocaleChunkUrl(error, chunkKey) {
+  const escaped = chunkKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`/${escaped}(?:-[^/?#]+)?\\.js(?:$|[?#])`, "i");
+  const msg = String(error?.message ?? error ?? "");
+  const matches3 = msg.match(/(?:https?|dsh-app|file):\/\/[^\s'")]+/gi) ?? [];
+  for (const candidate of matches3) {
+    if (pattern.test(candidate)) return candidate;
+  }
+  try {
+    const entries2 = globalThis.performance?.getEntriesByType?.("resource") ?? [];
+    for (let i = entries2.length - 1; i >= 0; i -= 1) {
+      const name = String(entries2[i]?.name ?? "");
+      if (pattern.test(name)) return name;
+    }
+  } catch {
+  }
+  return null;
+}
+function importLocaleChunk(chunkKey, defaultImport, attempt) {
+  const knownUrl = attempt > 0 ? lastFailedChunkUrls.get(chunkKey) || findLocaleChunkUrl(null, chunkKey) : null;
+  const bustedUrl = knownUrl ? bustLocaleUrl(knownUrl, attempt) : null;
+  const invoke = localeTestHooks?.importChunk ? () => localeTestHooks.importChunk(chunkKey, defaultImport, attempt, bustedUrl) : () => bustedUrl ? import(
+    /* @vite-ignore */
+    bustedUrl
+  ) : defaultImport();
+  return Promise.resolve().then(invoke).catch((err) => {
+    const discovered = findLocaleChunkUrl(err, chunkKey);
+    if (discovered) lastFailedChunkUrls.set(chunkKey, discovered);
+    throw err;
+  });
+}
 var LOCALE_LOADERS = {
-  zh: async () => {
-    const { ZH: ZH2, HOST_ERRORS: HOST_ERRORS2 } = await Promise.resolve().then(() => (init_zh(), zh_exports));
+  zh: async (attempt = 0) => {
+    const { ZH: ZH2, HOST_ERRORS: HOST_ERRORS2 } = await importLocaleChunk("zh", () => Promise.resolve().then(() => (init_zh(), zh_exports)), attempt);
     return { dict: ZH2, hostErrors: HOST_ERRORS2 };
   },
-  "zh-TW": async () => {
+  "zh-TW": async (attempt = 0) => {
     const [{ ZH: ZH2, HOST_ERRORS: HOST_ERRORS2 }, { convertDict: convertDict2, convertHostErrors: convertHostErrors2, toTraditional: toTraditional2 }] = await Promise.all([
-      Promise.resolve().then(() => (init_zh(), zh_exports)),
-      Promise.resolve().then(() => (init_zh_tw(), zh_tw_exports))
+      importLocaleChunk("zh", () => Promise.resolve().then(() => (init_zh(), zh_exports)), attempt),
+      importLocaleChunk("zh-tw", () => Promise.resolve().then(() => (init_zh_tw(), zh_tw_exports)), attempt)
     ]);
     return {
       dict: convertDict2(ZH2),
@@ -21666,24 +21719,24 @@ var LOCALE_LOADERS = {
       toTraditional: toTraditional2
     };
   },
-  ja: async () => {
-    const { DSH_JA: DSH_JA2, HOST_ERRORS_JA: HOST_ERRORS_JA2, JA: JA2 } = await Promise.resolve().then(() => (init_ja(), ja_exports));
+  ja: async (attempt = 0) => {
+    const { DSH_JA: DSH_JA2, HOST_ERRORS_JA: HOST_ERRORS_JA2, JA: JA2 } = await importLocaleChunk("ja", () => Promise.resolve().then(() => (init_ja(), ja_exports)), attempt);
     return { dict: JA2, hostErrors: HOST_ERRORS_JA2, dsh: DSH_JA2 };
   },
-  ko: async () => {
-    const { DSH_KO: DSH_KO2, HOST_ERRORS_KO: HOST_ERRORS_KO2, KO: KO2 } = await Promise.resolve().then(() => (init_ko(), ko_exports));
+  ko: async (attempt = 0) => {
+    const { DSH_KO: DSH_KO2, HOST_ERRORS_KO: HOST_ERRORS_KO2, KO: KO2 } = await importLocaleChunk("ko", () => Promise.resolve().then(() => (init_ko(), ko_exports)), attempt);
     return { dict: KO2, hostErrors: HOST_ERRORS_KO2, dsh: DSH_KO2 };
   },
-  es: async () => {
-    const { DSH_ES: DSH_ES2, HOST_ERRORS_ES: HOST_ERRORS_ES2, ES: ES2 } = await Promise.resolve().then(() => (init_es(), es_exports));
+  es: async (attempt = 0) => {
+    const { DSH_ES: DSH_ES2, HOST_ERRORS_ES: HOST_ERRORS_ES2, ES: ES2 } = await importLocaleChunk("es", () => Promise.resolve().then(() => (init_es(), es_exports)), attempt);
     return { dict: ES2, hostErrors: HOST_ERRORS_ES2, dsh: DSH_ES2 };
   },
-  fr: async () => {
-    const { DSH_FR: DSH_FR2, HOST_ERRORS_FR: HOST_ERRORS_FR2, FR: FR2 } = await Promise.resolve().then(() => (init_fr(), fr_exports));
+  fr: async (attempt = 0) => {
+    const { DSH_FR: DSH_FR2, HOST_ERRORS_FR: HOST_ERRORS_FR2, FR: FR2 } = await importLocaleChunk("fr", () => Promise.resolve().then(() => (init_fr(), fr_exports)), attempt);
     return { dict: FR2, hostErrors: HOST_ERRORS_FR2, dsh: DSH_FR2 };
   },
-  de: async () => {
-    const { DSH_DE: DSH_DE2, HOST_ERRORS_DE: HOST_ERRORS_DE2, DE: DE2 } = await Promise.resolve().then(() => (init_de(), de_exports));
+  de: async (attempt = 0) => {
+    const { DSH_DE: DSH_DE2, HOST_ERRORS_DE: HOST_ERRORS_DE2, DE: DE2 } = await importLocaleChunk("de", () => Promise.resolve().then(() => (init_de(), de_exports)), attempt);
     return { dict: DE2, hostErrors: HOST_ERRORS_DE2, dsh: DSH_DE2 };
   }
 };
@@ -21691,6 +21744,18 @@ var loadedPacks = /* @__PURE__ */ new Map();
 var pendingLoads = /* @__PURE__ */ new Map();
 var activeSyncHooks = /* @__PURE__ */ new Set();
 var zhTwTools = null;
+function setLocaleTestHooks(hooks) {
+  localeTestHooks = hooks ?? null;
+  for (const lang of hooks?.resetLangs ?? []) {
+    loadedPacks.delete(lang);
+    pendingLoads.delete(lang);
+    localeAttempts.delete(lang);
+    lastFailedChunkUrls.delete(lang.toLowerCase());
+    delete DICTIONARY[lang];
+    delete HOST_ERROR_TABLE[lang];
+    delete DSH_LOCALE_PACKS[lang];
+  }
+}
 function resolveLangKey(tag) {
   const lower = String(tag ?? "").toLowerCase();
   if (lower === "zh-tw" || lower === "zh-hk" || lower === "zh-mo" || lower.startsWith("zh-hant")) return "zh-TW";
@@ -21713,7 +21778,7 @@ function registerLocalePack(langId, pack) {
   }
   for (const hook of Array.from(activeSyncHooks)) hook(langId);
 }
-function ensureLocale(tag) {
+function ensureLocale(tag, options = {}) {
   const lang = resolveLangKey(tag);
   if (lang === "en") return Promise.resolve(null);
   if (loadedPacks.has(lang)) return Promise.resolve(loadedPacks.get(lang));
@@ -21721,13 +21786,27 @@ function ensureLocale(tag) {
   if (inflight) return inflight;
   const loader = LOCALE_LOADERS[lang];
   if (!loader) return Promise.resolve(null);
-  const promise = Promise.resolve().then(loader).then((pack) => {
+  const retries = options.retries ?? localeTestHooks?.retries ?? DEFAULT_LOCALE_RETRIES;
+  const retryDelayMs = options.retryDelayMs ?? localeTestHooks?.retryDelayMs ?? DEFAULT_LOCALE_RETRY_DELAY_MS;
+  const promise = (async () => {
+    let lastErr;
+    for (let tries = 0; tries <= retries; tries += 1) {
+      const attempt = localeAttempts.get(lang) ?? 0;
+      try {
+        const pack = await loader(attempt);
+        registerLocalePack(lang, pack);
+        return loadedPacks.get(lang) ?? pack;
+      } catch (err) {
+        lastErr = err;
+        localeAttempts.set(lang, attempt + 1);
+        if (tries < retries && retryDelayMs > 0) {
+          await new Promise((resolve2) => setTimeout(resolve2, retryDelayMs * (tries + 1)));
+        }
+      }
+    }
+    throw lastErr;
+  })().finally(() => {
     pendingLoads.delete(lang);
-    registerLocalePack(lang, pack);
-    return loadedPacks.get(lang) ?? pack;
-  }).catch((err) => {
-    pendingLoads.delete(lang);
-    throw err;
   });
   pendingLoads.set(lang, promise);
   return promise;
@@ -21835,6 +21914,15 @@ function installLocale(locale, options = {}) {
       syncDshNamespaces();
       ensureActive();
     }));
+  }
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    const onFocus = () => {
+      ensureActive();
+    };
+    window.addEventListener("focus", onFocus);
+    offs.push(() => {
+      window.removeEventListener("focus", onFocus);
+    });
   }
   offs.push(() => {
     for (const key of supplements.keys()) dropSupplement(key);
@@ -63027,13 +63115,10 @@ var SHORTCUTS_PAGE_CSS = `
 .bt-sc-keybtn[data-empty]{border-style:dashed}
 .bt-sc-prompt{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-accent);white-space:nowrap}
 .bt-sc-unset{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-kbd-group{display:inline-flex;align-items:center;gap:4px;flex:none}
-.bt-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1;color:var(--bt-ink)}
 .bt-sc-alert{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 10px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-danger) 10%,var(--bt-card));color:var(--bt-danger);font-size:12px;line-height:16px}
 .bt-sc-alert-text{min-width:0}
 .bt-sc-alert-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 .bt-sc-replace{background:color-mix(in srgb,var(--bt-danger) 16%,var(--bt-card));color:var(--bt-danger);font-weight:600}
-.bt-palette-kbd{margin-left:auto;padding-left:8px;flex:none}
 `;
 
 // src/client/usage-page.js
@@ -64475,6 +64560,7 @@ var OWN_HEAD_PARTS = /* @__PURE__ */ new Set(["groups", "schedules", "capabiliti
 function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = (0, import_react76.useState)("");
   const [palette, setPalette] = (0, import_react76.useState)(false);
+  const [paletteFailures, setPaletteFailures] = (0, import_react76.useState)(0);
   const [advancedToken, setAdvancedToken] = (0, import_react76.useState)(0);
   const [tour, setTour] = (0, import_react76.useState)(() => !leaving && (!page || page === "overview" || page === "general" || page === "guide") && !id && canAutoStartTour() ? { mode: "full", nonce: 1 } : null);
   const dialogRef = (0, import_react76.useRef)(null);
@@ -64728,7 +64814,23 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   }
   const [usageOpened, setUsageOpened] = (0, import_react76.useState)(shown === "usage");
   if (shown === "usage" && !usageOpened) setUsageOpened(true);
-  const errorLine = error ? (0, import_react76.createElement)("div", { className: parts ? "bt-error bt-set-error-pin" : "bt-error", role: "alert", style: parts ? void 0 : { padding: 0 } }, error) : null;
+  const errorLine = error ? (0, import_react76.createElement)(
+    "div",
+    { className: parts ? "bt-error bt-set-error-pin" : "bt-error", role: "alert", style: parts ? void 0 : { padding: 0 } },
+    (0, import_react76.createElement)("span", null, error),
+    paletteFailures >= 2 ? (0, import_react76.createElement)("button", {
+      type: "button",
+      className: "bt-soft bt-soft-sm",
+      style: { marginLeft: 8 },
+      onClick: () => {
+        try {
+          flushDrafts();
+        } catch {
+        }
+        globalThis.location?.reload?.();
+      }
+    }, t("Reload window")) : null
+  ) : null;
   const groupStatus = (groupId) => {
     if (groupId === "models" && (needsModel || keyMissing)) return (0, import_react76.createElement)("span", { className: "bt-settings-dot", "data-tone": "warn", role: "img", "aria-label": t("Needs your attention") });
     if (groupId === "connect" && phoneConnected) return (0, import_react76.createElement)("span", { className: "bt-settings-dot", "data-tone": "ok", role: "img", "aria-label": t("Phone online") });
@@ -64986,6 +65088,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         onError: () => {
           SettingsPalette.reset?.();
           setPalette(false);
+          setPaletteFailures((count) => count + 1);
           setError(t("This page could not be shown."));
         }
       }, (0, import_react76.createElement)(SettingsPalette, {

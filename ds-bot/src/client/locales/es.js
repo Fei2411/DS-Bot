@@ -597,6 +597,7 @@ export const ES = {
   'Pick another model': 'Elegir otro modelo',
   'Top up ↗': 'Recargar ↗',
   Retry: 'Reintentar',
+  'Reload window': 'Recargar ventana',
   'Retrying…': 'Reintentando…',
   'Continuing…': 'Continuando…',
   '{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.': '{name} se pausó porque las llamadas a herramientas fallaban o se repetían sin parar. Responde con indicaciones o haz clic en Continuar.',

@@ -590,6 +590,7 @@ export const FR = {
   "Pick another model": "Choisir un autre modèle",
   "Top up ↗": "Recharger ↗",
   "Retry": "Réessayer",
+  "Reload window": "Recharger la fenêtre",
   "Retrying…": "Nouvelle tentative…",
   "Continuing…": "Reprise…",
   "{name} paused because tool calls kept failing or repeating. Reply with guidance or click Continue.": "{name} s’est mis en pause car les appels d’outils échouaient ou se répétaient sans cesse. Répondez avec des instructions ou cliquez sur Continuer.",

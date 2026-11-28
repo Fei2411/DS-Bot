@@ -32,15 +32,69 @@ const DATE_LOCALES = {
   en: 'en-US',
 }
 
+const DEFAULT_LOCALE_RETRIES = 2
+const DEFAULT_LOCALE_RETRY_DELAY_MS = 150
+
+const lastFailedChunkUrls = new Map()
+const localeAttempts = new Map()
+let localeTestHooks = null
+
+function bustLocaleUrl(url, attempt) {
+  if (typeof url !== 'string' || !url) return url
+  try {
+    const parsed = new URL(url, globalThis.location?.href ?? 'http://localhost/')
+    parsed.searchParams.set('retry', String(attempt))
+    return parsed.href
+  } catch {
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}retry=${attempt}`
+  }
+}
+
+function findLocaleChunkUrl(error, chunkKey) {
+  const escaped = chunkKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`/${escaped}(?:-[^/?#]+)?\\.js(?:$|[?#])`, 'i')
+  const msg = String(error?.message ?? error ?? '')
+  const matches = msg.match(/(?:https?|dsh-app|file):\/\/[^\s'")]+/gi) ?? []
+  for (const candidate of matches) {
+    if (pattern.test(candidate)) return candidate
+  }
+  try {
+    const entries = globalThis.performance?.getEntriesByType?.('resource') ?? []
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const name = String(entries[i]?.name ?? '')
+      if (pattern.test(name)) return name
+    }
+  } catch {
+    // Ignore restricted performance API environments.
+  }
+  return null
+}
+
+function importLocaleChunk(chunkKey, defaultImport, attempt) {
+  const knownUrl = attempt > 0
+    ? (lastFailedChunkUrls.get(chunkKey) || findLocaleChunkUrl(null, chunkKey))
+    : null
+  const bustedUrl = knownUrl ? bustLocaleUrl(knownUrl, attempt) : null
+  const invoke = localeTestHooks?.importChunk
+    ? () => localeTestHooks.importChunk(chunkKey, defaultImport, attempt, bustedUrl)
+    : () => (bustedUrl ? import(/* @vite-ignore */ bustedUrl) : defaultImport())
+  return Promise.resolve().then(invoke).catch((err) => {
+    const discovered = findLocaleChunkUrl(err, chunkKey)
+    if (discovered) lastFailedChunkUrls.set(chunkKey, discovered)
+    throw err
+  })
+}
+
 const LOCALE_LOADERS = {
-  zh: async () => {
-    const { ZH, HOST_ERRORS } = await import('./locales/zh.js')
+  zh: async (attempt = 0) => {
+    const { ZH, HOST_ERRORS } = await importLocaleChunk('zh', () => import('./locales/zh.js'), attempt)
     return { dict: ZH, hostErrors: HOST_ERRORS }
   },
-  'zh-TW': async () => {
+  'zh-TW': async (attempt = 0) => {
     const [{ ZH, HOST_ERRORS }, { convertDict, convertHostErrors, toTraditional }] = await Promise.all([
-      import('./locales/zh.js'),
-      import('./locales/zh-tw.js'),
+      importLocaleChunk('zh', () => import('./locales/zh.js'), attempt),
+      importLocaleChunk('zh-tw', () => import('./locales/zh-tw.js'), attempt),
     ])
     return {
       dict: convertDict(ZH),
@@ -49,24 +103,24 @@ const LOCALE_LOADERS = {
       toTraditional,
     }
   },
-  ja: async () => {
-    const { DSH_JA, HOST_ERRORS_JA, JA } = await import('./locales/ja.js')
+  ja: async (attempt = 0) => {
+    const { DSH_JA, HOST_ERRORS_JA, JA } = await importLocaleChunk('ja', () => import('./locales/ja.js'), attempt)
     return { dict: JA, hostErrors: HOST_ERRORS_JA, dsh: DSH_JA }
   },
-  ko: async () => {
-    const { DSH_KO, HOST_ERRORS_KO, KO } = await import('./locales/ko.js')
+  ko: async (attempt = 0) => {
+    const { DSH_KO, HOST_ERRORS_KO, KO } = await importLocaleChunk('ko', () => import('./locales/ko.js'), attempt)
     return { dict: KO, hostErrors: HOST_ERRORS_KO, dsh: DSH_KO }
   },
-  es: async () => {
-    const { DSH_ES, HOST_ERRORS_ES, ES } = await import('./locales/es.js')
+  es: async (attempt = 0) => {
+    const { DSH_ES, HOST_ERRORS_ES, ES } = await importLocaleChunk('es', () => import('./locales/es.js'), attempt)
     return { dict: ES, hostErrors: HOST_ERRORS_ES, dsh: DSH_ES }
   },
-  fr: async () => {
-    const { DSH_FR, HOST_ERRORS_FR, FR } = await import('./locales/fr.js')
+  fr: async (attempt = 0) => {
+    const { DSH_FR, HOST_ERRORS_FR, FR } = await importLocaleChunk('fr', () => import('./locales/fr.js'), attempt)
     return { dict: FR, hostErrors: HOST_ERRORS_FR, dsh: DSH_FR }
   },
-  de: async () => {
-    const { DSH_DE, HOST_ERRORS_DE, DE } = await import('./locales/de.js')
+  de: async (attempt = 0) => {
+    const { DSH_DE, HOST_ERRORS_DE, DE } = await importLocaleChunk('de', () => import('./locales/de.js'), attempt)
     return { dict: DE, hostErrors: HOST_ERRORS_DE, dsh: DSH_DE }
   },
 }
@@ -75,6 +129,20 @@ const loadedPacks = new Map()
 const pendingLoads = new Map()
 const activeSyncHooks = new Set()
 let zhTwTools = null
+
+/** Test seam: override locale chunk import / retry timing in unit tests. */
+export function setLocaleTestHooks(hooks) {
+  localeTestHooks = hooks ?? null
+  for (const lang of hooks?.resetLangs ?? []) {
+    loadedPacks.delete(lang)
+    pendingLoads.delete(lang)
+    localeAttempts.delete(lang)
+    lastFailedChunkUrls.delete(lang.toLowerCase())
+    delete DICTIONARY[lang]
+    delete HOST_ERROR_TABLE[lang]
+    delete DSH_LOCALE_PACKS[lang]
+  }
+}
 
 function resolveLangKey(tag) {
   const lower = String(tag ?? '').toLowerCase()
@@ -101,7 +169,7 @@ export function registerLocalePack(langId, pack) {
   for (const hook of Array.from(activeSyncHooks)) hook(langId)
 }
 
-export function ensureLocale(tag) {
+export function ensureLocale(tag, options = {}) {
   const lang = resolveLangKey(tag)
   if (lang === 'en') return Promise.resolve(null)
   if (loadedPacks.has(lang)) return Promise.resolve(loadedPacks.get(lang))
@@ -109,17 +177,28 @@ export function ensureLocale(tag) {
   if (inflight) return inflight
   const loader = LOCALE_LOADERS[lang]
   if (!loader) return Promise.resolve(null)
-  const promise = Promise.resolve()
-    .then(loader)
-    .then((pack) => {
-      pendingLoads.delete(lang)
-      registerLocalePack(lang, pack)
-      return loadedPacks.get(lang) ?? pack
-    })
-    .catch((err) => {
-      pendingLoads.delete(lang)
-      throw err
-    })
+  const retries = options.retries ?? localeTestHooks?.retries ?? DEFAULT_LOCALE_RETRIES
+  const retryDelayMs = options.retryDelayMs ?? localeTestHooks?.retryDelayMs ?? DEFAULT_LOCALE_RETRY_DELAY_MS
+  const promise = (async () => {
+    let lastErr
+    for (let tries = 0; tries <= retries; tries += 1) {
+      const attempt = localeAttempts.get(lang) ?? 0
+      try {
+        const pack = await loader(attempt)
+        registerLocalePack(lang, pack)
+        return loadedPacks.get(lang) ?? pack
+      } catch (err) {
+        lastErr = err
+        localeAttempts.set(lang, attempt + 1)
+        if (tries < retries && retryDelayMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, retryDelayMs * (tries + 1)))
+        }
+      }
+    }
+    throw lastErr
+  })().finally(() => {
+    pendingLoads.delete(lang)
+  })
   pendingLoads.set(lang, promise)
   return promise
 }
@@ -236,6 +315,11 @@ export function installLocale(locale, options = {}) {
       syncDshNamespaces()
       ensureActive()
     }))
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    const onFocus = () => { ensureActive() }
+    window.addEventListener('focus', onFocus)
+    offs.push(() => { window.removeEventListener('focus', onFocus) })
   }
   offs.push(() => {
     for (const key of supplements.keys()) dropSupplement(key)
