@@ -13,7 +13,7 @@ import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_TAP, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
+import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_SLIDE, SPRING_TAP, liveSprings, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
@@ -538,8 +538,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-entering': entering || undefined, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
+function LeftColumn({ columnRef, mode, width, onGrip, leaving, children }) {
+  return createPortal(h('div', { ref: columnRef, className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -603,11 +603,12 @@ export function TeamSidebar(props) {
   // hide takes precedence so toggling the sidebar mid-drag aborts the drag.
   const [drag, setDrag] = useState(null)
   const mode = layout.left === 'hidden' ? 'hidden' : (drag?.left ?? layout.left)
-  // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
-  const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
-  const shown = held ?? mode
-  const firstColumn = useRef(true)
-  useLayoutEffect(() => { if (shown === 'hidden') firstColumn.current = false }, [shown])
+  // A hidden column stays mounted until the slide spring reaches rest; `shown` is
+  // the last visible mode it slides out from.
+  const leftColRef = useRef(null)
+  const [heldMode, setHeldMode] = useState(mode === 'hidden' ? null : mode)
+  const shown = mode !== 'hidden' ? mode : (heldMode ?? 'hidden')
+  const leaving = mode === 'hidden' && heldMode !== null
   const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
@@ -674,25 +675,151 @@ export function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
   const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
+  const collapsedWidth = frameSnap.collapsedWidth ?? 0
+  const targetMargin = Math.max(0, pushed - collapsedWidth)
+  const targetSlide = mode === 'hidden' ? 0 : (mode === 'rail' ? RAIL_WIDTH : openWidth)
   const settleTimer = useRef(0)
   const springTimer = useRef(0)
   const activeDrag = useRef(null)
   const dragRef = useRef(drag)
   dragRef.current = drag
-  const collapsedWidthRef = useRef(frameSnap.collapsedWidth ?? 0)
-  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0
+  const collapsedWidthRef = useRef(collapsedWidth)
+  collapsedWidthRef.current = collapsedWidth
   const modeRef = useRef(mode)
   modeRef.current = mode
+  // One critically damped spring drives .bt-leftcol's transform, _centerCol's
+  // left margin, and any open .bt-pane in the exact same animation frame commit.
+  // Keeping all three on the same frame prevents the compositor thread from
+  // running ahead of main-thread layout (which previously detached the scrollbar
+  // and painted the transparent macOS sidebar over the chat) and lets mid-flight
+  // reversals turn smoothly with preserved velocity.
+  const slideRef = useRef(null)
+  if (slideRef.current === null) {
+    const state = {
+      initialized: false,
+      prevHidden: false,
+      prevViewport: 0,
+      width: ourWidth,
+      finalMargin: targetMargin,
+      finalPushed: pushed,
+      activeCols: [],
+      activePanes: [],
+      clearInline(restorePanes) {
+        for (const col of state.activeCols) col.style.removeProperty('margin-left')
+        state.activeCols = []
+        for (const pane of state.activePanes) {
+          if (restorePanes && pane.isConnected) pane.style.left = `${state.finalPushed}px`
+        }
+        state.activePanes = []
+      },
+      stop(clearDom) {
+        state.springs.stop()
+        if (!clearDom) return
+        state.clearInline(false)
+        const col = leftColRef.current
+        if (col) {
+          delete col.dataset.sliding
+          col.style.transform = ''
+        }
+      },
+      springs: null,
+    }
+    state.springs = liveSprings((values, moving) => {
+      const dpr = (typeof window !== 'undefined' && Number(window.devicePixelRatio) > 0) ? window.devicePixelRatio : 1
+      const snap = value => Math.round(value * dpr) / dpr
+      const col = leftColRef.current
+      const width = state.width
+      if (moving) {
+        const slide = Math.max(0, Math.min(width, snap(values.slide)))
+        const margin = Math.max(0, snap(values.margin))
+        const paneLeft = Math.max(0, snap(values.pane))
+        if (col) {
+          col.dataset.sliding = ''
+          col.style.transform = `translate3d(${Math.min(0, slide - width)}px,0,0)`
+        }
+        if (state.activeCols.length > 0) {
+          for (const center of state.activeCols) center.style.setProperty('margin-left', `${margin}px`, 'important')
+        } else if (typeof document !== 'undefined') {
+          chatRoom.setLeft(margin)
+        }
+        for (const pane of state.activePanes) pane.style.left = `${paneLeft}px`
+        return
+      }
+      if (typeof document !== 'undefined') chatRoom.setLeft(state.finalMargin)
+      state.clearInline(true)
+      if (col) {
+        delete col.dataset.sliding
+        // Keep the column parked off-screen until React unmounts it on hide.
+        col.style.transform = modeRef.current === 'hidden' ? `translate3d(${-width}px,0,0)` : ''
+      }
+      if (modeRef.current === 'hidden') setHeldMode(null)
+    })
+    slideRef.current = state
+  }
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
+    const state = slideRef.current
     const current = activeDrag.current
+    let cancelledWidth = null
     if (current !== null && (mode === 'hidden' || (current.settling && (mode !== current.landedMode || pushed !== current.landedPushed)))) {
+      const colRect = leftColRef.current?.getBoundingClientRect?.()
+      if (colRect && colRect.width > 0) cancelledWidth = Math.round(colRect.width)
       current.cancel(false)
     }
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [mode, pushed, frameSnap.collapsedWidth])
+    if (mode !== 'hidden') setHeldMode(mode)
+    if (activeDrag.current !== null) {
+      state.springs.seed({ slide: targetSlide, margin: targetMargin, pane: pushed })
+      state.width = ourWidth
+      state.finalMargin = targetMargin
+      state.finalPushed = pushed
+      state.prevHidden = mode === 'hidden'
+      state.prevViewport = frameSnap.viewport
+      chatRoom.setLeft(targetMargin)
+      return
+    }
+    const isHidden = mode === 'hidden'
+    const col = leftColRef.current
+    const curves = { slide: SPRING_SLIDE, margin: SPRING_SLIDE, pane: SPRING_SLIDE }
+    if (!state.initialized) {
+      state.initialized = true
+      state.prevHidden = isHidden
+      state.prevViewport = frameSnap.viewport
+      state.width = ourWidth
+      state.finalMargin = targetMargin
+      state.finalPushed = pushed
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true)
+      return
+    }
+    const hiddenChanged = isHidden !== state.prevHidden
+    const viewportChanged = frameSnap.viewport !== state.prevViewport
+    state.prevHidden = isHidden
+    state.prevViewport = frameSnap.viewport
+    state.width = ourWidth
+    state.finalMargin = targetMargin
+    state.finalPushed = pushed
+    const inFlight = state.springs.isRunning()
+    const canAnimate = typeof requestAnimationFrame === 'function' && !reducedMotion() && !viewportChanged
+    if (!canAnimate || (!hiddenChanged && !inFlight)) {
+      state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true)
+      return
+    }
+    // If a drag was aborted by hiding, seed the spring from the column's visual edge.
+    if (cancelledWidth !== null) {
+      const startMargin = Math.max(0, cancelledWidth - collapsedWidth)
+      state.springs.seed({ slide: cancelledWidth, margin: startMargin, pane: cancelledWidth })
+      chatRoom.setLeft(startMargin)
+    }
+    state.activeCols = chatRoom.columns()
+    state.activePanes = [...document.querySelectorAll('.bt-pane')]
+    if (!isHidden && !inFlight && col) {
+      col.dataset.sliding = ''
+      col.style.transform = `translate3d(${-ourWidth}px,0,0)`
+    }
+    state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, false)
+  }, [mode, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport])
   useEffect(() => () => {
     activeDrag.current?.cancel(false)
+    slideRef.current?.stop(true)
     if (typeof document !== 'undefined') chatRoom.setLeft(null)
   }, [])
 
@@ -706,6 +833,7 @@ export function TeamSidebar(props) {
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
+    slideRef.current?.stop(true)
     activeDrag.current?.cancel(false)
     const grip = event.currentTarget
     const column = grip.parentElement
@@ -741,10 +869,10 @@ export function TeamSidebar(props) {
     }
     const springOn = () => {
       column.dataset.folding = ''
-      for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, 'important')
-      springUntil = performance.now() + SPRING_SHAPE.duration
+      for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}`, 'important')
+      springUntil = performance.now() + SPRING_SLIDE.duration
       if (springTimer.current) clearTimeout(springTimer.current)
-      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
+      springTimer.current = setTimeout(springOff, SPRING_SLIDE.duration)
     }
     const track = (x) => {
       const prev = last
@@ -996,7 +1124,7 @@ export function TeamSidebar(props) {
   const hideTitleToggle = props.hideTitleToggle === true
   return h(Fragment, null,
     hideTitleToggle ? null : h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
-    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
+    shown === 'hidden' ? null : h(LeftColumn, { columnRef: leftColRef, mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -1273,7 +1401,7 @@ function mainAvatarPlace(roster) {
 }
 
 // The avatar's box where the team column comes to rest. The column slides in when expanded
-// (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
+// (from off the left edge), and measured mid-slide the avatar would be
 // outside the page and the whale would have nowhere to land; offsetLeft and offsetTop leave the
 // slide's transform out.
 function restingBox(mark) {

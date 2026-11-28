@@ -514,52 +514,154 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   assert.equal(find(hidden, node => node.type?.name === 'LeftColumn'), undefined)
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
-  // Reduced motion disables both the column slide and the conversation margin transition.
-  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-entering\]\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+  // Reduced motion disables the column fold transition and the conversation right-margin transition.
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-folding\],\[class\*="_centerCol"\]\{transition:none\}\}/)
 })
 
-test('the column draws its first mount in place and slides in only after being hidden', () => {
-  viewport.innerWidth = 1280
-  const find = node => {
-    if (Array.isArray(node)) return node.map(find).find(Boolean)
-    if (!node || typeof node !== 'object') return undefined
-    return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+test('the column draws its first mount in place and slides in lockstep without overshoot or mid-flight teleport', () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"></div></body>')
+  const { document } = dom.window
+  const col = document.querySelector('.bt-leftcol')
+  const center = document.querySelector('.x_centerCol')
+  let now = 1000
+  const rafQueue = new Map()
+  let rafId = 1
+  const globals = {
+    document,
+    setTimeout,
+    clearTimeout,
+    performance: { now: () => now },
+    requestAnimationFrame: (cb) => { const id = rafId++; rafQueue.set(id, cb); return id },
+    cancelAnimationFrame: (id) => { rafQueue.delete(id) },
+    CSS: { escape: value => value },
   }
-  for (const initial of ['open', 'rail', 'hidden']) {
+  const stepFrame = (ms = 16) => {
+    now += ms
+    const batch = [...rafQueue.entries()]
+    rafQueue.clear()
+    for (const [, cb] of batch) cb(now)
+  }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
     const refs = []
-    const render = pref => {
+    const states = []
+    const render = (pref) => {
       renderRefs = refs
       refIndex = 0
+      renderStates = states
+      stateIndex = 0
       layoutEffects = []
       try {
         const tree = TeamSidebar({
-          wide: false,
+          wide: pref === 'open',
           useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
           useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
           useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
           useSidebarPref: pick => pick(pref), actions: { toggleSidebar() {} },
         })
+        // Attach the simulated DOM node to LeftColumn's ref before layout effects run.
+        const find = (node) => {
+          if (Array.isArray(node)) return node.map(find).find(Boolean)
+          if (!node || typeof node !== 'object') return undefined
+          return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+        }
+        const left = find(tree)
+        if (left?.props?.columnRef) left.props.columnRef.current = col
         const effects = layoutEffects
         layoutEffects = undefined
         effects.forEach(effect => effect())
-        return find(tree)
+        return left
       } finally {
         renderRefs = undefined
+        renderStates = undefined
         layoutEffects = undefined
       }
     }
-    if (initial === 'hidden') assert.equal(render(initial), undefined)
-    else {
-      assert.equal(render(initial).props.entering, false)
-      assert.equal(render(initial).props.entering, false, 'ordinary rerenders do not start an entrance')
-      assert.equal(render('hidden'), undefined)
+    // Initial mount draws in place without scheduling any slide frames.
+    const first = render('open')
+    assert.ok(first)
+    assert.equal(rafQueue.size, 0, 'first mount must not animate')
+    assert.equal(col.style.transform, '')
+
+    // Collapse: .bt-leftcol transform and _centerCol margin-left move in exact lockstep with zero negative overshoot.
+    const collapsing = render('hidden')
+    assert.equal(collapsing.props.leaving, true)
+    assert.ok(rafQueue.size > 0, 'collapse should start the slide spring')
+    const parseTx = () => Number((col.style.transform.match(/translate3d\(([-\d.]+)px/) ?? [])[1] ?? 0)
+    const samples = []
+    for (let i = 0; i < 6; i++) {
+      stepFrame(16)
+      const tx = parseTx()
+      const ml = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+      assert.ok(tx <= 0, `collapse tx must stay <= 0, got ${tx}`)
+      assert.ok(ml >= 0, `collapse margin-left must never go negative, got ${ml}`)
+      assert.ok(Math.abs((280 + tx) - ml) < 0.01, `leftcol right (${280 + tx}) must match center margin-left (${ml})`)
+      samples.push(ml)
     }
-    assert.equal(render('open').props.entering, true)
-    assert.equal(render('rail').props.entering, true)
+    assert.ok(samples[samples.length - 1] < samples[0], 'collapse should progress toward 0')
+
+    // Mid-flight reversal (expand before collapse finishes): must turn smoothly without teleporting to 0 or 280.
+    const beforeReverse = samples[samples.length - 1]
+    const reversed = render('open')
+    assert.equal(reversed.props.leaving, false)
+    stepFrame(16)
+    const txAfterReverse = parseTx()
+    const mlAfterReverse = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+    assert.ok(Math.abs(mlAfterReverse - beforeReverse) < 50, `mid-flight reverse must not teleport (was ${beforeReverse}, now ${mlAfterReverse})`)
+    assert.ok(Math.abs((280 + txAfterReverse) - mlAfterReverse) < 0.01, 'mid-flight reverse stays in exact lockstep')
+
+    // Step to rest: must never overshoot past 280px (tx > 0).
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      stepFrame(16)
+      if (col.style.transform) {
+        const tx = parseTx()
+        assert.ok(tx <= 0, `expand tx must never overshoot past 0, got ${tx}`)
+      }
+      const ml = center.style.getPropertyValue('margin-left')
+      if (ml) assert.ok(Number.parseFloat(ml) <= 280, `expand margin-left must never exceed 280, got ${ml}`)
+    }
+    assert.equal(rafQueue.size, 0, 'spring should settle cleanly')
+    assert.equal(col.style.transform, '')
+    assert.equal(col.hasAttribute('data-sliding'), false)
+
+    // Full collapse settles to 0 and clears heldMode so LeftColumn unmounts.
+    render('hidden')
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      stepFrame(16)
+      const ml = center.style.getPropertyValue('margin-left')
+      if (ml) assert.ok(Number.parseFloat(ml) >= 0, `full collapse margin-left must never go negative, got ${ml}`)
+    }
+    assert.equal(render('hidden'), undefined, 'LeftColumn unmounts after collapse settles')
+
+    // Re-expanding from hidden starts off-screen at -280px before first paint and settles without overshoot.
+    const reExpanded = render('open')
+    assert.ok(reExpanded)
+    assert.equal(col.style.transform, 'translate3d(-280px,0,0)')
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      stepFrame(16)
+      if (col.style.transform) assert.ok(parseTx() <= 0)
+    }
+    assert.equal(col.style.transform, '')
+
+    // Switching to rail and collapsing must start from 88px (0px gap), never from stale 280px.
+    render('rail')
+    assert.equal(rafQueue.size, 0)
+    render('hidden')
+    stepFrame(16)
+    const railTx = parseTx()
+    const railMl = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+    assert.ok(railMl <= 88, `rail collapse margin-left must start from <= 88, got ${railMl}`)
+    assert.ok(Math.abs((88 + railTx) - railMl) < 0.01, `rail leftcol right (${88 + railTx}) must match center margin-left (${railMl})`)
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
   }
-  assert.match(SHELL_CSS, /\.bt-leftcol\[data-entering\]\{animation:bt-leftcol-in /)
-  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\{animation:bt-leftcol-in /)
-  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{transform:translateX\(-100%\);transition:transform /)
+  // CSS must not run a competing compositor animation on .bt-leftcol or margin-left transition on _centerCol.
+  assert.doesNotMatch(SHELL_CSS, /@keyframes bt-leftcol-in/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\[data-entering\]/)
+  assert.doesNotMatch(SHELL_CSS, /\[class\*="_centerCol"\]\{[^}]*margin-left/)
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{pointer-events:none\}/)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
