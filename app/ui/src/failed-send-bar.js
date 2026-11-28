@@ -4,6 +4,7 @@
 import { createElement as h } from 'react'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
+import { registerReloadGuard } from '../../../ds-bot/src/client/reload-action.js'
 
 // Failed sends held per chat when a send rejects while the user is already typing
 // or after switching away to another chat. Keeps their preview URLs alive until
@@ -11,6 +12,24 @@ import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
 export const pendingFailedByChat = new Map()
 export const heldFailedUrls = new Set()
 export const inFlightUrls = new Set()
+
+/**
+ * Whether any chat's failed-send recovery bar currently holds unsent attachments
+ * in memory that a full window reload would discard.
+ * @returns {boolean}
+ */
+export function hasPendingFailedAttachments() {
+  for (const list of pendingFailedByChat.values()) {
+    for (const entry of list ?? []) {
+      if (Array.isArray(entry?.items) && entry.items.length > 0) return true
+    }
+  }
+  return false
+}
+
+// Guard full window reloads whenever failed sends still hold in-memory attachments,
+// even if the composer itself is empty (`hasKeptDraftFiles() === false`).
+registerReloadGuard(hasPendingFailedAttachments)
 
 export function revokeUrl(url) {
   if (url && typeof URL?.revokeObjectURL === 'function') URL.revokeObjectURL(url)
