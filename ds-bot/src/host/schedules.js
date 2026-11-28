@@ -133,7 +133,7 @@ export function install(rt) {
 
   // DSH injects its schedule service after the plugin starts; while inside the attach
   // grace window, parts wait before archiving so unmoved reminders are not destroyed.
-  const schedulesPending = () => !disposed && typeof ctx.inject === 'function' && service === null && Date.now() < scheduleDeadline
+  const schedulesPending = () => !disposed && service === null && Date.now() < scheduleDeadline
 
   const armGraceRetry = () => {
     if (scheduleGraceTimer !== undefined || !schedulesPending()) return
@@ -253,10 +253,13 @@ export function install(rt) {
         } else if (row.fiberPhase === 'failed' || row.status === 'error' || diagnosticOf(row) !== undefined) {
           reason = 'error'
           if (!remote) error = diagnosticOf(row)
-        } else {
-          // Enabled, non-failed plugin without an attached service yet (including null /
-          // 'unloading' during HMR recomposition right after schedule-enable).
+        } else if (schedulesPending() || row.fiberPhase === 'pending' || row.fiberPhase === 'loading' || row.fiberPhase === 'unloading') {
           pending = true
+        } else {
+          // Enabled plugin with no live fiber past the startup/enable grace window
+          // (e.g. Cordis failed to import the module before creating a fiber):
+          // surface startup failure with recovery guidance instead of looping forever.
+          reason = 'error'
         }
       } else if (target?.kind === 'bundle') {
         const { bundle } = target
@@ -343,6 +346,7 @@ export function install(rt) {
           restartRequired = true
           return schedulesView()
         }
+        scheduleDeadline = Math.max(scheduleDeadline, Date.now() + SCHEDULE_ATTACH_GRACE_MS)
         await waitForAttach()
         return schedulesView()
       })().finally(() => { enableInFlight = null })

@@ -663,7 +663,9 @@ test('schedules safely handles real Cordis throwing proxy when pluginManager is 
   assert.equal(refusedRes.ok, false)
   assert.equal(refusedRes.error.message, 'Scheduled tasks cannot be turned on from here.')
 
-  // 2. Enabled non-failed plugin whose fiberPhase is null/'unloading' reports pending:true instead of legacy fallback.
+  // 2. Enabled non-failed plugin whose fiberPhase is null reports pending:true within the
+  // startup/enable grace window, and transitions to reason:'error' once the grace window
+  // expires (e.g. Cordis module import failure) instead of looping forever.
   const home2 = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-'))
   const pluginManager = {
     async listPlugins() {
@@ -671,13 +673,16 @@ test('schedules safely handles real Cordis throwing proxy when pluginManager is 
     },
   }
   const ctx2 = fakeContext({ services: { pluginManager } })
+  ctx2.inject = () => {}
   const reg2 = ctx2.connection.fetch.register
   ctx2.connection.fetch.register = (route) => { ctx2.route = route; return reg2(route) }
-  createRuntime(ctx2, { home: home2 })
+  createRuntime(ctx2, { home: home2, scheduleAttachWaitMs: 60 })
   const call2 = async (endpoint, payload = {}) => (await ctx2.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   t.after(async () => { await ctx2.dispose(); rmSync(home2, { recursive: true, force: true, maxRetries: 5 }) })
 
   assert.deepEqual((await call2('schedules')).value, { available: false, tasks: [], pending: true })
+  await new Promise(resolve => setTimeout(resolve, 90))
+  assert.deepEqual((await call2('schedules')).value, { available: false, tasks: [], reason: 'error' })
 })
 
 test('bundle fallback with setBundleEnabled flipping enabled=true preserves restartRequired across polls until attach', async (t) => {
