@@ -664,6 +664,138 @@ test('the column draws its first mount in place and slides in lockstep without o
   assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{pointer-events:none\}/)
 })
 
+test('slide spring keeps open .bt-pane pinned before first frame, settles cleanly on grip pointercancel, reconciles aborted drag widths, and stays flush with non-zero collapsedWidth', () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div><div class="bt-pane" style="left:280px"></div></body>')
+  const { document } = dom.window
+  const col = document.querySelector('.bt-leftcol')
+  const grip = col.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const pane = document.querySelector('.bt-pane')
+  let now = 2000
+  const rafQueue = new Map()
+  let rafId = 1
+  const globals = {
+    document,
+    setTimeout,
+    clearTimeout,
+    performance: { now: () => now },
+    requestAnimationFrame: (cb) => { const id = rafId++; rafQueue.set(id, cb); return id },
+    cancelAnimationFrame: (id) => { rafQueue.delete(id) },
+    CSS: { escape: value => value },
+  }
+  const stepFrame = (ms = 16) => {
+    now += ms
+    const batch = [...rafQueue.entries()]
+    rafQueue.clear()
+    for (const [, cb] of batch) cb(now)
+  }
+  const parseTx = () => Number((col.style.transform.match(/translate3d\(([-\d.]+)px/) ?? [])[1] ?? 0)
+  const sheetMarginLeft = () => [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
+    const refs = []
+    const states = []
+    const frame = { viewport: 1280, sidebarWidth: 300, collapsedWidth: 0, collapsed: false }
+    let pref = 'open'
+    const actions = {
+      toggleSidebar() {},
+      setPanelYield() {},
+      setLeftDrawer() {},
+      setSidebarWidth: (w) => { frame.sidebarWidth = w },
+      setSidebarPref: (p) => { pref = p },
+    }
+    const render = (nextPref = pref, paneTargetLeft = null) => {
+      pref = nextPref
+      // Simulate Overlays committing pane.style.left = layout.column in the same React render.
+      if (paneTargetLeft !== null) pane.style.left = `${paneTargetLeft}px`
+      renderRefs = refs
+      refIndex = 0
+      renderStates = states
+      stateIndex = 0
+      layoutEffects = []
+      try {
+        const tree = TeamSidebar({
+          wide: pref === 'open',
+          useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+          useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+          useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+          useFrame: pick => pick(frame),
+          useSidebarPref: pick => pick(pref),
+          actions,
+        })
+        const find = (node) => {
+          if (Array.isArray(node)) return node.map(find).find(Boolean)
+          if (!node || typeof node !== 'object') return undefined
+          return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+        }
+        const left = find(tree)
+        if (left?.props?.columnRef) left.props.columnRef.current = col
+        const effects = layoutEffects
+        layoutEffects = undefined
+        effects.forEach(effect => effect())
+        return left
+      } finally {
+        renderRefs = undefined
+        renderStates = undefined
+        layoutEffects = undefined
+      }
+    }
+
+    // 1. Open .bt-pane stays pinned at 300px before first rAF on collapse, and at mid-flight value on reverse.
+    render('open', 300)
+    render('hidden', 0)
+    assert.equal(pane.style.left, '300px', 'pane must not jump to 0px before first collapse frame')
+    stepFrame(16)
+    stepFrame(16)
+    const midPane = Number.parseFloat(pane.style.left)
+    assert.ok(midPane > 0 && midPane < 300)
+    render('open', 300)
+    assert.equal(Number.parseFloat(pane.style.left), midPane, 'pane must not jump to 300px on mid-flight reverse')
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) stepFrame(16)
+    assert.equal(pane.style.left, '300px')
+
+    // 2. Grabbing .bt-leftcol-grip mid-expand then triggering pointercancel must settle to 300px, never stuck at 0px.
+    render('hidden', 0)
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) stepFrame(16)
+    assert.equal(sheetMarginLeft(), '0px')
+    const expanding = render('open', 300)
+    assert.equal(pane.style.left, '0px', 'pane must stay at 0px before first expand frame')
+    stepFrame(16)
+    expanding.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointercancel', { clientX: 300 }))
+    assert.equal(sheetMarginLeft(), '300px', 'pointercancel mid-expand must leave center margin at final 300px')
+    assert.equal(pane.style.left, '300px', 'pointercancel mid-expand must restore pane left to 300px')
+    assert.equal(col.style.transform, '')
+
+    // 3. Hiding mid-drag after resizing 300 -> 380px reconciles col.style.width with state.width (300px) for 0px gap.
+    const readyForDrag = render('open', 300)
+    readyForDrag.props.onGrip({ button: 0, pointerId: 2, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 380 }))
+    assert.equal(col.style.width, '380px')
+    render('hidden', 0)
+    assert.equal(col.style.width, '300px', 'aborted drag must reconcile DOM width to React width before sliding')
+    stepFrame(16)
+    const afterAbortTx = parseTx()
+    const afterAbortMl = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+    assert.ok(Math.abs((300 + afterAbortTx) - afterAbortMl) < 0.01, `aborted drag collapse stays flush (${300 + afterAbortTx} vs ${afterAbortMl})`)
+    for (let i = 0; i < 40 && rafQueue.size > 0; i++) stepFrame(16)
+
+    // 4. Non-zero collapsedWidth (56px host track): docked expand keeps 56 + margin === slide once past 56px.
+    frame.collapsedWidth = 56
+    render('open', 300)
+    for (let i = 0; i < 6; i++) {
+      stepFrame(16)
+      const slide = 300 + parseTx()
+      const ml = Number.parseFloat(center.style.getPropertyValue('margin-left'))
+      assert.ok(Math.abs(ml - Math.max(0, slide - 56)) < 0.01, `non-zero collapsedWidth margin (${ml}) must equal max(0, slide - 56) (${Math.max(0, slide - 56)})`)
+    }
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})
+
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
   const { document } = shell({ platform: 'windows', collapsed: false })
   const row = document.querySelector('.x_logoRow')

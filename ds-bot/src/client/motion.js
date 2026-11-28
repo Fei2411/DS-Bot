@@ -111,6 +111,7 @@ export function liveSprings(apply) {
       for (const [key, value] of values) out[key] = value.to
       return out
     },
+    current: () => (values.size ? { ...current } : null),
     isRunning: () => frame !== 0,
     seed(initial) {
       cancel()

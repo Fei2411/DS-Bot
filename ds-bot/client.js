@@ -24773,6 +24773,7 @@ function liveSprings(apply2) {
       for (const [key, value] of values) out[key] = value.to;
       return out;
     },
+    current: () => values.size ? { ...current2 } : null,
     isRunning: () => frame3 !== 0,
     seed(initial) {
       cancel();
@@ -49988,15 +49989,22 @@ function TeamSidebar(props) {
   modeRef.current = mode;
   const slideRef = (0, import_react47.useRef)(null);
   if (slideRef.current === null) {
+    const snapPx = (value) => {
+      const dpr = typeof window !== "undefined" && Number(window.devicePixelRatio) > 0 ? window.devicePixelRatio : 1;
+      return Math.round(value * dpr) / dpr;
+    };
     const state = {
       initialized: false,
       prevHidden: false,
       prevViewport: 0,
+      docked: shown !== "drawer",
+      collapsedWidth,
       width: ourWidth,
       finalMargin: targetMargin,
       finalPushed: pushed,
       activeCols: [],
       activePanes: [],
+      snapPx,
       clearInline(restorePanes) {
         for (const col of state.activeCols) col.style.removeProperty("margin-left");
         state.activeCols = [];
@@ -50004,6 +50012,21 @@ function TeamSidebar(props) {
           if (restorePanes && pane.isConnected) pane.style.left = `${state.finalPushed}px`;
         }
         state.activePanes = [];
+      },
+      settle() {
+        state.springs.stop();
+        if (typeof document !== "undefined") chatRoom.setLeft(state.finalMargin);
+        state.clearInline(true);
+        const col = leftColRef.current;
+        if (col) {
+          delete col.dataset.sliding;
+          col.style.transform = modeRef.current === "hidden" ? `translate3d(${-state.width}px,0,0)` : "";
+        }
+        state.springs.seed({
+          slide: modeRef.current === "hidden" ? 0 : state.width,
+          margin: state.finalMargin,
+          pane: state.finalPushed
+        });
       },
       stop(clearDom) {
         state.springs.stop();
@@ -50018,14 +50041,12 @@ function TeamSidebar(props) {
       springs: null
     };
     state.springs = liveSprings((values, moving) => {
-      const dpr = typeof window !== "undefined" && Number(window.devicePixelRatio) > 0 ? window.devicePixelRatio : 1;
-      const snap = (value) => Math.round(value * dpr) / dpr;
       const col = leftColRef.current;
       const width = state.width;
       if (moving) {
-        const slide = Math.max(0, Math.min(width, snap(values.slide)));
-        const margin2 = Math.max(0, snap(values.margin));
-        const paneLeft = Math.max(0, snap(values.pane));
+        const slide = Math.max(0, Math.min(width, snapPx(values.slide)));
+        const margin2 = state.docked ? Math.max(0, snapPx(slide - state.collapsedWidth)) : Math.max(0, snapPx(values.margin));
+        const paneLeft = state.docked ? slide : Math.max(0, snapPx(values.pane));
         if (col) {
           col.dataset.sliding = "";
           col.style.transform = `translate3d(${Math.min(0, slide - width)}px,0,0)`;
@@ -50052,15 +50073,17 @@ function TeamSidebar(props) {
     if (typeof document === "undefined") return;
     const state = slideRef.current;
     const current2 = activeDrag.current;
-    let cancelledWidth = null;
+    let abortedDrag = false;
     if (current2 !== null && (mode === "hidden" || current2.settling && (mode !== current2.landedMode || pushed !== current2.landedPushed))) {
-      const colRect = leftColRef.current?.getBoundingClientRect?.();
-      if (colRect && colRect.width > 0) cancelledWidth = Math.round(colRect.width);
       current2.cancel(false);
+      abortedDrag = true;
     }
     if (mode !== "hidden") setHeldMode(mode);
+    const docked = shown !== "drawer";
     if (activeDrag.current !== null) {
       state.springs.seed({ slide: targetSlide, margin: targetMargin, pane: pushed });
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
       state.width = ourWidth;
       state.finalMargin = targetMargin;
       state.finalPushed = pushed;
@@ -50076,6 +50099,8 @@ function TeamSidebar(props) {
       state.initialized = true;
       state.prevHidden = isHidden;
       state.prevViewport = frameSnap.viewport;
+      state.docked = docked;
+      state.collapsedWidth = collapsedWidth;
       state.width = ourWidth;
       state.finalMargin = targetMargin;
       state.finalPushed = pushed;
@@ -50086,28 +50111,39 @@ function TeamSidebar(props) {
     const viewportChanged = frameSnap.viewport !== state.prevViewport;
     state.prevHidden = isHidden;
     state.prevViewport = frameSnap.viewport;
+    state.docked = docked;
+    state.collapsedWidth = collapsedWidth;
     state.width = ourWidth;
     state.finalMargin = targetMargin;
     state.finalPushed = pushed;
     const inFlight = state.springs.isRunning();
     const canAnimate = typeof requestAnimationFrame === "function" && !reducedMotion() && !viewportChanged;
+    if (abortedDrag && col) {
+      col.style.width = `${ourWidth}px`;
+    }
     if (!canAnimate || !hiddenChanged && !inFlight) {
       state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, true);
       return;
     }
-    if (cancelledWidth !== null) {
-      const startMargin = Math.max(0, cancelledWidth - collapsedWidth);
-      state.springs.seed({ slide: cancelledWidth, margin: startMargin, pane: cancelledWidth });
+    if (abortedDrag) {
+      const startPushed = docked ? ourWidth : RAIL_WIDTH;
+      const startMargin = Math.max(0, startPushed - collapsedWidth);
+      state.springs.seed({ slide: ourWidth, margin: startMargin, pane: startPushed });
       chatRoom.setLeft(startMargin);
     }
     state.activeCols = chatRoom.columns();
     state.activePanes = [...document.querySelectorAll(".bt-pane")];
+    const liveNow = state.springs.current();
+    if (liveNow !== null && state.activePanes.length > 0) {
+      const paneNow = docked ? Math.max(0, Math.min(ourWidth, state.snapPx(liveNow.slide))) : Math.max(0, state.snapPx(liveNow.pane));
+      for (const pane of state.activePanes) pane.style.left = `${paneNow}px`;
+    }
     if (!isHidden && !inFlight && col) {
       col.dataset.sliding = "";
       col.style.transform = `translate3d(${-ourWidth}px,0,0)`;
     }
     state.springs.set({ slide: targetSlide, margin: targetMargin, pane: pushed }, curves, false);
-  }, [mode, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport]);
+  }, [mode, shown, ourWidth, pushed, targetMargin, targetSlide, collapsedWidth, frameSnap.viewport]);
   (0, import_react47.useEffect)(() => () => {
     activeDrag.current?.cancel(false);
     slideRef.current?.stop(true);
@@ -50116,7 +50152,7 @@ function TeamSidebar(props) {
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    slideRef.current?.stop(true);
+    slideRef.current?.settle();
     activeDrag.current?.cancel(false);
     const grip = event.currentTarget;
     const column = grip.parentElement;
